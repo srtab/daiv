@@ -18,9 +18,11 @@ from automation.agent.middlewares.deferred_output import DeferredOutputMiddlewar
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
+    READ_ONLY_FS_TOOLS,
     WORKSPACE_ARTIFACT_SUBTREES,
     WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FENCE_SUBTREES,
+    WORKSPACE_FS_TOOLS,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -166,6 +168,7 @@ def _build_general_purpose_middleware(
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=WORKSPACE_FS_TOOLS,
             _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
         ),
         GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
@@ -214,7 +217,10 @@ def _build_detector_middleware(
     """
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         FilesystemMiddleware(
-            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=READ_ONLY_FS_TOOLS,
+            _permissions=READ_ONLY_PERMISSIONS,
         ),
         *_shared_subagent_middleware(model, backend),
     ]
@@ -482,6 +488,7 @@ def create_explore_subagent(
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=READ_ONLY_FS_TOOLS,
             _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
         ),
         *_shared_subagent_middleware(model, backend),

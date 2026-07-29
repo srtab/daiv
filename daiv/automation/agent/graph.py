@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents import create_deep_agent
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
@@ -27,7 +28,9 @@ from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
+    CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_FENCE_PERMISSIONS,
+    WORKSPACE_FS_TOOLS,
     DAIVCompositeBackend,
     SandboxFileBackend,
     build_disk_workspace_backend,
@@ -299,6 +302,16 @@ async def create_daiv_agent(
     subagents.extend(custom_subagents)
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
+        # middleware into the base stack by ``.name``, taking the same slot and preserving order.
+        # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
+        # mirroring the ``permissions=`` argument below, which still drives the HITL interrupt rules.
+        FilesystemMiddleware(
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=WORKSPACE_FS_TOOLS,
+            _permissions=main_agent_permissions,
+        ),
         # DAIVTodoListMiddleware (a subclass), not the bare TodoListMiddleware: the harness profile
         # excludes the base by exact type, so a bare instance here would be dropped alongside the one
         # create_deep_agent auto-adds, leaving the main agent with no write_todos. See todos.py.

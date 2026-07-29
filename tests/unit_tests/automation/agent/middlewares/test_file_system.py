@@ -155,6 +155,19 @@ class TestDiskBackendRegexGrep:
         assert "invalid regular expression" in result.error
         assert not result.matches
 
+    async def test_disk_grep_max_count_caps_and_flags_truncation(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("line", max_count=1)
+        assert result.error is None
+        assert len(result.matches or []) == 1
+        assert result.truncated is True
+
+    async def test_disk_grep_without_max_count_is_not_truncated(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("line")
+        assert len(result.matches or []) == 3
+        assert result.truncated is False
+
     async def test_disk_grep_glob_filters_by_extension(self, tmp_path: Path):
         (tmp_path / "keep.py").write_text("needle here\n")
         (tmp_path / "skip.txt").write_text("needle here\n")
@@ -310,7 +323,7 @@ class TestDiskBackendRegexGrep:
 
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
-    extension methods (``delete``/``stat_mode``) and the dispatch helper
+    extension methods (``unlink``/``stat_mode``) and the dispatch helper
     (``resolve_backend_for``), so a routed op reaches the right underlying backend with
     the route prefix stripped.
     """
@@ -341,24 +354,24 @@ class TestDAIVCompositeBackend:
         composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
         return composite, skills, repo, skills_root, repo_root
 
-    async def test_delete_strips_prefix_for_routed_path(self, tmp_path: Path):
+    async def test_unlink_strips_prefix_for_routed_path(self, tmp_path: Path):
         composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
         (skills_root / "foo.md").write_text("x")
 
-        ok = await composite.delete("/skills/foo.md")
+        ok = await composite.unlink("/skills/foo.md")
 
         assert ok is True
         assert not (skills_root / "foo.md").exists()
 
-    async def test_delete_passes_default_path_unchanged(self, tmp_path: Path):
+    async def test_unlink_passes_default_path_unchanged(self, tmp_path: Path):
         composite, _skills, _repo, _skills_root, repo_root = self._make_composite(tmp_path)
         target = repo_root / "bar.py"
         target.write_text("x")
 
-        ok = await composite.delete("/repo-mount/bar.py")
+        ok = await composite.unlink("/repo-mount/bar.py")
 
         assert ok is True
-        assert not target.exists(), "default-route delete must operate on the unstripped path"
+        assert not target.exists(), "default-route unlink must operate on the unstripped path"
 
     async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
         composite, _skills, _repo, skills_root, repo_root = self._make_composite(tmp_path)
@@ -405,7 +418,7 @@ class TestDAIVCompositeBackend:
         from automation.agent.middlewares.file_system import DAIVCompositeBackend
 
         good = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        plain_state = SimpleNamespace()  # missing delete + stat_mode
+        plain_state = SimpleNamespace()  # missing unlink + stat_mode
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=good, routes={"/x/": plain_state})  # type: ignore[arg-type]
@@ -553,7 +566,7 @@ class TestSandboxGrepTruncation:
         backend = SandboxFileBackend(client=client, session_id="sess-1")
         return backend
 
-    async def test_truncated_response_appends_a_note_match(self):
+    async def test_truncated_response_sets_the_flag_without_a_synthetic_match(self):
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
 
@@ -565,13 +578,11 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert result.error is None
-        note = result.matches[-1]
-        # The guidance must live in `path` (not just `text`): the default `files_with_matches` output
-        # mode renders only paths, so a text-only note would be invisible to the model there.
-        assert note["path"].startswith("(grep results truncated")
-        assert "narrow the path" in note["path"]
-        assert note["text"] == note["path"]
-        assert len(result.matches) == 4  # 3 real + 1 note
+        # deepagents 0.7 renders its own truncation guidance from `truncated`, so the note is no
+        # longer smuggled through a synthetic match's `path` to survive `files_with_matches`.
+        assert result.truncated is True
+        assert len(result.matches) == 3, "every returned match must be a real file"
+        assert all(m["path"].startswith(REPO_PATH) for m in result.matches)
 
     async def test_untruncated_response_has_no_note(self):
         from automation.agent.constants import REPO_PATH
@@ -583,6 +594,21 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert len(result.matches) == 1
+        assert result.truncated is False
+
+    async def test_max_count_trims_and_flags_truncation(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(
+            matches=[FsGrepMatch(path=f"{REPO_PATH}/f{i}.py", line=1, text="x") for i in range(5)], truncated=False
+        )
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH, max_count=2)
+
+        assert len(result.matches) == 2
+        assert result.truncated is True, "trimming on this side must still be reported as truncation"
         assert all(not m["path"].startswith("(grep results truncated") for m in result.matches)
 
     async def test_invalid_pattern_error_maps_to_model_hint(self):
