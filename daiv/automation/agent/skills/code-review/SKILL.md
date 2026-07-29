@@ -42,7 +42,7 @@ A marker counts only when:
 - it matches the marker grammar exactly, with a 40-character hexadecimal head SHA;
 - the comment contains at least one review section or a `No findings` result.
 
-Ignore every other marker. The next run number is the highest valid run plus one. The previous reviewed head is the head from the highest valid run.
+Ignore every other marker. The next run number is the highest valid run plus one. The previous review is the newest valid comment among those with the highest run number. Its marker supplies the previous reviewed head.
 
 - With no valid previous review, review the full current change as run 1.
 - If comments cannot be read, review the full current change as run 1 and mention that previous reviews could not be checked.
@@ -52,16 +52,16 @@ Ignore every other marker. The next run number is the highest valid run plus one
 
 ## 3. Prepare one canonical diff
 
-Create one canonical diff for the resolved scope, write it to the run scratchpad at `/workspace/tmp/review-change.diff`, and retain its line count. All detectors must review that same change.
+Create one canonical diff for the resolved scope before dispatching detectors. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every detector. All detectors must review that same change.
 
 For platform reviews:
 
 - First review: use the full base-to-head PR or MR diff.
 - Re-review: use the previous reviewed head to current head range, restricted to paths in the current PR or MR.
 
-For interactive reviews, materialize the exact explicit, pasted, commit-range, branch, or working-tree change selected in Step 1.
+For working-tree reviews, ensure the canonical diff contains staged changes, unstaged changes, and complete unified patches for untracked files.
 
-If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the detectors. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no changed-hunk diff can be obtained, explain that the review could not be completed and stop.
+If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the detectors. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
 
 Preserve paths without shell interpolation; use NUL-delimited changed-path lists when supported so spaces, renames, and unusual filenames remain intact.
 
@@ -82,19 +82,22 @@ Select applicable detectors from the concise summary. Do not use keyword regexes
 | `cr-structure` | source structure, public interfaces, types, modules, data models, or multi-file design changed |
 | `cr-security` | authentication, authorization, input, trust boundaries, secrets, dependencies, configuration, CI, deployment, file access, commands, or data exposure may be affected |
 | `cr-performance` | database access, collections, loops, network or file I/O, caching, serialization, async work, concurrency, or resource use may be affected |
-| `cr-custom-rules` | `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md` exists; pass the existing rule-source paths as absolute |
+| `cr-custom-rules` | `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md` exists locally or in the reviewed repository; provide each source as an accessible absolute path or inline content |
 
 Bias toward inclusion when applicability is uncertain. For documentation or asset-only changes, run only `cr-custom-rules` when rules exist; otherwise report that nothing applicable changed.
 
 Dispatch applicable detectors in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
 
+Derive a concise statement of the change's intent from the user's explicit request or, when unavailable, the PR or MR title and description. Do not invent intent.
+
 Each detector prompt contains only:
 
-- the resolved ref range as commit SHAs (`<base-sha>..<head-sha>`), or an explicit `working tree` or `pasted diff` when the scope has no range;
+- the exact review scope;
+- the stated change intent, when available;
 - the canonical diff path and line count, or the canonical diff content when no file is available;
 - the head SHA when available;
-- the new-side path scope: the changed paths;
-- the rule-source paths for `cr-custom-rules`.
+- the changed paths;
+- the rule-source paths or inline contents for `cr-custom-rules`.
 
 The line count is a completeness aid. Detectors may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
 
@@ -112,12 +115,13 @@ Act as an aggregator, not a second reviewer. Detectors own investigation, eviden
 
 Aggregate by:
 
-- dropping findings with confidence below 80, no changed-side location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue.
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
 - deduplicating findings with the same underlying issue;
 - keeping the higher detector-provided severity when duplicates disagree;
 - keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
-- removing internal `Confidence` and `Verify` fields.
+- removing the internal `Confidence` field.
 
 Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable detectors were unavailable, briefly name those dimensions in the final report. If every applicable detector was unavailable, explain that the review could not be completed and return no marker.
 
@@ -165,10 +169,13 @@ Report rules:
 - Number entries sequentially within each section.
 - Include Recommended Actions only when Critical or Important findings exist.
 - When all applicable detectors return `No findings.`, use `No findings — the reviewed changes look good.`
+- When usable reports completed but no findings or questions survive aggregation, use `No findings — no reported issues met the review threshold.`
 - When no findings survive and some detectors were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.
 - When nothing applies, use `No findings — nothing applicable to review in this change.`
 - Add one short italic sentence under the header for an unreadable review history or a full-diff fallback.
-- Link locations to platform blobs when possible; otherwise use plain `path:line` references.
+- Link new-side locations to the head blob when possible.
+- Link deleted-side locations to the platform diff when possible and label them `(deleted)`.
+- Otherwise use plain `path:line` references.
 - Use DAIV's actual account username from the runtime context.
 - In interactive mode, use `## Code Review`; omit the marker, run number, and footer.
 

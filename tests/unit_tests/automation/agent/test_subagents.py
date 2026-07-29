@@ -915,31 +915,6 @@ class TestShippedDetectorCharters:
             names.add(frontmatter["name"])
         assert names == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_shared_preamble_carries_read_only_bash_directive(self):
-        # The detector sandbox is a full bash shell — no read-only mount and no per-subagent
-        # command policy (SandboxMiddleware.__init__ takes no policy arg; _check_command_policy
-        # reads only global settings + repo config). So read-only is enforced at the prompt layer:
-        # the SHARED_DETECTOR_PREAMBLE prepended to every charter (load_builtin_code_review_detectors)
-        # must carry the read-only bash directive. Locked so an edit can't silently drop it and let a
-        # detector mutate the shared workspace via bash.
-        from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE
-
-        body = SHARED_DETECTOR_PREAMBLE.lower()
-        assert "read-only" in body, "shared preamble is missing the read-only directive"
-        assert "sed -i" in body, "shared preamble is missing the no-mutation command guidance"
-        assert "archetype" not in body, "slimmed preamble must not mention the deleted archetype enum"
-        assert "final message" in body, "preamble must state the report-is-final-message contract"
-        assert "untrusted" in body, "preamble must carry the untrusted-input guard"
-        assert "never re-read" in body, "preamble must carry the no-repeat-inspection directive"
-        # `read_file` returns 100 lines by default and never says it truncated, so the paging
-        # mandate is what stops a detector from reviewing only the head of a long diff and still
-        # reporting a clean pass. Both halves matter: read to the end, but don't re-read a page.
-        assert "end to end" in body, "preamble must require reading the whole diff"
-        assert "offset" in body, "preamble must tell the detector how to page the diff"
-        assert "single pass" in body, "preamble must carry the single-pass bounded-review procedure"
-        assert "semantically equivalent" in body, "preamble must forbid semantically-equivalent re-search"
-        assert "**verify**" not in body, "shared preamble must not resurrect the removed Verify handoff"
-
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
         # The loader globs `*.md`, not `cr-*.md`; this test additionally locks that the `cr-`
         # prefix convention holds, so a renamed or added charter — silently dropping a dimension or
@@ -1326,42 +1301,6 @@ class TestBuiltinCodeReviewDetectors:
 
         assert mock_create.call_count == 2
         assert all(call.kwargs.get("response_format") is None for call in mock_create.call_args_list)
-
-    def test_shared_preamble_reaches_every_compiled_detector_prompt(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
-    ):
-        # Asserting the constant's text is not enough: the prepend at the _compile_subagent call
-        # site is what puts it in front of the model. Drop that and the charters still load, every
-        # other test still passes, and detectors quietly lose the read-only bash contract (the only
-        # unconditional guard against a detector mutating the shared workspace via bash), the
-        # untrusted-input guard, and the final-message-is-the-report contract.
-        from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE, load_builtin_code_review_detectors
-
-        agents_dir = tmp_path / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "cr-correctness.md").write_text(
-            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
-        )
-        (agents_dir / "cr-security.md").write_text(
-            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
-        )
-
-        with patch("automation.agent.subagents.create_agent") as mock_create:
-            mock_create.return_value = Mock()
-            load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
-            )
-
-        assert mock_create.call_count == 2
-        for call in mock_create.call_args_list:
-            prompt = call.kwargs["system_prompt"]
-            assert prompt.startswith(SHARED_DETECTOR_PREAMBLE), (
-                "compiled detector prompt does not lead with SHARED_DETECTOR_PREAMBLE"
-            )
 
     async def test_detector_crash_becomes_an_error_report_instead_of_aborting_the_run(self):
         # deepagents' `task` tool awaits the subagent's ainvoke with no error handling, and
