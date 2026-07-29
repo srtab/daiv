@@ -177,12 +177,7 @@ def _build_general_purpose_middleware(
 
 
 def _build_detector_middleware(
-    model: BaseChatModel,
-    backend: BackendProtocol,
-    sandbox_enabled: bool = True,
-    fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
+    model: BaseChatModel, backend: BackendProtocol, fallback_models: list[BaseChatModel] | None = None
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
@@ -206,11 +201,6 @@ def _build_detector_middleware(
         *_shared_subagent_middleware(model, backend),
     ]
 
-    if sandbox_enabled:
-        middleware.append(
-            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
-        )
-
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
@@ -221,10 +211,7 @@ def load_builtin_code_review_detectors(
     model: BaseChatModel,
     backend: BackendProtocol,
     working_directory: str,
-    sandbox_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
     *,
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
     expected_names: tuple[str, ...] = CODE_REVIEW_DETECTOR_NAMES,
@@ -289,9 +276,7 @@ def load_builtin_code_review_detectors(
                 failed.append(md_file.stem)
                 continue
 
-        middleware = _build_detector_middleware(
-            detector_model, backend, sandbox_enabled, fallback_models, client, sandbox_backend
-        )
+        middleware = _build_detector_middleware(detector_model, backend, fallback_models)
         detectors.append(
             _compile_subagent(
                 name=frontmatter["name"],
