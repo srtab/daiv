@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
@@ -37,7 +38,7 @@ class TestGeneralPurposeMiddleware:
 
     @pytest.fixture
     def mock_backend(self):
-        return Mock()
+        return Mock(spec=BackendProtocol)
 
     @pytest.fixture
     def mock_model(self):
@@ -213,7 +214,7 @@ class TestGeneralPurposeSubagent:
 
     @pytest.fixture
     def mock_backend(self):
-        return Mock()
+        return Mock(spec=BackendProtocol)
 
     @pytest.fixture
     def mock_model(self):
@@ -258,7 +259,7 @@ class TestSubagentMcpTools:
 
     @pytest.fixture
     def mock_backend(self):
-        return Mock()
+        return Mock(spec=BackendProtocol)
 
     @pytest.fixture
     def mock_model(self):
@@ -486,7 +487,7 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(Mock(), "/workspace/repo/")
+        result = create_explore_subagent(Mock(spec=BackendProtocol), "/workspace/repo/")
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
@@ -828,7 +829,7 @@ class TestExplorePermissions:
 class TestDetectorMiddleware:
     @pytest.fixture
     def mock_backend(self):
-        return Mock()
+        return Mock(spec=BackendProtocol)
 
     @pytest.fixture
     def mock_model(self):
@@ -983,7 +984,7 @@ class TestShippedDetectorCharters:
 class TestBuiltinCodeReviewDetectors:
     @pytest.fixture
     def mock_backend(self):
-        return Mock()
+        return Mock(spec=BackendProtocol)
 
     @pytest.fixture
     def mock_model(self):
