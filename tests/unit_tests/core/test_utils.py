@@ -2,8 +2,10 @@ from django.contrib.sites.models import Site
 
 import httpx
 import pytest
+from redis.exceptions import LockError, LockNotOwnedError
 
 from core.utils import (
+    DEFAULT_LOCK_TIMEOUT,
     async_download_url,
     batch_async_download_url,
     build_absolute_url,
@@ -11,6 +13,7 @@ from core.utils import (
     extract_valid_image_mimetype,
     is_git_auth_error_text,
     is_valid_url,
+    locked_task,
     prefixed_email_subject,
 )
 
@@ -256,3 +259,72 @@ class BatchAsyncUrlToDataUrlTest:
         assert "https://example.com/success.jpg" in result
         assert isinstance(result["https://example.com/success.jpg"], bytes)
         assert result["https://example.com/success.jpg"].startswith(b"fake-image-data")
+
+
+class LockedTaskTest:
+    """A task lock that never expires strands every later run, so the timeout is load-bearing."""
+
+    def test_lock_is_always_acquired_with_an_expiry(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access")
+        def sync():
+            return "ran"
+
+        assert sync() == "ran"
+        timeout = mock_lock.call_args.kwargs["timeout"]
+        assert timeout == DEFAULT_LOCK_TIMEOUT
+        assert timeout is not None and timeout > 0
+
+    async def test_async_lock_is_always_acquired_with_an_expiry(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access")
+        async def sync():
+            return "ran"
+
+        assert await sync() == "ran"
+        assert mock_lock.call_args.kwargs["timeout"] == DEFAULT_LOCK_TIMEOUT
+
+    def test_explicit_timeout_is_forwarded(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access", timeout=120)
+        def sync():
+            return "ran"
+
+        sync()
+        assert mock_lock.call_args.kwargs["timeout"] == 120
+
+    @pytest.mark.parametrize("timeout", [None, 0, -1])
+    def test_non_expiring_timeout_is_rejected(self, timeout):
+        with pytest.raises(ValueError, match="positive number of seconds"):
+            locked_task(key="repo-access", timeout=timeout)
+
+    def test_task_is_skipped_while_the_lock_is_held(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+        mock_lock.return_value.__enter__.side_effect = LockError("held")
+        calls = []
+
+        @locked_task(key="repo-access")
+        def sync():
+            calls.append(1)
+
+        assert sync() is None
+        assert calls == []
+
+    def test_expiry_mid_run_is_reported_as_an_error(self, mocker):
+        """Release raises when the lock expired under a live holder — a distinct failure from a skip."""
+        mock_lock = mocker.patch("core.utils.cache.lock")
+        mock_lock.return_value.__exit__.side_effect = LockNotOwnedError("expired")
+        logger = mocker.patch("core.utils.logger")
+        calls = []
+
+        @locked_task(key="repo-access")
+        def sync():
+            calls.append(1)
+
+        assert sync() is None
+        assert calls == [1]
+        assert logger.error.called
+        assert not logger.warning.called

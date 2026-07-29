@@ -192,6 +192,9 @@ This tool is best for retrieving the current state of:
 
 GITHUB_TOOL_NAME = "gh"
 
+# Acquired with blocking=True, so without an expiry a dead holder blocks token fetches forever.
+GITHUB_TOKEN_LOCK_TIMEOUT = 60
+
 GITHUB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitHub repository through the GitHub CLI.
 
@@ -719,7 +722,7 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
         thread_id = runtime.config.get("configurable", {}).get("thread_id", runtime.context.repository.slug)
 
-        with cache.lock(f"github_lock_{thread_id}", blocking=True):
+        with cache.lock(f"github_lock_{thread_id}", timeout=GITHUB_TOKEN_LOCK_TIMEOUT, blocking=True):
             cache_key = f"github_token_{thread_id}"
 
             if data := cache.get(cache_key):
