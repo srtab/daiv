@@ -10,7 +10,7 @@ from django.contrib.sites.models import Site
 from django.core.cache import cache
 
 import httpx
-from redis.exceptions import LockError
+from redis.exceptions import LockError, LockNotOwnedError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -162,7 +162,12 @@ async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] 
     return result
 
 
-def locked_task(key: str = "", blocking: bool = False):
+# Locks must expire: a holder killed mid-run strands the key in Redis forever, and every later
+# run is then skipped as "already processing" while still reporting success.
+DEFAULT_LOCK_TIMEOUT = 3600
+
+
+def locked_task(key: str = "", blocking: bool = False, timeout: float = DEFAULT_LOCK_TIMEOUT):
     """
     A decorator that ensures a task is executed with a distributed lock to prevent concurrent execution.
 
@@ -171,6 +176,8 @@ def locked_task(key: str = "", blocking: bool = False):
                   positional and keyword arguments passed to the decorated function. Default is empty string.
         blocking (bool): If True, wait for the lock to be released. If False, raise LockError if lock is held.
                         Default is False.
+        timeout (float): Seconds after which the lock expires on its own; must be positive. Size it above
+                        the task's worst-case runtime, since expiring mid-run allows a concurrent run.
 
     Example:
         @task
@@ -181,6 +188,8 @@ def locked_task(key: str = "", blocking: bool = False):
     The lock is implemented using Django's cache backend, making it work in a distributed environment.
     If blocking=False and the lock is held, the task will be skipped with a warning message.
     """
+    if timeout is None or timeout <= 0:
+        raise ValueError(f"locked_task timeout must be a positive number of seconds, got {timeout!r}")
 
     def decorator(func):
         if asyncio.iscoroutinefunction(func):
@@ -189,8 +198,12 @@ def locked_task(key: str = "", blocking: bool = False):
             async def async_wrapper(*args, **kwargs):
                 lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
                 try:
-                    with cache.lock(lock_key, blocking=blocking):
+                    with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return await func(*args, **kwargs)
+                # Raised on release, and must precede its LockError superclass to not read as a skip.
+                except LockNotOwnedError:
+                    logger.error("Task outran its %ss lock, concurrent runs were possible: %s", timeout, lock_key)
+                    return
                 except LockError:
                     logger.warning("Ignored task, already processing: %s", lock_key)
                     return
@@ -202,8 +215,12 @@ def locked_task(key: str = "", blocking: bool = False):
             def wrapper(*args, **kwargs):
                 lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
                 try:
-                    with cache.lock(lock_key, blocking=blocking):
+                    with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return func(*args, **kwargs)
+                # Raised on release, and must precede its LockError superclass to not read as a skip.
+                except LockNotOwnedError:
+                    logger.error("Task outran its %ss lock, concurrent runs were possible: %s", timeout, lock_key)
+                    return
                 except LockError:
                     logger.warning("Ignored task, already processing: %s", lock_key)
                     return
