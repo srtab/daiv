@@ -15,6 +15,7 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -474,10 +475,11 @@ class TestGitLabClient:
         assert result.source_branch == "feat/x"
         assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
-    def test_update_or_create_merge_request_raises_when_branch_never_appears(self, gitlab_client):
-        """If the branch stays invisible past the retry budget, the create error surfaces."""
+    def test_update_or_create_merge_request_raises_when_branch_genuinely_missing(self, gitlab_client):
+        """If the branch stays invisible past the retry budget AND is genuinely absent, the create error surfaces."""
         mock_project = Mock()
         mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = GitlabGetError(response_code=404)
         gitlab_client.client.projects.get.return_value = mock_project
 
         with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError):
@@ -488,6 +490,84 @@ class TestGitLabClient:
         # One attempt per backoff step, plus the final attempt after the retries are exhausted.
         expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
         assert mock_project.mergerequests.create.call_count == expected_attempts
+
+    def test_update_or_create_merge_request_degrades_when_branch_pushed_but_mr_pending(self, gitlab_client, caplog):
+        """Branch exists on the remote but MR-create still can't see it past the budget -> degrade, don't fail.
+
+        This is GitLab's post-push branch-visibility lag outliving the retry budget: the push succeeded
+        (``branches.get`` resolves), so we raise the recoverable pending error rather than the raw 400 the
+        caller would treat as a fatal job failure.
+        """
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.return_value = Mock()  # branch resolves -> it really is pushed
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with (
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            caplog.at_level("ERROR", logger="daiv.clients"),
+            pytest.raises(MergeRequestBranchNotVisibleError) as exc,
+        ):
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert exc.value.source_branch == "feat/x"
+        mock_project.branches.get.assert_called_once_with("feat/x")
+        assert "feat/x" in caplog.text
+
+    def test_update_or_create_merge_request_reraises_unrelated_400_on_final_attempt(self, gitlab_client):
+        """A non-branch-visibility 400 surfacing only on the final attempt must NOT degrade to pending.
+
+        Guards the fix's worst failure mode: a real error misclassified as "MR pending". The branch is
+        never probed because the final error isn't the branch-missing signature.
+        """
+        backoff = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = [
+            *(self._branch_missing_error() for _ in backoff),
+            GitlabCreateError(error_message={"title": ["can't be blank"]}, response_code=400),
+        ]
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError) as exc:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert not isinstance(exc.value, MergeRequestBranchNotVisibleError)
+        mock_project.branches.get.assert_not_called()
+
+    def test_update_or_create_merge_request_reraises_create_error_when_branch_probe_fails(self, gitlab_client):
+        """If the branch-existence probe itself fails (e.g. a transport error), the original create error
+        surfaces — not the incidental probe error, and not a false "MR pending"."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = ConnectionError("boom")
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError) as exc:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert not isinstance(exc.value, MergeRequestBranchNotVisibleError)
+
+    @pytest.mark.parametrize(
+        ("side_effect", "expected"),
+        [
+            pytest.param(None, True, id="branch-present"),
+            pytest.param(GitlabGetError(response_code=404), False, id="gitlab-error-not-confirmed"),
+            pytest.param(ConnectionError("boom"), False, id="transport-error-not-confirmed"),
+        ],
+    )
+    def test_branch_exists_is_fail_safe(self, side_effect, expected):
+        """Present -> True; any lookup failure (SDK or unwrapped transport) -> "not confirmed" (False)."""
+        mock_project = Mock()
+        if side_effect is not None:
+            mock_project.branches.get.side_effect = side_effect
+        assert GitLabClient._branch_exists(mock_project, "feat/x") is expected
+        mock_project.branches.get.assert_called_once_with("feat/x")
 
     def test_update_or_create_merge_request_does_not_retry_unrelated_400(self, gitlab_client):
         """A 400 that isn't the branch-visibility race must fail fast (no retry/sleep)."""

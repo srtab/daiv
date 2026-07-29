@@ -35,6 +35,7 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri, is_git_auth_error_text
 from daiv import USER_AGENT
@@ -48,16 +49,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.clients")
 
-# GitLab does not guarantee a just-pushed branch is immediately visible to the merge-request-create
-# validation: the ref lands in Gitaly synchronously with the push HTTP response, but the branch view
-# that `POST /merge_requests` checks is refreshed by the (asynchronous) post-receive processing. A
-# sandbox-authoritative run pushes from inside the sandbox and creates the MR from the app in the same
-# instant, landing squarely in that window, so the create can fail with
-# `400 {'source_branch': ['does not exist']}` for a branch that was *just* pushed successfully. Retry
-# the create until the branch becomes visible (a successful create is the signal), sleeping these many
-# seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
-# surfaces to the caller.
-MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+# A just-pushed branch may not be visible to `POST /merge_requests` immediately (async post-receive lag,
+# observed ~37s on GitLab 19.x); the budget must cover that tail, and exhaustion while the branch is
+# confirmed pushed degrades to "branch pushed, MR pending" (see _create_merge_request_awaiting_branch).
+MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
 
 # A freshly minted project access token (see :func:`get_ephemeral_clone_token`) is not always
 # immediately accepted for git-over-HTTPS: GitLab appears to propagate the token's project
@@ -746,9 +741,37 @@ class GitLabClient(RepoClient):
                     delay,
                 )
                 time.sleep(delay)
-        # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
-        # error, if the branch genuinely never appeared — is the caller's to handle.
-        return project.mergerequests.create(payload)
+        # Retries exhausted: if the branch still isn't visible but is confirmed pushed, degrade to a
+        # recoverable error (see MergeRequestBranchNotVisibleError); anything else surfaces unchanged.
+        try:
+            return project.mergerequests.create(payload)
+        except GitlabCreateError as e:
+            if _is_source_branch_missing_error(e) and self._branch_exists(project, source_branch):
+                logger.error(
+                    "MR create for '%s' still reports the branch missing after the full retry budget, but the "
+                    "branch exists on the remote — GitLab's branch view is lagging the push. Degrading to "
+                    "'branch pushed, MR pending'.",
+                    source_branch,
+                )
+                raise MergeRequestBranchNotVisibleError(source_branch) from e
+            raise
+
+    @staticmethod
+    def _branch_exists(project: Any, source_branch: str) -> bool:
+        """True when ``source_branch`` is confirmed present on the remote (the push landed in Gitaly).
+
+        Distinguishes GitLab's post-push branch-visibility lag (branch exists; MR-create just can't see
+        it yet) from a branch that never made it. Any lookup failure — SDK error or unwrapped transport
+        error (TLS/DNS/reset) — is treated as "not confirmed", so the caller re-raises the original
+        create error instead of this incidental one; the probe failure is logged for diagnosis. Mirrors
+        :meth:`is_branch_protected`'s fail-safe on the same call.
+        """
+        try:
+            project.branches.get(source_branch)
+        except Exception:  # noqa: BLE001 — SDK + transport failures both mean "not confirmed"; see is_branch_protected
+            logger.warning("Could not confirm branch '%s' exists after MR-create retries", source_branch, exc_info=True)
+            return False
+        return True
 
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str
