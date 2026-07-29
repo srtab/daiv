@@ -62,22 +62,19 @@ CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
 # so each charter file carries its own dimension, precision gate, and report format without
 # restating the plumbing. One source instead of five copies.
 #
-# Every clause below is enforcement rather than documentation; what each one substitutes for is
-# recorded in AGENTS.md § "Code-review detector output". Two facts behind the wording live only
-# here, because they are properties of the code rather than of the contract:
+# Every clause below is enforcement rather than documentation. Two facts behind the wording:
 #   - `read_file` defaults to 100 lines, so a detector that reads the diff once sees only its head.
-#     The backend now says so — `DAIVCompositeBackend` appends a `(showing lines N-M …)` notice to
-#     any short window (AGENTS.md § "`read_file` over-fetches by one line") — so paging is safe by
-#     default and the mandate here is an optimisation, not the defence: `FsReadRequest.limit` has
-#     no upper bound, so naming the line count reads any diff in one call instead of N. Quote the
-#     notice's own wording as the paging trigger; "a truncation notice" would name nothing the
-#     model actually receives.
+#     The backend says so — `DAIVCompositeBackend` appends a `(showing lines N-M …)` notice to any
+#     short window — so paging is safe by default and the mandate here is an optimisation, not the
+#     defence: `FsReadRequest.limit` has no upper bound, so naming the line count reads any diff in
+#     one call instead of N. Quote the notice's own wording as the paging trigger; "a truncation
+#     notice" would name nothing the model actually receives.
 #   - The read-only contract is the only *unconditional* guard on bash: the filesystem tools are
 #     fenced separately by READ_ONLY_PERMISSIONS, but SandboxMiddleware takes no per-subagent
 #     command policy.
 SHARED_DETECTOR_PREAMBLE = """You are one of DAIV's code-review fan-out detectors. The procedure below is shared by every detector; the dimension you own — and the findings you may report — are defined after it.
 
-You will be given the change's scope: the ref range under review, the head SHA, the new-side path scope, the path to a pre-computed unified diff file, and that file's line count. **Read that diff file end to end before judging anything.** `read_file` returns only the first 100 lines by default, so read the diff in **one** call with `limit` set to the line count you were given — there is no upper bound on `limit`. A window that stopped short of the end says so on its last line (`(showing lines N-M — the file continues past line M; call read_file again with offset=M …)`); whenever you see that, page on with the offset it names. The file is immutable, so never re-read a page you already have. Never report on a diff you have not finished reading: if you cannot cover the whole line count, say so in your report instead of silently reviewing a fragment.
+You will be given the change's scope: the ref range under review, the head SHA, the new-side path scope, the path to a pre-computed unified diff file, and that file's line count. **Read that diff file end to end before judging anything.** `read_file` returns only the first 100 lines by default, so read the diff in **one** call with `limit` set to the line count you were given — there is no upper bound on `limit`. A window that stopped short of the end says so on its last line (`(showing lines N-M — the file continues past line M; call read_file again with offset=M …)`); whenever you see that, page on with the offset it names. The file is immutable, so never re-read a page you already have. Never report on a diff you have not finished reading: if you cannot cover the whole line count, return the unreadable-diff `ERROR:` sentinel your charter defines instead of silently reviewing a fragment.
 
 If no diff path was provided or the file is unreadable, fall back to reconstructing the change yourself — run `git diff` over exactly the ref range you were given (never a wider one), or, when `bash` is unavailable (a disk-backed run with no sandbox), read the changed files directly with `read_file`/`grep` over the new-side path scope. Either way, read surrounding code for context before deciding; context is what keeps false positives down.
 

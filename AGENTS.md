@@ -82,36 +82,6 @@ uv run --all-extras python scripts/dump_schemas.py \
 
 **Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
 
-**Code-review detector output** — the `cr-*` detectors are prose reporters: each returns a
-markdown report (findings ordered by severity, or the literal `No findings.`) as its final
-message, which the `task` tool hands back to the review orchestrator directly — no structured
-`response_format`, no deferred output files. The orchestrator is a pure **aggregator**: it
-collates the detector reports and runs no sandbox probes and re-reads no source to second-guess
-or re-grade a finding — each detector already owns its evidence and its confidence decision.
-Each charter under
-`daiv/automation/agent/skills/code-review/agents/` is fully self-contained (severity rubric,
-≥80 confidence gate, never-flag rules, report format); `SHARED_DETECTOR_PREAMBLE` in
-`subagents.py` prepends the shared plumbing — diff-file protocol (including the
-**read-to-the-line-count mandate**: `read_file` defaults to 100 lines, so the orchestrator hands
-over `wc -l` of the diff and the detector reads it in a single call with `limit` set to that count,
-`FsReadRequest.limit` having no upper bound. That is an optimisation — one call instead of N — not
-the defence against reviewing only the diff's head; the backend's continuation notice is, and the
-preamble quotes its wording as the paging trigger, so keep the two in step), the untrusted-input
-guard, the final-message-is-the-report contract, and the read-only contract. That last one is the only *unconditional* guard against a
-detector mutating the shared workspace **via bash** (the filesystem tools are separately fenced
-by the enforced `READ_ONLY_PERMISSIONS`; bash carries only the global/per-repo
-`SANDBOX_COMMAND_POLICY_DISALLOW`, which is empty by default).
-`test_charters_carry_precision_gate_and_report_contract` locks the charter blocks,
-`test_shared_preamble_*` the preamble, and `test_skill_md_consumes_the_contracts_the_charters_produce`
-the orchestrator side — every sentinel the charters emit (`No findings.`, `ERROR:`,
-`Rule:`) has a consumer in `SKILL.md` and the coupling is prose on both sides.
-
-A detector that **crashes** (recursion limit, exhausted fallbacks, sandbox error) is converted
-into an `ERROR:`-prefixed final message by `_guard_subagent_crash`, so it costs one dimension
-instead of aborting the whole review — deepagents' `task` tool has no error handling and
-`create_agent` builds its `ToolNode` without `handle_tool_errors`, so an uncaught raise would
-propagate out and kill the parent run.
-
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
 
 **Views split by content type** — server-rendered HTML (dashboard pages, forms) lives in `daiv/<app>/views.py` as **CBVs** subclassing `View` / `TemplateView` / `ListView` / `UpdateView` with `LoginRequiredMixin` / `AdminRequiredMixin`. JSON endpoints (including those consumed by dashboard JS like autocompletes and the agent-picker catalog) live in `daiv/<app>/api/views.py` (or `api/router.py` — both names exist) as a **django-ninja `Router`** with `auth=django_auth` for session callers, registered on the central `NinjaAPI` in `daiv/daiv/api.py` (`api.add_router("/<app>", <app>_router)`). Set `url_name="..."` on each route and reverse via `{% url 'api:<route_name>' %}` from templates (or pass the URL into JS as an init prop instead of hardcoding `/api/...` paths); see `daiv/automation/api/views.py` + `_agent_picker.html` for the reference pair.

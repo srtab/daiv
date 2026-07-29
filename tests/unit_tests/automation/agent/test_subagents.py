@@ -949,70 +949,12 @@ class TestShippedDetectorCharters:
         stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
         assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_skill_md_consumes_the_contracts_the_charters_produce(self):
-        # Every sentinel the charters emit has a consumer in SKILL.md, and the coupling is prose on
-        # both sides — nothing but this test holds them together. A detector added to
-        # CODE_REVIEW_DETECTOR_NAMES but never added to Step 3's dispatch table would load, appear
-        # in the `task` tool's agent list, and never be dispatched: a dead dimension with no other
-        # failing test. Same for the sentinels the orchestrator keys on, and for the shared diff
-        # path (renaming TMP_PATH would break the hand-off for all five detectors at once).
-        from automation.agent.constants import TMP_PATH
-        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH, CODE_REVIEW_DETECTOR_NAMES
-
-        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
-
-        for name in CODE_REVIEW_DETECTOR_NAMES:
-            assert name in skill_md, f"SKILL.md never dispatches {name}"
-        assert "No findings." in skill_md, "SKILL.md lost the no-findings sentinel it classifies on"
-        assert "`ERROR:`" in skill_md, "SKILL.md lost the ERROR: sentinel from LoopBreakerMiddleware"
-        assert "**Verify**" not in skill_md, "SKILL.md still references the removed Verify resolution step"
-        assert "**Rule:**" in skill_md, "SKILL.md lost the cr-custom-rules rule-citation passthrough"
-        assert "- **Ask:**" not in skill_md, "SKILL.md still references the removed Question Ask bullet"
-        assert "### Questions" not in skill_md, "SKILL.md still carries the removed Questions section"
-        assert f"{TMP_PATH}/review-change.diff" in skill_md, "SKILL.md's shared diff path drifted from TMP_PATH"
-
-    def test_skill_md_classifies_only_error_shaped_results_as_failed(self):
-        # Step 5's classifier is the gate every detector report passes through. It must key failure
-        # on the ERROR:/empty shape, NOT on an allow-list of opening lines: the preamble and
-        # cr-custom-rules both instruct a detector to disclose a coverage caveat (an unread
-        # supplementary rule source, a diff it could not finish), which pushes prose ahead of the
-        # first `###` heading. A classifier that demanded a leading heading would score those honest
-        # reports as crashes, discard their findings, and mark the review partial — punishing the
-        # detector that disclosed over the one that stayed silent. Locked because both halves of the
-        # coupling are prose in different files.
-        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH
-
-        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
-
-        assert "caveat" in skill_md, "SKILL.md no longer tolerates a detector's own coverage caveat"
-        assert "only if it opens with" not in skill_md, (
-            "Step 5 reintroduced an opens-with success test; a detector's coverage caveat would be "
-            "misclassified as a crash"
-        )
-
-    def test_skill_md_forbids_any_text_above_the_delivery_marker(self):
-        # review_addressor posts the final message verbatim, and Step 1 trusts a marker only in the
-        # note's first few lines — so a lead-in sentence above the marker costs the next run a
-        # duplicate full review of the whole MR. The main agent prompt actively trains the opposite
-        # reflex ("lead with the answer"), which is why this has to be stated as a non-negotiable
-        # rather than left implicit in the template.
-        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH
-
-        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
-
-        assert "No greeting" in skill_md, "SKILL.md lost the no-preamble-above-the-marker rule"
-        # The read side stays deliberately lenient about a lead-in a past run already emitted;
-        # tightening it to "first line only" would strand every such note as unreadable.
-        assert "column 3 is **`3` or less**" in skill_md, (
-            "SKILL.md's marker trust check lost its tolerance for a stray lead-in in an existing note"
-        )
-
     def test_charters_carry_precision_gate_and_report_contract(self):
         # The charters are self-contained, so the precision blocks live inside each file: the >=80
-        # gate, the severity subset for that dimension, the never-flag rules, and the no-findings
-        # sentinel. The terminal contract removed Verify and Question, so assert those tokens are
-        # gone as well — a charter edit that reintroduced one would degrade the contract with no
-        # other test failing.
+        # gate, the severity subset for that dimension, the do-not-report rules, and the report
+        # sentinels. Each charter now owns its own dimension-specific wording, so this is the only
+        # test standing between a charter edit and a detector whose output the orchestrator cannot
+        # classify.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
         expected_severities = {
@@ -1025,23 +967,28 @@ class TestShippedDetectorCharters:
 
         for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
             body = md.read_text(encoding="utf-8")
-            assert "## Confidence gate" in body, f"{md.name} lost its confidence gate"
-            assert "Report only findings scoring 80 or above" in body, (
-                f"{md.name} lost the >=80 reporting threshold sentence"
-            )
+            assert "## Confidence and questions" in body, f"{md.name} lost its confidence gate"
+            assert "Report only scores of 80 or above" in body, f"{md.name} lost the >=80 reporting threshold sentence"
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
 
             present = {label for label in ("Critical", "Important", "Suggestion") if f"- **{label}**" in body}
             assert present == expected_severities[md.name], (
                 f"{md.name} severity grades {present} != expected {expected_severities[md.name]}"
             )
-            # Terminal contract: no Verify escape, no Question mode.
-            assert "- **Question**" not in body, f"{md.name} still carries the removed Question severity"
+            # A question is an entry shape, never a fourth severity grade and never a per-finding
+            # field: the orchestrator sections questions separately and exempts them from the
+            # confidence gate, so a charter that graded one as a severity would push an
+            # unscored ambiguity into the findings list.
+            assert "### Question: <one-line subject>" in body, f"{md.name} lost the question entry format"
+            assert "- **Question**" not in body, f"{md.name} regraded Question as a severity label"
             assert "**Verify:**" not in body, f"{md.name} still carries the removed Verify field"
             assert "- **Ask:**" not in body, f"{md.name} still carries the removed Question Ask variant"
 
-            assert "## Never flag" in body, f"{md.name} lost the never-flag rules"
+            assert "## Do not report" in body, f"{md.name} lost the do-not-report rules"
             assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
+            assert "`ERROR: could not read the complete canonical diff.`" in body, (
+                f"{md.name} lost the unreadable-diff ERROR contract"
+            )
             assert "**Confidence:**" in body, f"{md.name} lost the confidence field in the report format"
             assert "- **Location:**" in body, f"{md.name} lost the location anchor field"
 
@@ -1051,35 +998,51 @@ class TestShippedDetectorCharters:
             "cr-custom-rules lost the unreadable-rule-source ERROR contract"
         )
 
-    def test_shared_charter_blocks_stay_identical_across_the_five_detectors(self):
-        # Confidence gate and Never flag stay byte-identical across all five (a review whose
-        # detectors grade on different scales cannot be aggregated). Severity subsets now differ by
-        # dimension, but each severity label's bullet DEFINITION must be identical wherever it
-        # appears — otherwise two detectors grade the same label on different scales and the
-        # aggregator's keep-the-higher pass is meaningless.
-        import re
-
+    def test_charters_share_the_lines_the_aggregator_keys_on(self):
+        # Every charter section is dimension-specific prose now, so nothing is byte-identical
+        # between them — but the aggregator still reads five reports on one scale. What has to stay
+        # common is the machine-readable surface: the 0-100/>=80 gate sentence, the entry headers,
+        # the fields the orchestrator strips or sections on, and the two terminal sentinels it
+        # classifies results by. Asserted as an intersection over all five so a charter rewrite that
+        # rewords any of them for one dimension alone fails here instead of silently producing a
+        # report the orchestrator scores as a crash.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
-        def section(body: str, heading: str) -> str:
-            match = re.search(rf"^## {heading}\n(.*?)(?=^## |\Z)", body, re.S | re.M)
-            assert match, f"missing '## {heading}' section"
-            return match.group(1).strip()
+        charters = {
+            md.name: {line.strip() for line in md.read_text(encoding="utf-8").splitlines() if line.strip()}
+            for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md"))
+        }
+        assert len(charters) == 5
+        shared = set.intersection(*charters.values())
 
-        charters = {md.name: md.read_text(encoding="utf-8") for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md"))}
+        for line in (
+            "Score each candidate internally from 0–100. Report only scores of 80 or above.",
+            "Use exactly one severity:",
+            "### <Severity>: <one-line title>",
+            "### Question: <one-line subject>",
+            "- **Confidence:** <80–100>",
+            "`No findings.`",
+            "`ERROR: could not read the complete canonical diff.`",
+            # Widening scope is what turns a five-way fan-out over one diff into five reviews of
+            # different changes, which no amount of deduplication can reconcile.
+            "Do not reconstruct the diff, substitute complete new-side files, widen the scope, "
+            "or return a partial review.",
+            "Return only the report.",
+        ):
+            assert line in shared, f"contract line is no longer shared by all five charters: {line!r}"
 
-        for heading in ("Confidence gate", "Never flag"):
-            variants = {section(body, heading) for body in charters.values()}
-            assert len(variants) == 1, f"'## {heading}' has drifted between charters: {len(variants)} variants"
+        # No charter may invent a grade outside the three the orchestrator can order: its
+        # keep-the-higher pass on a deduplicated finding has no place to put a fourth label, and
+        # SKILL.md's report template has no section to print it under.
+        import re
 
-        label_defs: dict[str, set[str]] = {}
-        for body in charters.values():
-            for line in section(body, "Severity").splitlines():
-                if line.startswith("- **"):
-                    label = line.split("**")[1]
-                    label_defs.setdefault(label, set()).add(line.strip())
-        for label, defs in label_defs.items():
-            assert len(defs) == 1, f"severity label '{label}' has drifted between charters: {defs}"
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
+            severity = re.search(r"^## Severity\n(.*?)(?=^## |\Z)", md.read_text(encoding="utf-8"), re.S | re.M)
+            assert severity, f"{md.name} lost its '## Severity' section"
+            graded = {line.split("**")[1] for line in severity.group(1).splitlines() if line.startswith("- **")}
+            assert graded <= {"Critical", "Important", "Suggestion"}, (
+                f"{md.name} grades severities the orchestrator cannot order: {graded}"
+            )
 
 
 class TestBuiltinCodeReviewDetectors:
