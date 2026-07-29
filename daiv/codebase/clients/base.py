@@ -344,7 +344,12 @@ class RepoClient(abc.ABC):
         assignee_id: str | int | None = None,
         as_draft: bool = False,
     ) -> MergeRequest:
-        pass
+        """Create the merge request for ``source_branch`` or update the existing one.
+
+        May raise :class:`~codebase.exceptions.MergeRequestBranchNotVisibleError` when the branch is
+        confirmed pushed but the platform will not open the MR within the retry budget (a transient
+        post-push visibility lag); callers degrade to "branch pushed, MR pending" rather than failing.
+        """
 
     @abc.abstractmethod
     def update_merge_request(

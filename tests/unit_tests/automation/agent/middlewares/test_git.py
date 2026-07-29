@@ -109,6 +109,17 @@ class TestGitMiddleware:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
             assert await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime) is None
 
+    async def test_aafter_agent_records_code_changes_on_pending_mr_degrade(self):
+        """The branch-visibility degrade (published + no MR) must flip ``code_changes`` so a pushed
+        branch is not persisted as an indistinguishable no-op."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result == {"code_changes": True}
+
     async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
         aafter confirms it in state WITHOUT touching ``protected_branch_fallback_source`` (a

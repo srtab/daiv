@@ -9,6 +9,7 @@ from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.clients.base import GitAuthEnv
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
 
@@ -394,6 +395,61 @@ class TestPublishSuggestsContextFile:
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
             mock_suggest.assert_called_once_with(mr)
             assert result == PublishOutcome(merge_request=mr, published=True)
+
+    async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
+        """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
+
+        The work is already committed/pushed; surfacing the recoverable error as ``merge_request=None,
+        published=True`` lets the run complete (agent reply preserved) instead of orphaning the branch.
+        """
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_create_merge_request", side_effect=MergeRequestBranchNotVisibleError("feature")),
+            patch.object(publisher, "_suggest_context_file") as mock_suggest,
+            caplog.at_level("ERROR", logger="daiv.tools"),
+        ):
+            result = await publisher.publish(merge_request=None)
+
+        gm.commit_all.assert_awaited_once()
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
+        mock_suggest.assert_not_called()
+        assert result == PublishOutcome(merge_request=None, published=True)
+        assert "MR pending" in caplog.text
+
+    async def test_degrade_preserves_protected_branch_fallback_source(self, publisher, monkeypatch):
+        """The compound case: a protected source branch forced a fresh branch, which then hit the
+        visibility race. The degrade outcome must still carry the fallback source."""
+        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
+        publisher.client.is_branch_protected.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature-fix", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(
+                publisher, "_create_merge_request", side_effect=MergeRequestBranchNotVisibleError("feature-fix")
+            ),
+        ):
+            result = await publisher.publish(merge_request=existing_mr)
+
+        assert result == PublishOutcome(merge_request=None, published=True, protected_branch_fallback_source="dev")
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)

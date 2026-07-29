@@ -15,6 +15,7 @@ from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -151,13 +152,27 @@ class GitChangePublisher(ChangePublisher):
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
-            merge_request = await self._create_merge_request(
-                branch_name,
-                changes_metadata["pr_metadata"].title,
-                changes_metadata["pr_metadata"].description,
-                as_draft=as_draft,
-                fallback_from_mr=fallback_from_mr,
-            )
+            try:
+                merge_request = await self._create_merge_request(
+                    branch_name,
+                    changes_metadata["pr_metadata"].title,
+                    changes_metadata["pr_metadata"].description,
+                    as_draft=as_draft,
+                    fallback_from_mr=fallback_from_mr,
+                )
+            except MergeRequestBranchNotVisibleError:
+                # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
+                # and discard the agent's reply, so report a partial publish (MR pending) and log loudly.
+                logger.error(
+                    "Pushed branch '%s' but GitLab did not make it visible for MR creation within the retry "
+                    "budget; reporting a partial publish (MR pending).",
+                    branch_name,
+                )
+                return PublishOutcome(
+                    merge_request=None,
+                    published=True,
+                    protected_branch_fallback_source=protected_branch_fallback_source,
+                )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
                 merge_request.web_url,
