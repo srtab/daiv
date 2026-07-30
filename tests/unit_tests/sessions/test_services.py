@@ -82,6 +82,7 @@ def _patch_run_job_task(side_effect=None):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db(transaction=True)
 async def test_aget_or_create_session_creates_with_origin():
     tid = str(uuid.uuid4())
     session = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r", ref="main")
@@ -89,6 +90,7 @@ async def test_aget_or_create_session_creates_with_origin():
     assert session.origin == SessionOrigin.API_JOB
 
 
+@pytest.mark.django_db(transaction=True)
 async def test_aget_or_create_session_existing_keeps_origin_and_touches():
     tid = str(uuid.uuid4())
     first = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="g/r")
@@ -100,6 +102,7 @@ async def test_aget_or_create_session_existing_keeps_origin_and_touches():
     assert again.last_active_at > before
 
 
+@pytest.mark.django_db(transaction=True)
 async def test_acreate_run_creates_session_and_run():
     tid = str(uuid.uuid4())
     run = await acreate_run(

@@ -234,7 +234,7 @@ def test_dispatch_respects_owner_is_active(member_user, owner_active, expected_r
         dispatch_scheduled_jobs_cron_task.func()
 
     schedule.refresh_from_db()
-    assert Run.objects.count() == expected_runs
+    assert Run.objects.filter(session__scheduled_job=schedule).count() == expected_runs
     if owner_active:
         assert schedule.next_run_at > past  # advanced to next cron tick
     else:
@@ -267,7 +267,7 @@ def test_dispatch_resumes_after_owner_reactivated(member_user):
 
         # Inactive owner: skipped, no run, next_run_at untouched.
         dispatch_scheduled_jobs_cron_task.func()
-        assert Run.objects.count() == 0
+        assert Run.objects.filter(session__scheduled_job=schedule).count() == 0
         schedule.refresh_from_db()
         assert schedule.next_run_at == past
 
@@ -276,7 +276,7 @@ def test_dispatch_resumes_after_owner_reactivated(member_user):
         member_user.save(update_fields=["is_active"])
         dispatch_scheduled_jobs_cron_task.func()
 
-    assert Run.objects.count() == 1
+    assert Run.objects.filter(session__scheduled_job=schedule).count() == 1
     schedule.refresh_from_db()
     assert schedule.next_run_at > datetime.now(tz=UTC)
 
@@ -321,7 +321,7 @@ def test_dispatch_skips_only_inactive_owner_in_mixed_run(member_user):
 
     # Selectivity: only the active owner's schedule dispatched; the inactive
     # owner's was skipped even though both were due in the same run.
-    assert Run.objects.count() == 1
+    assert Run.objects.filter(session__scheduled_job__in=[active_schedule, inactive_schedule]).count() == 1
     assert Run.objects.filter(session__scheduled_job=active_schedule).count() == 1
     assert Run.objects.filter(session__scheduled_job=inactive_schedule).count() == 0
     active_schedule.refresh_from_db()
@@ -358,7 +358,7 @@ def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_
     # Skipped, not retired: a ONCE schedule owned by an inactive user must keep
     # is_enabled=True and its next_run_at intact so it fires exactly once when
     # the owner is reactivated — not be consumed by the ONCE auto-disable path.
-    assert Run.objects.count() == 0
+    assert Run.objects.filter(session__scheduled_job=schedule).count() == 0
     assert schedule.is_enabled is True
     assert schedule.next_run_at == past
     assert schedule.run_count == 0

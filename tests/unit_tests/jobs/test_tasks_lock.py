@@ -6,7 +6,7 @@ from jobs.tasks import _acquire_session_lock
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 async def _mk_session(**kwargs):
