@@ -2,8 +2,6 @@ import logging
 
 from django.conf import settings as django_settings
 
-from langgraph.checkpoint.redis import RedisSaver
-
 from codebase.base import Scope
 from core.utils import generate_uuid
 from slash_commands.base import SlashCommand
@@ -43,6 +41,8 @@ class ClearSlashCommand(SlashCommand):
             thread_id = generate_uuid(f"{self.repo_id}:{self.scope.value}/{merge_request_id}")
         else:
             return f"The /{self.command} command is only available for issues and merge requests."
+
+        from langgraph.checkpoint.redis import RedisSaver
 
         try:
             with RedisSaver.from_conn_string(django_settings.DJANGO_REDIS_CHECKPOINT_URL) as checkpointer:

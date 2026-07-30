@@ -38,7 +38,7 @@ def test_clear_command_has_correct_attributes():
 
 
 @override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
-@patch("slash_commands.actions.clear.RedisSaver")
+@patch("langgraph.checkpoint.redis.RedisSaver")
 async def test_clear_command_for_issue(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand deletes the thread for an issue."""
     mock_checkpointer = MagicMock()
@@ -53,7 +53,7 @@ async def test_clear_command_for_issue(mock_redis_saver: Mock, clear_slash_comma
 
 
 @override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
-@patch("slash_commands.actions.clear.RedisSaver")
+@patch("langgraph.checkpoint.redis.RedisSaver")
 async def test_clear_command_for_merge_request(mock_redis_saver: Mock, clear_slash_command_mr: ClearSlashCommand):
     """Test that ClearSlashCommand deletes the thread for a merge request."""
     mock_checkpointer = MagicMock()
@@ -67,7 +67,7 @@ async def test_clear_command_for_merge_request(mock_redis_saver: Mock, clear_sla
     assert "✅" in message
 
 
-@patch("slash_commands.actions.clear.RedisSaver")
+@patch("langgraph.checkpoint.redis.RedisSaver")
 async def test_clear_command_without_issue_iid(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand returns an error when issue_iid is missing."""
     message = await clear_slash_command_issue.execute_for_agent(args="")
@@ -78,7 +78,7 @@ async def test_clear_command_without_issue_iid(mock_redis_saver: Mock, clear_sla
 
 
 @override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
-@patch("slash_commands.actions.clear.RedisSaver")
+@patch("langgraph.checkpoint.redis.RedisSaver")
 async def test_clear_command_handles_exceptions(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
     """Test that ClearSlashCommand handles exceptions gracefully."""
     mock_checkpointer = MagicMock()

@@ -3,7 +3,6 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from unidiff import PatchSet
 from unidiff.constants import LINE_TYPE_CONTEXT
 from unidiff.errors import UnidiffParseError
@@ -14,6 +13,7 @@ from core.utils import generate_uuid
 
 if TYPE_CHECKING:
     from git import Repo
+    from langchain_core.messages import AnyMessage
 
     from codebase.base import Discussion, Note, Scope, User
 
@@ -99,6 +99,8 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
     Returns:
         List of messages
     """
+    from langchain_core.messages import AIMessage, HumanMessage
+
     messages: list[AnyMessage] = []
     for note in notes:
         if note.author.id == bot_user_id:
