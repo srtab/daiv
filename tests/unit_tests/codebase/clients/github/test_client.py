@@ -2,6 +2,7 @@ import logging
 from unittest.mock import Mock, patch
 
 import pytest
+from git import GitCommandError
 from github import Consts, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
@@ -10,6 +11,7 @@ from github.PullRequestComment import PullRequestComment
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
+from codebase.exceptions import CloneRefNotFoundError
 
 
 class TestGitHubClient:
@@ -522,3 +524,26 @@ class TestGitHubClient:
             input={"permissions": {"contents": "write"}, "repository_ids": [42]},
         )
         github_client._integration.get_access_token.assert_not_called()
+
+    def test_github_load_repo_raises_clone_ref_not_found_when_branch_gone(self, github_client):
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+        clone_error = GitCommandError("git clone", 128, "fatal: Remote branch gone-branch not found in upstream origin")
+
+        with (
+            patch.object(type(github_client), "_mint_installation_token", return_value="ghs-token"),
+            patch("codebase.clients.github.client.Repo.clone_from", side_effect=clone_error),
+            pytest.raises(CloneRefNotFoundError) as exc_info,
+            github_client.load_repo(repository, "gone-branch"),
+        ):
+            pass
+
+        assert exc_info.value.ref == "gone-branch"
+        assert exc_info.value.repo_slug == "owner/repo"

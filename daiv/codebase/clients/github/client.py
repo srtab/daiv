@@ -7,7 +7,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from git import Repo
+from git import GitCommandError, Repo
 from github import Consts, Github, GithubIntegration, Installation, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
@@ -35,7 +35,8 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji, WebhookSetupResult
-from core.utils import async_download_url
+from codebase.exceptions import CloneRefNotFoundError
+from core.utils import async_download_url, is_git_ref_not_found_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -293,12 +294,17 @@ class GitHubClient(RepoClient):
             token = self._mint_installation_token(repository)
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            repo = Repo.clone_from(
-                repository.clone_url,
-                clone_dir,
-                branch=sha,
-                env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
-            )
+            try:
+                repo = Repo.clone_from(
+                    repository.clone_url,
+                    clone_dir,
+                    branch=sha,
+                    env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
+                )
+            except GitCommandError as e:
+                if is_git_ref_not_found_text(f"{e.stderr or ''} {e}"):
+                    raise CloneRefNotFoundError(sha, repository.slug) from e
+                raise
             self._configure_commit_identity(repo)
             yield repo
 
