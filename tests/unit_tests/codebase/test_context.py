@@ -359,3 +359,32 @@ async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
             with pytest.raises(CloneRefNotFoundError):
                 async with set_runtime_ctx(repo_id="r/p", scope=RepoScope.GLOBAL, ref="gone") as _:
                     pass
+
+
+def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
+    """A CloneRefNotFoundError raised by the *yielded body* must propagate, not trigger a fallback.
+
+    @contextmanager throws a body-raised exception back at the ``yield`` via gen.throw(). The yield
+    sits outside the ``except CloneRefNotFoundError`` guarding clone acquisition, so the body error
+    must NOT be swallowed into a spurious second clone (which would also raise
+    "generator didn't stop"). Only clone acquisition may reach the fallback.
+    """
+    from codebase.context import _load_repo_with_optional_fallback
+
+    fake_repo = type("Repo", (), {})()
+    good_cm = MagicMock()
+    good_cm.__enter__ = MagicMock(return_value=fake_repo)
+    good_cm.__exit__ = MagicMock(return_value=False)
+
+    repo_client = MagicMock()
+    repository = type("R", (), {"slug": "r/p"})()
+    repo_client.load_repo.return_value = good_cm
+
+    helper = _load_repo_with_optional_fallback(repo_client, repository, "gone", "main", fallback=True)
+    with pytest.raises(CloneRefNotFoundError), helper as (repo, ref):
+        assert repo is fake_repo
+        assert ref == "gone"
+        raise CloneRefNotFoundError("gone", "r/p")
+
+    assert repo_client.load_repo.call_count == 1
+    good_cm.__exit__.assert_called_once()
