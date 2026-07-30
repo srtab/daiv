@@ -543,6 +543,32 @@ class TestPublishDecision:
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
+    async def test_diffs_against_existing_mr_target_branch(self, monkeypatch):
+        """An in-review MR targeting a non-default branch is diffed against that branch, not main."""
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
+        gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(merge_request=mr)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
+        assert gm.status_snapshot.await_args.kwargs["mr_source_branch"] == "feat/x"
+        # Clean tree already on its MR → no duplicate MR, no metadata call.
+        assert outcome == PublishOutcome(merge_request=mr, published=False)
+        meta.assert_not_called()
+
+    async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata"):
+            await publisher.publish(merge_request=None)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "main"
+
 
 def test_create_merge_request_and_suggest_are_async():
     assert inspect.iscoroutinefunction(GitChangePublisher._create_merge_request)
