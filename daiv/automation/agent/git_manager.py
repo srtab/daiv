@@ -272,7 +272,7 @@ class GitManager:
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
-        """Collect everything the publisher needs in exactly two sandbox round-trips (<=2 total).
+        """Collect everything the publisher needs in exactly two sandbox round-trips.
 
         Batch A: working-tree status, merge-base of ``origin/<base_branch>`` and ``HEAD``, untracked
         file list, remote branch list, and — when ``mr_source_branch`` is given —
@@ -301,19 +301,19 @@ class GitManager:
         self._require_ok(batch_a[0], status_res)
         self._require_ok(batch_a[2], untracked_res)
 
-        # merge-base is deliberately NOT gated through _require_ok: exit 1 ("no common ancestor")
-        # is an expected outcome for unrelated histories, not a git failure. Fall back to the base
-        # branch tip so the diff still resolves.
+        # merge-base is not gated like the others: exit 1 ("no common ancestor") is expected for
+        # unrelated histories, so fall back to the base tip; any other non-zero exit is a real failure.
         if mergebase_res.exit_code == 0 and mergebase_res.output.strip():
             base_ref = mergebase_res.output.strip().splitlines()[0]
-        else:
+        elif mergebase_res.exit_code == 1:
             logger.warning(
-                "status_snapshot: `git merge-base origin/%s HEAD` found no common ancestor (exit %s); "
-                "falling back to the branch tip. Output: %s",
+                "status_snapshot: no common ancestor between origin/%s and HEAD; "
+                "falling back to the branch tip for the diff base.",
                 base_branch,
-                mergebase_res.exit_code,
-                mergebase_res.output.strip(),
             )
+            base_ref = f"origin/{base_branch}"
+        else:
+            self._require_ok(batch_a[1], mergebase_res)  # bad/missing ref (exit 128) raises; exit-0-no-SHA → tip
             base_ref = f"origin/{base_branch}"
 
         # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent

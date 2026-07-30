@@ -533,19 +533,30 @@ class GitHubClient(RepoClient):
         """
         Return the open pull request whose head branch is ``source_branch`` (any base), or ``None``.
 
+        A head branch can feed several open PRs (to different bases); ``sort``/``direction`` pin the
+        pick to the oldest so the choice is deterministic rather than API-default ordering.
+
         Args:
             repo_id: The repository ID.
             source_branch: The head branch.
 
         Returns:
-            The first open PR with this head branch, otherwise ``None``.
+            The oldest open PR with this head branch, otherwise ``None``.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         owner = repo_id.split("/", 1)[0]
-        prs = repo.get_pulls(state="open", head=f"{owner}:{source_branch}")
-        # GitHub's `head` filter expects ``owner:ref`` and is only advisory; confirm the ref
-        # client-side so a mis-parsed filter can never return an unrelated open PR.
-        pr = next((p for p in prs if p.head.ref == source_branch), None)
+        prs = repo.get_pulls(state="open", head=f"{owner}:{source_branch}", sort="created", direction="asc")
+        # GitHub's `head` filter (owner:ref) is only advisory; re-check head.ref client-side so a
+        # loosely-matched filter can't return a PR on a different branch name.
+        matches = [p for p in prs if p.head.ref == source_branch]
+        if len(matches) > 1:
+            logger.warning(
+                "Multiple open PRs for head %s in %s; using the oldest (#%s).",
+                source_branch,
+                repo_id,
+                matches[0].number,
+            )
+        pr = matches[0] if matches else None
         if pr is None:
             return None
         return MergeRequest(

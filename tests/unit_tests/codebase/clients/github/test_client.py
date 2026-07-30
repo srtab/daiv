@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import Mock, patch
 
 import pytest
@@ -422,7 +423,7 @@ class TestGitHubClient:
         assert result.draft is True
         assert result.web_url == "https://github.com/o/r/pull/7"
         assert result.labels == ["enhancement"]
-        mock_repo.get_pulls.assert_called_once_with(state="open", head="owner:feat-x")
+        mock_repo.get_pulls.assert_called_once_with(state="open", head="owner:feat-x", sort="created", direction="asc")
 
     def test_get_merge_request_by_branches_skips_mismatched_head(self, github_client):
         """GitHub's `head` filter is advisory; a PR whose head.ref != source is ignored."""
@@ -435,6 +436,28 @@ class TestGitHubClient:
         result = github_client.get_merge_request_by_branches("owner/repo", "feat-x")
 
         assert result is None
+
+    def test_get_merge_request_by_branches_warns_and_picks_oldest_on_multiple(self, github_client, caplog):
+        """Several open PRs share the head branch: pick the oldest (sort=asc) and warn."""
+        mock_repo = Mock()
+        older = Mock(number=7)
+        older.head = Mock(ref="feat-x", sha="a")
+        older.base = Mock(ref="main")
+        older.title, older.body, older.labels = "older", "", []
+        older.html_url, older.draft = "https://github.com/o/r/pull/7", False
+        older.user = Mock(id=1, login="alice")
+        older.user.name = "Alice"
+        newer = Mock(number=8)
+        newer.head = Mock(ref="feat-x", sha="b")
+        mock_repo.get_pulls.return_value = iter([older, newer])
+        github_client.client.get_repo.return_value = mock_repo
+
+        with caplog.at_level(logging.WARNING, logger="daiv.clients"):
+            result = github_client.get_merge_request_by_branches("owner/repo", "feat-x")
+
+        assert result is not None
+        assert result.merge_request_id == 7
+        assert "Multiple open PRs" in caplog.text
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -581,17 +582,63 @@ async def test_status_snapshot_diffs_against_merge_base_in_batch_b() -> None:
     assert "diff mb123" in batch_b.commands[0]
 
 
-async def test_status_snapshot_falls_back_to_tip_when_no_merge_base() -> None:
-    """A merge-base exit 1 (unrelated histories) falls back to diffing origin/<base> tip."""
+async def test_status_snapshot_falls_back_to_tip_when_no_merge_base(caplog) -> None:
+    """A merge-base exit 1 (unrelated histories) falls back to diffing origin/<base> tip, with a warning."""
     client = MagicMock()
     client.run_commands = AsyncMock(
         side_effect=[_resp(("", 0), ("", 1), ("", 0), ("abc\trefs/heads/main\n", 0)), _resp(("", 0))]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+        snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert snap.diff == ""
+    batch_b = client.run_commands.await_args_list[1].args[1]
+    assert "diff origin/main" in batch_b.commands[0]
+    assert "no common ancestor" in caplog.text
+
+
+async def test_status_snapshot_falls_back_to_tip_on_empty_merge_base_output() -> None:
+    """merge-base exit 0 but no SHA (anomalous) falls back to the tip rather than an empty ref."""
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0)), _resp(("", 0))]
     )
     gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.diff == ""
     batch_b = client.run_commands.await_args_list[1].args[1]
     assert "diff origin/main" in batch_b.commands[0]
+
+
+async def test_status_snapshot_raises_on_merge_base_hard_failure() -> None:
+    """A merge-base failure that is NOT "no common ancestor" (exit 128, bad/missing ref) must surface
+    rather than be mislabeled as unrelated histories and swept into the tip fallback."""
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("fatal: Not a valid object name", 128), ("", 0), ("abc\trefs/heads/main\n", 0))
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with pytest.raises(GitCommandError) as exc_info:
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert "merge-base origin/main HEAD" in str(exc_info.value)
+    # Raises during batch A, before the batch-B diff round-trip.
+    assert client.run_commands.await_count == 1
+
+
+async def test_status_snapshot_raises_when_batch_b_main_diff_fails() -> None:
+    """The main working-tree diff moved to batch B; a non-zero exit there must still raise."""
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(("", 0), ("mb123\n", 0), ("", 0), ("abc\trefs/heads/main\n", 0)),
+            _resp(("fatal: bad object", 128)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with pytest.raises(GitCommandError) as exc_info:
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert "diff mb123" in str(exc_info.value)
+    assert client.run_commands.await_count == 2
 
 
 async def test_status_snapshot_folds_untracked_into_batch_b() -> None:
