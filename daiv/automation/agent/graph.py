@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents import create_deep_agent
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
     ModelFallbackMiddleware,
     ModelRequest,
+    TodoListMiddleware,
     dynamic_prompt,
 )
 
@@ -27,7 +29,9 @@ from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
+    CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_FENCE_PERMISSIONS,
+    WORKSPACE_FS_TOOLS,
     DAIVCompositeBackend,
     SandboxFileBackend,
     build_disk_workspace_backend,
@@ -43,7 +47,6 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
-from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
@@ -299,10 +302,19 @@ async def create_daiv_agent(
     subagents.extend(custom_subagents)
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        # DAIVTodoListMiddleware (a subclass), not the bare TodoListMiddleware: the harness profile
-        # excludes the base by exact type, so a bare instance here would be dropped alongside the one
-        # create_deep_agent auto-adds, leaving the main agent with no write_todos. See todos.py.
-        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
+        # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
+        # middleware into the base stack by ``.name``, taking the same slot and preserving order.
+        # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
+        # mirroring the ``permissions=`` argument below, which still drives the HITL interrupt rules.
+        FilesystemMiddleware(
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=WORKSPACE_FS_TOOLS,
+            _permissions=main_agent_permissions,
+        ),
+        # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
+        # source of write_todos and the harness profile excludes nothing here.
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
         *(
             [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]

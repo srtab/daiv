@@ -33,7 +33,7 @@ from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemPermission, GlobSchema, GrepSchema
+from deepagents.middleware.filesystem import FilesystemPermission, FsToolName, GlobSchema, GrepSchema
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -68,11 +68,14 @@ IMPORTANT:
 - Convert to repo-relative paths in all user-visible text.
 """
 
-# The agent is calling write_file on a file that already exists, gets rejected
-# ("Cannot write because it already exists"), then correctly switches to edit_file. This wastes one tool call.
+# Steers the agent to edit_file for existing files, saving the wasted call it otherwise spends
+# discovering the rejection. Stated as a preference, not a mechanism: whether an overwrite is refused
+# is backend-dependent since deepagents 0.7 (the disk backend replaces the file; the sandbox can
+# still answer ALREADY_EXISTS), and one description serves both — see the note on _GREP_DESCRIPTION.
 _WRITE_FILE_EXTRA = (
-    "IMPORTANT: This tool can ONLY create new files. It will fail on files that already exist. "
-    "To modify existing files, always use `edit_file` instead."
+    "IMPORTANT: To modify a file that already exists, use `edit_file`. This tool replaces the entire "
+    "file, and on sandbox runs it is rejected outright for a path that already exists. Use it only to "
+    "create a new file, or to deliberately rewrite one end to end."
 )
 
 
@@ -152,20 +155,22 @@ _align_arg_schema(GrepSchema, {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path":
 # same process-wide-constant, race-free mechanism as the grep alignment above. Pinned by
 # tests/.../test_file_system.py::test_glob_arg_schema_warns_root_anchoring.
 _GLOB_PATTERN_ARG_DESCRIPTION = (
-    "Glob pattern (supports *, **, ?, [abc]). Lead with `**/` to match anywhere beneath the search "
-    "root, e.g. `**/*.py` or `**/test_*.py`."
+    "Glob pattern (supports *, **, ?, [abc], and brace alternation like {py,md}). Lead with `**/` to "
+    "match anywhere beneath the search root, e.g. `**/*.py` or `**/test_*.py`."
 )
 _GLOB_PATH_ARG_DESCRIPTION = (
     "Absolute base directory to search from. Defaults to the filesystem root `/` — which is NOT the "
-    "repository. Set it to the repository root to scope the search there, or lead the pattern with `**/`."
+    "repository, and which reports repository files under more than one path. Set it to the repository "
+    "root to scope the search there and get canonical `/workspace/repo/...` paths back."
 )
 _align_arg_schema(GlobSchema, {"pattern": _GLOB_PATTERN_ARG_DESCRIPTION, "path": _GLOB_PATH_ARG_DESCRIPTION})
 
 _GLOB_EXTRA = (
     "Prefer this tool over shell `find` in bash to locate files by name or pattern inside the "
-    "workspace. IMPORTANT: `path` defaults to the FILESYSTEM ROOT `/`, not the repository, so a bare "
-    "pattern like `tests/**/*.py` matches nothing under the repo. Either lead the pattern with `**/` "
-    "(e.g. `**/test_*.py`) so it descends into the repo, or set `path` to the repository root. "
+    "workspace. IMPORTANT: set `path` to the repository root when you mean to search the repository. "
+    "Left unset, the search spans the whole workspace and reports the same repository file under more "
+    "than one path, only one of which is the canonical `/workspace/repo/...` form you can read back. "
+    "Brace alternation works too, e.g. `**/*.{py,md}`. "
     "(Searching outside the workspace, `find`-style `-path` predicates, and piping matches into "
     "`grep` have no glob equivalent — those remain legitimate uses of bash `find`.)"
 )
@@ -251,6 +256,24 @@ CUSTOM_TOOL_DESCRIPTIONS = {
     EDIT_FILE_TOOL: EDIT_FILE_TOOL_DESCRIPTION,
 }
 
+# Explicit allowlists for ``FilesystemMiddleware(tools=...)``. Two upstream tools are
+# deliberately absent from both:
+#
+# - ``delete``: 0.7 auto-exposes a recursive (``shutil.rmtree``) delete, but the sandbox's
+#   ``fs_delete`` RPC removes a single file only, so the tool would promise the model
+#   directory removal the backend cannot perform. Add it once daiv-sandbox supports it.
+# - ``execute``: DAIV's shell is ``SandboxMiddleware``'s ``bash``; no DAIV backend implements
+#   ``SandboxBackendProtocol``, so upstream's ``execute`` has no working implementation here.
+#
+# An allowlist (rather than permission rules) is provider-independent and drops the tools from
+# the ``ToolNode`` entirely, so neither is reachable even if a permission rule later widens.
+WORKSPACE_FS_TOOLS: list[FsToolName] = ["ls", "read_file", "write_file", "edit_file", "glob", "grep"]
+
+# Read-only subagents (code-review detectors, explore). Paired with, not a replacement for,
+# their ``_permissions`` deny rules: the allowlist hides the write tools while the rules stay
+# authoritative for path scoping.
+READ_ONLY_FS_TOOLS: list[FsToolName] = ["ls", "read_file", "glob", "grep"]
+
 
 # ---------------------------------------------------------------------------
 # Backends
@@ -258,23 +281,29 @@ CUSTOM_TOOL_DESCRIPTIONS = {
 # Thin daiv-side extensions to deepagents' backends. Two methods that
 # ``BackendProtocol`` doesn't expose:
 #
-# - ``delete(path)``: drop a file (``Path.unlink`` under the hood).
+# - ``unlink(path)``: drop a single file (``Path.unlink`` under the hood).
 # - ``stat_mode(path)``: report a file's POSIX mode bits.
 #
 # ``DAIVBackendProtocol`` formalises the surface and ``DAIVCompositeBackend`` asserts
 # every routed backend implements it at construction time, so a new backend is a
 # matter of subclassing the deepagents primitive and supplying these two methods.
+#
+# ``unlink`` is deliberately not named ``delete``: deepagents 0.7 added its own
+# ``delete``/``adelete`` to ``BackendProtocol``, and ``adelete`` delegates to
+# ``self.delete`` via ``asyncio.to_thread`` — an async override would be handed back
+# as an un-awaited coroutine. Upstream's ``delete`` is also recursive over directories,
+# which the sandbox's file-only ``fs_delete`` RPC cannot honour.
 # ---------------------------------------------------------------------------
 
 
 class DAIVFilesystemBackend(FilesystemBackend):
     """``FilesystemBackend`` plus DAIV's two backend-protocol extensions
-    (``delete`` and ``stat_mode``)."""
+    (``unlink`` and ``stat_mode``)."""
 
     def _to_path(self, virtual_path: str) -> Path:
         return Path(self._resolve_path(virtual_path))
 
-    async def delete(self, virtual_path: str) -> bool:
+    async def unlink(self, virtual_path: str) -> bool:
         try:
             await asyncio.to_thread(self._to_path(virtual_path).unlink, missing_ok=True)
         except OSError:
@@ -290,7 +319,15 @@ class DAIVFilesystemBackend(FilesystemBackend):
             return 0o644
         return stat.S_IMODE(st.st_mode)
 
-    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> GrepResult:
         """Regex grep (convergence with the sandbox's ERE search and Claude Code).
 
         Validates the pattern with Python ``re`` up front so an invalid regex is a clean,
@@ -298,12 +335,17 @@ class DAIVFilesystemBackend(FilesystemBackend):
         via ``rg -F``/``re.escape``; ripgrep also exits 2 quietly on a bad regex). Walks the tree
         with a compiled regex — trading ripgrep's speed for correct semantics on local/disk runs
         (the deployed path is the sandbox backend).
+
+        ``max_count`` stops the walk once the cap is reached and reports ``truncated``, so the
+        cap bounds the work rather than only trimming the result. ``context_lines`` is accepted
+        for signature parity with the base but not emitted — the filesystem tools never request
+        it (only direct backend callers can, and DAIV has none).
         """
         try:
             re.compile(pattern)
         except re.error as exc:
             return GrepResult(error=f"invalid regular expression: {pattern!r} ({exc})")
-        return await asyncio.to_thread(self._regex_grep, pattern, path, glob)
+        return await asyncio.to_thread(self._regex_grep, pattern, path, glob, max_count)
 
     def _grep_error_detail(self, exc: Exception) -> str:
         """Agent-safe detail for a grep failure that never embeds the real on-disk path.
@@ -322,7 +364,7 @@ class DAIVFilesystemBackend(FilesystemBackend):
                 detail = str(exc)
         return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
-    def _regex_grep(self, pattern: str, path: str | None, glob: str | None) -> GrepResult:
+    def _regex_grep(self, pattern: str, path: str | None, glob: str | None, max_count: int | None = None) -> GrepResult:
         try:
             base_full = self._resolve_path(path or ".")
         except ValueError:
@@ -341,6 +383,8 @@ class DAIVFilesystemBackend(FilesystemBackend):
         root = base_full if base_full.is_dir() else base_full.parent
         results: dict[str, list[tuple[int, str]]] = {}
         file_errors: list[str] = []
+        found = 0
+        truncated = False
 
         def _dump_matches() -> list[GrepMatch]:
             return [
@@ -400,6 +444,10 @@ class DAIVFilesystemBackend(FilesystemBackend):
                                 return _timed_out()
                             if regex.search(raw_line):
                                 results.setdefault(virt_path, []).append((line_num, raw_line.rstrip("\n")))
+                                found += 1
+                                if max_count is not None and found >= max_count:
+                                    truncated = True
+                                    break
                 except UnicodeDecodeError as exc:
                     # A file that fails to decode before any line is scanned is treated as binary
                     # and skipped silently (mirroring ripgrep). Record it only when the decode
@@ -411,6 +459,8 @@ class DAIVFilesystemBackend(FilesystemBackend):
                 except (OSError, RuntimeError) as exc:
                     file_errors.append(f"- {virt_path}: {self._grep_error_detail(exc)}")
                     continue
+                if truncated:
+                    break
         except (OSError, RuntimeError) as exc:
             # The tree walk itself aborted mid-iteration (a directory entry unlinked/renamed during
             # the walk, or a symlink loop). Unlike a single unreadable file, the walk is now
@@ -438,21 +488,21 @@ class DAIVFilesystemBackend(FilesystemBackend):
             logger.warning("disk grep could not fully search %d file(s):\n%s", len(file_errors), joined)
             if not matches:
                 return GrepResult(error=f"One or more files could not be fully searched:\n{joined}", matches=matches)
-        return GrepResult(matches=matches)
+        return GrepResult(matches=matches, truncated=truncated)
 
 
 @runtime_checkable
 class DAIVBackendProtocol(Protocol):
-    """The two methods DAIV adds on top of ``BackendProtocol``: ``delete`` (drop a file)
-    and ``stat_mode`` (report POSIX mode bits).
+    """The two methods DAIV adds on top of ``BackendProtocol``: ``unlink`` (drop a single
+    file) and ``stat_mode`` (report POSIX mode bits).
 
     The composite asserts on this shape so a misconfigured route fails loudly at
-    construction time instead of with a runtime ``AttributeError`` on first delete.
+    construction time instead of with a runtime ``AttributeError`` on first unlink.
     Defined as its own ``Protocol`` rather than extending ``BackendProtocol`` because
     deepagents' base isn't a typing ``Protocol``.
     """
 
-    async def delete(self, virtual_path: str) -> bool: ...
+    async def unlink(self, virtual_path: str) -> bool: ...
 
     async def stat_mode(self, virtual_path: str) -> int: ...
 
@@ -460,22 +510,22 @@ class DAIVBackendProtocol(Protocol):
 def _require_daiv_backend(backend: BackendProtocol, label: str) -> None:
     """Raise ``TypeError`` unless ``backend`` implements ``DAIVBackendProtocol``.
 
-    A silent ``AttributeError`` on the first ``delete``/``stat_mode`` is worse than a
+    A silent ``AttributeError`` on the first ``unlink``/``stat_mode`` is worse than a
     loud failure at wiring time, so both the constructor and ``add_route`` gate on this.
     """
     if not isinstance(backend, DAIVBackendProtocol):
         raise TypeError(
-            f"{label} requires a backend implementing DAIVBackendProtocol (delete + stat_mode); "
+            f"{label} requires a backend implementing DAIVBackendProtocol (unlink + stat_mode); "
             f"{type(backend).__name__} does not."
         )
 
 
 class DAIVCompositeBackend(CompositeBackend):
-    """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
+    """``CompositeBackend`` with the two DAIV extensions (``unlink``/``stat_mode``) and a
     ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
     backend type (``isinstance``-style routing — e.g. the gitignore guard).
 
-    Routing-aware ``delete``/``stat_mode`` strip the route prefix before delegating, so
+    Routing-aware ``unlink``/``stat_mode`` strip the route prefix before delegating, so
     underlying backends see the same key shape they would receive through any other
     composite-routed call (``aupload_files``, ``adownload_files``, etc.).
 
@@ -490,9 +540,9 @@ class DAIVCompositeBackend(CompositeBackend):
             _require_daiv_backend(backend, f"DAIVCompositeBackend route {label!r}")
         super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
 
-    async def delete(self, virtual_path: str) -> bool:
+    async def unlink(self, virtual_path: str) -> bool:
         backend, stripped = self._get_backend_and_key(virtual_path)
-        return await cast("DAIVBackendProtocol", backend).delete(stripped)
+        return await cast("DAIVBackendProtocol", backend).unlink(stripped)
 
     async def stat_mode(self, virtual_path: str) -> int:
         backend, stripped = self._get_backend_and_key(virtual_path)
@@ -631,7 +681,7 @@ class SandboxFileBackend(BackendProtocol):
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
-    here would be a programming error). ``delete`` and ``stat_mode`` round out
+    here would be a programming error). ``unlink`` and ``stat_mode`` round out
     ``DAIVBackendProtocol``; ``stat_mode`` returns a constant since the sandbox is
     authoritative (no mirror to a local repo), so exact mode bits are irrelevant.
 
@@ -752,7 +802,22 @@ class SandboxFileBackend(BackendProtocol):
             return ReadResult(error=f"File '{file_path}': {_fs_error_text(resp.error)}")
         return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
 
-    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> GrepResult:
+        """Regex grep via the sandbox's ERE search.
+
+        ``max_count`` is applied here rather than pushed down: ``FsGrepRequest`` carries no cap,
+        so the sandbox always returns its full result and the trim happens on this side.
+        ``context_lines`` is accepted for signature parity only — the RPC returns matching lines
+        with no surrounding context, and no DAIV caller requests it.
+        """
         client, session_id = self._require_bound()
         try:
             resp = await client.fs_grep(
@@ -763,19 +828,14 @@ class SandboxFileBackend(BackendProtocol):
         if resp.error is not None:
             return GrepResult(error=f"Grep '{pattern}': {_fs_error_text(resp.error)}")
         matches = [GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches]
+        capped = max_count is not None and len(matches) > max_count
+        if capped:
+            matches = matches[:max_count]
         if resp.truncated:
             logger.warning("grep results truncated for pattern %r under %s", pattern, path)
-            # The deepagents grep tool formats `matches` itself and, in the default
-            # `files_with_matches` output mode, renders ONLY the paths (the `text` is dropped). So the
-            # actionable guidance must live in the sentinel `path` to survive every output mode; the
-            # bracketed prose can't be mistaken for a real file to read. `text` repeats it for
-            # `content` mode. This is the only fork-free channel to the model.
-            note = (
-                f"(grep results truncated — showing the first {len(resp.matches)} matches; "
-                "narrow the path, add a glob, or use a more specific pattern to see the rest)"
-            )
-            matches.append(GrepMatch(path=note, line=0, text=note))
-        return GrepResult(matches=matches)
+        # deepagents 0.7 renders its own truncation guidance from this flag, so the note no longer
+        # has to be smuggled through a synthetic match's ``path`` to survive `files_with_matches`.
+        return GrepResult(matches=matches, truncated=resp.truncated or capped)
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         client, session_id = self._require_bound()
@@ -854,23 +914,23 @@ class SandboxFileBackend(BackendProtocol):
         return out
 
     # -- DAIVBackendProtocol -------------------------------------------------
-    async def delete(self, virtual_path: str) -> bool:
+    async def unlink(self, virtual_path: str) -> bool:
         client, session_id = self._require_bound()
-        # ``delete``'s protocol return is a bare bool with no error channel, so any failure — a
+        # ``unlink``'s protocol return is a bare bool with no error channel, so any failure — a
         # transport fault or a sandbox-reported reason — can only be reported as ``False``. Log it
-        # first in both branches so a failed delete is diagnosable rather than a silent ``False``.
+        # first in both branches so a failed unlink is diagnosable rather than a silent ``False``.
         try:
             resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
         except httpx.HTTPError as exc:
-            logger.warning("Sandbox delete transport failure for %s: %s", virtual_path, exc)
+            logger.warning("Sandbox unlink transport failure for %s: %s", virtual_path, exc)
             return False
         if resp.error is not None:
-            logger.warning("Sandbox delete failed for %s: %s", virtual_path, _fs_error_text(resp.error))
+            logger.warning("Sandbox unlink failed for %s: %s", virtual_path, _fs_error_text(resp.error))
             return False
         if not resp.removed:
-            # Idempotent success: the path was already absent. Match ``DAIVFilesystemBackend.delete``
-            # (``unlink(missing_ok=True)``), which also reports success for a no-op delete.
-            logger.debug("Sandbox delete: %s was already absent (nothing removed)", virtual_path)
+            # Idempotent success: the path was already absent. Match ``DAIVFilesystemBackend.unlink``
+            # (``Path.unlink(missing_ok=True)``), which also reports success for a no-op removal.
+            logger.debug("Sandbox unlink: %s was already absent (nothing removed)", virtual_path)
         return True
 
     async def stat_mode(self, virtual_path: str) -> int:

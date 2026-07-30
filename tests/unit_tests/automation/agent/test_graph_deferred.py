@@ -1,11 +1,15 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from deepagents.backends.protocol import BackendProtocol
+
 
 def _common_patches():
     """Patches that disable side effects unrelated to the deferred-tools wiring."""
     return [
-        patch("automation.agent.graph.build_disk_workspace_backend"),
-        patch("automation.agent.graph.DAIVCompositeBackend"),
+        # Spec'd instances: deepagents 0.7 rejects a backend that is callable but not a
+        # `BackendProtocol`, which a bare mock otherwise is.
+        patch("automation.agent.graph.build_disk_workspace_backend", return_value=MagicMock(spec=BackendProtocol)),
+        patch("automation.agent.graph.DAIVCompositeBackend", return_value=MagicMock(spec=BackendProtocol)),
         patch("automation.agent.graph.create_general_purpose_subagent"),
         patch("automation.agent.graph.create_explore_subagent"),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),

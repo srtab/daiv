@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deactivated users are now rejected on the API-key and MCP OAuth bearer paths (previously outstanding keys/tokens kept working).
 - MCP `submit_job` now enforces the same per-user rate limit as the REST jobs and chat endpoints.
 - MCP `get_job_status` and job pollers are now scoped to the authenticated user.
+- Upgraded `deepagents` to 0.7.0, whose leaner tool descriptions reduce the tool-schema tokens sent on every agent turn. Each agent now declares its filesystem tool set explicitly: the recursive `delete` tool 0.7 adds is deliberately not exposed (the sandbox's delete RPC removes a single file, not a directory tree), and the read-only subagents (`explore` and the code-review detectors) no longer carry write tools in their schema at all.
 
 ### Added
 
