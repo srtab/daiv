@@ -43,10 +43,13 @@ def _patch_run_lifecycle():
 
 def _mock_ctx(*_args, **_kwargs):
     """Async context manager yielding a MagicMock — stands in for ``open_checkpointer``
-    / ``set_runtime_ctx`` so we don't touch Redis or clone a repo.
+    / ``set_runtime_ctx`` so we don't touch Redis or clone a repo. ``repo.ref`` matches
+    ``_streamer``'s ref so the ref-fallback branch stays dormant here.
     """
     ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+    entered = MagicMock()
+    entered.repo.ref = "main"
+    ctx.__aenter__ = AsyncMock(return_value=entered)
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
 
@@ -718,3 +721,43 @@ class TestReasoningProvenance:
         assert out, "expected a text chunk to produce events"
         # Upstream sets raw_event to the whole LangGraph event, not just its metadata.
         assert all(ev.raw_event.get("event") == "on_chat_model_stream" for ev in out)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
+    """When set_runtime_ctx checked out a different ref than requested (fallback), the streamer
+    self-heals Session.ref and emits a ref_fallback event before agent output."""
+
+    def _fallback_ctx(*_args, **_kwargs):
+        ctx = MagicMock()
+        entered = MagicMock()
+        entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
+        ctx.__aenter__ = AsyncMock(return_value=entered)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    reset_calls = []
+
+    async def _capture_reset(thread_id, new_ref):
+        reset_calls.append((thread_id, new_ref))
+
+    emitted = []
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=_capture_reset),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamer = _streamer()  # ref="main"
+        async for ev in streamer.events():
+            emitted.append(ev)
+
+    assert reset_calls == [("t-stream", "dev")]
+    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
+    assert len(fallback_events) == 1
+    assert fallback_events[0].value == {"requested": "main", "using": "dev"}

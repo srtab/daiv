@@ -200,6 +200,7 @@ class ChatRunStreamer:
 
     async def events(self) -> AsyncIterator[BaseEvent]:
         last_mr: MergeRequest | None = None
+        effective_ref = self.ref
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
         # stream error as a RUN_ERROR *event* and then returns normally (it does not raise),
@@ -229,15 +230,30 @@ class ChatRunStreamer:
                     ref=self.ref,
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
+                    fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):
+                if runtime_ctx.repo.ref != self.ref:
+                    effective_ref = runtime_ctx.repo.ref
+                    logger.warning(
+                        "chat: ref %r no longer exists for thread_id=%s; fell back to default branch %r",
+                        self.ref,
+                        self.thread_id,
+                        effective_ref,
+                    )
+                    await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                    yield CustomEvent(
+                        type=EventType.CUSTOM,
+                        name="ref_fallback",
+                        value={"requested": self.ref, "using": effective_ref},
+                    )
                 # Record the turn as a RUNNING Run once we're committed to executing.
                 chat_run = await start_chat_run(
                     session_id=self.thread_id,
                     user_id=self.user_id,
                     prompt=self.prompt,
                     repo_id=self.repo_id,
-                    ref=self.ref,
+                    ref=effective_ref,
                     message_id=self.message_id,
                 )
                 agent_kwargs = get_daiv_agent_kwargs(
@@ -364,7 +380,7 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, self.ref, last_mr)
+                    await ChatSessionService.persist_ref(self.thread_id, effective_ref, last_mr)
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:
