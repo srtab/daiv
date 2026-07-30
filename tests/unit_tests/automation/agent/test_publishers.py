@@ -216,6 +216,22 @@ class TestCreateMergeRequestDescription:
         assert "#10" in description
         assert "!10" not in description
 
+    async def test_fallback_mr_inherits_original_target(self):
+        """A protected-branch fallback MR targets the original MR's target, not the default."""
+        publisher = self._make_publisher_with_no_issue()
+        original = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
+
+        await publisher._create_merge_request("feature-fix", "Title", "Body", fallback_from_mr=original)
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "release/x"
+
+    async def test_new_mr_targets_default_without_fallback(self):
+        publisher = self._make_publisher_with_no_issue()
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
 
 class TestBuildIssueCreationUrl:
     def test_gitlab_url_format(self):

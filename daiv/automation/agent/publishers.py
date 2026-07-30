@@ -300,10 +300,16 @@ class GitChangePublisher(ChangePublisher):
                 else self.ctx.issue.assignee.username
             )
 
+        target_branch = (
+            fallback_from_mr.target_branch
+            if fallback_from_mr is not None
+            else cast("str", self.ctx.config.default_branch)
+        )
+
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
-            target_branch=cast("str", self.ctx.config.default_branch),
+            target_branch=target_branch,
             labels=[BOT_LABEL],
             title=title,
             assignee_id=assignee_id,
