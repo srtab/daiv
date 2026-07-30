@@ -424,7 +424,8 @@ class TestGitLabClient:
         assert exc_info.value.repo_slug == "group/repo"
         assert clone_from.call_count == 1
 
-    def test_get_merge_request_maps_merged_state(self, gitlab_client):
+    @pytest.mark.parametrize("merged", [True, False])
+    def test_get_merge_request_maps_merged_state(self, gitlab_client, merged):
         """get_merge_request maps GitLab ``state == "merged"`` onto ``MergeRequest.merged`` — the
         value the merged-MR skip guard in address_mr_comments_task reads."""
 
@@ -445,11 +446,8 @@ class TestGitLabClient:
         mock_project = Mock()
         gitlab_client.client.projects.get.return_value = mock_project
 
-        mock_project.mergerequests.get.return_value = _mr("merged")
-        assert gitlab_client.get_merge_request("group/repo", 7).merged is True
-
-        mock_project.mergerequests.get.return_value = _mr("opened")
-        assert gitlab_client.get_merge_request("group/repo", 7).merged is False
+        mock_project.mergerequests.get.return_value = _mr("merged" if merged else "opened")
+        assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
