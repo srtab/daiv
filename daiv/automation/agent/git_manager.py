@@ -7,6 +7,7 @@ import re
 import subprocess  # noqa: S404
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from git import GitCommandError
 
@@ -83,8 +84,6 @@ class GitManager:
         sandbox_backend: The run's bound :class:`SandboxFileBackend` for sandbox mode.
         repo_path: Repo path inside the sandbox (defaults to ``REPO_PATH``).
     """
-
-    BRANCH_NAME_MAX_ATTEMPTS = 10
 
     def __init__(
         self,
@@ -430,32 +429,26 @@ class GitManager:
                 branches.append(ref[len("refs/heads/") :])
         return branches
 
-    def unique_branch_name(
-        self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS
-    ) -> str:
+    def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
         """
-        Generate a unique branch name.
+        Generate a branch name that does not collide with an existing remote branch.
+
+        Returns ``original_branch_name`` untouched when it is free; otherwise appends a
+        random suffix. A random suffix (rather than an incrementing counter) means naming
+        can never exhaust and abort the publish, which would discard the agent's work.
 
         Args:
-            original_branch_name: The original branch name.
-            existing_branch_names: The existing branch names.
-            max_attempts: The maximum number of attempts to generate a unique branch name.
+            original_branch_name: The preferred branch name.
+            existing_branch_names: Remote branch names to avoid colliding with.
 
         Returns:
-            A unique branch name.
+            A branch name absent from ``existing_branch_names``.
         """
-        suffix_count = 1
+        existing = set(existing_branch_names)
         branch_name = original_branch_name
 
-        while branch_name in existing_branch_names and suffix_count < max_attempts:
-            branch_name = f"{original_branch_name}-{suffix_count}"
-            suffix_count += 1
-
-        if suffix_count == max_attempts:
-            raise ValueError(
-                f"Failed to generate a unique branch name for {original_branch_name}, "
-                f"max attempts reached {max_attempts}."
-            )
+        while branch_name in existing:
+            branch_name = f"{original_branch_name}-{uuid4().hex[:8]}"
 
         return branch_name
 
