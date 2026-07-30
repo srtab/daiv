@@ -743,11 +743,14 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
 
     emitted = []
 
+    start_chat_run = AsyncMock(return_value=SimpleNamespace(pk="run-pk"))
+
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.start_chat_run", new=start_chat_run),
         patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
         patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
@@ -761,3 +764,5 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
     assert len(fallback_events) == 1
     assert fallback_events[0].value == {"requested": "main", "using": "dev"}
+    # The Run row must record the effective (fallen-back) ref, not the requested one.
+    assert start_chat_run.call_args.kwargs["ref"] == "dev"
