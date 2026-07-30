@@ -126,10 +126,20 @@ def test_gen_unique_branch_name_returns_original_when_available() -> None:
     assert gm.unique_branch_name("feature", ["main"]) == "feature"
 
 
-def test_gen_unique_branch_name_raises_when_max_attempts_exceeded() -> None:
+def test_gen_unique_branch_name_appends_random_suffix_on_collision() -> None:
     gm, _ = _sandbox_manager()
-    with pytest.raises(ValueError, match="max attempts reached 3"):
-        gm.unique_branch_name("feature", ["feature", "feature-1", "feature-2"], max_attempts=3)
+    result = gm.unique_branch_name("feature", ["feature"])
+    assert result != "feature"
+    assert result.startswith("feature-")
+    assert result not in {"feature"}
+
+
+def test_gen_unique_branch_name_never_returns_an_existing_name() -> None:
+    gm, _ = _sandbox_manager()
+    existing = ["feature", *(f"feature-{i}" for i in range(1, 20))]
+    result = gm.unique_branch_name("feature", existing)
+    assert result not in existing
+    assert result.startswith("feature-")
 
 
 # ---------------------------------------------------------------------------
