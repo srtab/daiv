@@ -987,19 +987,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         mr = project.mergerequests.get(merge_request_id)
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=cast("int", mr.get_id()),
-            source_branch=mr.source_branch,
-            target_branch=mr.target_branch,
-            title=mr.title,
-            description=mr.description,
-            labels=mr.labels,
-            web_url=mr.web_url,
-            sha=mr.sha,
-            author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
-            merged=mr.state == "merged",
-        )
+        return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged")
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """
@@ -1176,7 +1164,9 @@ class GitLabClient(RepoClient):
             and (note_types is None or note["type"] in note_types)
         ]
 
-    def _serialize_merge_request(self, repo_id: str, merge_request: ProjectMergeRequest) -> MergeRequest:
+    def _serialize_merge_request(
+        self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False
+    ) -> MergeRequest:
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=cast("int", merge_request.get_id()),
@@ -1193,4 +1183,5 @@ class GitLabClient(RepoClient):
                 name=merge_request.author.get("name"),
             ),
             draft=merge_request.work_in_progress,
+            merged=merged,
         )

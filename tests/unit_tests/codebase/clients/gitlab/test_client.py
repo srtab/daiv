@@ -441,6 +441,7 @@ class TestGitLabClient:
             mock_mr.sha = "abc123"
             mock_mr.author = {"id": 1, "username": "alice", "name": "Alice"}
             mock_mr.state = state
+            mock_mr.work_in_progress = False
             return mock_mr
 
         mock_project = Mock()
