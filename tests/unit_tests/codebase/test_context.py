@@ -361,6 +361,38 @@ async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
                     pass
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_set_runtime_ctx_reraises_when_missing_ref_is_the_default_branch():
+    """Fallback enabled but the gone ref already IS the default branch: there is nothing to fall
+    back to, so the error propagates and the clone is attempted only once."""
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+
+    gone_cm = MagicMock()
+    gone_cm.__enter__ = MagicMock(side_effect=CloneRefNotFoundError("main", "r/p"))
+    gone_cm.__exit__ = MagicMock(return_value=False)
+
+    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+        client = mock_client_factory.return_value
+        client.get_repository.return_value = type("R", (), {"name": "x", "slug": "r/p"})()
+        client.git_platform = "gitlab"
+        client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None
+        client.load_repo.side_effect = [gone_cm]
+
+        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+            from codebase.repo_config import RepositoryConfig
+
+            gc.return_value = RepositoryConfig.model_validate({"default_branch": "main"})
+            with pytest.raises(CloneRefNotFoundError):
+                async with set_runtime_ctx(
+                    repo_id="r/p", scope=RepoScope.GLOBAL, ref="main", fallback_ref_on_missing=True
+                ) as _:
+                    pass
+
+    assert client.load_repo.call_count == 1
+
+
 def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
     """A CloneRefNotFoundError raised by the *yielded body* must propagate, not trigger a fallback.
 

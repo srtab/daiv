@@ -241,7 +241,12 @@ class ChatRunStreamer:
                         self.thread_id,
                         effective_ref,
                     )
-                    await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                    try:
+                        await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                    except Exception:
+                        # The fallback clone already succeeded; a failed session re-pin must not paint
+                        # a viable run as RUN_ERROR. The ref_fallback event still moves the UI.
+                        logger.exception("chat: failed to reset session ref for thread_id=%s", self.thread_id)
                     yield CustomEvent(
                         type=EventType.CUSTOM,
                         name="ref_fallback",

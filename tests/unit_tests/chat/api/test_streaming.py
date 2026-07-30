@@ -766,3 +766,37 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     assert fallback_events[0].value == {"requested": "main", "using": "dev"}
     # The Run row must record the effective (fallen-back) ref, not the requested one.
     assert start_chat_run.call_args.kwargs["ref"] == "dev"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_ref_fallback_survives_reset_ref_failure():
+    """The fallback clone already succeeded, so a failed session re-pin must not abort the run:
+    the ref_fallback event still fires and no RUN_ERROR is emitted."""
+
+    def _fallback_ctx(*_args, **_kwargs):
+        ctx = MagicMock()
+        entered = MagicMock()
+        entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
+        ctx.__aenter__ = AsyncMock(return_value=entered)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    emitted = []
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=RuntimeError("db down")),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamer = _streamer()  # ref="main"
+        async for ev in streamer.events():
+            emitted.append(ev)
+
+    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
+    assert len(fallback_events) == 1
+    assert [e for e in emitted if e.type == EventType.RUN_ERROR] == []

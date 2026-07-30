@@ -461,6 +461,33 @@ class TestGitHubClient:
         assert result.merge_request_id == 7
         assert "Multiple open PRs" in caplog.text
 
+    def test_get_merge_request_maps_merged_state(self, github_client):
+        """get_merge_request reflects the PR's ``merged`` flag — the value the merged-MR skip guard
+        in address_mr_comments_task reads."""
+
+        def _pr(merged):
+            mock_pr = Mock()
+            mock_pr.head = Mock(ref="feat-x", sha="abc123")
+            mock_pr.base = Mock(ref="main")
+            mock_pr.title = "feat: add x"
+            mock_pr.body = "details"
+            mock_pr.labels = []
+            mock_pr.html_url = "https://github.com/o/r/pull/7"
+            user = Mock(id=1, login="alice")
+            user.name = "Alice"
+            mock_pr.user = user
+            mock_pr.merged = merged
+            return mock_pr
+
+        mock_repo = Mock()
+        github_client.client.get_repo.return_value = mock_repo
+
+        mock_repo.get_pull.return_value = _pr(True)
+        assert github_client.get_merge_request("owner/repo", 7).merged is True
+
+        mock_repo.get_pull.return_value = _pr(False)
+        assert github_client.get_merge_request("owner/repo", 7).merged is False
+
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()
         mock_repo.get_branch.return_value = Mock(protected=True)

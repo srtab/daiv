@@ -424,6 +424,33 @@ class TestGitLabClient:
         assert exc_info.value.repo_slug == "group/repo"
         assert clone_from.call_count == 1
 
+    def test_get_merge_request_maps_merged_state(self, gitlab_client):
+        """get_merge_request maps GitLab ``state == "merged"`` onto ``MergeRequest.merged`` — the
+        value the merged-MR skip guard in address_mr_comments_task reads."""
+
+        def _mr(state):
+            mock_mr = Mock()
+            mock_mr.get_id.return_value = 7
+            mock_mr.source_branch = "feat-x"
+            mock_mr.target_branch = "main"
+            mock_mr.title = "feat: add x"
+            mock_mr.description = "details"
+            mock_mr.labels = []
+            mock_mr.web_url = "https://gitlab.com/group/repo/-/merge_requests/7"
+            mock_mr.sha = "abc123"
+            mock_mr.author = {"id": 1, "username": "alice", "name": "Alice"}
+            mock_mr.state = state
+            return mock_mr
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        mock_project.mergerequests.get.return_value = _mr("merged")
+        assert gitlab_client.get_merge_request("group/repo", 7).merged is True
+
+        mock_project.mergerequests.get.return_value = _mr("opened")
+        assert gitlab_client.get_merge_request("group/repo", 7).merged is False
+
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
         mock_project = Mock()
