@@ -303,6 +303,7 @@ class GitManager:
 
         # merge-base is not gated like the others: exit 1 ("no common ancestor") is expected for
         # unrelated histories, so fall back to the base tip; any other non-zero exit is a real failure.
+        base_ref = f"origin/{base_branch}"
         if mergebase_res.exit_code == 0 and mergebase_res.output.strip():
             base_ref = mergebase_res.output.strip().splitlines()[0]
         elif mergebase_res.exit_code == 1:
@@ -311,10 +312,8 @@ class GitManager:
                 "falling back to the branch tip for the diff base.",
                 base_branch,
             )
-            base_ref = f"origin/{base_branch}"
         else:
-            self._require_ok(batch_a[1], mergebase_res)  # bad/missing ref (exit 128) raises; exit-0-no-SHA → tip
-            base_ref = f"origin/{base_branch}"
+            self._require_ok(batch_a[1], mergebase_res)  # exit 128 (bad ref) raises; exit-0-no-SHA keeps the tip
 
         # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent
         # credential lands here before the push. Classify it as the same actionable transport error a

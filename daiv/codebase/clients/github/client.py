@@ -547,18 +547,16 @@ class GitHubClient(RepoClient):
         owner = repo_id.split("/", 1)[0]
         prs = repo.get_pulls(state="open", head=f"{owner}:{source_branch}", sort="created", direction="asc")
         # GitHub's `head` filter (owner:ref) is only advisory; re-check head.ref client-side so a
-        # loosely-matched filter can't return a PR on a different branch name.
-        matches = [p for p in prs if p.head.ref == source_branch]
-        if len(matches) > 1:
-            logger.warning(
-                "Multiple open PRs for head %s in %s; using the oldest (#%s).",
-                source_branch,
-                repo_id,
-                matches[0].number,
-            )
-        pr = matches[0] if matches else None
+        # loosely-matched filter can't return a PR on a different branch name. Pull lazily (like
+        # GitLab): take the first match, then peek one more only to detect duplicates.
+        matches = (p for p in prs if p.head.ref == source_branch)
+        pr = next(matches, None)
         if pr is None:
             return None
+        if next(matches, None) is not None:
+            logger.warning(
+                "Multiple open PRs for head %s in %s; using the oldest (#%s).", source_branch, repo_id, pr.number
+            )
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=pr.number,
