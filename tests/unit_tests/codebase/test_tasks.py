@@ -1,12 +1,66 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 
 import codebase.tasks as codebase_tasks
-from codebase.base import MergeRequestCommit, MergeRequestDiffStats
+from codebase.base import MergeRequest, MergeRequestCommit, MergeRequestDiffStats, User
+from codebase.exceptions import CloneRefNotFoundError
+
+
+def _mr(*, merged: bool) -> MergeRequest:
+    return MergeRequest(
+        repo_id="group/repo",
+        merge_request_id=7,
+        source_branch="chore/x",
+        target_branch="dev",
+        title="t",
+        description="d",
+        web_url="https://git/group/repo/-/merge_requests/7",
+        author=User(id=1, username="u", name="U"),
+        merged=merged,
+    )
+
+
+async def test_address_mr_comments_skips_when_merged():
+    from codebase.tasks import address_mr_comments_task
+
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=True)
+
+    with (
+        patch("codebase.tasks.RepoClient.create_instance", return_value=client),
+        patch("codebase.tasks.set_runtime_ctx") as set_ctx,
+    ):
+        result = await address_mr_comments_task.func(repo_id="group/repo", merge_request_id=7, mention_comment_id="d1")
+
+    set_ctx.assert_not_called()
+    client.create_merge_request_comment.assert_called_once()
+    assert "already been merged" in result["response"]
+    assert result["code_changes"] is False
+
+
+async def test_address_mr_comments_skips_when_branch_gone():
+    from codebase.tasks import address_mr_comments_task
+
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=False)
+
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(side_effect=CloneRefNotFoundError("chore/x", "group/repo"))
+    ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("codebase.tasks.RepoClient.create_instance", return_value=client),
+        patch("codebase.tasks.set_runtime_ctx", return_value=ctx),
+    ):
+        result = await address_mr_comments_task.func(repo_id="group/repo", merge_request_id=7, mention_comment_id="d1")
+
+    client.create_merge_request_comment.assert_called_once()
+    assert "no longer exists" in result["response"]
+    assert result["code_changes"] is False
 
 
 async def test_setup_webhooks_cron_task_calls_command():

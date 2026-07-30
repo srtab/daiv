@@ -998,6 +998,7 @@ class GitLabClient(RepoClient):
             web_url=mr.web_url,
             sha=mr.sha,
             author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
+            merged=mr.state == "merged",
         )
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:

@@ -97,6 +97,7 @@ class MergeRequest(BaseModel):
     sha: str | None = None
     author: User
     draft: bool = False
+    merged: bool = False
 
 
 class MergeRequestDiff(BaseModel):

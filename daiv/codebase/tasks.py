@@ -14,14 +14,28 @@ from codebase.base import GitPlatform, Scope
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
+from codebase.exceptions import CloneRefNotFoundError
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
 from core.utils import locked_task
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
+    from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.tasks")
+
+
+def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
+    from automation.agent.results import AgentResult
+
+    return AgentResult(
+        response=response,
+        code_changes=False,
+        merge_request_id=merge_request.merge_request_id,
+        merge_request_web_url=merge_request.web_url,
+        usage=None,
+    )
 
 
 if codebase_settings.CLIENT == GitPlatform.GITLAB:
@@ -383,16 +397,42 @@ async def address_mr_comments_task(
     """
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
-    async with set_runtime_ctx(
-        repo_id,
-        scope=Scope.MERGE_REQUEST,
-        ref=merge_request.source_branch,
-        merge_request=merge_request,
-        sandbox_env_id=sandbox_environment_id,
-    ) as runtime_ctx:
-        return await CommentsAddressorManager.address_comments(
-            merge_request=merge_request,
-            mention_comment_id=mention_comment_id,
-            runtime_ctx=runtime_ctx,
-            thread_id=thread_id,
+
+    if merge_request.merged:
+        response = (
+            f"This merge request has already been merged, so I can't act on comments left against "
+            f"its branch (`{merge_request.source_branch}`). Please open a new issue or merge request "
+            f"for any follow-up changes."
         )
+        logger.warning("Skipping MR-comment run for %s!%s: already merged.", repo_id, merge_request_id)
+        client.create_merge_request_comment(repo_id, merge_request_id, body=response)
+        return _mr_comment_skip_result(response, merge_request)
+
+    try:
+        async with set_runtime_ctx(
+            repo_id,
+            scope=Scope.MERGE_REQUEST,
+            ref=merge_request.source_branch,
+            merge_request=merge_request,
+            sandbox_env_id=sandbox_environment_id,
+        ) as runtime_ctx:
+            return await CommentsAddressorManager.address_comments(
+                merge_request=merge_request,
+                mention_comment_id=mention_comment_id,
+                runtime_ctx=runtime_ctx,
+                thread_id=thread_id,
+            )
+    except CloneRefNotFoundError:
+        response = (
+            f"The source branch `{merge_request.source_branch}` for this merge request no longer "
+            f"exists, so I can't check it out to address this comment. If it was merged and deleted, "
+            f"please open a new issue or merge request for any follow-up changes."
+        )
+        logger.warning(
+            "Skipping MR-comment run for %s!%s: source branch %r no longer exists.",
+            repo_id,
+            merge_request_id,
+            merge_request.source_branch,
+        )
+        client.create_merge_request_comment(repo_id, merge_request_id, body=response)
+        return _mr_comment_skip_result(response, merge_request)

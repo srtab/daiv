@@ -768,6 +768,7 @@ class GitHubClient(RepoClient):
             web_url=mr.html_url,
             sha=mr.head.sha,
             author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
+            merged=mr.merged,
         )
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
