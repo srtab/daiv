@@ -181,14 +181,14 @@ def _build_detector_middleware(
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
-    Narrower than the general-purpose stack: filesystem is read-only (detectors only
-    read the diff + surrounding code), the sandbox is kept so detectors can run ``git``
-    reads (it's a full bash sandbox, not git-restricted), and there is no git-platform
-    middleware (detectors never post), no web tools, and no ``TodoListMiddleware``.
+    The narrowest stack DAIV builds: a read-only filesystem restricted to ``READ_ONLY_FS_TOOLS``
+    (detectors only read the canonical diff and surrounding code for context) plus the shared
+    subagent middleware. No sandbox, no git-platform middleware (detectors never post), no web
+    tools, and no ``TodoListMiddleware``.
 
-    Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
-    and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
-    parent's session (``close_session=False``). Each detector returns its markdown report as its
+    Having no sandbox is what makes the read-only contract structural rather than prompt-level: with
+    no shell reachable, a detector cannot mutate the shared workspace even if its charter is ignored
+    or overridden by injected repository content. Each detector returns its markdown report as its
     final message directly to the review orchestrator.
     """
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
