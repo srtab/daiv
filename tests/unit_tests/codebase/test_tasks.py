@@ -50,7 +50,6 @@ async def test_address_mr_comments_skips_when_branch_gone():
 
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(side_effect=CloneRefNotFoundError("chore/x", "group/repo"))
-    ctx.__aexit__ = AsyncMock(return_value=None)
 
     with (
         patch("codebase.tasks.RepoClient.create_instance", return_value=client),
