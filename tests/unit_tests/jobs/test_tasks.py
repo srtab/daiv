@@ -20,17 +20,17 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     agent.ainvoke = AsyncMock(return_value=fake_result)
 
     with (
-        patch("jobs.tasks.open_checkpointer") as cp_ctx,
-        patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
-        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
+        patch("core.checkpointer.open_checkpointer") as cp_ctx,
+        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
-            "jobs.tasks.get_daiv_agent_kwargs",
+            "automation.agent.utils.get_daiv_agent_kwargs",
             return_value={"model_names": ["claude-4-7-opus"], "thinking_level": "medium"},
         ),
-        patch("jobs.tasks.build_langsmith_config", return_value={"configurable": {"thread_id": "t-123"}}),
-        patch("jobs.tasks.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
-        patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
-        patch("jobs.tasks.track_usage_metadata"),
+        patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {"thread_id": "t-123"}}),
+        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
         sentinel_checkpointer = object()
         cp_ctx.return_value.__aenter__.return_value = sentinel_checkpointer
@@ -68,13 +68,15 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     # the assertion below is what matters.
     with (
         patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("jobs.tasks.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("jobs.tasks.open_checkpointer"),
-        patch("jobs.tasks.create_daiv_agent", AsyncMock()),
-        patch("jobs.tasks.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}),
-        patch("jobs.tasks.build_langsmith_config", return_value={}),
-        patch("jobs.tasks.track_usage_metadata"),
-        patch("jobs.tasks.build_agent_result", AsyncMock(return_value="ok")),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer"),
+        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
+        patch(
+            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
+        ),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
+        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
         suppress(Exception),
     ):
         await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
@@ -102,14 +104,14 @@ async def test_run_job_task_forwards_overrides():
         return {"model_names": ["captured"], "thinking_level": kwargs.get("agent_thinking_level")}
 
     with (
-        patch("jobs.tasks.open_checkpointer") as cp_ctx,
-        patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
-        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)),
-        patch("jobs.tasks.get_daiv_agent_kwargs", side_effect=capture),
-        patch("jobs.tasks.build_langsmith_config", return_value={}),
-        patch("jobs.tasks.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
-        patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
-        patch("jobs.tasks.track_usage_metadata"),
+        patch("core.checkpointer.open_checkpointer") as cp_ctx,
+        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch("automation.agent.utils.get_daiv_agent_kwargs", side_effect=capture),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
@@ -152,17 +154,17 @@ async def test_run_job_task_persists_resolved_model():
 
     with (
         patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("jobs.tasks.open_checkpointer") as cp_ctx,
-        patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
-        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch("core.checkpointer.open_checkpointer") as cp_ctx,
+        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
-            "jobs.tasks.get_daiv_agent_kwargs",
+            "automation.agent.utils.get_daiv_agent_kwargs",
             return_value={"model_names": ["openrouter:z-ai/glm-5.2", "fallback"], "thinking_level": "xhigh"},
         ),
-        patch("jobs.tasks.build_langsmith_config", return_value={}),
-        patch("jobs.tasks.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
-        patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
-        patch("jobs.tasks.track_usage_metadata"),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
@@ -197,9 +199,12 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
 
     with (
         patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
-        patch("jobs.tasks.open_checkpointer"),
-        patch("jobs.tasks.set_runtime_ctx", _boom),
-        patch("jobs.tasks.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": "high"}),
+        patch("core.checkpointer.open_checkpointer"),
+        patch("codebase.context.set_runtime_ctx", _boom),
+        patch(
+            "automation.agent.utils.get_daiv_agent_kwargs",
+            return_value={"model_names": ["m"], "thinking_level": "high"},
+        ),
         pytest.raises(RuntimeError, match="git clone failed"),
     ):
         await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-fail", run_id=str(run.pk))

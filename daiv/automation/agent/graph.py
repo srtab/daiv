@@ -49,6 +49,7 @@ from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -73,6 +74,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agent")
+
+_register_harness_profile()
 
 
 # Tools always bound to the model; everything else is deferred behind tool_search.

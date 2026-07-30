@@ -94,7 +94,7 @@ async def test_extraction_creates_observation_rows():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
     ):
         cfg.get_config.return_value = _enabled_config()
@@ -120,7 +120,7 @@ async def test_extraction_reconstructs_deltachannel_messages():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with_delta(writes)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with_delta(writes)),
         patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
     ):
         cfg.get_config.return_value = _enabled_config()
@@ -137,7 +137,7 @@ async def test_extraction_skips_when_checkpoint_expired():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(None)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(None)),
         patch("memory.tasks._build_structured_llm") as build,
     ):
         cfg.get_config.return_value = _enabled_config()
@@ -155,7 +155,7 @@ async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with([])),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with([])),
         patch("memory.tasks._build_structured_llm") as build,
         caplog.at_level("WARNING", logger="daiv.memory"),
     ):
@@ -173,7 +173,7 @@ async def test_extraction_respects_daiv_yml_flag():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm") as build,
     ):
         cfg.get_config.return_value = _enabled_config(enabled=False)
@@ -200,7 +200,7 @@ async def test_extraction_uses_configured_models(fallback_model, expected_models
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)) as build,
         patch(
             "memory.tasks.site_settings",
@@ -224,7 +224,7 @@ async def test_extraction_noop_when_no_model_configured():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm") as build,
         patch(
             "memory.tasks.site_settings",
@@ -245,7 +245,7 @@ async def test_extraction_noop_when_site_disabled():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm") as build,
         patch("memory.tasks.site_settings", _site_settings(memory_enabled=False)),
     ):
@@ -292,7 +292,7 @@ async def test_extraction_noop_when_model_spec_invalid():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm", side_effect=ValueError("Unknown/Unsupported provider for model")),
     ):
         cfg.get_config.return_value = _enabled_config()
@@ -311,7 +311,7 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm", return_value=failing_llm),
         pytest.raises(RuntimeError),
     ):

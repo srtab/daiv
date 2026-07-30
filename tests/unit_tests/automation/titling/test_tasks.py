@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sessions.models import Run, Session, SessionOrigin
 
-from automation.titling import tasks as titling_tasks
+from automation.agent.base import BaseAgent
 from automation.titling.tasks import GeneratedTitle, _ref_is_informative, generate_batch_title_task, generate_title_task
 
 
@@ -66,7 +66,7 @@ class TestGenerateTitleTask:
         )
 
     def test_returns_silently_when_entity_missing(self):
-        with patch.object(titling_tasks.BaseAgent, "get_model") as get_model:
+        with patch.object(BaseAgent, "get_model") as get_model:
             generate_title_task.func(
                 entity_type="run", pk="00000000-0000-0000-0000-000000000000", prompt="any", repo_id="x/y"
             )
@@ -78,28 +78,28 @@ class TestGenerateTitleTask:
         need to protect manual edits.)
         """
         run = self._make_run(title="Heuristic placeholder")
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM generated")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="LLM generated")):
             generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
         run.refresh_from_db()
         assert run.title == "LLM generated"
 
     def test_returns_when_model_not_configured(self):
         run = self._make_run()
-        with patch.object(titling_tasks.BaseAgent, "get_model", side_effect=RuntimeError("no key")):
+        with patch.object(BaseAgent, "get_model", side_effect=RuntimeError("no key")):
             generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
         run.refresh_from_db()
         assert run.title == ""
 
     def test_writes_generated_title(self):
         run = self._make_run()
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
             generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo")
         run.refresh_from_db()
         assert run.title == "Add login feature"
 
     def test_writes_generated_title_for_session_entity(self):
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Session title")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="Session title")):
             generate_title_task.func(
                 entity_type="session", pk=session.thread_id, prompt="do a thing", repo_id="group/repo"
             )
@@ -111,7 +111,7 @@ class TestGenerateTitleTask:
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/repo"
         )
         run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="group/repo")
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Run title")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="Run title")):
             generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="do a thing", repo_id="group/repo")
         run.refresh_from_db()
         assert run.title == "Run title"
@@ -119,7 +119,7 @@ class TestGenerateTitleTask:
     def test_user_text_includes_branch_when_informative(self):
         run = self._make_run()
         capture: dict = {}
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_title_task.func(
                 entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="feat/copilotkit-chat"
             )
@@ -131,7 +131,7 @@ class TestGenerateTitleTask:
     def test_user_text_omits_branch_for_generic_ref(self):
         run = self._make_run()
         capture: dict = {}
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_title_task.func(
                 entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="main"
             )
@@ -142,7 +142,7 @@ class TestGenerateTitleTask:
         run = self._make_run()
         capture: dict = {}
         long_prompt = "x" * 1000
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_title_task.func(entity_type="run", pk=str(run.pk), prompt=long_prompt, repo_id="group/repo")
         human_text = capture["messages"][-1].content
         assert human_text.endswith("x" * 500)
@@ -163,7 +163,7 @@ class TestGenerateBatchTitleTask:
         batch_id = uuid.uuid4()
         members = [self._make_run(batch_id, repo_id=f"o/r{i}") for i in range(3)]
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
 
         for run in members:
@@ -175,7 +175,7 @@ class TestGenerateBatchTitleTask:
         batch_id = uuid.uuid4()
         run = self._make_run(batch_id, repo_id="o/r")
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Batch title")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="Batch title")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
         session = Session.objects.get(pk=run.session_id)
@@ -185,7 +185,7 @@ class TestGenerateBatchTitleTask:
         batch_id = uuid.uuid4()
         run = self._make_run(batch_id, repo_id="o/r", session_title="Session pinned")
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
         session = Session.objects.get(pk=run.session_id)
@@ -197,7 +197,7 @@ class TestGenerateBatchTitleTask:
             self._make_run(batch_id, repo_id=f"o/r{i}")
 
         chain = _fake_chain(title="One shared title")
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=chain):
+        with patch.object(BaseAgent, "get_model", return_value=chain):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
         # ``invoke`` is the actual LLM call; building the chain may call other Mock methods
@@ -208,7 +208,7 @@ class TestGenerateBatchTitleTask:
         batch_id = uuid.uuid4()
         run = self._make_run(batch_id, title="Already set")
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
         run.refresh_from_db()
@@ -220,7 +220,7 @@ class TestGenerateBatchTitleTask:
         prefilled = self._make_run(batch_id, title="job · run #1", repo_id="o/sched")
         empty = self._make_run(batch_id, repo_id="o/r")
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
         prefilled.refresh_from_db()
@@ -235,7 +235,7 @@ class TestGenerateBatchTitleTask:
         self._make_run(batch_id, repo_id="o/r2")
         capture: dict = {}
 
-        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
+        with patch.object(BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
 
         human_text = capture["messages"][-1].content
@@ -246,7 +246,7 @@ class TestGenerateBatchTitleTask:
     def test_returns_when_model_not_configured(self):
         batch_id = uuid.uuid4()
         run = self._make_run(batch_id)
-        with patch.object(titling_tasks.BaseAgent, "get_model", side_effect=RuntimeError("no key")):
+        with patch.object(BaseAgent, "get_model", side_effect=RuntimeError("no key")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
         run.refresh_from_db()
         assert run.title == ""

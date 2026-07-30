@@ -12,16 +12,11 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
-from langchain_core.messages import HumanMessage, SystemMessage
 
-from automation.agent.base import BaseAgent
 from codebase.repo_config import RepositoryConfig
-from core.checkpointer import aresolve_thread_messages, open_checkpointer
 from core.site_settings import site_settings
 from memory.models import MemoryObservation, ObservationStatus, RepositoryMemory
-from memory.prompts import consolidation_human, consolidation_system, extraction_human, extraction_system
 from memory.schemas import ConsolidatedMemory, ExtractedObservations
-from memory.transcript import serialize_transcript
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -45,6 +40,7 @@ def _build_structured_llm(schema: type, model_names: Sequence[str]):
     No ``max_tokens`` cap: reasoning models count reasoning tokens toward the budget,
     so a tight cap starves the structured-output JSON.
     """
+    from automation.agent.base import BaseAgent
 
     def _structured(model_name: str):
         return BaseAgent.get_model(model=model_name).with_structured_output(schema).with_retry(stop_after_attempt=2)
@@ -77,6 +73,10 @@ async def consolidate_memory_task(repo_id: str) -> None:
     Throttling is the caller's job (see ``consolidate_memory_cron_task``); this is not
     deduplicated, so a redundant trigger simply finds 0 pending observations and no-ops.
     """
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from memory.prompts import consolidation_human, consolidation_system
+
     if not site_settings.memory_enabled:
         logger.info("consolidate_memory_task: memory disabled site-wide, skipping repo %s", repo_id)
         return
@@ -185,7 +185,12 @@ async def extract_observations_task(run_id: str) -> None:
     lost. Losing a single run's learnings is an accepted trade-off; agent runs
     are unaffected because this runs out-of-band.
     """
+    from langchain_core.messages import HumanMessage, SystemMessage
     from sessions.models import Run
+
+    from core.checkpointer import aresolve_thread_messages, open_checkpointer
+    from memory.prompts import extraction_human, extraction_system
+    from memory.transcript import serialize_transcript
 
     if not site_settings.memory_enabled:
         logger.info("extract_observations_task: memory disabled site-wide, skipping run %s", run_id)

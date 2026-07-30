@@ -6,8 +6,3 @@ class AutomationConfig(AppConfig):
     name = "automation"
     label = "automation"
     verbose_name = _("Automation")
-
-    def ready(self):
-        from automation.agent.profile import register as register_harness_profile
-
-        register_harness_profile()

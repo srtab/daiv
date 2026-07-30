@@ -1,19 +1,14 @@
 import asyncio
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from django_tasks import task
-from langchain_core.messages import HumanMessage
 from sessions.locks import SessionLock
 from sessions.models import Run, Session
 
-from automation.agent.graph import create_daiv_agent
-from automation.agent.results import AgentResult, build_agent_result
-from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
-from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-from codebase.base import Scope
-from codebase.context import set_runtime_ctx
-from core.checkpointer import open_checkpointer
+if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.jobs")
 
@@ -111,6 +106,17 @@ async def run_job_task(
     Webhook callers (issue/review addressors) bypass this task and call
     ``create_daiv_agent`` directly; ``use_max`` is therefore not accepted here.
     """
+    # Heavy imports live here so enqueue-side importers of this module stay light.
+    from langchain_core.messages import HumanMessage
+
+    from automation.agent.graph import create_daiv_agent
+    from automation.agent.results import build_agent_result
+    from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
+    from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
+    from codebase.base import Scope
+    from codebase.context import set_runtime_ctx
+    from core.checkpointer import open_checkpointer
+
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 

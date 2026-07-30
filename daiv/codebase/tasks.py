@@ -15,8 +15,6 @@ from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
-from codebase.managers.issue_addressor import IssueAddressorManager
-from codebase.managers.review_addressor import CommentsAddressorManager
 from core.utils import locked_task
 
 if TYPE_CHECKING:
@@ -235,6 +233,8 @@ async def address_issue_task(
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
+    from codebase.managers.issue_addressor import IssueAddressorManager
+
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)
     async with set_runtime_ctx(
@@ -395,6 +395,8 @@ async def address_mr_comments_task(
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
+    from codebase.managers.review_addressor import CommentsAddressorManager
+
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
 
