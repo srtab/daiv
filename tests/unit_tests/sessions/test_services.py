@@ -17,8 +17,8 @@ from sessions.services import (
     aget_or_create_session,
     asubmit_batch_runs,
     submit_batch_runs,
-    validate_repo_list,
 )
+from sessions.validators import validate_repo_list
 
 pytestmark = pytest.mark.django_db
 

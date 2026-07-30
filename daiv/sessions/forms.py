@@ -17,7 +17,7 @@ from sandbox_envs.models import SandboxEnvironment
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 from core.models import ThinkingLevelChoices
-from sessions.services import validate_repo_list
+from sessions.validators import validate_repo_list
 
 
 class RepoListField(forms.JSONField):
