@@ -819,19 +819,18 @@ class TestGitLabClient:
         assert kwargs["per_page"] == 100
 
     def test_get_merge_request_by_branches_returns_first_open_match(self, gitlab_client):
-        """When an open MR exists for the source/target pair, return the serialized MR."""
+        """When an open MR exists for the source branch, return the serialized MR."""
         mock_project = Mock()
         mock_mr = Mock()
         mock_project.mergerequests.list.return_value = iter([mock_mr])
         gitlab_client.client.projects.get.return_value = mock_project
         sentinel = Mock(name="serialized")
         with patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize:
-            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x")
 
         assert result is sentinel
-        mock_project.mergerequests.list.assert_called_once_with(
-            source_branch="feat-x", target_branch="main", state="opened", iterator=True
-        )
+        mock_project.mergerequests.list.assert_called_once_with(source_branch="feat-x", state="opened", iterator=True)
+        assert "target_branch" not in mock_project.mergerequests.list.call_args.kwargs
         serialize.assert_called_once_with("group/repo", mock_mr)
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, gitlab_client):
@@ -867,7 +866,7 @@ class TestGitLabClient:
         mock_project.mergerequests.list.return_value = iter([])
         gitlab_client.client.projects.get.return_value = mock_project
 
-        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x")
 
         assert result is None
 

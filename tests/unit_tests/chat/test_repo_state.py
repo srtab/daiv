@@ -64,7 +64,7 @@ async def test_returns_payload_on_happy_path():
     assert result == mr_to_payload(_make_mr())
     assert result["id"] == 42
     assert result["draft"] is True
-    repo_client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x", "main")
+    repo_client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
 
 
 async def test_returns_none_when_lookup_returns_none():

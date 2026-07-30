@@ -529,23 +529,23 @@ class GitHubClient(RepoClient):
             draft=pr.draft,
         )
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
-        Return the open pull request for this source/target branch pair, or ``None``.
+        Return the open pull request whose head branch is ``source_branch`` (any base), or ``None``.
 
         Args:
             repo_id: The repository ID.
-            source_branch: The source branch.
-            target_branch: The target branch.
+            source_branch: The head branch.
 
         Returns:
-            The pull request if one open PR matches, otherwise ``None``.
+            The first open PR with this head branch, otherwise ``None``.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
-        prs = repo.get_pulls(state="open", base=target_branch, head=source_branch)
-        pr = next(iter(prs), None)
+        owner = repo_id.split("/", 1)[0]
+        prs = repo.get_pulls(state="open", head=f"{owner}:{source_branch}")
+        # GitHub's `head` filter expects ``owner:ref`` and is only advisory; confirm the ref
+        # client-side so a mis-parsed filter can never return an unrelated open PR.
+        pr = next((p for p in prs if p.head.ref == source_branch), None)
         if pr is None:
             return None
         return MergeRequest(

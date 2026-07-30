@@ -750,24 +750,19 @@ class GitLabClient(RepoClient):
         # error, if the branch genuinely never appeared — is the caller's to handle.
         return project.mergerequests.create(payload)
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
-        Return the open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch`` (any target), or ``None``.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
 
         Returns:
-            The merge request if one open MR matches, otherwise ``None``.
+            The first open MR with this source branch, otherwise ``None``.
         """
         project = self.client.projects.get(repo_id, lazy=True)
-        merge_requests = project.mergerequests.list(
-            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
-        )
+        merge_requests = project.mergerequests.list(source_branch=source_branch, state="opened", iterator=True)
         merge_request = next(merge_requests, None)
         if merge_request is None:
             return None

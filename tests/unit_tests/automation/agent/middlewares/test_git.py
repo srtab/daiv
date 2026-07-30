@@ -357,7 +357,23 @@ class TestGitMiddleware:
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is existing_mr
-        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x", "main")
+        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
+
+    async def test_alookup_open_mr_returns_nondefault_target_mr(self):
+        """The lookup no longer filters on target, so an MR targeting a release branch is found."""
+        runtime = _make_runtime()
+        existing_mr = MagicMock(source_branch="feature-x", target_branch="release/x")
+        client = MagicMock()
+        client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
+        ):
+            mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
+
+        assert mr.target_branch == "release/x"
+        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
 
     async def test_alookup_open_mr_skips_detached_head(self):
         """Commit-pinned runs (SWE-bench evals check out a raw SHA) have no branch, so

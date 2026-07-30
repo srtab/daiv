@@ -335,14 +335,10 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """SWE runs have no merge-request concept: there is never an open MR, so report
-        none rather than raising — platform-agnostic callers (e.g. GitMiddleware's
-        pre-run MR lookup) then fall through gracefully. Defense in depth: that lookup
-        already short-circuits on the detached HEAD typical of SWE runs, so this only
-        fires for hypothetical branch-based ones."""
+        none rather than raising — platform-agnostic callers (e.g. GitMiddleware's pre-run
+        MR lookup) then fall through gracefully."""
         return None
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
