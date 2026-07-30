@@ -773,27 +773,34 @@ class GitLabClient(RepoClient):
             return False
         return True
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
-        Return the open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch`` (any target), or ``None``.
+
+        A source branch can feed several open MRs (to different targets); ``order_by``/``sort`` pin the
+        pick to the oldest so the choice is deterministic rather than API-default ordering.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
 
         Returns:
-            The merge request if one open MR matches, otherwise ``None``.
+            The oldest open MR with this source branch, otherwise ``None``.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_requests = project.mergerequests.list(
-            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
+            source_branch=source_branch, state="opened", order_by="created_at", sort="asc", iterator=True
         )
         merge_request = next(merge_requests, None)
         if merge_request is None:
             return None
+        if next(merge_requests, None) is not None:
+            logger.warning(
+                "Multiple open MRs for source branch %s in %s; using the oldest (!%s).",
+                source_branch,
+                repo_id,
+                merge_request.iid,
+            )
         return self._serialize_merge_request(repo_id, merge_request)
 
     def update_merge_request(

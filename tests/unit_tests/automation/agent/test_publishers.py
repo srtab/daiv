@@ -217,6 +217,22 @@ class TestCreateMergeRequestDescription:
         assert "#10" in description
         assert "!10" not in description
 
+    async def test_fallback_mr_inherits_original_target(self):
+        """A protected-branch fallback MR targets the original MR's target, not the default."""
+        publisher = self._make_publisher_with_no_issue()
+        original = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
+
+        await publisher._create_merge_request("feature-fix", "Title", "Body", fallback_from_mr=original)
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "release/x"
+
+    async def test_new_mr_targets_default_without_fallback(self):
+        publisher = self._make_publisher_with_no_issue()
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
 
 class TestBuildIssueCreationUrl:
     def test_gitlab_url_format(self):
@@ -452,7 +468,7 @@ class TestPublishSuggestsContextFile:
         assert result == PublishOutcome(merge_request=None, published=True, protected_branch_fallback_source="dev")
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
-        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
+        existing_mr = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager()
@@ -482,6 +498,9 @@ class TestPublishSuggestsContextFile:
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
+            # The original MR's non-default target flows through to the fallback (paired with the unit
+            # test that _create_merge_request derives target_branch from it).
+            assert mock_create_mr.call_args.kwargs["fallback_from_mr"].target_branch == "release/x"
             # No fallback comment is posted from the publisher itself.
             publisher.client.create_merge_request_comment.assert_not_called()
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
@@ -598,6 +617,58 @@ class TestPublishDecision:
         assert outcome == PublishOutcome(merge_request=mr, published=False)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
+
+    async def test_diffs_against_existing_mr_target_branch(self, monkeypatch):
+        """An in-review MR targeting a non-default branch is diffed against that branch, not main."""
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
+        gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(merge_request=mr)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
+        assert gm.status_snapshot.await_args.kwargs["mr_source_branch"] == "feat/x"
+        # Clean tree already on its MR → no duplicate MR, no metadata call.
+        assert outcome == PublishOutcome(merge_request=mr, published=False)
+        meta.assert_not_called()
+
+    async def test_diffs_against_existing_mr_target_branch_on_dirty_tree(self, monkeypatch):
+        """A dirty tree on a non-default-target MR still diffs against that target and proceeds to
+        commit/push — guards against a regression recomputing the base below the clean short-circuit."""
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
+        gm = _fake_git_manager()  # dirty=True, has_unpushed=True → publish proceeds
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feat/x", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ) as meta,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=mr)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
+        meta.assert_called_once()  # proceeded past the clean short-circuit
+        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True)
+        assert outcome == PublishOutcome(merge_request=mr, published=True)
+
+    async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata"):
+            await publisher.publish(merge_request=None)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "main"
 
 
 def test_create_merge_request_and_suggest_are_async():

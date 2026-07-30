@@ -73,7 +73,7 @@ async def aget_existing_mr_payload(repo_id: str, ref: str) -> dict[str, Any] | N
         if ref == config.default_branch:
             return None
         client = RepoClient.create_instance()
-        mr = await sync_to_async(client.get_merge_request_by_branches)(repo_id, ref, config.default_branch)
+        mr = await sync_to_async(client.get_merge_request_by_branches)(repo_id, ref)
     except _PLATFORM_ERRORS:
         logger.exception("Failed to look up existing merge request for %s on %s", repo_id, ref)
         return None

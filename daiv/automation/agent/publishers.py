@@ -82,6 +82,12 @@ class GitChangePublisher(ChangePublisher):
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
+        # The diff base is the MR's real target — for a branch stacked off a release branch that is
+        # the release branch, not the default. status_snapshot then diffs against the merge-base of
+        # this branch and HEAD. Falls back to the default branch when there is no MR (or a blank target).
+        base_branch = (
+            merge_request.target_branch if merge_request is not None and merge_request.target_branch else default_branch
+        )
 
         # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
         # .git/config deliberately holds no credential — overlay the per-run credential on its git
@@ -101,7 +107,7 @@ class GitChangePublisher(ChangePublisher):
             sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
             snapshot = await git_manager.status_snapshot(
-                base_branch=default_branch,
+                base_branch=base_branch,
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
@@ -311,10 +317,16 @@ class GitChangePublisher(ChangePublisher):
                 else self.ctx.issue.assignee.username
             )
 
+        target_branch = (
+            fallback_from_mr.target_branch
+            if fallback_from_mr is not None
+            else cast("str", self.ctx.config.default_branch)
+        )
+
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
-            target_branch=cast("str", self.ctx.config.default_branch),
+            target_branch=target_branch,
             labels=[BOT_LABEL],
             title=title,
             assignee_id=assignee_id,

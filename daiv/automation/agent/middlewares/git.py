@@ -268,9 +268,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
         try:
             client = RepoClient.create_instance(git_platform=context.git_platform)
-            return await sync_to_async(client.get_merge_request_by_branches)(
-                context.repository.slug, current_branch, context.config.default_branch
-            )
+            return await sync_to_async(client.get_merge_request_by_branches)(context.repository.slug, current_branch)
         except _MR_LOOKUP_PLATFORM_ERRORS:
             logger.exception(
                 "Failed to look up open merge request for %s on %s", context.repository.slug, current_branch

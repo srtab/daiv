@@ -425,19 +425,18 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
-        Return the first open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch`` (regardless of its
+        target branch), or ``None``. When several open MRs share the source branch, the oldest is
+        returned so the choice is deterministic.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
 
         Returns:
-            The first open MR matching the branch pair, or ``None`` if none exist.
+            The oldest open MR with this source branch, or ``None`` if none exist.
         """
         pass
 
