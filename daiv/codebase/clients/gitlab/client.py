@@ -35,9 +35,9 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
-from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
 from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri, is_git_auth_error_text
+from core.utils import async_download_url, build_uri, is_git_auth_error_text, is_git_ref_not_found_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -396,7 +396,12 @@ class GitLabClient(RepoClient):
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             clone_dir = Path(tmpdir) / "repo"
-            repo = self._clone(repository, sha, clone_dir)
+            try:
+                repo = self._clone(repository, sha, clone_dir)
+            except GitCommandError as e:
+                if is_git_ref_not_found_text(f"{e.stderr or ''} {e}"):
+                    raise CloneRefNotFoundError(sha, repository.slug) from e
+                raise
             self._configure_commit_identity(repo)
             yield repo
 
