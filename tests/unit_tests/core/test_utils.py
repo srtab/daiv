@@ -12,6 +12,7 @@ from core.utils import (
     build_uri,
     extract_valid_image_mimetype,
     is_git_auth_error_text,
+    is_git_ref_not_found_text,
     is_valid_url,
     locked_task,
     prefixed_email_subject,
@@ -83,6 +84,20 @@ class IsGitAuthErrorTextTest:
     )
     def test_non_auth_text_returns_false(self, text):
         assert is_git_auth_error_text(text) is False
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("fatal: Remote branch chore/x not found in upstream origin", True),
+        ("Remote branch feature-1 not found in upstream origin\n", True),
+        ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
+        ("fatal: unable to access '...': Could not resolve host", False),  # network
+        ("", False),
+    ],
+)
+def test_is_git_ref_not_found_text(text, expected):
+    assert is_git_ref_not_found_text(text) is expected
 
 
 class IsValidUrlTest:

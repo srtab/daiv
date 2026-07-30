@@ -47,6 +47,17 @@ def is_git_auth_error_text(text: str) -> bool:
     )
 
 
+def is_git_ref_not_found_text(text: str) -> bool:
+    """True when git clone output indicates the requested branch/ref does not exist on the remote.
+
+    Distinct from an auth or network failure: retrying is pointless — a deleted branch will not
+    reappear — so callers fall back or skip instead of surfacing an opaque GitCommandError. Git's
+    wording for ``git clone --branch <x>`` against a missing ref is ``Remote branch <x> not found
+    in upstream origin``.
+    """
+    return "not found in upstream" in text.lower()
+
+
 def build_absolute_url(path: str) -> str:
     """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()
