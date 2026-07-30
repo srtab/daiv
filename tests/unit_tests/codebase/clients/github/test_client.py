@@ -2,6 +2,7 @@ import logging
 from unittest.mock import Mock, patch
 
 import pytest
+from git import GitCommandError
 from github import Consts, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
@@ -10,6 +11,7 @@ from github.PullRequestComment import PullRequestComment
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
+from codebase.exceptions import CloneRefNotFoundError
 
 
 class TestGitHubClient:
@@ -459,6 +461,31 @@ class TestGitHubClient:
         assert result.merge_request_id == 7
         assert "Multiple open PRs" in caplog.text
 
+    @pytest.mark.parametrize("merged", [True, False])
+    def test_get_merge_request_maps_merged_state(self, github_client, merged):
+        """get_merge_request reflects the PR's ``merged`` flag — the value the merged-MR skip guard
+        in address_mr_comments_task reads."""
+
+        def _pr(merged):
+            mock_pr = Mock()
+            mock_pr.head = Mock(ref="feat-x", sha="abc123")
+            mock_pr.base = Mock(ref="main")
+            mock_pr.title = "feat: add x"
+            mock_pr.body = "details"
+            mock_pr.labels = []
+            mock_pr.html_url = "https://github.com/o/r/pull/7"
+            user = Mock(id=1, login="alice")
+            user.name = "Alice"
+            mock_pr.user = user
+            mock_pr.merged = merged
+            return mock_pr
+
+        mock_repo = Mock()
+        github_client.client.get_repo.return_value = mock_repo
+
+        mock_repo.get_pull.return_value = _pr(merged)
+        assert github_client.get_merge_request("owner/repo", 7).merged is merged
+
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()
         mock_repo.get_branch.return_value = Mock(protected=True)
@@ -522,3 +549,26 @@ class TestGitHubClient:
             input={"permissions": {"contents": "write"}, "repository_ids": [42]},
         )
         github_client._integration.get_access_token.assert_not_called()
+
+    def test_github_load_repo_raises_clone_ref_not_found_when_branch_gone(self, github_client):
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+        clone_error = GitCommandError("git clone", 128, "fatal: Remote branch gone-branch not found in upstream origin")
+
+        with (
+            patch.object(type(github_client), "_mint_installation_token", return_value="ghs-token"),
+            patch("codebase.clients.github.client.Repo.clone_from", side_effect=clone_error),
+            pytest.raises(CloneRefNotFoundError) as exc_info,
+            github_client.load_repo(repository, "gone-branch"),
+        ):
+            pass
+
+        assert exc_info.value.ref == "gone-branch"
+        assert exc_info.value.repo_slug == "owner/repo"

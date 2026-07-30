@@ -15,7 +15,12 @@ from codebase.exceptions import SingleRepoRequiredError
 
 def _make_handle() -> RepoHandle:
     return RepoHandle(
-        repo_id="acme/api", git_platform=Mock(), repository=Mock(slug="acme/api"), gitrepo=Mock(), config=Mock()
+        repo_id="acme/api",
+        git_platform=Mock(),
+        repository=Mock(slug="acme/api"),
+        gitrepo=Mock(),
+        config=Mock(),
+        ref="main",
     )
 
 

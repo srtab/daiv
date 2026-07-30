@@ -844,6 +844,12 @@
         } else {
           this._pushRunStatus("failed", evt.message || "Run failed.");
         }
+      } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
+        // The pinned branch was merged/deleted; the server fell back to the default branch
+        // and re-pinned the session. Move the composer ref pill so the UI matches reality.
+        const v = evt.value || {};
+        if (v.using) this._applyRepoState({ ref: v.using });
+        console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight

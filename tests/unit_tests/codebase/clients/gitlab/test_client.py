@@ -383,7 +383,9 @@ class TestGitLabClient:
 
     def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must
-        not trigger the token-rotation retry."""
+        not trigger the token-rotation retry; ref-not-found errors surface as CloneRefNotFoundError."""
+        from codebase.exceptions import CloneRefNotFoundError
+
         repository, clone_from, _ = clone_setup
         clone_from.side_effect = GitCommandError(
             "git clone", 128, "fatal: Remote branch nope not found in upstream origin"
@@ -392,13 +394,61 @@ class TestGitLabClient:
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
-            pytest.raises(GitCommandError),
+            pytest.raises(CloneRefNotFoundError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
 
         invalidate.assert_not_called()
         assert clone_from.call_count == 1
+
+    def test_load_repo_raises_clone_ref_not_found_when_branch_gone(self, gitlab_client, clone_setup):
+        """A merged-and-deleted branch surfaces as CloneRefNotFoundError, not a raw GitCommandError,
+        and is not retried (it is not an auth failure)."""
+        from codebase.exceptions import CloneRefNotFoundError
+
+        repository, clone_from, _ = clone_setup
+        clone_from.side_effect = GitCommandError(
+            "git clone", 128, "fatal: Remote branch gone-branch not found in upstream origin"
+        )
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            pytest.raises(CloneRefNotFoundError) as exc_info,
+            gitlab_client.load_repo(repository, "gone-branch"),
+        ):
+            pass
+
+        assert exc_info.value.ref == "gone-branch"
+        assert exc_info.value.repo_slug == "group/repo"
+        assert clone_from.call_count == 1
+
+    @pytest.mark.parametrize("merged", [True, False])
+    def test_get_merge_request_maps_merged_state(self, gitlab_client, merged):
+        """get_merge_request maps GitLab ``state == "merged"`` onto ``MergeRequest.merged`` — the
+        value the merged-MR skip guard in address_mr_comments_task reads."""
+
+        def _mr(state):
+            mock_mr = Mock()
+            mock_mr.get_id.return_value = 7
+            mock_mr.source_branch = "feat-x"
+            mock_mr.target_branch = "main"
+            mock_mr.title = "feat: add x"
+            mock_mr.description = "details"
+            mock_mr.labels = []
+            mock_mr.web_url = "https://gitlab.com/group/repo/-/merge_requests/7"
+            mock_mr.sha = "abc123"
+            mock_mr.author = {"id": 1, "username": "alice", "name": "Alice"}
+            mock_mr.state = state
+            mock_mr.work_in_progress = False
+            return mock_mr
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        mock_project.mergerequests.get.return_value = _mr("merged" if merged else "opened")
+        assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""

@@ -1,5 +1,6 @@
 import logging
-from contextlib import asynccontextmanager
+import sys
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -8,14 +9,14 @@ from git import Repo  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
-from codebase.exceptions import SingleRepoRequiredError
+from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
 
 logger = logging.getLogger("daiv.codebase")
@@ -61,6 +62,9 @@ class RepoHandle:
     repository: Repository
     gitrepo: Repo
     config: RepositoryConfig
+    ref: str
+    """The branch/ref actually checked out — may differ from the requested ref when a
+    vanished branch triggered a fallback to the default branch."""
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,40 @@ class RuntimeCtx:
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
 
 
+@contextmanager
+def _load_repo_with_optional_fallback(
+    repo_client: RepoClient, repository: Repository, ref: str, default_branch: str, fallback: bool
+) -> Iterator[tuple[Repo, str]]:
+    """Clone ``repository`` at ``ref``; on a vanished ref, optionally retry on ``default_branch``.
+
+    Yields ``(repo, effective_ref)``. The clone is acquired inside the ``try/except`` but the
+    ``yield`` sits OUTSIDE it, so only a clone-acquisition failure can reach the except — an
+    exception raised by the yielded body is thrown back at the ``yield`` (via ``gen.throw()``)
+    and unwinds the ``finally`` teardown, never the fallback branch. When ``fallback`` is False,
+    or the missing ref already *is* the default branch, the ``CloneRefNotFoundError`` propagates.
+    """
+    try:
+        cm = repo_client.load_repo(repository, sha=ref)
+        repo = cm.__enter__()
+        effective_ref = ref
+    except CloneRefNotFoundError:
+        if not fallback or ref == default_branch:
+            raise
+        logger.warning(
+            "Clone of %s failed because ref %r no longer exists on the remote; falling back to the default branch %r.",
+            repository.slug,
+            ref,
+            default_branch,
+        )
+        cm = repo_client.load_repo(repository, sha=default_branch)
+        repo = cm.__enter__()
+        effective_ref = default_branch
+    try:
+        yield repo, effective_ref
+    finally:
+        cm.__exit__(*sys.exc_info())
+
+
 @asynccontextmanager
 async def set_runtime_ctx(
     repo_id: str,
@@ -129,6 +167,7 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_env_id: str | None = None,
     acting_user_id: int | None = None,
+    fallback_ref_on_missing: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
@@ -146,6 +185,9 @@ async def set_runtime_ctx(
             :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
             to the GLOBAL default env if nothing matches.
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
+        fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
+            the remote (a merged-and-deleted branch) retries on the repository default branch
+            instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
     Yields:
@@ -188,7 +230,9 @@ async def set_runtime_ctx(
         client_token = set_run_sandbox_client(sandbox_client)
 
     try:
-        with repo_client.load_repo(repository, sha=ref) as repo:
+        with _load_repo_with_optional_fallback(
+            repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
+        ) as (repo, effective_ref):
             # Always reach + authenticate the repo's git platform for git-over-HTTPS in the sandbox — DAIV
             # pushes from inside the sandbox, so even a network-off env is opened for the platform host when
             # a token can be minted. Runtime-only (never stored on the env); a no-op only when the sandbox is
@@ -202,6 +246,7 @@ async def set_runtime_ctx(
                 repository=repository,
                 gitrepo=repo,
                 config=config,
+                ref=effective_ref,
             )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,

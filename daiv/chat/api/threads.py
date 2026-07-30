@@ -124,3 +124,12 @@ class ChatSessionService:
         new_ref = mr.get("source_branch") if isinstance(mr, dict) else getattr(mr, "source_branch", None)
         if new_ref and new_ref != original_ref:
             await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+    @staticmethod
+    async def reset_ref(thread_id: str, new_ref: str) -> None:
+        """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
+
+        Unlike ``persist_ref`` (success-only, driven by the agent's final MR), this fires the
+        moment the clone falls back, so the session self-heals even if the turn later fails.
+        """
+        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)

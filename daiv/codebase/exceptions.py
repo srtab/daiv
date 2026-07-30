@@ -24,3 +24,17 @@ class SingleRepoRequiredError(RuntimeError):
         detail = "got 0 (no repository supplied)" if actual == 0 else f"got {actual} (multi-repo not yet supported)"
         super().__init__(f"RuntimeCtx requires exactly one repository handle, {detail}.")
         self.actual = actual
+
+
+class CloneRefNotFoundError(RuntimeError):
+    """Raised when a clone fails because the requested branch/ref no longer exists on the remote.
+
+    The common trigger is a chat session (or an MR-comment run) pinned to a merge-request branch
+    that was merged and had its source branch deleted. Callers fall back to the default branch or
+    skip gracefully instead of letting an opaque ``GitCommandError`` reach Sentry.
+    """
+
+    def __init__(self, ref: str, repo_slug: str) -> None:
+        super().__init__(f"Ref '{ref}' does not exist on the remote for repository '{repo_slug}'.")
+        self.ref = ref
+        self.repo_slug = repo_slug
