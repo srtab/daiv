@@ -49,8 +49,12 @@ def _mock_stream(*_args, **_kwargs):
     open_checkpointer() and set_runtime_ctx() during tests so we exercise the ownership
     path without hitting Redis or cloning a repo.
     """
+    inner = MagicMock()
+    # Mirror the requested ref so streaming.py's fallback-ref guard doesn't fire.
+    if "ref" in _kwargs:
+        inner.repo.ref = _kwargs["ref"]
     ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+    ctx.__aenter__ = AsyncMock(return_value=inner)
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
 
