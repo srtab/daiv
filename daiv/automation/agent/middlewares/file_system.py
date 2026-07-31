@@ -7,7 +7,7 @@ import re
 import stat
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 import httpx
 import wcmatch.glob as wcglob
@@ -668,34 +668,6 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
     return _FS_TRANSPORT_PERMANENT_TEXT
 
 
-class _ReadWindow(NamedTuple):
-    """deepagents read-window fields for a sandbox text read (``total_lines`` stays unknown)."""
-
-    start_line: int | None
-    end_line: int | None
-    next_offset: int | None
-
-
-def _sandbox_read_window(content: str, offset: int, limit: int) -> _ReadWindow:
-    """Derive deepagents' read-window metadata (``start_line``, ``end_line``, ``next_offset``) from a
-    sandbox text read, so the filesystem middleware appends its "More lines remain from offset N"
-    notice on sandbox reads. Deepagents' own window logic needs the whole file and a total line
-    count; the sandbox windows server-side and ``fs_read`` returns neither, so it is derived here.
-
-    ``total_lines`` is left unset (deepagents' notice handles the unknown-total case) and
-    ``next_offset`` is a heuristic: a window filled to the requested ``limit`` signals more may
-    remain. A file whose length is an exact multiple of the window over-advertises a ``next_offset``
-    that a re-read then rejects as an invalid offset — self-correcting, and better than never
-    signalling truncation.
-    """
-    line_count = len(content.splitlines())
-    if line_count == 0:
-        return _ReadWindow(None, None, None)
-    end_line = offset + line_count
-    next_offset = end_line if line_count >= limit else None
-    return _ReadWindow(offset + 1, end_line, next_offset)
-
-
 class SandboxFileBackend(BackendProtocol):
     """Deepagents backend whose files live in a sandbox workspace, and the run's
     command-execution handle (``run_commands``).
@@ -841,9 +813,28 @@ class SandboxFileBackend(BackendProtocol):
         # file and the empty-file sentinel is not file content.
         if encoding == "base64" or content == EMPTY_CONTENT_WARNING:
             return ReadResult(file_data=file_data)
-        window = _sandbox_read_window(content, offset, limit)
+        if resp.truncated:
+            logger.warning(
+                "Sandbox read of %r was truncated at the response byte limit; window ends at line %s",
+                file_path,
+                resp.end_line,
+            )
+        if resp.total_lines is None:
+            # The sandbox predates the read-window fields, so the pagination notice silently
+            # disappears. Deriving a window from the returned text instead would count the
+            # truncation banner as source lines and skip real ones — never guess, but stay visible.
+            logger.warning("Sandbox read of %r returned no line metadata; deploy a newer sandbox", file_path)
+        start_line = offset + 1
+        end_line = resp.end_line
+        if end_line is None or end_line < start_line:
+            return ReadResult(file_data=file_data)
+        total_lines = resp.total_lines
         return ReadResult(
-            file_data=file_data, start_line=window.start_line, end_line=window.end_line, next_offset=window.next_offset
+            file_data=file_data,
+            start_line=start_line,
+            end_line=end_line,
+            total_lines=total_lines,
+            next_offset=end_line if total_lines is not None and end_line < total_lines else None,
         )
 
     async def agrep(

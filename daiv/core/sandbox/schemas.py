@@ -147,6 +147,25 @@ class FsReadResponse(BaseModel):
     encoding: Literal["utf-8", "base64"] | None = Field(
         default=None, description="Encoding of `content`: 'utf-8' for text, 'base64' for binary."
     )
+    total_lines: int | None = Field(
+        default=None,
+        description=(
+            "Total source lines in the file. Text reads only; null for binary reads, the empty-file "
+            "sentinel, and every error."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description=(
+            "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's "
+            "`offset` (an empty window) when a byte-capped page holds no complete line at all, i.e. a "
+            "single line longer than the read limit."
+        ),
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when the body was cut by the read byte limit; the text past `end_line` is a partial line.",
+    )
     error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
@@ -154,6 +173,10 @@ class FsGrepRequest(BaseModel):
     pattern: str = Field(description="Regular expression to search for (POSIX extended / ERE syntax).")
     path: str = Field(description="Absolute directory/file path under /workspace.")
     glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGrepMatch(BaseModel):
@@ -173,6 +196,10 @@ class FsGrepResponse(BaseModel):
 class FsGlobRequest(BaseModel):
     pattern: str = Field(description="Glob pattern (supports *, **, ?, [abc]).")
     path: str = Field(description="Absolute base directory under /workspace.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGlobResponse(BaseModel):

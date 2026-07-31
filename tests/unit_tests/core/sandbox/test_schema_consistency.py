@@ -27,10 +27,6 @@ def _normalize(schema):
 # StartSessionRequest accepts a Dockerfile alternative, and StartSessionResponse
 # isn't modelled on the daiv side.
 _SHARED_TYPES = [
-    "ApplyMutationsRequest",
-    "ApplyMutationsResponse",
-    "MutationResult",
-    "PutMutation",
     "FsLsRequest",
     "FsEntry",
     "FsLsResponse",
@@ -51,11 +47,23 @@ _SHARED_TYPES = [
     "EgressSecret",
     "EgressPolicy",
     "EgressConfigRequest",
-    "EgressConfigResponse",
 ]
 
 # Types that exist on both sides but are deliberately allowed to diverge.
 _INTENTIONALLY_DIVERGENT = {"RunCommandsRequest", "RunCommandsResponse", "RunCommandResult", "StartSessionRequest"}
+
+# Daiv-side models whose sandbox counterparts were deleted, so there is nothing left to pin them
+# against: the ``POST /session/{id}/files/`` endpoint behind ``ApplyMutations*``/``PutMutation``/
+# ``MutationResult`` was replaced by ``fs/*``, and ``EgressConfigResponse`` went with the standalone
+# egress endpoint. They survived only as stale keys in an un-refreshed dump. Absence is asserted
+# below so re-adding one on the sandbox side forces a conscious re-categorization here.
+_REMOVED_FROM_SANDBOX = {
+    "ApplyMutationsRequest",
+    "ApplyMutationsResponse",
+    "MutationResult",
+    "PutMutation",
+    "EgressConfigResponse",
+}
 
 
 @pytest.mark.parametrize("type_name", _SHARED_TYPES)
@@ -92,4 +100,10 @@ def test_shared_types_list_covers_dump():
     assert not untracked, (
         f"Types {sorted(untracked)} exist in both repos' schemas but are neither in _SHARED_TYPES "
         "nor in _INTENTIONALLY_DIVERGENT. Categorize them in the test."
+    )
+
+    resurrected = _REMOVED_FROM_SANDBOX & set(sandbox_dump)
+    assert not resurrected, (
+        f"Types {sorted(resurrected)} are back in the sandbox dump but are still listed as removed. "
+        "Move them to _SHARED_TYPES so they are pinned again."
     )

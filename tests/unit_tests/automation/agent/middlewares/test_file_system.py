@@ -673,8 +673,9 @@ class TestSandboxGrepTruncation:
 
 
 class TestSandboxReadPagination:
-    """`SandboxFileBackend.aread` must populate deepagents' read-window fields so the middleware
-    emits its truncation notice on sandbox reads (see `_sandbox_read_window`)."""
+    """`SandboxFileBackend.aread` maps the sandbox's reported line window onto deepagents'
+    read-window fields, so the middleware's pagination notice is server-side truth rather than a
+    count of the returned text (which would also count the truncation banner's rows)."""
 
     def _bound_backend(self, fs_read_response):
         from unittest.mock import AsyncMock
@@ -685,89 +686,94 @@ class TestSandboxReadPagination:
         client.fs_read = AsyncMock(return_value=fs_read_response)
         return SandboxFileBackend(client=client, session_id="sess-1")
 
-    async def test_full_window_advertises_more_lines(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(1, 101))  # exactly `limit` lines
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line == 1
-        assert result.end_line == 100
-        assert result.next_offset == 100, "a filled window signals more lines may remain"
-        assert result.total_lines is None, "the sandbox never reports a total line count"
-
-    async def test_partial_window_reports_end_of_file(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(1, 43))  # fewer than `limit` lines
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line == 1
-        assert result.end_line == 42
-        assert result.next_offset is None, "an unfilled window means EOF was reached"
-
-    async def test_window_is_anchored_at_the_requested_offset(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(51, 101))  # 50 lines starting at source line 51
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=50)
-
-        assert result.start_line == 51
-        assert result.end_line == 100
-        assert result.next_offset == 100
-
-    async def test_partial_window_at_a_nonzero_offset_reports_eof(self):
-        """A later page that comes back unfilled must report EOF with `end_line` anchored at the
-        offset — the arithmetic where an offset-ignoring bug would hide."""
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(51, 81))  # 30 lines from source line 51
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=100)
-
-        assert result.start_line == 51
-        assert result.end_line == 80
-        assert result.next_offset is None
-
-    async def test_contentless_read_carries_no_window(self):
-        """Empty content (the `resp.content or ""` coercion can reach the helper) must never
-        advertise a window — a zero-line window has nothing to paginate."""
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line is None
-        assert result.end_line is None
-        assert result.next_offset is None
-
-    async def test_notice_tells_the_model_more_lines_remain(self):
-        """End-to-end: the window fields must drive deepagents' actual truncation notice — the
-        behaviour the trace showed missing on sandbox reads."""
+    async def test_mid_file_page_reports_the_exact_remainder(self):
+        """The notice names the window and the exact number of lines left, which only the sandbox's
+        `total_lines` makes possible."""
         from deepagents.middleware.filesystem import _remaining_lines_notice
 
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
 
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=150))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line == 101
+        assert result.end_line == 150
+        assert result.total_lines == 400
+        assert result.next_offset == 150
+        assert "lines 101-150 of 400 total" in _remaining_lines_notice(result)
+        assert "250 lines remaining from offset 150" in _remaining_lines_notice(result)
+
+    async def test_final_page_emits_no_notice(self):
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(351, 401))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=400))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=350, limit=50)
+
+        assert result.end_line == 400
+        assert result.next_offset is None, "the window reached EOF"
+        assert _remaining_lines_notice(result) == ""
+
+    async def test_file_length_that_is_an_exact_multiple_of_limit_has_no_next_offset(self):
+        """The regression the derived-window heuristic knowingly shipped: a filled window used to
+        imply more lines remain, so this file advertised an offset the next read rejects."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
         content = "".join(f"line {i}\n" for i in range(1, 101))
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=100, end_line=100))
 
         result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
 
-        assert "More lines remain from offset 100" in _remaining_lines_notice(result)
+        assert result.end_line == 100
+        assert result.next_offset is None
+
+    async def test_byte_capped_page_resumes_at_the_partial_line(self, caplog):
+        """A capped page ends mid-line and carries a banner. The window must exclude both, so the
+        resume offset points *at* the partial line and re-reads it whole."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 98)) + "line 98 is cut he"
+        content += "\n\n[Output truncated: exceeded the 512000-byte read limit.]"
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=97, truncated=True)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line == 1
+        assert result.end_line == 97, "the banner rows and the cut line are not source lines"
+        assert result.total_lines == 400
+        assert result.next_offset == 97, "0-indexed 97 is 1-indexed line 98 — the line that was cut"
+        assert "truncated" in caplog.text
+
+    async def test_byte_capped_single_huge_line_carries_no_window(self):
+        """One line longer than the cap yields zero complete lines; there is no window to report and
+        the model is left with the sandbox's banner."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(
+            FsReadResponse(content="x" * 100, encoding="utf-8", total_lines=1, end_line=0, truncated=True)
+        )
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
 
     async def test_binary_read_carries_no_window(self):
         from automation.agent.constants import REPO_PATH
@@ -782,8 +788,8 @@ class TestSandboxReadPagination:
         assert result.next_offset is None
 
     async def test_empty_file_sentinel_carries_no_window(self):
-        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it must
-        not be line-windowed, even when `limit` is small enough to trip the full-window heuristic."""
+        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it is not
+        file content, so it is not line-windowed."""
         from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
 
         from automation.agent.constants import REPO_PATH
@@ -796,3 +802,23 @@ class TestSandboxReadPagination:
         assert result.start_line is None
         assert result.end_line is None
         assert result.next_offset is None
+
+    async def test_sandbox_without_line_metadata_drops_the_window_and_warns(self, caplog):
+        """A sandbox predating the wire fields returns them unset. Losing the notice is acceptable;
+        guessing a window is not — but the version skew must be visible to operators."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
+        assert "no line metadata" in caplog.text
