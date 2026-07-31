@@ -93,7 +93,7 @@ Parameters:
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
          class="picker-popover left-3 w-80">
-        <input type="search" name="q" autofocus
+        <input type="search" name="q" autofocus autocomplete="off"
                x-ref="repoSearch"
                placeholder="{{ search_repos_placeholder }}"
                hx-get="{{ repo_picker_url }}"
@@ -129,7 +129,7 @@ Parameters:
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
          class="picker-popover left-3 w-80">
-        <input type="search" name="q" autofocus
+        <input type="search" name="q" autofocus autocomplete="off"
                x-ref="branchSearch"
                placeholder="{{ search_branches_placeholder }}"
                hx-get="{{ branch_picker_template }}"
