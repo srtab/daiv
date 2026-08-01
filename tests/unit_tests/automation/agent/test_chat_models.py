@@ -1,14 +1,18 @@
 """Tests for the OpenRouter chat model subclass.
 
-Covers only DAIV's custom behavior (per project convention): reasoning
-extraction, the ``is_anthropic`` family flag, and the OpenRouter base-URL
-default. The upstream ChatOpenAI streaming machinery is not re-tested.
+Covers only DAIV's custom behavior (per project convention): reasoning capture
+(streaming and not) and round-trip, the ``is_anthropic`` family flag, and the
+OpenRouter base-URL default. The upstream ChatOpenAI machinery is not re-tested.
 """
 
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from automation.agent.chat_models import OPENROUTER_BASE_URL, ChatOpenRouter
+
+# Verbatim shape returned by openrouter for z-ai/glm-5.2 (no signature/id on this
+# provider; anthropic/… blocks add them, and are echoed back the same way).
+REASONING_BLOCK = {"type": "reasoning.text", "text": "Lisbon — call get_weather.", "format": "unknown", "index": 0}
 
 
 def _chunk(delta: dict) -> dict:
@@ -50,6 +54,86 @@ class TestChatOpenRouterReasoning:
 
         merged = g1.message + g2.message
         assert merged.additional_kwargs["reasoning_content"] == "Break it: 17*(20+3)."
+
+
+class TestChatOpenRouterNonStreamingCapture:
+    """Subagents call ``ainvoke``, so capture must not be streaming-only."""
+
+    def _response(self, message: dict) -> dict:
+        choice = {"index": 0, "message": {"role": "assistant", **message}}
+        return {"id": "c", "model": "z-ai/glm-5.2", "choices": [choice]}
+
+    def test_captures_reasoning_details_from_non_streaming_response(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        result = model._create_chat_result(
+            self._response({"content": None, "reasoning_details": [REASONING_BLOCK], "reasoning": "Lisbon."})
+        )
+
+        assert result.generations[0].message.additional_kwargs["reasoning_details"] == [REASONING_BLOCK]
+
+    def test_captures_reasoning_string_as_reasoning_content(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        result = model._create_chat_result(self._response({"content": "hi", "reasoning": "thinking"}))
+
+        assert result.generations[0].message.additional_kwargs["reasoning_content"] == "thinking"
+
+    def test_response_without_reasoning_is_untouched(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        result = model._create_chat_result(self._response({"content": "hi"}))
+
+        assert "reasoning_details" not in result.generations[0].message.additional_kwargs
+        assert "reasoning_content" not in result.generations[0].message.additional_kwargs
+
+
+class TestChatOpenRouterReasoningRoundTrip:
+    """Upstream ``_convert_message_to_dict`` drops ``additional_kwargs``; the payload
+    hook is what puts reasoning back on the wire."""
+
+    def test_reattaches_reasoning_details_to_assistant_message(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+        messages = [
+            HumanMessage("weather in Lisbon?"),
+            AIMessage(
+                content="",
+                additional_kwargs={"reasoning_details": [REASONING_BLOCK]},
+                tool_calls=[{"name": "get_weather", "args": {"city": "Lisbon"}, "id": "t1", "type": "tool_call"}],
+            ),
+            ToolMessage(content='{"temp_c": 19}', tool_call_id="t1"),
+        ]
+
+        payload = model._get_request_payload(messages)
+
+        assistant = payload["messages"][1]
+        assert assistant["reasoning_details"] == [REASONING_BLOCK]
+        assert assistant["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    def test_leaves_non_assistant_messages_alone(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        payload = model._get_request_payload([HumanMessage("hi"), ToolMessage(content="{}", tool_call_id="t1")])
+
+        assert all("reasoning_details" not in message for message in payload["messages"])
+
+    def test_assistant_without_reasoning_gets_no_field(self):
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        payload = model._get_request_payload([HumanMessage("hi"), AIMessage(content="hello")])
+
+        assert "reasoning_details" not in payload["messages"][1]
+
+    def test_display_only_reasoning_content_is_not_sent(self):
+        """``reasoning_content`` feeds the chat UI; only ``reasoning_details`` round-trips."""
+        model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
+
+        payload = model._get_request_payload([
+            HumanMessage("hi"),
+            AIMessage(content="hello", additional_kwargs={"reasoning_content": "thinking"}),
+        ])
+
+        assert "reasoning_content" not in payload["messages"][1]
 
 
 class TestChatOpenRouterFamily:
