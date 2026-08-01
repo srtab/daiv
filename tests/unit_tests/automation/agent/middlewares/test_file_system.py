@@ -670,3 +670,129 @@ class TestSandboxGrepTruncation:
         assert result.error.startswith("Grep 'foo(': ")
         assert "not a valid regular expression" in result.error
         assert "escape regex metacharacters" in result.error
+
+
+class TestSandboxReadPagination:
+    """`SandboxFileBackend.aread` must populate deepagents' read-window fields so the middleware
+    emits its truncation notice on sandbox reads (see `_sandbox_read_window`)."""
+
+    def _bound_backend(self, fs_read_response):
+        from unittest.mock import AsyncMock
+
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        client = AsyncMock()
+        client.fs_read = AsyncMock(return_value=fs_read_response)
+        return SandboxFileBackend(client=client, session_id="sess-1")
+
+    async def test_full_window_advertises_more_lines(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))  # exactly `limit` lines
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line == 1
+        assert result.end_line == 100
+        assert result.next_offset == 100, "a filled window signals more lines may remain"
+        assert result.total_lines is None, "the sandbox never reports a total line count"
+
+    async def test_partial_window_reports_end_of_file(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 43))  # fewer than `limit` lines
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line == 1
+        assert result.end_line == 42
+        assert result.next_offset is None, "an unfilled window means EOF was reached"
+
+    async def test_window_is_anchored_at_the_requested_offset(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(51, 101))  # 50 lines starting at source line 51
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=50)
+
+        assert result.start_line == 51
+        assert result.end_line == 100
+        assert result.next_offset == 100
+
+    async def test_partial_window_at_a_nonzero_offset_reports_eof(self):
+        """A later page that comes back unfilled must report EOF with `end_line` anchored at the
+        offset — the arithmetic where an offset-ignoring bug would hide."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(51, 81))  # 30 lines from source line 51
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=100)
+
+        assert result.start_line == 51
+        assert result.end_line == 80
+        assert result.next_offset is None
+
+    async def test_contentless_read_carries_no_window(self):
+        """Empty content (the `resp.content or ""` coercion can reach the helper) must never
+        advertise a window — a zero-line window has nothing to paginate."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.next_offset is None
+
+    async def test_notice_tells_the_model_more_lines_remain(self):
+        """End-to-end: the window fields must drive deepagents' actual truncation notice — the
+        behaviour the trace showed missing on sandbox reads."""
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert "More lines remain from offset 100" in _remaining_lines_notice(result)
+
+    async def test_binary_read_carries_no_window(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="Zm9vYmFy", encoding="base64"))
+
+        result = await backend.aread(f"{REPO_PATH}/img.png", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.next_offset is None
+
+    async def test_empty_file_sentinel_carries_no_window(self):
+        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it must
+        not be line-windowed, even when `limit` is small enough to trip the full-window heuristic."""
+        from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content=EMPTY_CONTENT_WARNING, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/empty.py", offset=0, limit=1)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.next_offset is None
