@@ -27,10 +27,6 @@ def _normalize(schema):
 # StartSessionRequest accepts a Dockerfile alternative, and StartSessionResponse
 # isn't modelled on the daiv side.
 _SHARED_TYPES = [
-    "ApplyMutationsRequest",
-    "ApplyMutationsResponse",
-    "MutationResult",
-    "PutMutation",
     "FsLsRequest",
     "FsEntry",
     "FsLsResponse",
@@ -51,7 +47,6 @@ _SHARED_TYPES = [
     "EgressSecret",
     "EgressPolicy",
     "EgressConfigRequest",
-    "EgressConfigResponse",
 ]
 
 # Types that exist on both sides but are deliberately allowed to diverge.

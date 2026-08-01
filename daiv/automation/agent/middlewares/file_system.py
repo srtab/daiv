@@ -668,32 +668,40 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
     return _FS_TRANSPORT_PERMANENT_TEXT
 
 
-class _ReadWindow(NamedTuple):
-    """deepagents read-window fields for a sandbox text read (``total_lines`` stays unknown)."""
+class _ReadFault(NamedTuple):
+    """An unusable piece of sandbox read metadata. ``key`` dedupes the log across a run."""
 
-    start_line: int | None
-    end_line: int | None
-    next_offset: int | None
+    key: str
+    level: int
+    detail: str
 
 
-def _sandbox_read_window(content: str, offset: int, limit: int) -> _ReadWindow:
-    """Derive deepagents' read-window metadata (``start_line``, ``end_line``, ``next_offset``) from a
-    sandbox text read, so the filesystem middleware appends its "More lines remain from offset N"
-    notice on sandbox reads. Deepagents' own window logic needs the whole file and a total line
-    count; the sandbox windows server-side and ``fs_read`` returns neither, so it is derived here.
+_MISSING_READ_WINDOW = _ReadFault(
+    "no-line-metadata", logging.ERROR, "returned no read-window metadata; deploy a matching daiv-sandbox release"
+)
 
-    ``total_lines`` is left unset (deepagents' notice handles the unknown-total case) and
-    ``next_offset`` is a heuristic: a window filled to the requested ``limit`` signals more may
-    remain. A file whose length is an exact multiple of the window over-advertises a ``next_offset``
-    that a re-read then rejects as an invalid offset — self-correcting, and better than never
-    signalling truncation.
+
+def _read_window_fault(end_line: int, content: str, offset: int, limit: int) -> _ReadFault | None:
+    """Check the sandbox's reported read window against the request, or return ``None`` when it holds.
+
+    Every fault drops the window and keeps the content: the model loses the pagination notice but
+    still gets the page. Rebuilding the window from the returned text is never the fallback — a
+    byte-capped page carries the sandbox's banner inline, so counting its rows resumes past unread
+    source lines.
     """
-    line_count = len(content.splitlines())
-    if line_count == 0:
-        return _ReadWindow(None, None, None)
-    end_line = offset + line_count
-    next_offset = end_line if line_count >= limit else None
-    return _ReadWindow(offset + 1, end_line, next_offset)
+    if end_line == offset:
+        # The page's first line alone exceeds the byte cap, so it holds no complete line — and
+        # deepagents cannot express a zero-line window.
+        return _ReadFault("empty-page", logging.WARNING, "returned no complete line (byte cap)")
+    if not offset < end_line <= offset + limit:
+        return _ReadFault(
+            "end-line-out-of-range", logging.ERROR, f"returned end_line={end_line} outside the requested window"
+        )
+    if not content:
+        return _ReadFault(
+            "window-over-empty-content", logging.ERROR, f"reported a window ending at {end_line} over empty content"
+        )
+    return None
 
 
 class SandboxFileBackend(BackendProtocol):
@@ -728,6 +736,7 @@ class SandboxFileBackend(BackendProtocol):
     def __init__(self, *, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
         self._client = client
         self._session_id = session_id
+        self._logged_read_faults: set[str] = set()
 
     def bind_session(self, session_id: str) -> None:
         """Attach the run's session id. The client is supplied at construction; this only sets the
@@ -841,9 +850,67 @@ class SandboxFileBackend(BackendProtocol):
         # file and the empty-file sentinel is not file content.
         if encoding == "base64" or content == EMPTY_CONTENT_WARNING:
             return ReadResult(file_data=file_data)
-        window = _sandbox_read_window(content, offset, limit)
-        return ReadResult(
-            file_data=file_data, start_line=window.start_line, end_line=window.end_line, next_offset=window.next_offset
+
+        if (end_line := resp.end_line) is None:
+            self._log_window_fault(_MISSING_READ_WINDOW, file_path, offset, limit)
+            return ReadResult(file_data=file_data)
+        if fault := _read_window_fault(end_line, content, offset, limit):
+            self._log_window_fault(fault, file_path, offset, limit)
+            return ReadResult(file_data=file_data)
+
+        total_lines = resp.total_lines
+        if total_lines is not None and total_lines < end_line:
+            # Degrade to an unknown total rather than drop the window: a resume offset still works.
+            self._log_read_fault(
+                "total-below-end-line",
+                logging.ERROR,
+                "Sandbox read of %r reported total_lines=%s below end_line=%s; dropping the total",
+                file_path,
+                total_lines,
+                end_line,
+            )
+            total_lines = None
+        try:
+            return ReadResult(
+                file_data=file_data,
+                start_line=offset + 1,
+                end_line=end_line,
+                total_lines=total_lines,
+                # An unknown total over-advertises a resume offset at EOF, which the next read rejects as
+                # an invalid offset. A missing one would read as EOF and silently drop the rest of the file.
+                next_offset=None if total_lines is not None and end_line >= total_lines else end_line,
+            )
+        except ValueError as exc:
+            # ReadResult enforces more window invariants than the checks above mirror, and it enforces
+            # them by raising — which would escape the tool and kill the run.
+            self._log_read_fault(
+                "rejected-read-window",
+                logging.ERROR,
+                "Sandbox read of %r built a window deepagents rejects (%s); dropping it",
+                file_path,
+                exc,
+            )
+            return ReadResult(file_data=file_data)
+
+    def _log_read_fault(self, key: str, level: int, msg: str, *args) -> None:
+        """Report unusable read metadata once per fault kind per run. Every cause is systematic — a
+        version skew or a sandbox arithmetic slip repeats on every read — and each ERROR is a Sentry
+        event, so repeating one buries every other breadcrumb in the event it eventually attaches to.
+        """
+        if key in self._logged_read_faults:
+            return
+        self._logged_read_faults.add(key)
+        logger.log(level, msg, *args)
+
+    def _log_window_fault(self, fault: _ReadFault, file_path: str, offset: int, limit: int) -> None:
+        self._log_read_fault(
+            fault.key,
+            fault.level,
+            "Sandbox read of %r %s (offset=%s limit=%s); dropping the pagination window",
+            file_path,
+            fault.detail,
+            offset,
+            limit,
         )
 
     async def agrep(
@@ -860,7 +927,9 @@ class SandboxFileBackend(BackendProtocol):
         ``max_count`` is applied here rather than pushed down: ``FsGrepRequest`` carries no cap,
         so the sandbox always returns its full result and the trim happens on this side.
         ``context_lines`` is accepted for signature parity only — the RPC returns matching lines
-        with no surrounding context, and no DAIV caller requests it.
+        with no surrounding context, and no DAIV caller requests it. ``FsGrepRequest.exclude`` is
+        likewise never set (nor by :meth:`aglob`), so both searches get only the sandbox's own
+        default directory pruning.
         """
         client, session_id = self._require_bound()
         try:
