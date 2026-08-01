@@ -16,30 +16,33 @@ subclass exists — handling of OpenRouter's non-standard reasoning. Stock
 extensions like ``reasoning`` / ``reasoning_details`` by design (see its module
 docstring).
 
-Two fields are captured, for two different consumers:
+Display and transport are stored separately, because the display string may be
+assembled from stream deltas and is therefore not guaranteed byte-identical to
+what the provider emitted — see ``DISPLAY_KEY`` / ``DETAILS_KEY`` /
+``FALLBACK_KEY`` below. Only the transport fields are ever sent back.
 
-``reasoning_content`` (string)
-    Display only. ``ag_ui_langgraph.resolve_reasoning_content`` (live
-    ``REASONING_*`` events) and ``chat.turns`` (transcript reload) both render
-    this shape.
-
-``reasoning_details`` (list of blocks)
-    Round-trip. OpenRouter requires the reasoning that led to a tool call be
-    echoed back alongside that call's results, unmodified and in order —
-    otherwise the model re-derives from scratch every turn, at a documented cost
-    of degraded coherence and lost cache hits. This is Z.ai's "interleaved
-    thinking" (supported since GLM-4.5, on by default for GLM-4.7/5.x), and the
-    same mechanism carries Anthropic's signed thinking blocks when routing to
-    ``anthropic/…``. Upstream ``_convert_message_to_dict`` strips
-    ``additional_kwargs`` wholesale, so :meth:`ChatOpenRouter._get_request_payload`
-    re-attaches the blocks after serialization.
+Round-tripping matters because OpenRouter requires the reasoning that led to a
+tool call be echoed back alongside that call's results, unmodified and in order;
+otherwise the model re-derives from scratch every turn, at a documented cost of
+degraded coherence and lost cache hits. This is Z.ai's "interleaved thinking"
+(supported since GLM-4.5, on by default for GLM-4.7/5.x), and the same mechanism
+carries Anthropic's signed thinking blocks when routing to ``anthropic/…``.
+Upstream ``_convert_message_to_dict`` strips ``additional_kwargs`` wholesale, so
+:meth:`ChatOpenRouter._get_request_payload` re-attaches the blocks afterwards.
 
 Capture covers both transports: subagents call ``ainvoke``, so a streaming-only
 hook would leave every subagent turn reasoning-blind.
+
+Round-tripping does **not** change how many reasoning tokens the model spends on
+later turns — measured A/B on ``z-ai/glm-5.2``, reasoning-token counts per turn
+are the same whether or not prior blocks are echoed back. Don't reach for this as
+a fix for a model that stops thinking mid-trajectory.
 """
 
 from __future__ import annotations
 
+import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
@@ -51,11 +54,23 @@ if TYPE_CHECKING:
     from langchain_core.language_models import LanguageModelInput
     from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
+logger = logging.getLogger("daiv.automation")
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # ``parsed`` may hold arbitrary Pydantic models from structured output; dumping it
 # is both wasteful and failure-prone, and upstream excludes it for the same reason.
 _RESPONSE_DUMP_EXCLUDE = {"choices": {"__all__": {"message": {"parsed"}}}}
+
+# Display. Rendered by ag_ui_langgraph and chat.turns. May be assembled from stream
+# deltas, so it is never authoritative for replay.
+DISPLAY_KEY = "reasoning_content"
+# Transport, structured. Named for the wire field it serializes straight back to.
+DETAILS_KEY = "reasoning_details"
+# Transport, plain-string fallback for providers returning no structured blocks.
+# Prefixed because a bare ``reasoning`` key already denotes the OpenAI-legacy
+# ``{"summary": [...]}`` shape that chat.turns reads.
+FALLBACK_KEY = "openrouter_reasoning"
 
 
 class ChatOpenRouter(ChatOpenAI):
@@ -77,15 +92,7 @@ class ChatOpenRouter(ChatOpenAI):
         generation_chunk = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
         if generation_chunk is None:
             return None
-        delta = self._delta(chunk)
-        if (reasoning := delta.get("reasoning")) and isinstance(reasoning, str):
-            # String values concatenate when AIMessageChunks are added, so per-chunk
-            # deltas accumulate into the final message's reasoning_content.
-            generation_chunk.message.additional_kwargs["reasoning_content"] = reasoning
-        if details := delta.get("reasoning_details"):
-            # Blocks carry an ``index``; merge_dicts merges same-index blocks, so partial
-            # blocks reassemble across chunks rather than appending as duplicates.
-            generation_chunk.message.additional_kwargs["reasoning_details"] = details
+        self._store_reasoning(self._delta(chunk), generation_chunk.message.additional_kwargs)
         return generation_chunk
 
     def _create_chat_result(self, response: dict | openai.BaseModel, generation_info: dict | None = None) -> ChatResult:
@@ -94,14 +101,8 @@ class ChatOpenRouter(ChatOpenAI):
             raw = response
         else:
             raw = response.model_dump(exclude=_RESPONSE_DUMP_EXCLUDE, warnings=False)
-        message = ((raw.get("choices") or [{}])[0] or {}).get("message") or {}
-        if not (result.generations and message):
-            return result
-        additional_kwargs = result.generations[0].message.additional_kwargs
-        if details := message.get("reasoning_details"):
-            additional_kwargs["reasoning_details"] = details
-        if (reasoning := message.get("reasoning")) and isinstance(reasoning, str):
-            additional_kwargs.setdefault("reasoning_content", reasoning)
+        for choice, generation in zip(raw.get("choices") or [], result.generations, strict=True):
+            self._store_reasoning((choice or {}).get("message") or {}, generation.message.additional_kwargs)
         return result
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
@@ -111,15 +112,45 @@ class ChatOpenRouter(ChatOpenAI):
             return payload
         source = self._convert_input(input_).to_messages()
         if len(source) != len(serialized):
-            # Responses-API or any future 1:N serialization — bail rather than
-            # misalign reasoning onto the wrong turn.
+            # Responses-API or any future 1:N serialization. Dropping reasoning degrades
+            # the turn; misaligning it onto the wrong turn corrupts the trajectory.
+            logger.warning(
+                "Skipping OpenRouter reasoning replay: serialization changed the message count (%d source, %d wire).",
+                len(source),
+                len(serialized),
+            )
             return payload
+        replayed = 0
         for original, message in zip(source, serialized, strict=True):
             if message.get("role") != "assistant":
                 continue
-            if details := (getattr(original, "additional_kwargs", None) or {}).get("reasoning_details"):
-                message["reasoning_details"] = details
+            additional_kwargs = getattr(original, "additional_kwargs", None) or {}
+            if details := additional_kwargs.get(DETAILS_KEY):
+                message[DETAILS_KEY] = deepcopy(details)
+                replayed += 1
+            elif reasoning := additional_kwargs.get(FALLBACK_KEY):
+                message["reasoning"] = reasoning
+                replayed += 1
+        if replayed:
+            logger.debug("Replayed OpenRouter reasoning on %d assistant message(s).", replayed)
         return payload
+
+    @staticmethod
+    def _store_reasoning(source: dict, additional_kwargs: dict) -> None:
+        """Split a provider message (or stream delta) into display and transport fields.
+
+        ``source`` is treated as opaque: blocks are deep-copied verbatim, never rewritten,
+        reordered, filtered, or reconstructed from the display string.
+        """
+        if isinstance(details := source.get(DETAILS_KEY), list) and details:
+            # Blocks carry an ``index``; merge_dicts merges same-index blocks, so partial
+            # blocks reassemble across stream chunks rather than appending as duplicates.
+            additional_kwargs[DETAILS_KEY] = deepcopy(details)
+        if isinstance(reasoning := source.get("reasoning"), str) and reasoning:
+            # String values concatenate when AIMessageChunks are added, so per-chunk
+            # deltas accumulate into the final message.
+            additional_kwargs[DISPLAY_KEY] = reasoning
+            additional_kwargs[FALLBACK_KEY] = reasoning
 
     @staticmethod
     def _delta(chunk: dict) -> dict:
