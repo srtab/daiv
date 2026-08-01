@@ -56,34 +56,6 @@ class RunCommandsResponse(BaseModel):
     results: list[RunCommandResult]
 
 
-class PutMutation(BaseModel):
-    path: str = Field(description="Absolute path inside the sandbox, must be under /workspace/repo.")
-    content: Base64Bytes = Field(description="Base64-encoded full file content.")
-    mode: int = Field(ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
-
-
-class ApplyMutationsRequest(BaseModel):
-    mutations: list[PutMutation] = Field(min_length=1, max_length=64)
-
-
-class MutationResult(BaseModel):
-    path: str
-    ok: bool
-    error: str | None = None
-
-    @model_validator(mode="after")
-    def _ok_xor_error(self) -> MutationResult:
-        if self.ok and self.error is not None:
-            raise ValueError("MutationResult: ok=True must have error=None")
-        if not self.ok and self.error is None:
-            raise ValueError("MutationResult: ok=False must include an error message")
-        return self
-
-
-class ApplyMutationsResponse(BaseModel):
-    results: list[MutationResult]
-
-
 # --- /workspace file-op wire schemas -----------------------------------------
 #
 # Mirror of the daiv-sandbox ``Fs*`` schemas. Kept structurally identical (field
@@ -147,6 +119,28 @@ class FsReadResponse(BaseModel):
     encoding: Literal["utf-8", "base64"] | None = Field(
         default=None, description="Encoding of `content`: 'utf-8' for text, 'base64' for binary."
     )
+    total_lines: int | None = Field(
+        default=None,
+        description=(
+            "Total source lines in the file. Text reads only; null for binary reads, the empty-file "
+            "sentinel, and every error."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description=(
+            "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's "
+            "`offset` (an empty window) when the page's first line alone exceeds the response byte cap, "
+            "so the page holds no complete line — expected, not a bug."
+        ),
+    )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when the body was cut by the response byte cap; `content` then ends with a partial "
+            "line followed by a multi-line truncation banner, both past `end_line`."
+        ),
+    )
     error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
@@ -154,6 +148,10 @@ class FsGrepRequest(BaseModel):
     pattern: str = Field(description="Regular expression to search for (POSIX extended / ERE syntax).")
     path: str = Field(description="Absolute directory/file path under /workspace.")
     glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGrepMatch(BaseModel):
@@ -173,6 +171,10 @@ class FsGrepResponse(BaseModel):
 class FsGlobRequest(BaseModel):
     pattern: str = Field(description="Glob pattern (supports *, **, ?, [abc]).")
     path: str = Field(description="Absolute base directory under /workspace.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGlobResponse(BaseModel):
@@ -334,10 +336,6 @@ class EgressConfigRequest(BaseModel):
                 name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in self.secrets.items()
             },
         }
-
-
-class EgressConfigResponse(BaseModel):
-    ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")
 
 
 StartSessionRequest.model_rebuild()

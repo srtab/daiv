@@ -73,10 +73,16 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is the canonical sandbox-side schema dump. The `tests/unit_tests/core/sandbox/test_schema_consistency.py` test will fail if the daiv-side schemas drift from it. Regenerate after any change to `daiv_sandbox/schemas.py` in the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo:
 
 ```bash
-# from a checkout of the daiv-sandbox repo
-uv run --all-extras python scripts/dump_schemas.py \
+# from a checkout of the daiv-sandbox repo (PYTHONPATH is required — that repo declares no build
+# backend, so `uv run` never puts `daiv_sandbox` on sys.path)
+PYTHONPATH=. uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
+
+A type the sandbox deletes disappears from the dump; if the daiv side still models it, delete the
+dead model rather than adding an exemption to that test. Note the comparison normalizes
+`title`/`description` away — field docstrings are *not* pinned and can silently drift from the
+sandbox's own wording.
 
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
