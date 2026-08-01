@@ -5,7 +5,7 @@ description: This skill should be used when the user asks for a code review of a
 
 # Code Review
 
-Review a change with specialized `cr-*` detector subagents, then combine their reports into one concise review returned as your final message.
+Run a comprehensive review using multiple specialized agents, each focusing on a different aspects.
 
 The final message is the only deliverable. Never create a platform discussion, review, comment, or note yourself. When the request came from a pull-request or merge-request comment, the platform layer posts your final message automatically.
 
@@ -52,7 +52,7 @@ Ignore every other marker. The next run number is the highest valid run plus one
 
 ## 3. Prepare one canonical diff
 
-Create one canonical diff for the resolved scope before dispatching detectors. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every detector. All detectors must review that same change.
+Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent. All subagents must review that same change.
 
 For platform reviews:
 
@@ -61,7 +61,7 @@ For platform reviews:
 
 For working-tree reviews, ensure the canonical diff contains staged changes, unstaged changes, and complete unified patches for untracked files.
 
-If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the detectors. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
+If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the subagent. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
 
 Preserve paths without shell interpolation; use NUL-delimited changed-path lists when supported so spaces, renames, and unusual filenames remain intact.
 
@@ -72,11 +72,11 @@ Do not load a large full diff into the parent context. Build a concise applicabi
 - the diffstat;
 - hunk headers and a small changed-code preview only when needed.
 
-## 4. Select and dispatch detectors
+## 4. Select and dispatch subagents
 
-Select applicable detectors from the concise summary. Do not use keyword regexes over the diff. Identify the kinds of files and changes involved, then run every plausibly relevant reviewer.
+Select applicable subagents from the concise summary. Identify the kinds of files and changes involved, then run every plausibly relevant reviewer.
 
-| Detector | Dispatch when |
+| Subagent | Dispatch when |
 |---|---|
 | `cr-correctness` | behavior, source, tests, configuration, schemas, migrations, dependencies, CI, or infrastructure changed |
 | `cr-structure` | source structure, public interfaces, types, modules, data models, or multi-file design changed |
@@ -86,11 +86,11 @@ Select applicable detectors from the concise summary. Do not use keyword regexes
 
 Bias toward inclusion when applicability is uncertain. For documentation or asset-only changes, run only `cr-custom-rules` when rules exist; otherwise report that nothing applicable changed.
 
-Dispatch applicable detectors in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
+Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
 
 Derive a concise statement of the change's intent from the user's explicit request or, when unavailable, the PR or MR title and description. Do not invent intent.
 
-Each detector prompt contains only:
+Each subagent prompt should contain only:
 
 - the exact review scope;
 - the stated change intent, when available;
@@ -99,41 +99,37 @@ Each detector prompt contains only:
 - the changed paths;
 - the rule-source paths or inline contents for `cr-custom-rules`.
 
-The line count is a completeness aid. Detectors may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
+The line count is a completeness aid. Subagents may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
 
-Do not restate the detector charter or output format. Never substitute a missing `cr-*` detector with `general-purpose` or another agent type.
+IMPORTANT: Do not restate the subagent output format. Never substitute a missing `cr-*` subagent with `general-purpose` or another agent type.
 
 ## 5. Aggregate the reports
 
-Treat a detector as unavailable when its task errors, returns empty output, opens with `ERROR:`, or contains neither recognizable findings or questions nor `No findings.` Continue with every usable report.
-
-A recognizable entry is a well-formed `### Critical:`, `### Important:`, `### Suggestion:`, or `### Question:` entry defined by the detector charters.
-
-Treat `No findings.` as a clean report. Ignore unrelated narration around otherwise recognizable entries.
-
-Act as an aggregator, not a second reviewer. Detectors own investigation, evidence, and confidence. Do not re-read source or re-derive control flow to verify their conclusions.
+After agents complete, sumarize: `### Critical:` (must fix before merge), `### Important:` (should fix), `### Suggestion:` (nice to have), or `### Question:`.
 
 Aggregate by:
 
 - dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
-- Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue.
+- Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
 - deduplicating findings with the same underlying issue;
-- keeping the higher detector-provided severity when duplicates disagree;
+- keeping the higher subagent-provided severity when duplicates disagree;
 - keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
 - removing the internal `Confidence` field.
 
-Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable detectors were unavailable, briefly name those dimensions in the final report. If every applicable detector was unavailable, explain that the review could not be completed and return no marker.
+Aggregate silently. Which subagents ran, which succeeded, what each returned, and how many findings survived are working notes, not report content: they appear in the message only as the `_Review unavailable for: <dimensions>._` line.
+
+Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
 
 ## 6. Return the report
 
-For a platform review, the marker must be the first line:
+For a platform review, the message begins with the marker — its first character is the `<` of `<!--`:
 
 ```markdown
 <!-- daiv:code-review run=N head=<full-sha> -->
 ## Code Review #N
 
-_Review unavailable for: <dimensions>._ <!-- omit when all applicable detectors returned usable reports -->
+_Review unavailable for: <dimensions>._ <!-- omit when all applicable subagents returned usable reports -->
 
 ### Critical Issues
 **1. <one-line title>** — [`path/to/file.py:42`](<blob-link>)
@@ -168,11 +164,8 @@ Report rules:
 - Omit empty sections.
 - Number entries sequentially within each section.
 - Include Recommended Actions only when Critical or Important findings exist.
-- When all applicable detectors return `No findings.`, use `No findings — the reviewed changes look good.`
 - When usable reports completed but no findings or questions survive aggregation, use `No findings — no reported issues met the review threshold.`
-- When no findings survive and some detectors were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.
-- When nothing applies, use `No findings — nothing applicable to review in this change.`
-- Add one short italic sentence under the header for an unreadable review history or a full-diff fallback.
+- When no findings survive and some subagents were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.
 - Link new-side locations to the head blob when possible.
 - Link deleted-side locations to the platform diff when possible and label them `(deleted)`.
 - Otherwise use plain `path:line` references.
@@ -184,4 +177,4 @@ Report rules:
 - Return the report only as the final message.
 - Never create or post a discussion, review, comment, or note through a GitHub or GitLab tool.
 - Never restart the skill after a tool or detector failure; continue with the usable results.
-- In platform reviews, emit nothing before the marker.
+- In platform reviews, re-read your first line before returning. If it is not the marker, delete everything above it.
