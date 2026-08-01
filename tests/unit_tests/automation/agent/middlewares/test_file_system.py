@@ -722,8 +722,8 @@ class TestSandboxReadPagination:
         assert _remaining_lines_notice(result) == ""
 
     async def test_file_length_that_is_an_exact_multiple_of_limit_has_no_next_offset(self):
-        """The regression the derived-window heuristic knowingly shipped: a filled window used to
-        imply more lines remain, so this file advertised an offset the next read rejects."""
+        """A window ending exactly at `total_lines` is EOF, not a full page — advertising a resume
+        offset here would name an offset the next read rejects as invalid."""
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
 
@@ -735,32 +735,32 @@ class TestSandboxReadPagination:
         assert result.end_line == 100
         assert result.next_offset is None
 
-    async def test_byte_capped_page_resumes_at_the_partial_line(self, caplog):
+    async def test_byte_capped_page_resumes_at_the_partial_line(self):
         """A capped page ends mid-line and carries a banner. The window must exclude both, so the
         resume offset points *at* the partial line and re-reads it whole."""
-        import logging
-
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
 
+        # The banner text is illustrative; `aread` never parses `content`.
         content = "".join(f"line {i}\n" for i in range(1, 98)) + "line 98 is cut he"
         content += "\n\n[Output truncated: exceeded the 512000-byte read limit.]"
         backend = self._bound_backend(
             FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=97, truncated=True)
         )
 
-        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
-            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
 
         assert result.start_line == 1
         assert result.end_line == 97, "the banner rows and the cut line are not source lines"
         assert result.total_lines == 400
         assert result.next_offset == 97, "0-indexed 97 is 1-indexed line 98 — the line that was cut"
-        assert "truncated" in caplog.text
 
-    async def test_byte_capped_single_huge_line_carries_no_window(self):
-        """One line longer than the cap yields zero complete lines; there is no window to report and
-        the model is left with the sandbox's banner."""
+    async def test_byte_capped_single_huge_line_carries_no_window(self, caplog):
+        """A page whose first line alone exceeds the byte cap holds zero complete lines. deepagents
+        cannot express an empty window, so the model gets none — and no resume offset, which is a
+        dead end worth an operator warning."""
+        import logging
+
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
 
@@ -768,12 +768,14 @@ class TestSandboxReadPagination:
             FsReadResponse(content="x" * 100, encoding="utf-8", total_lines=1, end_line=0, truncated=True)
         )
 
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
 
         assert result.start_line is None
         assert result.end_line is None
         assert result.total_lines is None
         assert result.next_offset is None
+        assert "no complete line" in caplog.text
 
     async def test_binary_read_carries_no_window(self):
         from automation.agent.constants import REPO_PATH
@@ -821,4 +823,98 @@ class TestSandboxReadPagination:
         assert result.end_line is None
         assert result.total_lines is None
         assert result.next_offset is None
-        assert "no line metadata" in caplog.text
+        assert "no read-window metadata" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("response_kwargs", "expected"),
+        [({}, "no read-window metadata"), ({"total_lines": 9999, "end_line": 9000}, "outside the requested window")],
+        ids=["version-skew", "malformed-window"],
+    )
+    async def test_read_faults_are_reported_once_per_run(self, caplog, response_kwargs, expected):
+        """Every cause here is systematic — a version skew or a sandbox arithmetic slip repeats on
+        every read — and each ERROR is a Sentry event, so one per run is the whole point."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", **response_kwargs))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            for _ in range(5):
+                await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert caplog.text.count(expected) == 1
+
+    async def test_total_lines_below_end_line_degrades_instead_of_raising(self, caplog):
+        """deepagents' `ReadResult` rejects this pair outright, and `aread` is called unguarded, so
+        passing it through would abort the run over a sandbox arithmetic slip."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=120, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.file_data is not None, "the content still reaches the model"
+        assert result.total_lines is None, "an impossible total is dropped, not clamped"
+        assert result.next_offset == 150
+        assert "total_lines=120 below end_line=150" in caplog.text
+
+    async def test_end_line_past_the_requested_window_drops_the_window(self, caplog):
+        """`end_line` cannot exceed `offset + limit`. Trusting a larger one hands the model a resume
+        offset past source lines it was never shown."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=9999, end_line=9000)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.next_offset is None
+        assert result.start_line is None
+        assert "outside the requested window" in caplog.text
+
+    async def test_window_over_empty_content_drops_the_window(self, caplog):
+        """A window with no text behind it would page the model forward over lines it never read."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8", total_lines=400, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line is None
+        assert result.next_offset is None
+        assert "over empty content" in caplog.text
+
+    async def test_window_without_a_total_still_advertises_a_resume_offset(self):
+        """Half-populated metadata must not read as EOF: an over-advertised offset self-corrects on
+        the next read, a missing one silently drops the rest of the file."""
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 51))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", end_line=50))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.total_lines is None
+        assert result.next_offset == 50
+        assert "More lines remain from offset 50" in _remaining_lines_notice(result)

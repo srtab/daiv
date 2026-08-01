@@ -56,34 +56,6 @@ class RunCommandsResponse(BaseModel):
     results: list[RunCommandResult]
 
 
-class PutMutation(BaseModel):
-    path: str = Field(description="Absolute path inside the sandbox, must be under /workspace/repo.")
-    content: Base64Bytes = Field(description="Base64-encoded full file content.")
-    mode: int = Field(ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
-
-
-class ApplyMutationsRequest(BaseModel):
-    mutations: list[PutMutation] = Field(min_length=1, max_length=64)
-
-
-class MutationResult(BaseModel):
-    path: str
-    ok: bool
-    error: str | None = None
-
-    @model_validator(mode="after")
-    def _ok_xor_error(self) -> MutationResult:
-        if self.ok and self.error is not None:
-            raise ValueError("MutationResult: ok=True must have error=None")
-        if not self.ok and self.error is None:
-            raise ValueError("MutationResult: ok=False must include an error message")
-        return self
-
-
-class ApplyMutationsResponse(BaseModel):
-    results: list[MutationResult]
-
-
 # --- /workspace file-op wire schemas -----------------------------------------
 #
 # Mirror of the daiv-sandbox ``Fs*`` schemas. Kept structurally identical (field
@@ -158,13 +130,16 @@ class FsReadResponse(BaseModel):
         default=None,
         description=(
             "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's "
-            "`offset` (an empty window) when a byte-capped page holds no complete line at all, i.e. a "
-            "single line longer than the read limit."
+            "`offset` (an empty window) when the page's first line alone exceeds the response byte cap, "
+            "so the page holds no complete line — expected, not a bug."
         ),
     )
     truncated: bool = Field(
         default=False,
-        description="True when the body was cut by the read byte limit; the text past `end_line` is a partial line.",
+        description=(
+            "True when the body was cut by the response byte cap; `content` then ends with a partial "
+            "line followed by a multi-line truncation banner, both past `end_line`."
+        ),
     )
     error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
@@ -361,10 +336,6 @@ class EgressConfigRequest(BaseModel):
                 name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in self.secrets.items()
             },
         }
-
-
-class EgressConfigResponse(BaseModel):
-    ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")
 
 
 StartSessionRequest.model_rebuild()

@@ -10,8 +10,6 @@ from core.conf import settings
 from core.site_settings import site_settings
 
 from .schemas import (
-    ApplyMutationsRequest,
-    ApplyMutationsResponse,
     EgressConfigRequest,
     FsDeleteRequest,
     FsDeleteResponse,
@@ -171,17 +169,6 @@ class DAIVSandboxClient:
             logger.info("Sandbox session %s already seeded; skipping", session_id)
             return
         response.raise_for_status()
-
-    async def apply_file_mutations(self, session_id: str, request: ApplyMutationsRequest) -> ApplyMutationsResponse:
-        """
-        Apply a batch of file mutations to /workspace/repo on the sandbox session.
-
-        Per-item failures are returned as `MutationResult(ok=False, error=...)`; the caller
-        decides how to react when `ok=False` or when this method raises.
-        """
-        response = await self._client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
-        response.raise_for_status()
-        return ApplyMutationsResponse.model_validate(response.json())
 
     async def fs_ls(self, session_id: str, request: FsLsRequest) -> FsLsResponse:
         """List a directory under ``/workspace`` on the sandbox session."""
