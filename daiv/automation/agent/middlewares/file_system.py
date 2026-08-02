@@ -28,9 +28,11 @@ from deepagents.backends.protocol import (
     ReadResult,
     WriteResult,
 )
+from deepagents.middleware import filesystem as _upstream_fs_module
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import (
     EMPTY_CONTENT_WARNING,
+    FilesystemMiddleware,
     FilesystemPermission,
     FsToolName,
     GlobSchema,
@@ -40,6 +42,7 @@ from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
+from langchain_core.messages import ToolMessage
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -59,6 +62,10 @@ from core.sandbox.schemas import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from langgraph.prebuilt.tool_node import ToolCallRequest
+    from langgraph.types import Command
     from pydantic import BaseModel
 
 logger = logging.getLogger("daiv.tools")
@@ -109,11 +116,15 @@ Avoid non-portable constructs: Perl-style escapes (`\d` `\w` `\s` `\b`), lookaro
 backreferences are NOT valid POSIX ERE and will match differently (often nothing) on sandbox runs —
 use `[0-9]`, `[A-Za-z0-9_]`, a literal space, and explicit alternation instead.
 
+`output_mode` defaults to `files_with_matches`, which returns FILE PATHS ONLY — no code. To read the
+matching lines (tracing a value, checking how a symbol is used, confirming a call site) you must pass
+`output_mode="content"`. Reaching for a broader pattern will not turn paths into lines; only the mode does.
+
 Examples:
-- Search every file: `grep(pattern="TODO")`
-- Anchored alternation in Python files: `grep(pattern="^def |^class ", glob="*.py")`
 - Show the matching lines: `grep(pattern="raise [A-Za-z]+Error", output_mode="content")`
-- Match metacharacters literally (escape them): `grep(pattern="value\.attr")`
+- Locate which files match, without their contents: `grep(pattern="TODO")`
+- Anchored alternation in Python files: `grep(pattern="^def |^class ", glob="*.py", output_mode="content")`
+- Match metacharacters literally (escape them): `grep(pattern="value\.attr", output_mode="content")`
 - Count matches per file: `grep(pattern="import", output_mode="count")`
 
 Prefer this tool over shell `grep`/`rg` in bash for searching workspace files."""
@@ -153,6 +164,83 @@ def _align_arg_schema(schema_cls: type[BaseModel], overrides: dict[str, str]) ->
 
 
 _align_arg_schema(GrepSchema, {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path": _GREP_PATH_ARG_DESCRIPTION})
+
+
+# Patch the caller's module: ``middleware.filesystem`` bound this name at its own import time, so
+# patching ``backends.utils`` is invisible. Both DAIV backends grep by regex, so the hint lies.
+def _no_regex_literal_hint(pattern: str) -> str | None:  # noqa: ARG001
+    return None
+
+
+# Soft guard, unlike the hard assert below: ``setattr`` on a module always succeeds, so a renamed
+# symbol leaves a dead attribute — but a restored hint only misleads, it never lies about a result.
+_REGEX_HINT_PATCH_APPLIED = callable(getattr(_upstream_fs_module, "regex_literal_hint", None))
+if _REGEX_HINT_PATCH_APPLIED:
+    _upstream_fs_module.regex_literal_hint = _no_regex_literal_hint  # ty: ignore[invalid-assignment]
+
+# Upstream's zero-match body.
+_NO_MATCHES_PREFIX = "No matches found"
+_GREP_MODE_LABELS = {
+    "files_with_matches": "Mode: files_with_matches — matching file paths only, no code.",
+    "content": "Mode: content — matching lines.",
+    "count": "Mode: count — match count per file.",
+}
+# Suppressed on a zero-match body: there are no lines to reveal, so re-running is pure churn.
+_GREP_MODE_REMEDIES = {"files_with_matches": 'Re-run with output_mode="content" to see the matching lines.'}
+
+# Read the default from the same schema the tool reads it from: hardcoding it would let an upstream
+# flip label a content result "files_with_matches", telling the model to re-run a correct search.
+_GREP_DEFAULT_OUTPUT_MODE = GrepSchema.model_fields["output_mode"].default
+
+# Import-time parity guard: an unlabelled default would make every bare grep result mis-describe
+# itself, which is worse than not labelling at all.
+assert _GREP_DEFAULT_OUTPUT_MODE in _GREP_MODE_LABELS, (
+    f"deepagents GrepSchema default output_mode is {_GREP_DEFAULT_OUTPUT_MODE!r}, "
+    f"which has no label in _GREP_MODE_LABELS ({sorted(_GREP_MODE_LABELS)})."
+)
+
+
+def _label_grep_result(request: ToolCallRequest, result: ToolMessage | Command) -> ToolMessage | Command:
+    """Prefix a grep result with the output mode that produced it."""
+    if not isinstance(result, ToolMessage) or result.status == "error" or not isinstance(result.content, str):
+        return result
+    mode = request.tool_call["args"].get("output_mode") or _GREP_DEFAULT_OUTPUT_MODE
+    if (label := _GREP_MODE_LABELS.get(mode)) is None:
+        return result
+    if (remedy := _GREP_MODE_REMEDIES.get(mode)) and not result.content.startswith(_NO_MATCHES_PREFIX):
+        label = f"{label} {remedy}"
+    return result.model_copy(update={"content": f"{label}\n\n{result.content}"})
+
+
+class DAIVFilesystemMiddleware(FilesystemMiddleware):
+    """deepagents' filesystem middleware, with every grep result labelled by its output mode.
+
+    deepagents renders ``files_with_matches`` (the schema default) as a bare newline-joined path
+    list, so a model that wanted matching lines gets no signal that it asked the wrong question and
+    reformulates the *pattern* instead of the *mode*. Naming the mode gives it something to
+    contradict.
+
+    Carried by the subclass rather than a standalone middleware so the label cannot be wired
+    separately from the grep tool it describes: a new call site gets both or neither.
+    """
+
+    @property
+    def name(self) -> str:
+        # ``create_deep_agent`` merges custom middleware by ``.name`` (default: the class name), so
+        # our own name would append beside upstream's slot instead of taking it — two fs stacks.
+        return FilesystemMiddleware.__name__
+
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+    ) -> ToolMessage | Command:
+        # super(), not handler(): this same hook is the agent-wide large-result eviction for every
+        # tool outside TOOLS_EXCLUDED_FROM_EVICTION (bash, task, MCP). Bypassing it turns that off.
+        # Labelling after it keeps the label out of an evicted body, where the model would never see it.
+        result = await super().awrap_tool_call(request, handler)
+        if request.tool_call["name"] != "grep":
+            return result
+        return _label_grep_result(request, result)
+
 
 # deepagents' ``GlobSchema`` ships a ``pattern`` field description carrying a bare `*.txt` example and a
 # ``path`` default of "/" that actively mislead: glob's base directory defaults to the FILESYSTEM

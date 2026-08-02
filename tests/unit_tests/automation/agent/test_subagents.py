@@ -16,6 +16,7 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -197,6 +198,26 @@ class TestGeneralPurposeMiddleware:
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
+
+    def test_detector_stack_uses_daiv_filesystem_middleware(self, mock_model, mock_backend):
+        """The grep output-mode label lives on DAIV's filesystem subclass, so wiring the plain
+        upstream middleware would hand the detectors grep tools with no label.
+        """
+        middleware = _build_detector_middleware(mock_model, mock_backend)
+        fs = [m for m in middleware if isinstance(m, FilesystemMiddleware)]
+        assert fs and all(isinstance(m, DAIVFilesystemMiddleware) for m in fs)
+
+    def test_general_purpose_stack_uses_daiv_filesystem_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
+        )
+        fs = [m for m in middleware if isinstance(m, FilesystemMiddleware)]
+        assert fs and all(isinstance(m, DAIVFilesystemMiddleware) for m in fs)
 
     def test_subagents_loop_breaker_registered_before_prompt_caching(self):
         import inspect

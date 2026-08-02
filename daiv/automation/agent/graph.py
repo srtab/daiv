@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents import create_deep_agent
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
@@ -33,6 +32,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FS_TOOLS,
     DAIVCompositeBackend,
+    DAIVFilesystemMiddleware,
     SandboxFileBackend,
     build_disk_workspace_backend,
     filesystem_absolute_path_directive,
@@ -300,7 +300,7 @@ async def create_daiv_agent(
         # middleware into the base stack by ``.name``, taking the same slot and preserving order.
         # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
         # mirroring the ``permissions=`` argument below, which still drives the HITL interrupt rules.
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=WORKSPACE_FS_TOOLS,
