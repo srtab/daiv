@@ -899,6 +899,58 @@ main:has(.chat-shell) {
 
   .chat-turn-wrap { display: contents; }
 
+  /* Muted per-turn action row (copy + relative timestamp). Base opacity keeps it
+     tappable on touch (no hover to reveal); it only brightens on hover/focus. */
+  .chat-turn__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+    font-size: 12px;
+    color: #64748b;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+  }
+  .chat-turn:hover .chat-turn__actions,
+  .chat-turn__actions:focus-within {
+    opacity: 1;
+  }
+  /* Mirrors the assistant row: reversing packs the items against the right edge
+     and keeps the copy button on the outer side, nearest the bubble's corner. */
+  .chat-turn--user .chat-turn__actions {
+    flex-direction: row-reverse;
+  }
+  .chat-turn__action-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .chat-turn__action-btn:hover {
+    background: rgba(148, 163, 184, 0.12);
+    color: #e2e8f0;
+  }
+  .chat-turn__action-btn:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+  }
+  /* Load-bearing despite wrapping a single icon: the flex context blockifies it and
+     drops the inline strut, without which the button grows 24px -> 29px tall. */
+  .chat-turn__action-inner {
+    display: inline-flex;
+    align-items: center;
+  }
+  .chat-turn__action-icon {
+    @apply h-4 w-4;
+  }
+  .chat-turn__time {
+    white-space: nowrap;
+  }
+
   .chat-run-status {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
   }
