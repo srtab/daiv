@@ -443,3 +443,12 @@ msgstr "Mostrar mais"
 
 msgid "Show less"
 msgstr "Mostrar menos"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Copied"
+msgstr "Copiado"
+
+msgid "Copy failed"
+msgstr "Falha ao copiar"

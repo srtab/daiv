@@ -166,6 +166,10 @@
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
     filesTouchedLimit: 20,
+    // Reactive clock backing relative timestamps: a single interval bumps it
+    // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
+    now: 0,
+    _nowTimer: null,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -232,6 +236,10 @@
     },
 
     init() {
+      // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
+      this.now = Date.now();
+      this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
+
       // Seed _filesSeen with any paths already present in hydrated history so
       // the "new row pulse" animation does not fire on initial load.
       for (const t of this.turns) {
@@ -299,6 +307,7 @@
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
+      if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
     },
 
@@ -526,6 +535,80 @@
       return turn.role === "assistant" && isLast && turn.streaming;
     },
 
+    // ---------- Per-turn action row (copy + timestamps) ---------------
+
+    // The copy payload and the gate for whether the copy button renders: the raw
+    // source the bubble rendered (markdown on assistant turns, plain text on user
+    // ones), or null for a tool-only turn.
+    finalTextSegment(turn) {
+      for (let i = turn.segments.length - 1; i >= 0; i--) {
+        if (turn.segments[i].type === "text") return turn.segments[i];
+      }
+      return null;
+    },
+
+    // Only a run's closing text turn is copyable; earlier ones are narration. Runs are serial
+    // and run_status markers terminal, so the next non-assistant turn is always the boundary.
+    isClosingTextTurn(ti) {
+      for (let i = ti + 1; i < this.turns.length; i++) {
+        const later = this.turns[i];
+        if (later.role !== "assistant") return true;
+        if (later.streaming || this.finalTextSegment(later)) return false;
+      }
+      return true;
+    },
+
+    // On a user turn this copies the whole message, including the part the
+    // "Show more" clamp is hiding.
+    canCopyTurn(turn, ti) {
+      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
+      return turn.role === "user" || this.isClosingTextTurn(ti);
+    },
+
+    // Resolves true only once the write actually lands. The clipboard API is
+    // absent in insecure contexts (plain-HTTP LAN) and writeText() can reject
+    // (permission / unfocused doc) — the caller drives its confirmation off this
+    // so the UI never claims a copy it didn't make.
+    async copyFinalText(turn) {
+      const seg = this.finalTextSegment(turn);
+      if (!seg || !navigator.clipboard) return false;
+      try {
+        await navigator.clipboard.writeText(seg.content);
+        return true;
+      } catch (e) {
+        console.warn("chat: clipboard write failed", e);
+        return false;
+      }
+    },
+
+    // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
+    turnHasActions(turn, ti) {
+      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
+    },
+
+    // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
+    // Untranslated, matching the existing client-side elapsed timer.
+    relativeTime(iso) {
+      if (!iso) return "";
+      const then = new Date(iso).getTime();
+      if (!Number.isFinite(then)) return "";
+      const sec = Math.floor(Math.max(0, this.now - then) / 1000);
+      if (sec < 60) return "just now";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+      const day = Math.floor(hr / 24);
+      if (day < 30) return `${day} day${day === 1 ? "" : "s"} ago`;
+      return new Date(iso).toLocaleDateString();
+    },
+
+    absoluteTime(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
+    },
+
     toolSignature(seg) {
       if (!window.toolSignature) return { label: seg.name, path: "", badges: [] };
       return window.toolSignature(seg.name, seg.args, seg.result, seg.status);
@@ -587,6 +670,9 @@
         id: uuid(),
         role: "user",
         segments: [{ type: "text", content: this.draftMessage }],
+        // Optimistic stamp; a reload reconciles it to the server's Run.created_at and
+        // relative granularity hides the difference. `received_at` is server-owned.
+        sent_at: new Date().toISOString(),
       });
       this.turns.push({
         id: uuid(),
