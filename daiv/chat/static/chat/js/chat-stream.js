@@ -537,8 +537,9 @@
 
     // ---------- Per-turn action row (copy + timestamps) ---------------
 
-    // The copy payload and the gate for whether the copy button renders: raw markdown
-    // (the same source renderMarkdown consumes), or null for a tool-only turn.
+    // The copy payload and the gate for whether the copy button renders: the raw
+    // source the bubble rendered (markdown on assistant turns, plain text on user
+    // ones), or null for a tool-only turn.
     finalTextSegment(turn) {
       for (let i = turn.segments.length - 1; i >= 0; i--) {
         if (turn.segments[i].type === "text") return turn.segments[i];
@@ -546,8 +547,22 @@
       return null;
     },
 
-    canCopyTurn(turn) {
-      return turn.role === "assistant" && !turn.streaming && !!this.finalTextSegment(turn);
+    // Only a run's closing text turn is copyable; earlier ones are narration. Runs are serial
+    // and run_status markers terminal, so the next non-assistant turn is always the boundary.
+    isClosingTextTurn(ti) {
+      for (let i = ti + 1; i < this.turns.length; i++) {
+        const later = this.turns[i];
+        if (later.role !== "assistant") return true;
+        if (later.streaming || this.finalTextSegment(later)) return false;
+      }
+      return true;
+    },
+
+    // On a user turn this copies the whole message, including the part the
+    // "Show more" clamp is hiding.
+    canCopyTurn(turn, ti) {
+      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
+      return turn.role === "user" || this.isClosingTextTurn(ti);
     },
 
     // Resolves true only once the write actually lands. The clipboard API is
@@ -566,8 +581,9 @@
       }
     },
 
-    turnHasActions(turn) {
-      return turn.role !== "run_status" && (this.canCopyTurn(turn) || !!turn.sent_at || !!turn.received_at);
+    // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
+    turnHasActions(turn, ti) {
+      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.

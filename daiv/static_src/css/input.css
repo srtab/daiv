@@ -915,18 +915,19 @@ main:has(.chat-shell) {
   .chat-turn__actions:focus-within {
     opacity: 1;
   }
+  /* Mirrors the assistant row: reversing packs the items against the right edge
+     and keeps the copy button on the outer side, nearest the bubble's corner. */
   .chat-turn--user .chat-turn__actions {
-    justify-content: flex-end;
+    flex-direction: row-reverse;
   }
   .chat-turn__action-btn {
     display: inline-flex;
     align-items: center;
-    padding: 2px 6px;
+    padding: 4px;
     border: 0;
     border-radius: 6px;
     background: none;
     color: inherit;
-    font-size: 12px;
     cursor: pointer;
   }
   .chat-turn__action-btn:hover {
@@ -937,13 +938,14 @@ main:has(.chat-shell) {
     outline: 2px solid rgba(147, 197, 253, 0.5);
     outline-offset: 2px;
   }
+  /* Load-bearing despite wrapping a single icon: the flex context blockifies it and
+     drops the inline strut, without which the button grows 24px -> 29px tall. */
   .chat-turn__action-inner {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
   }
   .chat-turn__action-icon {
-    @apply h-3.5 w-3.5;
+    @apply h-4 w-4;
   }
   .chat-turn__time {
     white-space: nowrap;

@@ -256,24 +256,26 @@
                     </template>
                   </div>
 
-                  <template x-if="turnHasActions(turn)">
+                  <template x-if="turnHasActions(turn, ti)">
                     <div class="chat-turn__actions">
-                      {# The shown span's text names the button (x-show=display:none drops the #}
-                      {# hidden one from the a11y tree), so no separate aria-label is needed. #}
-                      <button type="button" class="chat-turn__action-btn" x-show="canCopyTurn(turn)"
+                      {# Icon-only: the labels stay as sr-only text so the shown span still names #}
+                      {# the button (x-show=display:none drops the hidden ones from the a11y #}
+                      {# tree), which also announces the outcome without a live region. #}
+                      <button type="button" class="chat-turn__action-btn" x-show="canCopyTurn(turn, ti)"
+                              title="{% translate 'Copy' %}"
                               x-data="{ state: '', _t: null, async copy() { this.state = await copyFinalText(turn) ? 'copied' : 'failed'; clearTimeout(this._t); this._t = setTimeout(() => { this.state = ''; }, 1500); } }"
                               @click="copy()">
                         <span x-show="!state" class="chat-turn__action-inner">
                           {% icon "clipboard-document" "chat-turn__action-icon" %}
-                          <span>{% translate "Copy" %}</span>
+                          <span class="sr-only">{% translate "Copy" %}</span>
                         </span>
                         <span x-show="state === 'copied'" x-cloak class="chat-turn__action-inner">
                           {% icon "check" "chat-turn__action-icon" %}
-                          <span>{% translate "Copied" %}</span>
+                          <span class="sr-only">{% translate "Copied" %}</span>
                         </span>
                         <span x-show="state === 'failed'" x-cloak class="chat-turn__action-inner">
                           {% icon "x-mark" "chat-turn__action-icon" %}
-                          <span>{% translate "Copy failed" %}</span>
+                          <span class="sr-only">{% translate "Copy failed" %}</span>
                         </span>
                       </button>
                       <template x-if="turn.sent_at || turn.received_at">
