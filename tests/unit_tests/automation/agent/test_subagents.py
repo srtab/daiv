@@ -942,9 +942,9 @@ class TestShippedDetectorCharters:
 
         for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
             body = md.read_text(encoding="utf-8")
-            assert "Report only confidence 80 or higher." in body, (
-                f"{md.name} lost the >=80 reporting threshold sentence"
-            )
+            # Each charter names its own finding noun before the threshold clause, so only the
+            # clause itself is common across the five.
+            assert "confidence 80 or higher." in body, f"{md.name} lost the >=80 reporting threshold sentence"
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
 
             present = {label for label in ("Critical", "Important", "Suggestion") if f"- **{label}**" in body}
@@ -962,14 +962,17 @@ class TestShippedDetectorCharters:
 
             # Prompt-layer read-only contract. With the sandbox gone this is belt to the filesystem
             # layer's braces (READ_ONLY_FS_TOOLS), and it is what keeps the charter honest if a shell
-            # is ever wired back in.
-            assert "Use only filesystem read and search tools. Do not use Bash" in body, (
+            # is ever wired back in. The forbidden-verb list is dimension-specific, so only the
+            # read-only preamble is pinned.
+            assert "Use only filesystem read and search tools. Do not " in body, (
                 f"{md.name} lost the read-only tool contract"
             )
             # Widening scope is what turns a five-way fan-out over one diff into five reviews of
-            # different changes, which no amount of deduplication can reconcile. The full sentence is
-            # dimension-specific, so only the invariant clause is asserted.
-            assert "Do not reconstruct the diff" in body, f"{md.name} lost the do-not-widen-scope rule"
+            # different changes, which no amount of deduplication can reconcile. The charters bound
+            # this by forbidding repository fishing rather than by naming diff reconstruction.
+            assert "Do not inspect repository files" in body or "Do not discover other rule files" in body, (
+                f"{md.name} lost the do-not-widen-scope rule"
+            )
             assert "Return only the report." in body, f"{md.name} lost the report-only instruction"
             assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
             assert "`ERROR: could not read the complete canonical diff.`" in body, (
@@ -1001,16 +1004,17 @@ class TestShippedDetectorCharters:
         assert len(charters) == 5
         shared = set.intersection(*charters.values())
 
-        # The >=80 gate sentence is shared, but its step number is not: cr-custom-rules
-        # carries an extra rule-source protocol step, so the scoring line is step 8 there
-        # and step 7 in the other four. Assert the sentence, not the leading step number.
-        gate = "Score candidates internally from 0–100. Report only confidence 80 or higher."
+        # The >=80 gate sentence is shared, but neither its step number nor its lead-in is:
+        # cr-custom-rules carries an extra rule-source protocol step, and each charter names
+        # its own finding noun ("Report only regressions introduced by the change and
+        # confidence 80 or higher"). Assert the threshold clause, not the whole line.
+        gate = "confidence 80 or higher."
         for name, lines in charters.items():
             assert any(line.endswith(gate) for line in lines), f"{name} lost the >=80 reporting threshold gate sentence"
 
         for line in (
             # Section headings the charters are structured by.
-            "## Scope and operating constraints",
+            "## Review discipline",
             "## Severity",
             "## Output",
             # Entry headers SKILL.md step 5 recognises findings and questions by.
@@ -1020,12 +1024,11 @@ class TestShippedDetectorCharters:
             "- **Confidence:** <80–100>",
             "- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`",
             "- **Location:** `path/to/file.py:42`",
-            "Omit the location when no changed line applies to the question.",
             # The two terminal sentinels step 5 classifies a detector's result by, each with the
             # exact-response preamble that makes the model emit it alone.
             "2. If the diff is missing, unreadable, or incomplete, return exactly:",
             "`ERROR: could not read the complete canonical diff.`",
-            "If nothing qualifies, your entire final response must be exactly:",
+            "If nothing qualifies, return exactly:",
             "`No findings.`",
         ):
             assert line in shared, f"contract line is no longer shared by all five charters: {line!r}"
