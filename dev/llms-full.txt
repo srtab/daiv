@@ -1569,6 +1569,14 @@ pull_request_assistant:
   enabled: false
 ```
 
+## Review reports
+
+Each review is posted as a single comment on the pull request — findings grouped by severity (Critical / Important / Suggestions), open questions for the author, and a short list of recommended actions. On GitLab, reviews **stack**: a re-review posts a new report covering only the commits since the previous one (after a force-push, the next report covers the full change again and says so). If a review could not cover one of its dimensions — say the security detector failed — the report says so, and the next review re-covers that span rather than treating it as done. A review requested when nothing has changed since the last one answers with a one-line "already reviewed" note instead of a fresh report.
+
+On GitHub the report carries no tracking marker: re-review scope comes from the conversation history on the pull request rather than from the reports themselves, so it is lost if that conversation is cleared — after which the next report covers the whole pull request again.
+
+You can reply on the merge/pull request and mention DAIV to ask about a finding or have it apply a fix.
+
 ## Custom review rules
 
 Define team-specific review rules in `.agents/review-rules.md` at the repository root. Write them in plain language, one rule per bullet, with any path scope expressed in prose:
@@ -1577,11 +1585,11 @@ Define team-specific review rules in `.agents/review-rules.md` at the repository
 - *Never log request or response bodies.*
 - *New Celery tasks must be idempotent.*
 
-The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
+The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `cr-custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
 
 You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
 
-Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.
+Every custom-rule finding passes the same confidence gate and skeptical aggregation as built-in findings, so a noisy `AGENTS.md` will not flood the review.
 
 # Sessions
 
@@ -2641,13 +2649,13 @@ On GitLab, a repository must carry **all** the listed topics to be included. On 
 
 Skills are invoked the same way as commands. DAIV ships with the following built-in skills:
 
-| Skill             | Description                                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------- |
-| `/plan`           | Explores the codebase in read-only mode and produces an implementation plan                  |
-| `/code-review`    | Reviews a merge/pull request for correctness, tests, performance, security, and architecture |
-| `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks      |
-| `/init`           | Analyzes the repository and generates or updates an `AGENTS.md` guidance file                |
-| `/skill-creator`  | Guides you through creating a new custom skill                                               |
+| Skill             | Description                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `/plan`           | Explores the codebase in read-only mode and produces an implementation plan                                               |
+| `/code-review`    | Reviews a merge/pull request for correctness, security, performance, structure, and your repository's custom review rules |
+| `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks                                   |
+| `/init`           | Analyzes the repository and generates or updates an `AGENTS.md` guidance file                                             |
+| `/skill-creator`  | Guides you through creating a new custom skill                                                                            |
 
 ### /plan
 
@@ -2663,7 +2671,7 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 @daiv /code-review
 ```
 
-Reviews the current merge/pull request diff for correctness, test coverage, performance, security issues, and architecture concerns. Posts numbered findings grouped by severity.
+Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
 
 ### /security-audit
 
@@ -4359,7 +4367,7 @@ The main agent can delegate work to two general-use subagents. See [Subagents](h
 | General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
 | Explore         | Claude Haiku 4.5 (fast) | GPT-5.4-mini       | Read-only filesystem | Quick file lookups, code structure questions |
 
-In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill fans out across these detectors, each running with a read-only tool stack and producing structured findings. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
 

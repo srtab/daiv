@@ -61,13 +61,13 @@ On GitLab, a repository must carry **all** the listed topics to be included. On 
 
 Skills are invoked the same way as commands. DAIV ships with the following built-in skills:
 
-| Skill             | Description                                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------- |
-| `/plan`           | Explores the codebase in read-only mode and produces an implementation plan                  |
-| `/code-review`    | Reviews a merge/pull request for correctness, tests, performance, security, and architecture |
-| `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks      |
-| `/init`           | Analyzes the repository and generates or updates an `AGENTS.md` guidance file                |
-| `/skill-creator`  | Guides you through creating a new custom skill                                               |
+| Skill             | Description                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `/plan`           | Explores the codebase in read-only mode and produces an implementation plan                                               |
+| `/code-review`    | Reviews a merge/pull request for correctness, security, performance, structure, and your repository's custom review rules |
+| `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks                                   |
+| `/init`           | Analyzes the repository and generates or updates an `AGENTS.md` guidance file                                             |
+| `/skill-creator`  | Guides you through creating a new custom skill                                                                            |
 
 ### /plan
 
@@ -83,7 +83,7 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 @daiv /code-review
 ```
 
-Reviews the current merge/pull request diff for correctness, test coverage, performance, security issues, and architecture concerns. Posts numbered findings grouped by severity.
+Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
 
 ### /security-audit
 
