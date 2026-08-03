@@ -8,10 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from git import GitCommandError, Repo
-from github import Consts, Github, GithubIntegration, Installation, UnknownObjectException
+from github import Consts, Github, GithubIntegration, Installation
 from github.GithubException import GithubException
-from github.IssueComment import IssueComment
-from github.PullRequestComment import PullRequestComment
 
 from codebase.base import (
     Discussion,
@@ -22,11 +20,6 @@ from codebase.base import (
     MergeRequestDiffStats,
     Note,
     NoteableType,
-    NoteDiffPosition,
-    NoteDiffPositionType,
-    NotePosition,
-    NotePositionLineRange,
-    NotePositionType,
     NoteType,
     RepoAccessLevel,
     RepoMember,
@@ -40,6 +33,8 @@ from core.utils import async_download_url, is_git_ref_not_found_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from github.IssueComment import IssueComment
 
 
 logger = logging.getLogger("daiv.clients")
@@ -251,6 +246,8 @@ class GitHubClient(RepoClient):
         """
         Set webhooks for a repository.
         """
+        # Adding `pull_request_review_comment` also needs a callback for it and a review-comment
+        # reaction path — conversation comments and diff comments use different endpoints.
         events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request"]
         config = {
             "url": url,
@@ -783,37 +780,19 @@ class GitHubClient(RepoClient):
         Returns:
             The discussion object.
         """
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-
-        comment = None
-        try:
-            comment = pr.get_issue_comment(int(comment_id))
-        except UnknownObjectException:
-            comment = pr.get_review_comment(int(comment_id))
-
-        if comment is None:
-            return Discussion(id=str(comment_id), notes=[])
-
+        # A comment on the pull request conversation is an issue comment. Going through the issue
+        # keeps this to one request: reaching it via ``get_pull`` would fetch the whole PR first.
+        issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
+        comment = issue.get_comment(int(comment_id))
         return Discussion(id=str(comment_id), notes=self._serialize_comments([comment], from_merge_request=True))
 
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
         """
-        Create an emoji on a note of a merge request.
+        React to a comment on the pull request conversation.
 
-        Args:
-            repo_id: The repository ID.
-            merge_request_id: The merge request ID.
-            emoji: The emoji name.
-            note_id: The note ID.
+        Those are issue comments, so they resolve on the issues API; review (diff) comment ids do not.
         """
-        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
-            raise ValueError(f"Unsupported emoji: {emoji}")
-
-        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        try:
-            pr.get_review_comment(note_id).create_reaction(emoji_reaction)
-        except UnknownObjectException:
-            pr.get_issue_comment(note_id).create_reaction(emoji_reaction)
+        self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """
@@ -838,58 +817,24 @@ class GitHubClient(RepoClient):
         user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
         return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
 
-    def _serialize_comments(
-        self, comments: list[IssueComment | PullRequestComment], from_merge_request: bool = False
-    ) -> list[Note]:
+    def _serialize_comments(self, comments: list[IssueComment], from_merge_request: bool = False) -> list[Note]:
         """
         Get the notes of an issue or a merge request.
+
+        Only issue comments arrive here — DAIV subscribes to no review-comment event — so no note
+        carries a diff position.
         """
-        notes = []
-
-        for note in comments:
-            if isinstance(note, IssueComment):
-                note_type = NoteType.DISCUSSION_NOTE
-            elif isinstance(note, PullRequestComment):
-                note_type = NoteType.DIFF_NOTE
-
-            position = None
-            if isinstance(note, PullRequestComment):
-                position = NotePosition(
-                    head_sha=note.commit_id,
-                    old_path=note.path,
-                    new_path=note.path,
-                    position_type=NotePositionType.TEXT if note.subject_type == "line" else NotePositionType.FILE,
-                    old_line=note.start_line,
-                    new_line=note.line,
-                    line_range=NotePositionLineRange(
-                        start=NoteDiffPosition(
-                            type=NoteDiffPositionType.NEW
-                            if (note.start_side or note.side) == "RIGHT"
-                            else NoteDiffPositionType.OLD,
-                            old_line=note.start_line,
-                            new_line=note.line,
-                        ),
-                        end=NoteDiffPosition(
-                            type=NoteDiffPositionType.NEW
-                            if (note.side or note.start_side) == "RIGHT"
-                            else NoteDiffPositionType.OLD,
-                            old_line=note.start_line,
-                            new_line=note.line,
-                        ),
-                    ),
-                )
-
-            notes.append(
-                Note(
-                    id=note.id,
-                    body=note.body,
-                    type=note_type,
-                    noteable_type=NoteableType.ISSUE if not from_merge_request else NoteableType.MERGE_REQUEST,
-                    system=False,
-                    resolvable=False,
-                    resolved=False,
-                    author=User(id=note.user.id, username=note.user.login, name=note.user.name),
-                    position=position,
-                )
+        return [
+            Note(
+                id=note.id,
+                body=note.body,
+                type=NoteType.DISCUSSION_NOTE,
+                noteable_type=NoteableType.MERGE_REQUEST if from_merge_request else NoteableType.ISSUE,
+                system=False,
+                resolvable=False,
+                resolved=False,
+                author=User(id=note.user.id, username=note.user.login, name=note.user.name),
+                position=None,
             )
-        return notes
+            for note in comments
+        ]

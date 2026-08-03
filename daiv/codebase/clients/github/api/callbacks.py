@@ -93,10 +93,8 @@ class IssueCallback(GitHubCallback):
     async def process_callback(self):
         try:
             self._client.create_issue_emoji(self.repository.full_name, self.issue.number, Emoji.EYES)
-        except GithubException:
-            logger.warning(
-                "Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number, exc_info=True
-            )
+        except GithubException, OSError:
+            logger.exception("Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number)
         thread_id = compute_thread_id(
             repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
         )
@@ -176,8 +174,8 @@ class IssueCommentCallback(GitHubCallback):
                 self._client.create_issue_emoji(
                     self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
                 )
-            except GithubException:
-                logger.warning("Failed to add reaction to issue comment %s", self.comment.id, exc_info=True)
+            except GithubException, OSError:
+                logger.exception("Failed to add reaction to issue comment %s", self.comment.id)
             thread_id = compute_thread_id(
                 repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
             )
@@ -214,8 +212,8 @@ class IssueCommentCallback(GitHubCallback):
                 self._client.create_merge_request_note_emoji(
                     self.repository.full_name, self.issue.number, Emoji.EYES, self.comment.id
                 )
-            except GithubException:
-                logger.warning("Failed to add reaction to PR comment %s", self.comment.id, exc_info=True)
+            except GithubException, OSError:
+                logger.exception("Failed to add reaction to PR comment %s", self.comment.id)
             thread_id = compute_thread_id(
                 repo_slug=self.repository.full_name, scope=Scope.MERGE_REQUEST, entity_iid=self.issue.number
             )
