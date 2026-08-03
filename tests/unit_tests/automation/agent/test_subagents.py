@@ -1006,9 +1006,7 @@ class TestShippedDetectorCharters:
         # and step 7 in the other four. Assert the sentence, not the leading step number.
         gate = "Score candidates internally from 0–100. Report only confidence 80 or higher."
         for name, lines in charters.items():
-            assert any(line.endswith(gate) for line in lines), (
-                f"{name} lost the >=80 reporting threshold gate sentence"
-            )
+            assert any(line.endswith(gate) for line in lines), f"{name} lost the >=80 reporting threshold gate sentence"
 
         for line in (
             # Section headings the charters are structured by.
