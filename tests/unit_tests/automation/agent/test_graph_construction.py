@@ -167,3 +167,13 @@ def test_repository_memory_middleware_registered_after_dynamic_prompt():
     prompt = src.rindex("dynamic_daiv_system_prompt")
     memory_mw = src.index("RepositoryMemoryMiddleware(")
     assert prompt < memory_mw, "RepositoryMemoryMiddleware must be registered after dynamic_daiv_system_prompt"
+
+
+def test_graph_uses_daiv_filesystem_middleware():
+    """The main agent greps too and shares the paths-only default with the detectors, so it must
+    get DAIV's filesystem subclass (which carries the output-mode label), not plain upstream.
+    """
+    src = inspect.getsource(graph_module)
+
+    assert "DAIVFilesystemMiddleware(" in src
+    assert not re.search(r"(?<![A-Za-z0-9_])FilesystemMiddleware\(", src), "graph must not wire upstream"

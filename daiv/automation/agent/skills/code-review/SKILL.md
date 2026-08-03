@@ -1,37 +1,180 @@
 ---
 name: code-review
-description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, performance, security, structural concerns, repo-specific review rules, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
-metadata:
-  version: 3.5.0
+description: This skill should be used when the user asks for a code review of a change — a pull request, merge request, branch, commit range, working-tree change, or pasted diff — covering correctness, security, performance, structure, and repository-specific rules. Trigger on phrases like "review this PR", "review this MR", "code review", "review my changes", "review this diff", "look over this branch", "is this ready to merge", "any issues with these changes", "merge-readiness check", or "give me feedback on this change", for GitHub, GitLab, or a local repository. For a security-only deep audit of a feature or codebase area rather than a multi-dimension review of a specific change, use the `security-audit` skill instead.
 ---
 
 # Code Review
 
-This skill runs in two phases. The **review workflow** finds and verifies high-signal issues; **delivery** optionally publishes them to GitLab. Each phase has its own reference — read it as you enter the phase, so its detail is fresh when you act on it. This file is the router: it picks the mode, lists the stages, and states the rules that hold in every mode. The detailed procedure lives in the references, not here.
+Run a comprehensive review using multiple specialized agents, each focusing on a different aspects.
 
-## Pick a mode
+The final message is the only deliverable. Never create a platform discussion, review, comment, or note yourself. When the request came from a pull-request or merge-request comment, the platform layer posts your final message automatically.
 
-- **Delivery mode** — the runtime has merge-request context (`Scope.MERGE_REQUEST` with a `merge_request_id`) **and** the platform is GitLab. The review is delivered as inline discussions on specific lines plus one top-level summary discussion, posted via the `gitlab` tool. Delivery requires the `gitlab` tool: if it's not loaded, `tool_search` for it; if it can't be loaded (or returns 403 on the discussion endpoint), demote to interactive mode. The pick is provisional: `gitlab-delivery.md` Step 1 re-confirms that `merge_request_id`, the project, and the SHA triplet are all present and demotes to interactive if any is missing.
-- **Interactive mode** — anything else: a local diff, a referenced MR/PR with no runtime context, a GitHub PR, or ambiguous scope. The review is returned as a markdown final message; the harness handles delivery.
+## 1. Resolve the review context
 
-## Run the review
+Use the same workflow for GitHub pull requests and GitLab merge requests.
 
-1. **Read `references/review-workflow.md` and follow it.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
-2. **Interactive mode:** render the survivors using the interactive output protocol at the end of `review-workflow.md`, and return it as the final message. Done.
-3. **Delivery mode:** once the workflow hands off verified findings, **read `references/gitlab-delivery.md` and follow it** to post them. Read it *before* posting anything — the marker, anchor, and dedup machinery is not reconstructable from memory.
+- **Platform review:** the request arrived from a PR or MR comment. Use the platform context and read tools to identify the change and previous DAIV reviews. Include the review marker, run number, and footer in the final message.
+- **Interactive review:** any chat or CLI request, including a PR or MR the user merely pointed at, a local change, or a pasted diff. Return the report directly without a marker or footer.
 
-## Non-negotiables (every mode)
+Choose the review scope in this order:
 
-- **Precision over recall.** Adversarially refute every finding; over-pruning is acceptable. Present only confirmed survivors — no strikethrough, no "on closer reading this is fine."
-- **Never post style, formatting, whitespace, or import-ordering findings.** That's a linter's or formatter's job.
-- **Detectors run as `cr-*` subagents, never `general-purpose`.** A `general-purpose` dispatch returns prose with no `findings` array and breaks the merge. If a `cr-*` type didn't load, skip it and report the gap in the status line — never substitute.
-- **Never compute markers or anchors by hand.** `scripts/marker.py` is the only source of markers, anchors, and note parsing; hand-rolling them silently breaks dedup across reruns.
-- **In delivery mode the posted comments are the deliverable.** Do not also return the review markdown after a successful post.
-- **Never re-invoke the `skill` tool to restart the review.** On a tool failure, switch to an alternative and continue — each phase reference lists its fallbacks.
+1. Use an explicit diff, commit range, branch range, path set, PR, or MR named by the user.
+2. Treat a pasted diff as the authoritative change when repository refs are unavailable.
+3. For a platform review, use the PR or MR base and head.
+4. Otherwise review the current working-tree change, including staged, unstaged, and new files.
 
-## References
+Ask when the intended scope is ambiguous. Resolve refs to commit SHAs before using them in shell commands.
 
-- `references/review-workflow.md` — the review itself (scope, detect, verify, severity, interactive output). **Required reading every run.**
-- `references/gitlab-delivery.md` — posting to GitLab (markers, dedup, inline + summary, pending replies, status line). **Required in delivery mode.**
-- `references/principles.md`, `references/few-shot-examples.md` — the *why* behind a finding and how short a useful comment can be; open a section when a finding's framing is unclear.
-- `references/marker-format.md`, `examples/example-review-output.md` — marker field semantics and a complete delivery example; open during delivery if a field's purpose is unclear or you need the output shape.
+## 2. Find the previous platform review
+
+For a platform review, load the appropriate GitHub or GitLab read tool and list all comments or notes, following pagination. Do not use any write action.
+
+DAIV review comments contain:
+
+```text
+<!-- daiv:code-review run=N head=<full-sha> -->
+## Code Review #N
+```
+
+A marker counts only when:
+
+- the comment was authored by DAIV's account;
+- it matches the marker grammar exactly, with a 40-character hexadecimal head SHA;
+- the comment contains at least one review section or a `No findings` result.
+
+Ignore every other marker. The next run number is the highest valid run plus one. The previous review is the newest valid comment among those with the highest run number. Its marker supplies the previous reviewed head.
+
+- With no valid previous review, review the full current change as run 1.
+- If comments cannot be read, review the full current change as run 1 and mention that previous reviews could not be checked.
+- If the current head equals the previous reviewed head, return `Already reviewed at <short-sha> — no new commits since review #N.` and stop without a marker.
+- Otherwise review only the changes since the previous reviewed head, restricted to paths in the current PR or MR.
+- If the previous head is missing, is not an ancestor of the current head, or cannot produce a trustworthy incremental diff, review the full current change and mention the fallback.
+
+## 3. Prepare one canonical diff
+
+Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent. All subagents must review that same change.
+
+For platform reviews:
+
+- First review: use the full base-to-head PR or MR diff.
+- Re-review: use the previous reviewed head to current head range, restricted to paths in the current PR or MR.
+
+For working-tree reviews, ensure the canonical diff contains staged changes, unstaged changes, and complete unified patches for untracked files.
+
+If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the subagent. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
+
+Preserve paths without shell interpolation; use NUL-delimited changed-path lists when supported so spaces, renames, and unusual filenames remain intact.
+
+Do not load a large full diff into the parent context. Build a concise applicability summary from:
+
+- the PR or MR title and description, when available;
+- changed paths and file statuses;
+- the diffstat;
+- hunk headers and a small changed-code preview only when needed.
+
+## 4. Select and dispatch subagents
+
+Select applicable subagents from the concise summary. Identify the kinds of files and changes involved, then run every plausibly relevant reviewer.
+
+| Subagent | Dispatch when |
+|---|---|
+| `cr-correctness` | behavior, source, tests, configuration, schemas, migrations, dependencies, CI, or infrastructure changed |
+| `cr-structure` | source structure, public interfaces, types, modules, data models, or multi-file design changed |
+| `cr-security` | authentication, authorization, input, trust boundaries, secrets, dependencies, configuration, CI, deployment, file access, commands, or data exposure may be affected |
+| `cr-performance` | database access, collections, loops, network or file I/O, caching, serialization, async work, concurrency, or resource use may be affected |
+| `cr-custom-rules` | `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md` exists locally or in the reviewed repository; provide each source as an accessible absolute path or inline content |
+
+Bias toward inclusion when applicability is uncertain. For documentation or asset-only changes, run only `cr-custom-rules` when rules exist; otherwise report that nothing applicable changed.
+
+Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
+
+Derive a concise statement of the change's intent from the user's explicit request or, when unavailable, the PR or MR title and description. Do not invent intent.
+
+Each subagent prompt should contain only:
+
+- the exact review scope;
+- the stated change intent, when available;
+- the canonical diff path and line count, or the canonical diff content when no file is available;
+- the head SHA when available;
+- the changed paths;
+- the rule-source paths or inline contents for `cr-custom-rules`.
+
+The line count is a completeness aid. Subagents may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
+
+IMPORTANT: Do not restate the subagent output format. Never substitute a missing `cr-*` subagent with `general-purpose` or another agent type.
+
+## 5. Aggregate the reports
+
+After agents complete, sumarize: `### Critical:` (must fix before merge), `### Important:` (should fix), `### Suggestion:` (nice to have), or `### Question:`.
+
+Aggregate by:
+
+- dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
+- preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
+- deduplicating findings with the same underlying issue;
+- keeping the higher subagent-provided severity when duplicates disagree;
+- keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
+- removing the internal `Confidence` field.
+
+Aggregate silently. Which subagents ran, which succeeded, what each returned, and how many findings survived are working notes, not report content: they appear in the message only as the `_Review unavailable for: <dimensions>._` line.
+
+Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
+
+## 6. Return the report
+
+For a platform review, the message begins with the marker — its first character is the `<` of `<!--`:
+
+```markdown
+<!-- daiv:code-review run=N head=<full-sha> -->
+## Code Review #N
+
+_Review unavailable for: <dimensions>._ <!-- omit when all applicable subagents returned usable reports -->
+
+### Critical Issues
+**1. <one-line title>** — [`path/to/file.py:42`](<blob-link>)
+
+<details>
+<summary>Details</summary>
+
+**Rule:** `review-rules.md: <rule>` <!-- custom-rule findings only -->
+
+Why this is a problem, followed by a concrete fix.
+
+</details>
+
+### Important Issues
+...
+
+### Suggestions
+...
+
+### Questions
+...
+
+### Recommended Actions
+1. <merge-blocking actions first, followed by the remaining important actions>
+
+---
+_Reply to this comment and mention `@<bot-username>` to ask about a finding or have DAIV apply a fix._
+```
+
+Report rules:
+
+- Omit empty sections.
+- Number entries sequentially within each section.
+- Include Recommended Actions only when Critical or Important findings exist.
+- When usable reports completed but no findings or questions survive aggregation, use `No findings — no reported issues met the review threshold.`
+- When no findings survive and some subagents were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.
+- Link new-side locations to the head blob when possible.
+- Link deleted-side locations to the platform diff when possible and label them `(deleted)`.
+- Otherwise use plain `path:line` references.
+- Use DAIV's actual account username from the runtime context.
+- In interactive mode, use `## Code Review`; omit the marker, run number, and footer.
+
+## Non-negotiables
+
+- Return the report only as the final message.
+- Never create or post a discussion, review, comment, or note through a GitHub or GitLab tool.
+- Never restart the skill after a tool or detector failure; continue with the usable results.
+- In platform reviews, re-read your first line before returning. If it is not the marker, delete everything above it.

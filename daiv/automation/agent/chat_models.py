@@ -120,19 +120,14 @@ class ChatOpenRouter(ChatOpenAI):
                 len(serialized),
             )
             return payload
-        replayed = 0
         for original, message in zip(source, serialized, strict=True):
             if message.get("role") != "assistant":
                 continue
             additional_kwargs = getattr(original, "additional_kwargs", None) or {}
             if details := additional_kwargs.get(DETAILS_KEY):
                 message[DETAILS_KEY] = deepcopy(details)
-                replayed += 1
             elif reasoning := additional_kwargs.get(FALLBACK_KEY):
                 message["reasoning"] = reasoning
-                replayed += 1
-        if replayed:
-            logger.debug("Replayed OpenRouter reasoning on %d assistant message(s).", replayed)
         return payload
 
     @staticmethod

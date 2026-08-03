@@ -86,9 +86,7 @@ sandbox's own wording.
 
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
-**Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/code-review/scripts/marker.py` as the reference.
-
-**Code-review detector output** — the `cr-*` detectors defer their `{"findings":[...]}` to `/workspace/tmp/subagent-output/<name>-<hash>.json` (via `DeferredOutputMiddleware`, added in `_build_detector_middleware`); the review orchestrator passes those paths to `scripts/findings.py merge` instead of re-typing the JSON. The detector charters are unaware of this — they still just return the structured object. (A detector with no structured response — e.g. one the `LoopBreakerMiddleware` stopped — defers a `.txt` error file instead, which `findings.py merge` counts as a `skipped`/failed detector, never as empty findings.)
+**Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
 
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
 

@@ -105,8 +105,12 @@ async def test_error_at_terminal_streak_returns_aimessage_without_calling_model(
     assert isinstance(result, AIMessage)
     assert not result.tool_calls
     assert seen == []  # model never called
-    # result must unambiguously signal a failure, not "no findings"
-    assert "ERROR" in result.content
+    # result must unambiguously signal a failure, not "no findings". The `ERROR:` *prefix* is a
+    # contract, not decoration: the code-review orchestrator (SKILL.md Step 5) classifies a detector
+    # result as failed by testing whether it opens with `ERROR:`, and counts the dimension as
+    # uncovered. Rewording this into "stopped with an ERROR after…" would keep a substring check
+    # green while silently making every loop-stopped detector read as a clean pass.
+    assert result.content.startswith("ERROR:")
     assert "did NOT complete" in result.content
     assert "no findings" in result.content
 

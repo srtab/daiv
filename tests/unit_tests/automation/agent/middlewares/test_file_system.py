@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
@@ -15,6 +17,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemBackend,
+    DAIVFilesystemMiddleware,
     build_disk_workspace_backend,
 )
 
@@ -32,11 +35,11 @@ def working_repo(tmp_path) -> Path:
 
 @pytest.fixture
 def setup(working_repo):
-    """Disk-backed repo backend + the upstream filesystem tool map."""
+    """Disk-backed repo backend + DAIV's filesystem middleware and its tool map."""
     backend = DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
+    fs = DAIVFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
-    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo)
+    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo, middleware=fs)
 
 
 def _runtime(*, state: dict[str, Any], working_dir: Path) -> SimpleNamespace:
@@ -918,3 +921,137 @@ class TestSandboxReadPagination:
         assert result.total_lines is None
         assert result.next_offset == 50
         assert "More lines remain from offset 50" in _remaining_lines_notice(result)
+
+
+# ---------------------------------------------------------------------------
+# grep output-mode legibility
+# ---------------------------------------------------------------------------
+
+
+def test_daiv_filesystem_middleware_replaces_upstream_in_the_merge(setup):
+    """``create_deep_agent`` auto-adds its own ``FilesystemMiddleware`` and merges ours in by
+    ``.name`` — which defaults to the class name. A subclass under a new name is therefore
+    APPENDED rather than substituted, leaving two filesystem middlewares and restoring the
+    ``delete``/``execute`` tools that ``WORKSPACE_FS_TOOLS`` deliberately withholds from the main
+    agent. ``profile.py`` documents the same ``__name__``-collision requirement for the prompt-cache
+    subclass.
+    """
+    merged = _apply_custom_middleware(
+        [UpstreamFilesystemMiddleware(backend=setup.backend)], [DAIVFilesystemMiddleware(backend=setup.backend)]
+    )
+
+    assert [type(m) for m in merged] == [DAIVFilesystemMiddleware], (
+        "DAIV's subclass must take upstream's slot, not sit alongside it"
+    )
+
+
+async def test_grep_label_does_not_disable_large_tool_result_eviction(setup):
+    """Upstream's ``awrap_tool_call`` evicts oversized results for every tool outside
+    ``TOOLS_EXCLUDED_FROM_EVICTION`` — bash, task, MCP. Overriding it to add the grep label must
+    delegate to ``super()``, or one huge bash result blows up the context.
+    """
+    fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=10)
+    oversized = "x" * 20_000
+    request = ToolCallRequest(
+        tool_call={"name": "bash", "args": {}, "id": "call_bash"},
+        tool=None,
+        state={"messages": []},
+        runtime=_runtime(state={}, working_dir=setup.repo),
+    )
+
+    async def handler(req: ToolCallRequest):
+        return ToolMessage(content=oversized, tool_call_id=req.tool_call["id"], name="bash")
+
+    result = await fs.awrap_tool_call(request, handler)
+
+    assert oversized not in str(result.content), "oversized result was not evicted — super() was bypassed"
+
+
+async def _grep_via_middleware(setup, **kwargs) -> str:
+    """Run the real grep tool through the DAIV filesystem middleware and return the text."""
+    runtime = _runtime(state={}, working_dir=setup.repo)
+    request = ToolCallRequest(
+        tool_call={"name": "grep", "args": dict(kwargs), "id": "call_grep"},
+        tool=setup.tools["grep"],
+        state={"messages": []},
+        runtime=runtime,
+    )
+
+    async def handler(req: ToolCallRequest):
+        content = await setup.tools["grep"].coroutine(runtime=runtime, **req.tool_call["args"])
+        if isinstance(content, ToolMessage):
+            return content
+        return ToolMessage(content=content, tool_call_id=req.tool_call["id"], name="grep")
+
+    result = await setup.middleware.awrap_tool_call(request, handler)
+    return result.content if isinstance(result, ToolMessage) else result
+
+
+class TestGrepOutputMode:
+    """A grep result must name the mode that produced it."""
+
+    async def _grep(self, setup, **kwargs):
+        return await _grep_via_middleware(setup, **kwargs)
+
+    async def test_default_mode_result_names_the_mode_and_the_remedy(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert text.startswith("Mode: files_with_matches")
+        assert 'output_mode="content"' in text
+        assert "a.py" in text
+
+    async def test_content_mode_result_names_content_and_does_not_nag(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="content")
+
+        assert text.startswith("Mode: content")
+        assert 'output_mode="content"' not in text, "should not suggest a mode already in use"
+        assert "needle here" in text
+
+    async def test_no_match_is_not_told_to_retry_in_content_mode(self, setup):
+        (setup.repo / "a.py").write_text("nothing relevant\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert 'output_mode="content"' not in text
+
+    async def test_count_mode_result_names_count(self, setup):
+        (setup.repo / "a.py").write_text("needle\nneedle\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="count")
+
+        assert text.startswith("Mode: count")
+        assert "a.py: 2" in text
+
+
+def test_regex_literal_hint_patch_is_live():
+    """Catches what the behavioural test below cannot: if upstream renames the symbol AND rewords
+    the hint in one bump, the patch targets a dead attribute and the reworded hint reaches the
+    model with both assertions still green.
+    """
+    assert fs_module._REGEX_HINT_PATCH_APPLIED, "upstream no longer exposes regex_literal_hint here"
+
+
+async def test_no_match_does_not_claim_grep_is_literal(setup):
+    """deepagents appends a "grep matches literal text, not regex" note on a zero-match
+    regex-looking pattern, telling the caller to "run a separate search per alternative".
+
+    Both DAIV backends grep by regex, so the note is false here and drives alternation fan-out.
+    """
+    (setup.repo / "a.py").write_text("nothing relevant\n")
+
+    text = await _grep_via_middleware(setup, pattern="alpha|beta")
+
+    assert "literal text, not regex" not in text
+    assert "separate search per alternative" not in text
+
+
+def test_grep_description_states_the_default_output_mode():
+    """The tool description must say what a bare ``grep(pattern=...)`` returns."""
+    desc = fs_module.GREP_TOOL_DESCRIPTION
+
+    assert "files_with_matches" in desc, "description must name the default output mode"
+    assert 'output_mode="content"' in desc
