@@ -35,13 +35,13 @@ For each candidate, determine what behavior the changed code is required to pres
 
 Establish the contract from focused evidence such as:
 
-* callers and expected return values or exceptions;
-* public interfaces, schemas, protocols, and documented API behavior;
-* validation rules, state-machine transitions, and data invariants;
-* configuration semantics and established defaults;
-* migration requirements for existing data and mixed-version deployments;
-* transaction, retry, cancellation, cleanup, and idempotency guarantees;
-* tests that clearly express an intended behavioral contract.
+- callers and expected return values or exceptions;
+- public interfaces, schemas, protocols, and documented API behavior;
+- validation rules, state-machine transitions, and data invariants;
+- configuration semantics and established defaults;
+- migration requirements for existing data and mixed-version deployments;
+- transaction, retry, cancellation, cleanup, and idempotency guarantees;
+- tests that clearly express an intended behavioral contract.
 
 Prefer the strongest and closest source of evidence. A caller that relies on a return value is stronger evidence than a naming convention. An explicit interface or schema is stronger than an inferred preference.
 
@@ -69,36 +69,36 @@ If focused reading cannot establish every required link, discard the candidate.
 
 Check, when relevant:
 
-* incorrect branching, boundary conditions, conversions, mutation, or absent-value handling;
-* invalid state transitions or inconsistent updates across related state;
-* changed inputs, defaults, return values, exceptions, or caller compatibility;
-* misleading fallbacks, swallowed failures, incomplete cleanup, or invalid continuation;
-* configuration changes whose defaults or precedence produce unintended behavior;
-* migrations that fail for existing data, mixed schemas, or mixed-version rollout;
-* race conditions, lost updates, unsafe ordering, broken atomicity, or incorrect locking;
-* retries, cancellation, or idempotency changes that repeat or omit effects;
-* leaked or incorrectly finalized files, connections, streams, transactions, workers, or tasks;
-* tests whose mocks, setup, or assertions do not exercise the behavior they claim to verify.
+- incorrect branching, boundary conditions, conversions, mutation, or absent-value handling;
+- invalid state transitions or inconsistent updates across related state;
+- changed inputs, defaults, return values, exceptions, or caller compatibility;
+- misleading fallbacks, swallowed failures, incomplete cleanup, or invalid continuation;
+- configuration changes whose defaults or precedence produce unintended behavior;
+- migrations that fail for existing data, mixed schemas, or mixed-version rollout;
+- race conditions, lost updates, unsafe ordering, broken atomicity, or incorrect locking;
+- retries, cancellation, or idempotency changes that repeat or omit effects;
+- leaked or incorrectly finalized files, connections, streams, transactions, workers, or tasks;
+- tests whose mocks, setup, or assertions do not exercise the behavior they claim to verify.
 
 ## Non-findings
 
 Do not report:
 
-* missing test coverage without a demonstrated behavioral defect;
-* style, readability, maintainability, or repository-convention concerns;
-* security or performance concerns whose primary impact belongs to another detector;
-* pre-existing problems not caused by the supplied change;
-* unreachable paths or triggers contradicted by callers, validation, or framework behavior;
-* defensive improvements without an existing violated contract;
-* behavior that is merely surprising but remains compatible with the established contract;
-* concerns that require unresolved runtime assumptions rather than code evidence.
+- missing test coverage without a demonstrated behavioral defect;
+- style, readability, maintainability, or repository-convention concerns;
+- security or performance concerns whose primary impact belongs to another detector;
+- pre-existing problems not caused by the supplied change;
+- unreachable paths or triggers contradicted by callers, validation, or framework behavior;
+- defensive improvements without an existing violated contract;
+- behavior that is merely surprising but remains compatible with the established contract;
+- concerns that require unresolved runtime assumptions rather than code evidence.
 
 Ask a question only when focused reading leaves two plausible author-intent contracts, both supported by evidence, and choosing between them changes whether the code is correct. Do not use questions to preserve low-confidence candidates.
 
 ## Severity
 
-* **Critical** — likely data loss or corruption, broadly wrong results, widespread failure, or a production-blocking deployment failure.
-* **Important** — a confirmed correctness defect with narrower impact.
+- **Critical** — likely data loss or corruption, broadly wrong results, widespread failure, or a production-blocking deployment failure.
+- **Important** — a confirmed correctness defect with narrower impact.
 
 ## Output
 
@@ -106,17 +106,17 @@ For each finding:
 
 ### <Severity>: <one-line title>
 
-* **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
-* **Why:** Explain the trigger, changed path, incorrect outcome, and violated contract in 1–3 sentences.
-* **Fix:** State the smallest corrective change.
-* **Confidence:** <80–100>
+- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
+- **Why:** Explain the trigger, changed path, incorrect outcome, and violated contract in 1–3 sentences.
+- **Fix:** State the smallest corrective change.
+- **Confidence:** <80–100>
 
 For each material author-intent ambiguity:
 
 ### Question: <one-line subject>
 
-* **Location:** `path/to/file.py:42`
-* **Question:** State the two plausible contracts and why the choice affects correctness.
+- **Location:** `path/to/file.py:42`
+- **Question:** State the two plausible contracts and why the choice affects correctness.
 
 Omit the location when no changed line applies to the question.
 

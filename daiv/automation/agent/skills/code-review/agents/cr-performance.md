@@ -33,12 +33,12 @@ Your specialization narrows what you investigate. It never expands the supplied 
 
 For each candidate, identify:
 
-* the expensive operation or retained resource;
-* the unit cost of that operation;
-* how often the operation executes;
-* the input size, item count, request rate, concurrency, or lifetime controlling that frequency;
-* whether work is sequential, parallel, repeated, cached, bounded, or unbounded;
-* how the changed cost differs from the previous or established path.
+- the expensive operation or retained resource;
+- the unit cost of that operation;
+- how often the operation executes;
+- the input size, item count, request rate, concurrency, or lifetime controlling that frequency;
+- whether work is sequential, parallel, repeated, cached, bounded, or unbounded;
+- how the changed cost differs from the previous or established path.
 
 Use code-visible evidence such as loops, query placement, collection cardinality, pagination, task creation, blocking calls, cache keys, queue bounds, allocation size, cleanup paths, or caller behavior.
 
@@ -68,37 +68,37 @@ If focused reading cannot establish the workload, growth mechanism, and material
 
 Check, when relevant:
 
-* N+1 queries, per-item writes, repeated lookups, or repeated remote calls;
-* nested data-driven loops, repeated scans, or sorting, parsing, or compilation inside loops;
-* unsuitable lookup structures that change frequent operations from constant or logarithmic to linear work;
-* independent database, network, or filesystem operations serialized on a latency-sensitive path;
-* blocking I/O in async code or event-loop execution;
-* locks or transactions held across slow or unrelated work;
-* unbounded task creation, queues, caches, retries, concurrency, or retained results;
-* repeated large allocations, serialization, copying, or full materialization;
-* loading an unbounded dataset where pagination, streaming, or batching was previously used or clearly required;
-* bypassing an established cache or invalidating it at an unnecessarily broad frequency;
-* connections, files, streams, workers, tasks, or other resources whose release path was removed or made unreachable.
+- N+1 queries, per-item writes, repeated lookups, or repeated remote calls;
+- nested data-driven loops, repeated scans, or sorting, parsing, or compilation inside loops;
+- unsuitable lookup structures that change frequent operations from constant or logarithmic to linear work;
+- independent database, network, or filesystem operations serialized on a latency-sensitive path;
+- blocking I/O in async code or event-loop execution;
+- locks or transactions held across slow or unrelated work;
+- unbounded task creation, queues, caches, retries, concurrency, or retained results;
+- repeated large allocations, serialization, copying, or full materialization;
+- loading an unbounded dataset where pagination, streaming, or batching was previously used or clearly required;
+- bypassing an established cache or invalidating it at an unnecessarily broad frequency;
+- connections, files, streams, workers, tasks, or other resources whose release path was removed or made unreachable.
 
 ## Non-regressions
 
 Do not report:
 
-* micro-optimizations or minor constant-factor improvements without material impact;
-* guessed production traffic, dataset sizes, or latency requirements;
-* hypothetical future scale unsupported by current interfaces or established use;
-* caching suggestions without demonstrated repeated expensive work;
-* small bounded loops or materializations whose maximum size is established and harmless;
-* stylistic preferences for one data structure or concurrency pattern;
-* performance differences not introduced by the supplied change;
-* ordinary correctness, security, or structural concerns without primary performance impact.
+- micro-optimizations or minor constant-factor improvements without material impact;
+- guessed production traffic, dataset sizes, or latency requirements;
+- hypothetical future scale unsupported by current interfaces or established use;
+- caching suggestions without demonstrated repeated expensive work;
+- small bounded loops or materializations whose maximum size is established and harmless;
+- stylistic preferences for one data structure or concurrency pattern;
+- performance differences not introduced by the supplied change;
+- ordinary correctness, security, or structural concerns without primary performance impact.
 
 Ask a question only when an unavailable workload bound or latency requirement is an author-controlled design decision that determines whether the changed approach is viable. Do not ask for benchmarks or production metrics to rescue a speculative candidate.
 
 ## Severity
 
-* **Critical** — an ordinary or attacker-controlled workload can cause unbounded growth, resource exhaustion, or service-wide unavailability.
-* **Important** — a confirmed material regression with bounded or narrower impact.
+- **Critical** — an ordinary or attacker-controlled workload can cause unbounded growth, resource exhaustion, or service-wide unavailability.
+- **Important** — a confirmed material regression with bounded or narrower impact.
 
 ## Output
 
@@ -106,17 +106,17 @@ For each finding:
 
 ### <Severity>: <one-line title>
 
-* **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
-* **Why:** Explain the workload, expensive operation, cost growth, and impact in 1–3 sentences.
-* **Fix:** State the smallest effective batching, hoisting, pagination, concurrency, caching, lookup-structure, or resource-lifetime change.
-* **Confidence:** <80–100>
+- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`
+- **Why:** Explain the workload, expensive operation, cost growth, and impact in 1–3 sentences.
+- **Fix:** State the smallest effective batching, hoisting, pagination, concurrency, caching, lookup-structure, or resource-lifetime change.
+- **Confidence:** <80–100>
 
 For each material author-intent ambiguity:
 
 ### Question: <one-line subject>
 
-* **Location:** `path/to/file.py:42`
-* **Question:** State the unknown workload constraint and why it changes the assessment.
+- **Location:** `path/to/file.py:42`
+- **Question:** State the unknown workload constraint and why it changes the assessment.
 
 Omit the location when no changed line applies to the question.
 

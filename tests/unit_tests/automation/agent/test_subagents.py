@@ -1001,11 +1001,18 @@ class TestShippedDetectorCharters:
         assert len(charters) == 5
         shared = set.intersection(*charters.values())
 
+        # The >=80 gate sentence is shared, but its step number is not: cr-custom-rules
+        # carries an extra rule-source protocol step, so the scoring line is step 8 there
+        # and step 7 in the other four. Assert the sentence, not the leading step number.
+        gate = "Score candidates internally from 0–100. Report only confidence 80 or higher."
+        for name, lines in charters.items():
+            assert any(line.endswith(gate) for line in lines), (
+                f"{name} lost the >=80 reporting threshold gate sentence"
+            )
+
         for line in (
-            # The >=80 gate, as step 7 of the shared review protocol.
-            "7. Score candidates internally from 0–100. Report only confidence 80 or higher.",
             # Section headings the charters are structured by.
-            "## Review protocol",
+            "## Scope and operating constraints",
             "## Severity",
             "## Output",
             # Entry headers SKILL.md step 5 recognises findings and questions by.
@@ -1014,7 +1021,8 @@ class TestShippedDetectorCharters:
             # Fields the orchestrator strips (Confidence) or anchors on (Location).
             "- **Confidence:** <80–100>",
             "- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`",
-            "- **Location:** `path/to/file.py:42` <!-- omit when no location applies -->",
+            "- **Location:** `path/to/file.py:42`",
+            "Omit the location when no changed line applies to the question.",
             # The two terminal sentinels step 5 classifies a detector's result by, each with the
             # exact-response preamble that makes the model emit it alone.
             "2. If the diff is missing, unreadable, or incomplete, return exactly:",
