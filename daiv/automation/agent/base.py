@@ -184,6 +184,7 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
     # OpenRouter converts ``effort`` to ``budget_tokens`` server-side for Anthropic
     # models, so we no longer compute the budget ourselves on this path.
     kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+    kw["temperature"] = 1
     if model_name.startswith(CLAUDE_THINKING_MODELS):
         # Anthropic requires temperature=1 when thinking is enabled; OpenRouter
         # passes the kwarg through to the upstream Anthropic API. Models that reject
