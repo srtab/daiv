@@ -314,7 +314,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        pass
+        """React on an issue, or on one of its notes when `note_id` is given.
+
+        Idempotent: a reaction this user already made is not an error.
+        """
 
     @abc.abstractmethod
     def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
@@ -446,7 +449,11 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
-        pass
+        """React on a merge request note. Idempotent, as for `create_issue_emoji`.
+
+        `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
+        here, since DAIV receives none.
+        """
 
     @abc.abstractmethod
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):

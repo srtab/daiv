@@ -110,8 +110,8 @@ class IssueCallback(BaseCallback):
         """
         try:
             self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
-        except GitlabError:
-            logger.warning("Failed to add reaction to issue %s", self.object_attributes.iid, exc_info=True)
+        except GitlabError, OSError:
+            logger.exception("Failed to add reaction to issue %s", self.object_attributes.iid)
         thread_id = compute_thread_id(
             repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.object_attributes.iid
         )
@@ -197,8 +197,8 @@ class NoteCallback(BaseCallback):
                 self._client.create_issue_emoji(
                     self.project.path_with_namespace, self.issue.iid, Emoji.EYES, self.object_attributes.id
                 )
-            except GitlabError:
-                logger.warning("Failed to add reaction to issue comment %s", self.object_attributes.id, exc_info=True)
+            except GitlabError, OSError:
+                logger.exception("Failed to add reaction to issue comment %s", self.object_attributes.id)
             thread_id = compute_thread_id(
                 repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.issue.iid
             )
@@ -235,8 +235,8 @@ class NoteCallback(BaseCallback):
                 self._client.create_merge_request_note_emoji(
                     self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
                 )
-            except GitlabError:
-                logger.warning("Failed to add reaction to MR comment %s", self.object_attributes.id, exc_info=True)
+            except GitlabError, OSError:
+                logger.exception("Failed to add reaction to MR comment %s", self.object_attributes.id)
             thread_id = compute_thread_id(
                 repo_slug=self.project.path_with_namespace, scope=Scope.MERGE_REQUEST, entity_iid=self.merge_request.iid
             )
