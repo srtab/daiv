@@ -46,7 +46,7 @@ dependencies = [
   "langgraph-checkpoint-redis==0.5.1",
   "langsmith[pytest]==0.10.13",
   "langsmith-fetch==0.3.1",
-  "markdown==3.10.2",
+  "markdown==3.10.3",
   "markdownify==1.2.3",
   "mcp[cli]==1.28.1",
   "nh3==0.3.6",
