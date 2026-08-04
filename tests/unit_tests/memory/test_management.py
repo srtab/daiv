@@ -6,7 +6,10 @@ from django.core.management import CommandError, call_command
 import pytest
 from memory.consolidation import RoundOutcome
 from memory.constants import CONSOLIDATION_MIN_PENDING
-from memory.models import MemoryEntry, MemoryObservation, ObservationCategory, ObservationStatus
+from memory.models import MemoryEntry, MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
+from memory.schemas import MemoryOperation
+
+from tests.unit_tests.memory.consolidation_helpers import _enabled_config, _site_settings, _structured_llm_returning
 
 
 def _create_pending(repo_id, n):
@@ -55,6 +58,42 @@ class TestConsolidateMemoryCommand:
             call_command("consolidate_memory", "--repo-id", "group/empty")
         task_mock.call.assert_not_called()
         assert "No pending observations" in caplog.text
+
+    @pytest.mark.django_db(transaction=True)
+    def test_consolidation_really_runs_in_process(self):
+        """The command's happy path, with only the model mocked rather than the whole task.
+
+        The sibling tests patch ``consolidate_memory_task``, so they would still pass if ``.call()``
+        returned an unawaited coroutine and consolidated nothing. This one asserts the round's
+        effects, which is the only way to catch that.
+        """
+        observation = MemoryObservation.objects.create(
+            repo_id="group/project",
+            category=ObservationCategory.PITFALL,
+            content="the sandbox caps command output at 2000 lines",
+        )
+        llm = _structured_llm_returning(
+            MemoryOperation(
+                op="ADD",
+                category=ObservationCategory.PITFALL,
+                content="the sandbox caps command output at 2000 lines",
+                observation_ids=[str(observation.pk)],
+            )
+        )
+
+        with (
+            patch("memory.tasks.RepositoryConfig") as config,
+            patch("memory.tasks.site_settings", _site_settings()),
+            patch("memory.consolidation.build_structured_llm", return_value=llm),
+            patch("memory.consolidation.site_settings", _site_settings()),
+        ):
+            config.get_config.return_value = _enabled_config()
+            call_command("consolidate_memory", "--repo-id", "group/project", "--force", stdout=StringIO())
+
+        observation.refresh_from_db()
+        assert observation.status == ObservationStatus.CONSOLIDATED
+        assert MemoryEntry.objects.filter(repo_id="group/project").active().count() == 1
+        assert "2000 lines" in RepositoryMemory.objects.get(repo_id="group/project").content
 
 
 def _applied_outcome():
