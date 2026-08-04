@@ -42,7 +42,7 @@ class MemoryOperation(BaseModel):
 
     Deliberately flat with permissive fields: which of them an operation requires depends on
     ``op``, and enforcing that structurally (unions, per-op models) inflates structured-output
-    failure rates. Shape and reference validity are checked at apply time instead.
+    failure rates. Reference validity is checked at apply time; self-consistency is ``shape_error()`` below.
     """
 
     op: MemoryOperationLiteral = Field(

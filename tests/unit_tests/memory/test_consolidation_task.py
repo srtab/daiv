@@ -5,7 +5,7 @@ from memory.models import ObservationStatus, RepositoryMemory
 from memory.schemas import MemoryOperation
 from memory.tasks import consolidate_memory_task
 
-from tests.unit_tests.memory.helpers import (
+from tests.unit_tests.memory.consolidation_helpers import (
     _enabled_config,
     _entry,
     _observation,
@@ -139,7 +139,7 @@ class TestPreconditionsAndPrompt:
         ids=["provider-unconfigured", "model-spec-invalid"],
     )
     async def test_noop_when_model_unavailable(self, exc):
-        # _build_structured_llm raising must skip, not crash: nothing consolidated, observations
+        # build_structured_llm raising must skip, not crash: nothing consolidated, observations
         # stay pending. RuntimeError = provider disabled / no API key; ValueError = bad/unparseable
         # spec from parse_model_spec (regression guard for C1, whose original guard caught only
         # RuntimeError). The attempt is still recorded so the repo backs off instead of retrying hourly.

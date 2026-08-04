@@ -83,7 +83,10 @@ class ConsolidationRound:
         return None
 
     def accept(self) -> tuple[list[MemoryOperation], int]:
-        """Split the round's operations into the applicable ones and a rejected count."""
+        """Split the round's operations into the applicable ones and a rejected count.
+
+        ``apply()`` calls this itself; calling both re-logs the rejections.
+        """
         # Reset so a second call re-decides from the snapshot instead of finding everything claimed.
         self.claimed = set()
         self.claimed_entries = set()

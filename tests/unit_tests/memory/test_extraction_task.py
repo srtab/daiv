@@ -102,6 +102,23 @@ async def test_extraction_skips_run_without_session_id():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_extraction_noop_when_pipeline_returns_empty():
+    # Covers the `if not (observations := await extract_observations(run)): return` fall-through in
+    # extract_observations_task. Patch at source so the task's lazy import resolves to the mock.
+    run = await _create_run()
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.extraction.extract_observations", AsyncMock(return_value=[])),
+        patch("memory.tasks.site_settings", _site_settings()),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))  # must not raise
+
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_extraction_propagates_llm_failure_without_partial_writes():
     # The extraction ainvoke is deliberately unguarded: a transient/validation failure must propagate
     # (task FAILED, no retry — that run's signal is lost) and write nothing partial. Distinct from the

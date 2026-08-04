@@ -15,7 +15,7 @@ from memory.models import (
 )
 from memory.schemas import MemoryOperation
 
-from tests.unit_tests.memory.helpers import (
+from tests.unit_tests.memory.consolidation_helpers import (
     _enabled_config,
     _entry,
     _observation,
