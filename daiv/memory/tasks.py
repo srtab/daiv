@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import cast
 
 from django.db.models import Count, Min, Q
 from django.utils import timezone
@@ -14,11 +13,7 @@ from django_tasks import task
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
 from memory.consolidation import document_would_be_discarded, run_consolidation_round
-
-# Temporary: extraction still lives in this module. Removed when extraction.py lands.
-from memory.llm import build_structured_llm as _build_structured_llm
 from memory.models import MemoryObservation, RepositoryMemory
-from memory.schemas import ExtractedObservations
 
 logger = logging.getLogger("daiv.memory")
 
@@ -94,28 +89,21 @@ async def consolidate_memory_task(repo_id: str) -> None:
 async def extract_observations_task(run_id: str) -> None:
     """Extract candidate memory observations from a finished run's transcript.
 
-    Transcripts live in the Redis checkpointer behind a TTL, so this must run
-    promptly after the run finishes; an expired checkpoint is a silent skip.
+    Transcripts live in the Redis checkpointer behind a TTL, so this must run promptly after the
+    run finishes; an expired checkpoint is a silent skip.
 
-    ``dedup=True`` is keyed on the unique ``run_id``: a duplicate
-    ``run_finished`` delivery for the same run is suppressed (no double
-    observations), while a different run always re-runs. (Consolidation, keyed on
-    the reusable ``repo_id``, must NOT dedup — see ``consolidate_memory_task``.)
+    ``dedup=True`` is keyed on the unique ``run_id``: a duplicate ``run_finished`` delivery for the
+    same run is suppressed (no double observations), while a different run always re-runs.
+    (Consolidation, keyed on the reusable ``repo_id``, must NOT dedup — see
+    ``consolidate_memory_task``.)
 
-    Precondition failures (missing run, disabled flag, expired checkpoint,
-    unconfigured model) are log + return — never an error confused with a run
-    failure. The LLM ``ainvoke`` itself is deliberately NOT guarded: a schema
-    mismatch must surface loudly, and a transient failure marks this task FAILED
-    (no retry; the checkpoint TTLs out) — i.e. that one run's observations are
-    lost. Losing a single run's learnings is an accepted trade-off; agent runs
-    are unaffected because this runs out-of-band.
+    Precondition failures (missing run, disabled flag, expired checkpoint, unconfigured model) are
+    log + return — never an error confused with a run failure. See ``memory.extraction`` for the
+    pipeline's own failure contract.
     """
-    from langchain_core.messages import HumanMessage, SystemMessage
     from sessions.models import Run
 
-    from core.checkpointer import aresolve_thread_messages, open_checkpointer
-    from memory.prompts import extraction_human, extraction_system
-    from memory.transcript import serialize_transcript
+    from memory.extraction import extract_observations
 
     if not site_settings.memory_enabled:
         logger.info("extract_observations_task: memory disabled site-wide, skipping run %s", run_id)
@@ -136,98 +124,16 @@ async def extract_observations_task(run_id: str) -> None:
         logger.info("extract_observations_task: memory disabled for repo %s, skipping", run.repo_id)
         return
 
-    thread_config = {"configurable": {"thread_id": str(run.session_id)}}
-    async with open_checkpointer() as checkpointer:
-        checkpoint_tuple = await checkpointer.aget_tuple(thread_config)
-        if checkpoint_tuple is None:
-            # Benign: the checkpoint expired from Redis before this task ran.
-            logger.info(
-                "extract_observations_task: checkpoint missing/expired for thread %s (run=%s), skipping",
-                run.session_id,
-                run_id,
-            )
-            return
-        channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {})
-        # ``messages`` is stored in a deepagents ``DeltaChannel`` and is usually absent from
-        # ``channel_values`` — reconstruct it from the delta write history.
-        messages = await aresolve_thread_messages(checkpointer, thread_config, channel_values)
-
-    if not messages:
-        # A present checkpoint with no messages even after DeltaChannel reconstruction signals
-        # a real defect (serialization or channel-name drift), not normal TTL expiry — louder.
-        logger.warning(
-            "extract_observations_task: checkpoint present but has no messages for thread %s (run=%s); "
-            "available channels: %s — skipping (serialization or channel-name drift?)",
-            run.session_id,
-            run_id,
-            sorted(channel_values),
-        )
+    if not (observations := await extract_observations(run)):
         return
 
-    if not any(getattr(message, "type", None) == "ai" for message in messages):
-        # No agent turns means no agent behaviour to learn from (e.g. the sandbox never came up),
-        # so skip the model call rather than pay for an almost certainly empty extraction.
-        logger.info(
-            "extract_observations_task: run %s has no AI turns (%d message(s)), nothing to extract, skipping",
-            run_id,
-            len(messages),
-        )
-        return
-
-    transcript = serialize_transcript(messages)
-
-    extraction_models = tuple(
-        model
-        for model in (site_settings.memory_extraction_model_name, site_settings.memory_extraction_fallback_model_name)
-        if model
+    await MemoryObservation.objects.abulk_create([
+        MemoryObservation(repo_id=run.repo_id, run=run, category=obs.category, content=obs.content)
+        for obs in observations
+    ])
+    logger.info(
+        "extract_observations_task: stored %d observations for repo %s (run=%s)", len(observations), run.repo_id, run_id
     )
-    if not extraction_models:
-        # Both the model and its fallback resolved to empty (only reachable via an explicit
-        # empty-string env override, e.g. DAIV_MEMORY_EXTRACTION_MODEL_NAME=""). Treat it as
-        # the documented precondition-failure skip rather than letting _build_structured_llm
-        # raise IndexError on model_names[0], which would crash the task with no breadcrumb.
-        logger.error(
-            "extract_observations_task: no extraction model configured "
-            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping run %s",
-            run_id,
-        )
-        return
-    try:
-        structured_llm = _build_structured_llm(ExtractedObservations, extraction_models)
-    except RuntimeError, ValueError:
-        # Same precondition-failure handling as consolidation: a misconfigured/unparseable
-        # extraction model spec is a clean skip, not a task crash.
-        logger.exception("extract_observations_task: extraction model unavailable/misconfigured, skipping")
-        return
-
-    result = cast(
-        "ExtractedObservations",
-        await structured_llm.with_config(
-            run_name="MemoryExtraction",
-            tags=["MemoryExtraction"],
-            metadata={"repo_id": run.repo_id, "run_id": str(run.pk)},
-        ).ainvoke([
-            SystemMessage(content=cast("str", extraction_system.format().content)),
-            HumanMessage(
-                content=cast(
-                    "str",
-                    extraction_human.format(repo_id=run.repo_id, status=run.status, transcript=transcript).content,
-                )
-            ),
-        ]),
-    )
-
-    if result and result.observations:
-        await MemoryObservation.objects.abulk_create([
-            MemoryObservation(repo_id=run.repo_id, run=run, category=obs.category, content=obs.content)
-            for obs in result.observations
-        ])
-        logger.info(
-            "extract_observations_task: stored %d observations for repo %s (run=%s)",
-            len(result.observations),
-            run.repo_id,
-            run_id,
-        )
 
 
 # Hourly is fine-grained relative to the per-repo interval cooldown (default 24h, the real
