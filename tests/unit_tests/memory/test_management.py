@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 from django.core.management import CommandError, call_command
 
 import pytest
+from memory.consolidation import RoundOutcome
 from memory.constants import CONSOLIDATION_MIN_PENDING
 from memory.models import MemoryEntry, MemoryObservation, ObservationCategory, ObservationStatus
-from memory.tasks import RoundOutcome
 
 
 def _create_pending(repo_id, n):

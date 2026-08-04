@@ -8,9 +8,9 @@ from django.core.management.base import BaseCommand, CommandError
 from asgiref.sync import async_to_sync
 
 from codebase.repo_config import RepositoryConfig
+from memory.consolidation import run_consolidation_round
 from memory.models import MemoryEntry, MemoryObservation
 from memory.render import document_size, render_memory_document
-from memory.tasks import run_consolidation_round
 
 logger = logging.getLogger("daiv.memory")
 
