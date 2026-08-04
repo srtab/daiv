@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import pytest
+from memory.constants import CONSOLIDATION_MAX_PENDING_AGE_DAYS, CONSOLIDATION_MIN_PENDING
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
-from memory.tasks import CONSOLIDATION_MAX_PENDING_AGE_DAYS, CONSOLIDATION_MIN_PENDING, consolidate_memory_cron_task
+from memory.tasks import consolidate_memory_cron_task
 
 
 def _site_settings(**overrides):

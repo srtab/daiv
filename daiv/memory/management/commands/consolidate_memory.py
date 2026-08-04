@@ -4,8 +4,9 @@ import logging
 
 from django.core.management.base import BaseCommand, CommandError
 
+from memory.constants import CONSOLIDATION_MIN_PENDING
 from memory.models import MemoryObservation
-from memory.tasks import CONSOLIDATION_MIN_PENDING, consolidate_memory_task
+from memory.tasks import consolidate_memory_task
 
 logger = logging.getLogger("daiv.memory")
 

@@ -17,6 +17,7 @@ from django_tasks import task
 
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
+from memory.constants import MEMORY_MAX_BYTES, MEMORY_MAX_LINES
 from memory.models import (
     EntryStatus,
     MemoryEntry,
@@ -37,16 +38,6 @@ logger = logging.getLogger("daiv.memory")
 
 # A validated operation paired with the deduplicated targets the apply phase must use.
 type AcceptedOperation = tuple[MemoryOperation, list[str], list[MemoryObservation]]
-
-# Documented defaults for the memory knobs. The live values are served by ``site_settings``
-# (env var > site-configuration UI > default); these constants mirror the defaults declared
-# in ``core.site_settings._build_field_defaults`` (parity-tested in test_consolidation_task).
-# ``MEMORY_MAX_LINES``/``MEMORY_MAX_BYTES`` are the render budget enforced by ``prune_to_budget``;
-# ``CONSOLIDATION_MIN_PENDING`` is also the threshold the ``consolidate_memory`` command enforces.
-CONSOLIDATION_MIN_PENDING = 10
-CONSOLIDATION_MAX_PENDING_AGE_DAYS = 7
-MEMORY_MAX_LINES = 200
-MEMORY_MAX_BYTES = 10_240
 
 # The only categories the document renders: an entry whose category is absent stays ACTIVE and
 # counts against the budget, but appears nowhere. Pinned to the choices by a test.

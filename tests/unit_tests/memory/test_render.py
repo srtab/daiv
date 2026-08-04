@@ -3,8 +3,9 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from memory.constants import MEMORY_MAX_BYTES, MEMORY_MAX_LINES
 from memory.models import MemoryEntry, ObservationCategory
-from memory.tasks import CATEGORY_SECTIONS, MEMORY_MAX_BYTES, MEMORY_MAX_LINES, prune_to_budget, render_memory_document
+from memory.tasks import CATEGORY_SECTIONS, prune_to_budget, render_memory_document
 
 NOW = timezone.now()
 

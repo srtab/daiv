@@ -76,7 +76,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "titling_model_name": ModelName.GPT_5_4_MINI,
         "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
         # Memory — the min_pending / max_lines / max_bytes literals here are mirrored by the
-        # module constants in memory.tasks (parity-tested in tests/unit_tests/memory/test_consolidation_task.py).
+        # module constants in memory.constants (parity-tested in tests/unit_tests/memory/test_constants.py).
         "memory_enabled": True,
         "memory_extraction_model_name": ModelName.GPT_5_4_MINI,
         "memory_extraction_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
