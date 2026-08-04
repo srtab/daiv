@@ -112,3 +112,9 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Related pages
+
+- [Agent Architecture](../reference/agent-architecture.md) — which model each subagent runs, its tool stack, and its fallback behaviour
+- [Agent Skills](../customization/agent-skills.md) — author the reusable instruction packages the main agent loads from `.agents/skills/`
+- [Slash Commands & Skills](slash-commands.md) — run `/agents` to list every subagent available in a repository

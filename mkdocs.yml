@@ -6,6 +6,13 @@ site_author: Sandro Rodrigues
 strict: true
 edit_uri: edit/main/docs/
 
+validation:
+  anchors: warn
+
+# Gitignored local scratch (.gitignore: docs/superpowers/) that lives inside docs_dir.
+exclude_docs: |
+  superpowers/
+
 theme:
   name: material
   logo: assets/logo.svg
