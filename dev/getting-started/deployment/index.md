@@ -601,6 +601,7 @@ Your DAIV instance is now running and accessible. Continue with:
 1. **[Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)** — connect DAIV to your GitLab or GitHub repositories
 1. **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
 1. **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+1. **[Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md)** — manage settings from the admin UI instead of environment variables
 
 First Login & User Management
 

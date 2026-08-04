@@ -130,3 +130,8 @@ Each merge event is stored as a `MergeMetric` record:
 | `platform`            | enum     | `gitlab` or `github`                                          |
 
 Records are unique per `(repo_id, merge_request_iid, platform)`. Duplicate webhook deliveries are handled via upsert.
+
+## Related pages
+
+- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) — the run history behind the DAIV-authored commits these metrics attribute
+- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-authored merges

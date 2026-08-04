@@ -187,7 +187,7 @@ Old bookmarks to `/dashboard/activity/<id>/` and `/dashboard/chat/<thread_id>/` 
 
 ______________________________________________________________________
 
-## Related
+## Related pages
 
 - **Sandbox Environments**
 

@@ -100,3 +100,10 @@ Every user, including admins, can add their own MCP servers from the personal **
 - **Secrets in headers** are encrypted at rest and never rendered back into the form; `env_ref` headers keep the value out of the database entirely.
 - **Read-only filters** — prefer allow-lists that exclude mutating tools, as the seeded Sentry filter does.
 - **Network** — MCP connections originate from the DAIV app/worker containers; the sandbox egress proxy does not apply to them. Restrict outbound access at your network layer if needed.
+
+## Related pages
+
+- [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) — the inverse direction: exposing DAIV *itself* as an MCP server, so Claude Code, Cursor, or Codex CLI can delegate to it
+- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md) — a worked example of DAIV driven from an external system
+- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md) — how MCP tools are loaded into the agent's tool set
+- [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) — the MCP-related settings

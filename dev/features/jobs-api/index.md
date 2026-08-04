@@ -259,6 +259,6 @@ Tip
 
 Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project settings. Mark the API key as **masked** and **protected**.
 
-## See also
+## Related pages
 
 - [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md) — an end-to-end example of using the Jobs API from an RT Scrip to triage new support tickets automatically.

@@ -423,6 +423,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#contributing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1518,6 +1529,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#contributing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1605,13 +1627,14 @@
 <h2 id="under-the-hood">Under the hood</h2>
 <p>DAIV is powered by <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep-agent framework built on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> with sub-agent spawning, a middleware stack, and a virtual filesystem. On top of it, DAIV adds:</p>
 <ul>
-<li><strong>Subagents</strong> — specialized agents for fast codebase exploration and complex multi-step tasks.</li>
-<li><strong>Sandbox</strong> — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.</li>
-<li><strong>MCP Tools</strong> — external integrations over the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, such as Sentry for error tracking.</li>
-<li><strong>Monitoring</strong> — trace every agent execution with <a href="https://www.langchain.com/langsmith">LangSmith</a> to analyze performance and spot issues. See <a href="reference/monitoring/">Monitoring</a>.</li>
+<li><strong><a href="features/subagents/">Subagents</a></strong> — specialized agents for fast codebase exploration and complex multi-step tasks.</li>
+<li><strong><a href="features/sandbox/">Sandbox</a></strong> — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.</li>
+<li><strong><a href="customization/mcp-tools/">MCP Tools</a></strong> — external integrations over the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, such as Sentry for error tracking.</li>
+<li><strong><a href="reference/monitoring/">Monitoring</a></strong> — trace every agent execution with <a href="https://www.langchain.com/langsmith">LangSmith</a> to analyze performance and spot issues.</li>
 <li><strong>Scalable Workers</strong> — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.</li>
-<li><strong>LLM Providers</strong> — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice. See <a href="getting-started/llm-providers/">LLM Providers</a>.</li>
+<li><strong><a href="getting-started/llm-providers/">LLM Providers</a></strong> — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.</li>
 </ul>
+<p>For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see <a href="reference/agent-architecture/">Agent Architecture</a>.</p>
 <h2 id="supported-platforms">Supported platforms</h2>
 <div class="grid cards">
 <ul>
@@ -1668,6 +1691,8 @@
 </li>
 </ul>
 </div>
+<h2 id="contributing">Contributing</h2>
+<p>DAIV is open-source under Apache 2.0. See <a href="community/">Community</a> for how to contribute, report issues, and get support.</p>
 
 
 
@@ -1690,7 +1715,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 22:50:55 UTC">August 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 23:06:20 UTC">August 4, 2026</span>
   </span>
 
     
@@ -1700,7 +1725,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 22:50:55 UTC">August 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 23:06:20 UTC">August 4, 2026</span>
   </span>
 
     

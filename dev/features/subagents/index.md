@@ -112,3 +112,9 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Related pages
+
+- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md) — which model each subagent runs, its tool stack, and its fallback behaviour
+- [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) — author the reusable instruction packages the main agent loads from `.agents/skills/`
+- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md) — run `/agents` to list every subagent available in a repository
