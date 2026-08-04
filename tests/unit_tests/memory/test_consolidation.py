@@ -431,15 +431,43 @@ async def test_accept_reports_rejected_count_without_writing():
 
     entry = await _entry("an existing fact")
     obs = await _observation()
+    # ``bad`` gets its own in-round observation so the unknown-entry check is what rejects it;
+    # reusing ``obs`` would trip the earlier claimed-observation check instead.
+    other_obs = await _observation(content="a second candidate observation")
     good = MemoryOperation(op="CONFIRM", entry_ids=[str(entry.pk)], observation_ids=[str(obs.pk)])
     bad = MemoryOperation(
-        op="UPDATE", entry_ids=["00000000-0000-0000-0000-000000000000"], observation_ids=[str(obs.pk)], content="x"
+        op="UPDATE",
+        entry_ids=["00000000-0000-0000-0000-000000000000"],
+        observation_ids=[str(other_obs.pk)],
+        content="x",
     )
 
-    round_ = ConsolidationRound("group/project", [good, bad], [obs], [entry])
+    round_ = ConsolidationRound("group/project", [good, bad], [obs, other_obs], [entry])
     accepted, rejected = round_.accept()
 
     assert accepted == [good]
     assert rejected == 1
     assert round_.claimed == {str(obs.pk)}
+    assert round_.claimed_entries == {str(entry.pk)}
     assert await MemoryEntry.objects.acount() == 1, "accept() must not write"
+    for observation in (obs, other_obs):
+        await observation.arefresh_from_db()
+        assert observation.status == ObservationStatus.PENDING, "accept() must not flip observation status"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_accept_re_decides_from_the_snapshot_on_a_second_call():
+    # The claim sets are instance state: without a reset, a second call finds every observation
+    # already claimed and rejects the whole round.
+    from memory.consolidation import ConsolidationRound
+
+    entry = await _entry("an existing fact")
+    obs = await _observation()
+    operation = MemoryOperation(op="CONFIRM", entry_ids=[str(entry.pk)], observation_ids=[str(obs.pk)])
+
+    round_ = ConsolidationRound("group/project", [operation], [obs], [entry])
+
+    assert round_.accept() == ([operation], 0)
+    assert round_.accept() == ([operation], 0)
+    assert round_.claimed == {str(obs.pk)}
+    assert round_.claimed_entries == {str(entry.pk)}

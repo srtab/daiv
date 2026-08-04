@@ -16,6 +16,7 @@ def _enabled_config(enabled=True):
 def _site_settings(**overrides):
     """Mock of the site-settings singleton with the memory defaults consolidation reads."""
     ss = MagicMock()
+    ss.memory_enabled = True
     ss.memory_consolidation_model_name = None  # empty → reuse repo agent model
     ss.memory_max_lines = MEMORY_MAX_LINES
     ss.memory_max_bytes = MEMORY_MAX_BYTES
