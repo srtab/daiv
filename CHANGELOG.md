@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP `submit_job` now enforces the same per-user rate limit as the REST jobs and chat endpoints.
 - MCP `get_job_status` and job pollers are now scoped to the authenticated user.
 - Upgraded `deepagents` to 0.7.0, whose leaner tool descriptions reduce the tool-schema tokens sent on every agent turn. Each agent now declares its filesystem tool set explicitly: the recursive `delete` tool 0.7 adds is deliberately not exposed (the sandbox's delete RPC removes a single file, not a directory tree), and the read-only subagents (`explore` and the code-review detectors) no longer carry write tools in their schema at all.
+- Upgraded pinned dependencies: `deepagents` to 0.7.3, `genai-prices` to 0.1.1, `ipython` to 9.16.1, `langsmith` to 0.10.15, `markdown` to 3.10.3, and `uvicorn` to 0.52.1; dev dependencies `coverage` to 7.15.3, `prek` to 0.4.12, `pyproject-fmt` to 2.27.0, `ruff` to 0.16.1, and `ty` to 0.0.66.
 
 ### Added
 
