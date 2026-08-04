@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import pytest
+from memory.constants import CONSOLIDATION_MAX_PENDING_AGE_DAYS, CONSOLIDATION_MIN_PENDING
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
-from memory.tasks import CONSOLIDATION_MIN_PENDING, consolidate_memory_cron_task
+from memory.tasks import consolidate_memory_cron_task
 
 
 def _site_settings(**overrides):
@@ -13,17 +14,23 @@ def _site_settings(**overrides):
     ss = MagicMock()
     ss.memory_enabled = True
     ss.memory_consolidation_min_pending = CONSOLIDATION_MIN_PENDING
+    ss.memory_consolidation_max_pending_age_days = CONSOLIDATION_MAX_PENDING_AGE_DAYS
     ss.memory_consolidation_min_interval_hours = 24
     for key, value in overrides.items():
         setattr(ss, key, value)
     return ss
 
 
-async def _create_observations(repo_id, n, *, status=ObservationStatus.PENDING):
+async def _create_observations(repo_id, n, *, status=ObservationStatus.PENDING, age_days=0):
     for i in range(n):
-        await MemoryObservation.objects.acreate(
+        observation = await MemoryObservation.objects.acreate(
             repo_id=repo_id, category=ObservationCategory.PITFALL, content=f"observation {i} with detail", status=status
         )
+        if age_days:
+            # created_at is auto_now_add, so backdating needs a second write.
+            await MemoryObservation.objects.filter(pk=observation.pk).aupdate(
+                created_at=timezone.now() - timedelta(days=age_days)
+            )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -56,7 +63,7 @@ async def test_cron_skips_repo_below_threshold():
 
 @pytest.mark.django_db(transaction=True)
 async def test_cron_skips_repo_within_min_interval():
-    await RepositoryMemory.objects.acreate(repo_id="group/project", last_consolidated_at=timezone.now())
+    await RepositoryMemory.objects.acreate(repo_id="group/project", last_attempted_at=timezone.now())
     await _create_observations("group/project", CONSOLIDATION_MIN_PENDING)
 
     with (
@@ -72,7 +79,7 @@ async def test_cron_skips_repo_within_min_interval():
 @pytest.mark.django_db(transaction=True)
 async def test_cron_enqueues_after_min_interval_elapsed():
     await RepositoryMemory.objects.acreate(
-        repo_id="group/project", last_consolidated_at=timezone.now() - timedelta(hours=25)
+        repo_id="group/project", last_attempted_at=timezone.now() - timedelta(hours=25)
     )
     await _create_observations("group/project", CONSOLIDATION_MIN_PENDING)
 
@@ -87,9 +94,9 @@ async def test_cron_enqueues_after_min_interval_elapsed():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_cron_enqueues_when_memory_never_consolidated():
-    # A RepositoryMemory row exists but last_consolidated_at is None (never consolidated) → must enqueue.
-    await RepositoryMemory.objects.acreate(repo_id="group/project", last_consolidated_at=None)
+async def test_cron_enqueues_when_memory_never_attempted():
+    # A RepositoryMemory row exists but last_attempted_at is None (never attempted) → must enqueue.
+    await RepositoryMemory.objects.acreate(repo_id="group/project", last_attempted_at=None)
     await _create_observations("group/project", CONSOLIDATION_MIN_PENDING)
 
     with (
@@ -176,6 +183,23 @@ async def test_cron_counts_only_pending_observations():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_cron_age_flush_ignores_already_consolidated_history():
+    # oldest_pending must be scoped to PENDING rows like the count is. If old CONSOLIDATED
+    # history leaked into Min(created_at), every long-lived repo would be permanently due.
+    await _create_observations("group/project", 3, status=ObservationStatus.CONSOLIDATED, age_days=400)
+    await _create_observations("group/project", 2)
+
+    with (
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings()),
+    ):
+        consolidate.aenqueue = AsyncMock()
+        await consolidate_memory_cron_task.func()
+
+    consolidate.aenqueue.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_cron_threshold_is_configurable():
     # Threshold lowered to 3: three pending observations must enqueue where the default of 10 would not.
     await _create_observations("group/project", 3)
@@ -191,10 +215,70 @@ async def test_cron_threshold_is_configurable():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_cron_enqueues_low_volume_repo_once_its_oldest_observation_ages_past_the_flush():
+    # Below the count gate forever otherwise: a repo with two observations must still consolidate
+    # once they age past the flush threshold, or it never forms memory at all.
+    await _create_observations("group/quiet", 2, age_days=CONSOLIDATION_MAX_PENDING_AGE_DAYS + 1)
+
+    with (
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings()),
+    ):
+        consolidate.aenqueue = AsyncMock()
+        await consolidate_memory_cron_task.func()
+
+    consolidate.aenqueue.assert_awaited_once_with("group/quiet")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cron_skips_repo_below_threshold_with_young_observations():
+    await _create_observations("group/quiet", 2, age_days=CONSOLIDATION_MAX_PENDING_AGE_DAYS - 1)
+
+    with (
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings()),
+    ):
+        consolidate.aenqueue = AsyncMock()
+        await consolidate_memory_cron_task.func()
+
+    consolidate.aenqueue.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cron_age_flush_still_respects_the_min_interval():
+    # The age trigger widens what is due; it does not bypass the cooldown.
+    await RepositoryMemory.objects.acreate(repo_id="group/quiet", last_attempted_at=timezone.now())
+    await _create_observations("group/quiet", 2, age_days=CONSOLIDATION_MAX_PENDING_AGE_DAYS + 1)
+
+    with (
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings()),
+    ):
+        consolidate.aenqueue = AsyncMock()
+        await consolidate_memory_cron_task.func()
+
+    consolidate.aenqueue.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cron_flush_age_is_configurable():
+    await _create_observations("group/quiet", 1, age_days=2)
+
+    with (
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings(memory_consolidation_max_pending_age_days=1)),
+    ):
+        consolidate.aenqueue = AsyncMock()
+        await consolidate_memory_cron_task.func()
+
+    consolidate.aenqueue.assert_awaited_once_with("group/quiet")
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_cron_interval_is_configurable():
     # Last consolidation was 2h ago: the default 24h interval would suppress, but lowered to 1h it must enqueue.
     await RepositoryMemory.objects.acreate(
-        repo_id="group/project", last_consolidated_at=timezone.now() - timedelta(hours=2)
+        repo_id="group/project", last_attempted_at=timezone.now() - timedelta(hours=2)
     )
     await _create_observations("group/project", CONSOLIDATION_MIN_PENDING)
 

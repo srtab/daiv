@@ -328,6 +328,29 @@ class LockedTaskTest:
         assert sync() is None
         assert calls == []
 
+    @pytest.mark.parametrize(
+        ("args", "kwargs"), [(("group/proj",), {}), ((), {"repo_id": "group/proj"})], ids=["positional", "keyword"]
+    )
+    def test_named_key_field_resolves_however_the_caller_passed_it(self, mocker, args, kwargs):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="{repo_id}")
+        def consolidate(repo_id: str):
+            return "ran"
+
+        assert consolidate(*args, **kwargs) == "ran"
+        assert mock_lock.call_args.args[0] == "consolidate:group/proj"
+
+    async def test_named_key_field_resolves_for_an_async_task(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="{repo_id}")
+        async def consolidate(repo_id: str):
+            return "ran"
+
+        assert await consolidate("group/proj") == "ran"
+        assert mock_lock.call_args.args[0] == "consolidate:group/proj"
+
     def test_expiry_mid_run_is_reported_as_an_error(self, mocker):
         """Release raises when the lock expired under a live holder — a distinct failure from a skip."""
         mock_lock = mocker.patch("core.utils.cache.lock")

@@ -66,6 +66,8 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Per-repo agent memory** — agent reads `.agents/AGENTS.md`; custom skills from `.agents/skills/`; subagents from `.agents/subagents/`. A custom skill with the same name as a built-in **shadows** the built-in (runtime + storage are consistent; the UI flags the card with "Overrides built-in"). The `code-review` skill additionally reads `.agents/review-rules.md` for per-repo review rules (with `AGENTS.md` as a secondary source).
 
+**Repository memory ("dreaming")** — `MemoryEntry` rows are the source of truth; `RepositoryMemory.content` is a render cache produced by `render_memory_document` (`memory/render.py`), never model-generated. Entries are append-only — `entry.supersede(successor)` / `entry.confirm(when)`, never in-place edits or deletes — and `memory_max_lines`/`memory_max_bytes` are enforced by `prune_to_budget`, never by slicing the rendered document. The structured-output schemas (`memory/schemas.py`) deliberately carry **no** pydantic length or size constraints: parsing is all-or-nothing, so one over-long field would discard a whole valid batch; limits are checked per item instead.
+
 **Django settings** — test module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is injected automatically in tests.
 
 **Python 3.14 except syntax (PEP 758)** — `except E1, E2:` is valid and equivalent to `except (E1, E2):`. Ruff canonicalises to the unparenthesised form, so do NOT "fix" it back to parens; both run, and rewriting is just churn.

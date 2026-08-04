@@ -15,8 +15,10 @@ from django_filters.views import FilterView
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from codebase.authorization import can_view, viewable_repo_ids
 from core.site_settings import site_settings
+from memory.consolidation import document_would_be_discarded
 from memory.filters import MemoryObservationFilter
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
+from memory.render import document_size
 from memory.tasks import consolidate_memory_task
 
 
@@ -89,6 +91,7 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
         ctx = super().get_context_data(**kwargs)
         cleaned = ctx["filter"].form.cleaned_data if ctx["filter"].form.is_valid() else {}
         memory = self.memory
+        document_lines, document_bytes = document_size(memory.content) if memory else (0, 0)
         ctx.update({
             "repo_id": self.kwargs["repo_id"],
             "memory": memory,
@@ -97,8 +100,8 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
             "current_category": cleaned.get("category") or "",
             "statuses": ObservationStatus.choices,
             "categories": ObservationCategory.choices,
-            "document_lines": len(memory.content.splitlines()) if memory else 0,
-            "document_bytes": len(memory.content.encode("utf-8")) if memory else 0,
+            "document_lines": document_lines,
+            "document_bytes": document_bytes,
             "memory_enabled": site_settings.memory_enabled,
         })
         return ctx
@@ -112,12 +115,20 @@ class MemoryConsolidateView(AdminRequiredMixin, View):
             messages.warning(request, _("Memory capture is disabled site-wide; consolidation was not queued."))
             return redirect("memory:detail", repo_id=repo_id)
 
-        # Mirror the task's own guard so we don't report success for a run it will silently skip:
-        # ``consolidate_memory_task`` no-ops when the repo has no pending observations.
-        pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
+        # Mirror both of the task's own guards so we don't report success for a run it will skip.
+        pending = MemoryObservation.objects.filter(repo_id=repo_id).pending().count()
         if pending == 0:
             messages.info(
                 request, _("Nothing to consolidate for %(repo)s — no pending observations.") % {"repo": repo_id}
+            )
+        elif document_would_be_discarded(repo_id):
+            messages.error(
+                request,
+                _(
+                    "%(repo)s has a memory document but no entries, so consolidating would discard it. "
+                    "An administrator must run `backfill_memory_entries --repo-id %(repo)s` on the server first."
+                )
+                % {"repo": repo_id},
             )
         else:
             consolidate_memory_task.enqueue(repo_id)

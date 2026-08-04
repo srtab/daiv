@@ -3,6 +3,7 @@ import hashlib
 import logging
 import mimetypes
 from functools import wraps
+from inspect import Signature, signature
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
@@ -178,6 +179,19 @@ async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] 
 DEFAULT_LOCK_TIMEOUT = 3600
 
 
+def _format_lock_key(func, sig: Signature | None, key: str, args: tuple, kwargs: dict) -> str:
+    """Render ``key`` against the call, so ``{repo_id}`` resolves however the caller passed it.
+
+    Binding to the signature is what makes a named field work for a positional call — tasks are
+    enqueued both ways. ``sig`` is ``None`` for an empty key, which formats to no suffix.
+    """
+    if sig is None:
+        return f"{func.__name__}:"
+    bound = sig.bind_partial(*args, **kwargs)
+    bound.apply_defaults()
+    return f"{func.__name__}:{key.format(*args, **bound.arguments)}"
+
+
 def locked_task(key: str = "", blocking: bool = False, timeout: float = DEFAULT_LOCK_TIMEOUT):
     """
     A decorator that ensures a task is executed with a distributed lock to prevent concurrent execution.
@@ -203,11 +217,13 @@ def locked_task(key: str = "", blocking: bool = False, timeout: float = DEFAULT_
         raise ValueError(f"locked_task timeout must be a positive number of seconds, got {timeout!r}")
 
     def decorator(func):
+        sig = signature(func) if key else None
+
         if asyncio.iscoroutinefunction(func):
 
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
-                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                lock_key = _format_lock_key(func, sig, key, args, kwargs)
                 try:
                     with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return await func(*args, **kwargs)
@@ -224,7 +240,7 @@ def locked_task(key: str = "", blocking: bool = False, timeout: float = DEFAULT_
 
             @wraps(func)
             def wrapper(*args, **kwargs):
-                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                lock_key = _format_lock_key(func, sig, key, args, kwargs)
                 try:
                     with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return func(*args, **kwargs)

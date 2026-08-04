@@ -213,6 +213,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "memory_extraction_fallback_model_name",
             "memory_consolidation_model_name",
             "memory_consolidation_min_pending",
+            "memory_consolidation_max_pending_age_days",
             "memory_consolidation_min_interval_hours",
             "memory_max_lines",
             "memory_max_bytes",
