@@ -168,3 +168,13 @@ msgstr "Nada para consolidar em %(repo)s — sem observações pendentes."
 msgid "Consolidation queued for %(repo)s (%(count)d pending observation(s))."
 msgstr ""
 "Consolidação em fila para %(repo)s (%(count)d observação(ões) pendente(s))."
+
+#, python-format
+msgid ""
+"%(repo)s has a memory document but no entries, so consolidating would "
+"discard it. An administrator must run `backfill_memory_entries --repo-id "
+"%(repo)s` on the server first."
+msgstr ""
+"%(repo)s tem um documento de memória mas nenhuma entrada, pelo que "
+"consolidar iria descartá-lo. Um administrador tem de executar "
+"`backfill_memory_entries --repo-id %(repo)s` no servidor primeiro."

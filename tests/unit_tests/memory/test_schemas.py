@@ -1,5 +1,6 @@
 import pytest
 from memory.schemas import MemoryOperation
+from pydantic import ValidationError
 
 ENTRY_A = "11111111-1111-1111-1111-111111111111"
 ENTRY_B = "22222222-2222-2222-2222-222222222222"
@@ -25,6 +26,13 @@ class TestIdDeduplication:
     def test_first_occurrence_order_is_preserved(self):
         operation = _operation(op="MERGE", entry_ids=[ENTRY_B, ENTRY_A, ENTRY_B], content="x")
         assert operation.entry_ids == [ENTRY_B, ENTRY_A]
+
+    def test_dedup_cannot_be_undone_by_assignment(self):
+        # Field validators do not run on assignment, so without frozen=True this would restore the
+        # duplicate and let a MERGE-of-one pass the arity check and supersede one entry twice.
+        operation = _operation(op="MERGE", entry_ids=[ENTRY_A, ENTRY_B], content="x")
+        with pytest.raises(ValidationError):
+            operation.entry_ids = [ENTRY_A, ENTRY_A]
 
 
 class TestShapeError:

@@ -7,11 +7,13 @@ from datetime import timedelta
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
+from core.utils import locked_task
 from memory.consolidation import document_would_be_discarded, run_consolidation_round
 from memory.models import MemoryObservation, RepositoryMemory
 
@@ -19,6 +21,7 @@ logger = logging.getLogger("daiv.memory")
 
 
 @task()
+@locked_task(key="{repo_id}")
 async def consolidate_memory_task(repo_id: str) -> None:
     """Fold pending observations into the repository's memory entries ("dreaming").
 
@@ -28,8 +31,11 @@ async def consolidate_memory_task(repo_id: str) -> None:
     entries no operation mentioned. Failures propagate to django-tasks (logged + marked failed);
     agent runs are never affected — this runs out-of-band.
 
-    Throttling is the caller's job (see ``consolidate_memory_cron_task``); this is not
-    deduplicated, so a redundant trigger simply finds 0 pending observations and no-ops.
+    Throttling is the caller's job (see ``consolidate_memory_cron_task``). Serialised per
+    repository by ``locked_task`` rather than django-tasks' ``dedup``: a round's claim bookkeeping
+    is per-process, so two overlapping rounds would both consume the same pending observations and
+    orphan each other's supersede links. A trigger that loses the lock leaves its observations
+    pending for the holder or the next cron sweep.
     """
     if not site_settings.memory_enabled:
         logger.info("consolidate_memory_task: memory disabled site-wide, skipping repo %s", repo_id)
@@ -47,21 +53,23 @@ async def consolidate_memory_task(repo_id: str) -> None:
         logger.info("consolidate_memory_task: no pending observations for repo %s, skipping", repo_id)
         return
 
-    if await document_would_be_discarded(repo_id):
-        logger.error(
-            "consolidate_memory_task: repo %s has a memory document but no entries, so re-rendering would "
-            "discard it; run `backfill_memory_entries --repo-id %s` first. Leaving %d observation(s) pending.",
-            repo_id,
-            repo_id,
-            len(observations),
-        )
-        outcome = None
-    else:
+    try:
+        if await sync_to_async(document_would_be_discarded)(repo_id):
+            logger.error(
+                "consolidate_memory_task: repo %s has a memory document but no entries, so re-rendering would "
+                "discard it; run `backfill_memory_entries --repo-id %s` first. Leaving %d observation(s) pending.",
+                repo_id,
+                repo_id,
+                len(observations),
+            )
+            return
         outcome = await run_consolidation_round(repo_id, config, observations)
-
-    # Record the attempt whatever it produced, so the cron's cooldown applies to a repository
-    # whose consolidation keeps failing too — otherwise it pays for a full round every hour.
-    await RepositoryMemory.objects.aupdate_or_create(repo_id=repo_id, defaults={"last_attempted_at": timezone.now()})
+    finally:
+        # In ``finally`` because the cron reads this: a round that raises without recording an
+        # attempt is due again on the next hourly sweep, and pays for a full LLM round each time.
+        await RepositoryMemory.objects.aupdate_or_create(
+            repo_id=repo_id, defaults={"last_attempted_at": timezone.now()}
+        )
 
     if outcome is None:
         return

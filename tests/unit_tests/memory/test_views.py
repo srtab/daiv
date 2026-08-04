@@ -228,6 +228,24 @@ def test_consolidate_no_op_when_no_pending_observations(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_consolidate_reports_a_document_the_task_would_refuse(client, admin_user):
+    # Document but no entries: the task refuses this round, so a green "queued" toast would send
+    # the admin away believing it ran. The view must name the repair instead.
+    RepositoryMemory.objects.create(repo_id="group/proj", content="## Pitfalls\n- a legacy fact")
+    MemoryObservation.objects.create(repo_id="group/proj", category=ObservationCategory.PITFALL, content="p" * 20)
+    client.force_login(admin_user)
+    with (
+        patch("memory.views.site_settings", _ss(memory_enabled=True)),
+        patch("memory.views.consolidate_memory_task") as task_mock,
+    ):
+        resp = client.post(reverse("memory:consolidate", args=["group/proj"]))
+    task_mock.enqueue.assert_not_called()
+    assert resp.status_code == 302
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("backfill_memory_entries" in m for m in msgs)
+
+
+@pytest.mark.django_db
 def test_consolidate_denies_member(client, member_user):
     client.force_login(member_user)
     with patch("memory.views.consolidate_memory_task") as task_mock:

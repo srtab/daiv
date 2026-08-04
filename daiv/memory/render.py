@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 
     from memory.models import MemoryEntry
 
-# The only categories the document renders: an entry whose category is absent stays ACTIVE and
-# counts against the budget, but appears nowhere. Pinned to the choices by a test.
+# The only categories the document renders. An entry outside them contributes nothing to the
+# budget yet is still an eviction candidate, so it gets superseded to free bytes it never used.
 CATEGORY_SECTIONS: tuple[tuple[str, str], ...] = (
     (ObservationCategory.BUILD_TEST, "## Build & test"),
     (ObservationCategory.CODEBASE_FACT, "## Codebase facts"),

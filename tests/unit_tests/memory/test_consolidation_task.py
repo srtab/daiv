@@ -84,6 +84,7 @@ class TestLegacyDocumentGuard:
         llm.with_config.return_value.ainvoke.assert_not_awaited()
         memory = await RepositoryMemory.objects.aget(repo_id="group/project")
         assert memory.content == "## Pitfalls\n- a legacy fact"
+        assert memory.last_attempted_at is not None, "a wedged repo must back off, not retry hourly"
         from memory.models import MemoryEntry
 
         assert not await MemoryEntry.objects.aexists()
@@ -102,6 +103,29 @@ class TestLegacyDocumentGuard:
 
         memory = await RepositoryMemory.objects.aget(repo_id="group/project")
         assert memory.content == "## Pitfalls\n- a legacy fact\n- a brand new fact"
+        assert memory.last_attempted_at is not None
+        assert memory.last_consolidated_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestAttemptRecording:
+    """``last_attempted_at`` is the cron's only cooldown input, so every path must record one."""
+
+    async def test_a_raising_round_still_records_the_attempt(self):
+        await _observation()
+
+        with (
+            patch("memory.tasks.RepositoryConfig") as cfg,
+            patch("memory.tasks.site_settings", _site_settings()),
+            patch("memory.tasks.run_consolidation_round", side_effect=RuntimeError("provider 503")),
+        ):
+            cfg.get_config.return_value = _enabled_config()
+            with pytest.raises(RuntimeError, match="provider 503"):
+                await consolidate_memory_task.func("group/project")
+
+        memory = await RepositoryMemory.objects.aget(repo_id="group/project")
+        assert memory.last_attempted_at is not None, "a crashing round must still back the repo off"
+        assert memory.last_consolidated_at is None
 
 
 @pytest.mark.django_db(transaction=True)

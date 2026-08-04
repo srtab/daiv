@@ -81,8 +81,8 @@ class MemoryEntry(models.Model):
 
     Entries are append-only in content: a change creates a successor (or none, for eviction) and
     marks the replaced row ``SUPERSEDED`` rather than rewriting it, so the history of every fact
-    stays queryable. ``last_confirmed_at`` and ``observations`` are the exceptions, updated in
-    place by :meth:`confirm`.
+    stays queryable. :meth:`confirm` is the one in-place write; the ``observations`` provenance
+    link is added by the applier, not by ``confirm``.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -139,6 +139,12 @@ class MemoryEntry(models.Model):
         self.save(update_fields=["last_confirmed_at"])
 
 
+class RepositoryMemoryQuerySet(models.QuerySet):
+    def with_document(self):
+        """Repositories that have a stored document — an empty ``content`` is "no document"."""
+        return self.exclude(content="")
+
+
 class RepositoryMemory(models.Model):
     """The consolidated, bounded memory document for a repository. One row per repo.
 
@@ -154,6 +160,8 @@ class RepositoryMemory(models.Model):
     # consolidation keeps failing backs off like a healthy one instead of retrying hourly.
     last_attempted_at = models.DateTimeField(_("last attempted at"), null=True, blank=True)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    objects = RepositoryMemoryQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Repository memory")

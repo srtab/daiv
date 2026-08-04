@@ -23,8 +23,8 @@ def _entry(content, category=ObservationCategory.PITFALL, *, created_offset=0, c
 
 
 def test_every_category_has_a_section_to_render_into():
-    # render_memory_document iterates CATEGORY_SECTIONS, not the choices: a category missing from
-    # it produces entries that are ACTIVE, count against the byte budget, and appear nowhere.
+    # render_memory_document iterates CATEGORY_SECTIONS, not the choices: an entry outside them
+    # renders nowhere, yet _largest_category still counts it and evicts it to free nothing.
     assert {category for category, _header in CATEGORY_SECTIONS} == set(ObservationCategory.values)
 
 

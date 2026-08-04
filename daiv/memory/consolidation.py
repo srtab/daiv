@@ -326,14 +326,16 @@ async def run_consolidation_round(
     )
 
 
-async def document_would_be_discarded(repo_id: str) -> bool:
+def document_would_be_discarded(repo_id: str) -> bool:
     """Whether consolidating now would re-render a stored document away.
 
     True for a repository whose document predates entries: the round would rebuild it from an
     empty entry set. ``backfill_memory_entries`` is the repair, and is exempt because populating
     those entries is exactly what it does.
+
+    Sync so the dashboard's consolidate view and the task share one definition of the guard.
     """
     return (
-        not await MemoryEntry.objects.filter(repo_id=repo_id).active().aexists()
-        and await RepositoryMemory.objects.filter(repo_id=repo_id).exclude(content="").aexists()
+        not MemoryEntry.objects.filter(repo_id=repo_id).active().exists()
+        and RepositoryMemory.objects.filter(repo_id=repo_id).with_document().exists()
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Static mirror of ``memory.models.ObservationCategory.values`` — declared explicitly (not derived) so
 # pydantic and ty see the allowed values directly. Kept in sync with the model by
@@ -44,6 +44,10 @@ class MemoryOperation(BaseModel):
     ``op``, and enforcing that structurally (unions, per-op models) inflates structured-output
     failure rates. Reference validity is checked at apply time; self-consistency is ``shape_error()`` below.
     """
+
+    # Frozen so ``_dedupe_ids`` cannot be bypassed: field validators do not run on assignment, so a
+    # mutable operation could reintroduce the duplicate ids that ``shape_error``'s arity checks trust.
+    model_config = ConfigDict(frozen=True)
 
     op: MemoryOperationLiteral = Field(
         description=(
@@ -138,8 +142,8 @@ class MemoryOperation(BaseModel):
                 if not (self.reason or "").strip():
                     return "DISCARD without a reason"
             case unhandled:
-                # Unreachable while every literal has an arm; keeps a newly added op from being
-                # waved through unvalidated and then silently no-oping in the apply match.
+                # Unreachable while every literal has an arm; a missing one would otherwise abort the
+                # whole round at ``_write``'s ``raise`` instead of rejecting the single operation.
                 return f"unhandled operation {unhandled}"
         return None
 
