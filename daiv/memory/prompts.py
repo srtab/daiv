@@ -1,7 +1,11 @@
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
+from memory.schemas import CONTENT_GUIDELINE_CHARS, MAX_OBSERVATIONS, MAX_OPERATIONS
+
+# The two system templates take no mustache variables, so they can be f-strings; the ``*_human``
+# ones below must not be — an f-string would collapse their ``{{var}}`` placeholders to ``{var}``.
 extraction_system = SystemMessagePromptTemplate.from_template(
-    """You analyze the transcript of a finished coding-agent run and extract observations worth remembering
+    f"""You analyze the transcript of a finished coding-agent run and extract observations worth remembering
 for FUTURE runs on the same repository.
 
 An observation is worth keeping ONLY if it is ALL of:
@@ -22,7 +26,7 @@ Hard rules:
 - NEVER restate the task itself, its diff, or its outcome summary.
 - NEVER include secrets, tokens, or credentials.
 - Each observation must stand alone: a future agent reads it without this transcript.
-- Maximum 10; prefer 0-3 high-value observations over many weak ones.""",
+- Maximum {MAX_OBSERVATIONS}; prefer 0-3 high-value observations over many weak ones.""",
     "mustache",
 )
 
@@ -41,7 +45,7 @@ Return an empty list if there are none.""",
 )
 
 consolidation_system = SystemMessagePromptTemplate.from_template(
-    """You maintain the long-term memory of a code repository. Memory is a set of individual
+    f"""You maintain the long-term memory of a code repository. Memory is a set of individual
 entries; each is injected into a coding agent's system prompt before every future run, so every
 entry must earn its place.
 
@@ -72,8 +76,10 @@ Rules:
   error count, a resolved incident, the state of one run), generic advice, a restatement of a
   task, or specific to a deployment rather than the repository. Always give a reason — a
   DISCARD without one is rejected.
-- Keep content specific, verifiable and self-contained: at most 500 characters, plain text, no
-  markdown headings or bullets.""",
+- Keep content specific, verifiable and self-contained: at most {CONTENT_GUIDELINE_CHARS} characters,
+  plain text, no markdown headings or bullets.
+- Return at most {MAX_OPERATIONS} operations. If the batch needs more, cover the OLDEST observations
+  first and prefer MERGE and UPDATE over ADD; anything you leave out is re-queued for the next round.""",
     "mustache",
 )
 

@@ -13,7 +13,7 @@ from core.site_settings import site_settings
 from memory.llm import build_structured_llm
 from memory.models import EntryStatus, MemoryEntry, MemoryObservation, ObservationStatus, RepositoryMemory
 from memory.render import prune_to_budget, render_memory_document
-from memory.schemas import MemoryOperations
+from memory.schemas import MAX_OPERATIONS, MemoryOperations
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -22,6 +22,17 @@ if TYPE_CHECKING:
     from memory.schemas import MemoryOperation
 
 logger = logging.getLogger("daiv.memory")
+
+# ``content`` has no parse-time bound (see ``memory.schemas``), so a runaway generation reaches the
+# rejection log intact — clamp it there rather than let one operation write a megabyte log line.
+LOG_EXCERPT_CHARS = 500
+
+
+def _loggable(operation: MemoryOperation) -> dict:
+    dumped = operation.model_dump(exclude_none=True)
+    if content := dumped.get("content"):
+        dumped["content"] = content[:LOG_EXCERPT_CHARS]
+    return dumped
 
 
 @dataclass(frozen=True)
@@ -33,6 +44,9 @@ class RoundOutcome:
     consolidated: int
     discarded: int
     still_pending: int
+    # The part of ``still_pending`` we deferred ourselves at ``MAX_OPERATIONS``, as opposed to
+    # observations the model simply never named. Only the latter is a model fault.
+    truncated: int = 0
 
 
 class ConsolidationRound:
@@ -48,9 +62,13 @@ class ConsolidationRound:
         operations: Sequence[MemoryOperation],
         observations: Sequence[MemoryObservation],
         entries: Sequence[MemoryEntry],
+        deferred: Sequence[MemoryOperation] = (),
     ) -> None:
         self.repo_id = repo_id
         self.operations = operations
+        # Sliced off by the caller before the round so the degraded-round ratio and ``still_pending``
+        # measure the operations we actually tried; kept here only to attribute the deferred tail.
+        self.deferred = deferred
         self.observations = observations
         self.entries = entries
         self.entries_by_id = {str(entry.pk): entry for entry in entries}
@@ -100,7 +118,7 @@ class ConsolidationRound:
                     operation.op,
                     self.repo_id,
                     reason,
-                    operation.model_dump(exclude_none=True),
+                    _loggable(operation),
                 )
                 rejected += 1
                 continue
@@ -171,12 +189,17 @@ class ConsolidationRound:
                 max_bytes,
                 [(str(entry.pk), entry.category) for entry in evicted],
             )
+        # Intersected with what is actually still pending, so ``truncated`` stays a subset of
+        # ``still_pending``: the task subtracts one from the other to find what the model skipped.
+        still_pending_ids = self.observations_by_id.keys() - self.claimed
+        deferred_ids = {oid for operation in self.deferred for oid in operation.observation_ids}
         return RoundOutcome(
             applied=len(accepted),
             rejected=rejected,
             consolidated=len(consolidated_ids),
             discarded=len(discarded_ids),
-            still_pending=len(self.observations) - len(self.claimed),
+            still_pending=len(still_pending_ids),
+            truncated=len(deferred_ids & still_pending_ids),
         )
 
     def _write(self, accepted: Sequence[MemoryOperation], now: datetime) -> tuple[list, list, list[MemoryEntry]]:
@@ -229,7 +252,7 @@ class ConsolidationRound:
         entry = MemoryEntry.objects.create(
             repo_id=self.repo_id,
             category=category,
-            content=cast("str", operation.content).strip(),
+            content=cast("str", operation.content),
             source_run_id=_source_run_id(sources),
             created_at=now,
             last_confirmed_at=now,
@@ -321,7 +344,17 @@ async def run_consolidation_round(
         )
         return None
 
-    return await sync_to_async(ConsolidationRound(repo_id, result.operations, observations, entries).apply)(
+    operations, deferred = result.operations[:MAX_OPERATIONS], result.operations[MAX_OPERATIONS:]
+    if deferred:
+        logger.warning(
+            "consolidation: repo %s — model returned %d operations, over the %d cap; the rest are deferred",
+            repo_id,
+            len(result.operations),
+            MAX_OPERATIONS,
+        )
+
+    round_ = ConsolidationRound(repo_id, operations, observations, entries, deferred=deferred)
+    return await sync_to_async(round_.apply)(
         max_lines=site_settings.memory_max_lines, max_bytes=site_settings.memory_max_bytes
     )
 

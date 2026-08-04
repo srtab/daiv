@@ -47,8 +47,10 @@ class TestDegradedRoundReporting:
         obs = await _observation()
         llm = _structured_llm_returning(
             MemoryOperation(op="ADD", observation_ids=[str(obs.pk)], category="pitfall", content="the only good one"),
-            MemoryOperation(op="UPDATE", entry_ids=["not-a-real-id"], observation_ids=[str(obs.pk)], content="x"),
-            MemoryOperation(op="MERGE", entry_ids=["nope"], observation_ids=[str(obs.pk)], content="y"),
+            MemoryOperation(
+                op="UPDATE", entry_ids=["not-a-real-id"], observation_ids=[str(obs.pk)], content="a revised fact"
+            ),
+            MemoryOperation(op="MERGE", entry_ids=["nope"], observation_ids=[str(obs.pk)], content="a merged fact"),
         )
 
         with caplog.at_level("ERROR", logger="daiv.memory"):

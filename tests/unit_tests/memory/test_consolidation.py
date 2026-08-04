@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -13,7 +14,7 @@ from memory.models import (
     ObservationStatus,
     RepositoryMemory,
 )
-from memory.schemas import MemoryOperation
+from memory.schemas import CONTENT_HARD_LIMIT, MAX_OPERATIONS, MemoryOperation
 
 from tests.unit_tests.memory.consolidation_helpers import (
     _enabled_config,
@@ -288,6 +289,44 @@ class TestValidation:
         await obs.arefresh_from_db()
         assert obs.status == ObservationStatus.PENDING
 
+    async def test_content_over_the_prompt_guideline_is_stored_verbatim(self):
+        # The prompt's ~500 characters is guidance; prune_to_budget owns the document's real size.
+        obs = await _observation()
+        content = "x" * 900
+        llm = _structured_llm_returning(
+            MemoryOperation(op="ADD", observation_ids=[str(obs.pk)], category="pitfall", content=content)
+        )
+
+        outcome = await _run_round(llm)
+
+        assert outcome.applied == 1
+        entry = await MemoryEntry.objects.filter(repo_id="group/project").active().aget()
+        assert entry.content == content
+
+    async def test_runaway_content_rejects_only_its_own_operation(self):
+        kept_obs = await _observation(content="a fact worth keeping")
+        runaway_obs = await _observation(content="the fact the model got verbose about")
+        llm = _structured_llm_returning(
+            MemoryOperation(op="ADD", observation_ids=[str(kept_obs.pk)], category="pitfall", content="a kept fact"),
+            MemoryOperation(
+                op="ADD",
+                observation_ids=[str(runaway_obs.pk)],
+                category="codebase_fact",
+                content="x" * (CONTENT_HARD_LIMIT + 1),
+            ),
+        )
+
+        outcome = await _run_round(llm)
+
+        assert (outcome.applied, outcome.rejected) == (1, 1)
+        assert [entry.content async for entry in MemoryEntry.objects.filter(repo_id="group/project").active()] == [
+            "a kept fact"
+        ]
+        await kept_obs.arefresh_from_db()
+        await runaway_obs.arefresh_from_db()
+        assert kept_obs.status == ObservationStatus.CONSOLIDATED
+        assert runaway_obs.status == ObservationStatus.PENDING
+
     async def test_cross_category_merge_is_rejected(self):
         pitfall = await _entry("a pitfall", category=ObservationCategory.PITFALL)
         workflow = await _entry("a workflow rule", category=ObservationCategory.WORKFLOW)
@@ -388,7 +427,7 @@ class TestValidation:
         await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Pitfalls\n- keep me")
         obs = await _observation()
         llm = _structured_llm_returning(
-            MemoryOperation(op="UPDATE", entry_ids=["nope"], observation_ids=[str(obs.pk)], content="x")
+            MemoryOperation(op="UPDATE", entry_ids=["nope"], observation_ids=[str(obs.pk)], content="a revised fact")
         )
 
         await _run_round(llm)
@@ -439,7 +478,7 @@ async def test_accept_reports_rejected_count_without_writing():
         op="UPDATE",
         entry_ids=["00000000-0000-0000-0000-000000000000"],
         observation_ids=[str(other_obs.pk)],
-        content="x",
+        content="a revised fact",
     )
 
     round_ = ConsolidationRound("group/project", [good, bad], [obs, other_obs], [entry])
@@ -471,3 +510,57 @@ async def test_accept_re_decides_from_the_snapshot_on_a_second_call():
     assert round_.accept() == ([operation], 0)
     assert round_.claimed == {str(obs.pk)}
     assert round_.claimed_entries == {str(entry.pk)}
+
+
+async def _observations(count):
+    return [await _observation(content=f"a fact learned about thing {i}") for i in range(count)]
+
+
+def _adds_for(observations):
+    return [
+        MemoryOperation(op="ADD", observation_ids=[str(obs.pk)], category="pitfall", content=f"a consolidated fact {i}")
+        for i, obs in enumerate(observations)
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_operations_over_the_cap_are_truncated_not_discarded(caplog):
+    observations = await _observations(MAX_OPERATIONS + 3)
+
+    with caplog.at_level(logging.WARNING, logger="daiv.memory"):
+        outcome = await _run_round(_structured_llm_returning(*_adds_for(observations)))
+
+    assert outcome.applied == MAX_OPERATIONS
+    assert (outcome.still_pending, outcome.truncated) == (3, 3)
+    assert f"over the {MAX_OPERATIONS} cap" in caplog.text
+    assert await MemoryObservation.objects.filter(status=ObservationStatus.PENDING).acount() == 3
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_truncated_tail_is_consolidated_by_the_next_round():
+    # The convergence claim behind truncating rather than failing the parse: leaving the tail
+    # pending is only safe if a later round actually picks it up.
+    observations = await _observations(MAX_OPERATIONS + 3)
+
+    first = await _run_round(_structured_llm_returning(*_adds_for(observations)))
+    tail = [obs async for obs in MemoryObservation.objects.filter(status=ObservationStatus.PENDING)]
+    second = await _run_round(_structured_llm_returning(*_adds_for(tail)))
+
+    assert (first.truncated, second.truncated) == (3, 0)
+    assert (second.applied, second.still_pending) == (3, 0)
+    assert await MemoryObservation.objects.filter(status=ObservationStatus.PENDING).acount() == 0
+    assert await MemoryEntry.objects.filter(repo_id="group/project").active().acount() == MAX_OPERATIONS + 3
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_truncated_operation_naming_an_unknown_observation_is_not_counted_as_deferred():
+    # truncated is subtracted from still_pending to decide whether the model skipped anything, so
+    # counting an id that was never in the round would drive that difference negative.
+    observations = await _observations(MAX_OPERATIONS)
+    hallucinated = MemoryOperation(
+        op="ADD", observation_ids=["not-a-real-id"], category="pitfall", content="a hallucinated fact"
+    )
+
+    outcome = await _run_round(_structured_llm_returning(*_adds_for(observations), hallucinated))
+
+    assert (outcome.applied, outcome.still_pending, outcome.truncated) == (MAX_OPERATIONS, 0, 0)

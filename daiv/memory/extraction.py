@@ -5,14 +5,62 @@ from typing import TYPE_CHECKING, cast
 
 from core.site_settings import site_settings
 from memory.llm import build_structured_llm
-from memory.schemas import ExtractedObservations
+from memory.schemas import CONTENT_HARD_LIMIT, ExtractedObservations
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sessions.models import Run
 
     from memory.schemas import ExtractedObservation
 
 logger = logging.getLogger("daiv.memory")
+
+# How much of a lost observation the ERROR below records. Its own figure rather than the prompt's
+# guideline: retuning editorial guidance must not shorten the only trace of an unrecoverable loss.
+LOG_EXCERPT_CHARS = 500
+
+
+def _usable(observations: Sequence[ExtractedObservation], run: Run) -> list[ExtractedObservation]:
+    """The observations worth storing.
+
+    Applies no batch cap on purpose: an observation dropped here is never persisted, so nothing can
+    re-queue it, whereas ``MAX_OPERATIONS`` in consolidation defers its tail instead of destroying it.
+    """
+    kept: list[ExtractedObservation] = []
+    unusable: list[str] = []
+    runaway: list[str] = []
+    for observation in observations:
+        # Length first so the two buckets read one source: bucketing on ``shape_error()``'s message
+        # would silently file any future rule under the WARNING below.
+        if len(observation.content) > CONTENT_HARD_LIMIT:
+            runaway.append(observation.content[:LOG_EXCERPT_CHARS])
+        elif reason := observation.shape_error():
+            unusable.append(reason)
+        else:
+            kept.append(observation)
+
+    if unusable:
+        logger.warning(
+            "extract_observations: dropped %d of %d observation(s) from run %s as unusable: %s",
+            len(unusable),
+            len(observations),
+            run.pk,
+            unusable,
+        )
+    if runaway:
+        # ERROR, not warning: these are dropped before any row exists, so nothing re-queues them
+        # and the transcript TTLs out — this log is the only trace of a real fact that was lost.
+        logger.error(
+            "extract_observations: dropped %d of %d observation(s) from run %s as over-long, unrecoverably; "
+            "first %d characters of each: %s",
+            len(runaway),
+            len(observations),
+            run.pk,
+            LOG_EXCERPT_CHARS,
+            runaway,
+        )
+    return kept
 
 
 async def extract_observations(run: Run) -> list[ExtractedObservation]:
@@ -26,7 +74,8 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
     The LLM ``ainvoke`` is deliberately NOT guarded: a schema mismatch must surface loudly, and a
     transient failure marks the calling task FAILED (no retry; the checkpoint TTLs out) — i.e.
     that one run's observations are lost. Losing a single run's learnings is an accepted
-    trade-off; agent runs are unaffected because this runs out-of-band.
+    trade-off; agent runs are unaffected because this runs out-of-band. Unusable *individual*
+    observations are not a schema mismatch and never reach that path — see ``_usable``.
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -115,4 +164,4 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
         ]),
     )
 
-    return list(result.observations) if result else []
+    return _usable(result.observations, run) if result else []

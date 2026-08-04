@@ -1,27 +1,56 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 # Static mirror of ``memory.models.ObservationCategory.values`` — declared explicitly (not derived) so
 # pydantic and ty see the allowed values directly. Kept in sync with the model by
 # ``tests.unit_tests.memory.test_models.test_observation_category_literal_matches_model_choices``.
 ObservationCategoryLiteral = Literal["build_test", "codebase_fact", "pitfall", "reviewer_preference", "workflow"]
 
+CONTENT_HARD_LIMIT = 2000
+MIN_CONTENT_CHARS = 10
+# Prompt guidance only, stated to the model in ``memory.prompts``; nothing truncates on it.
+MAX_OBSERVATIONS = 10
+# Applied by truncation in ``run_consolidation_round``.
+MAX_OPERATIONS = 50
+CONTENT_GUIDELINE_CHARS = 500
+
+# Normalisation, not validation: ``str.strip`` cannot fail, so unlike a length constraint it can
+# never fail the payload — and the value checked is then the same one that gets stored.
+StrippedContent = Annotated[str, AfterValidator(str.strip)]
+
+
+def _content_error(content: str) -> str | None:
+    """Why this content is unusable on length grounds, or ``None`` when it is within bounds.
+
+    ``CONTENT_HARD_LIMIT`` is a runaway-generation fence far above the ``CONTENT_GUIDELINE_CHARS``
+    the prompt asks for; never express either as a pydantic field constraint — see AGENTS.md
+    §"Repository memory".
+    """
+    if len(content) < MIN_CONTENT_CHARS:
+        return f"content is shorter than {MIN_CONTENT_CHARS} characters"
+    if len(content) > CONTENT_HARD_LIMIT:
+        return f"content is {len(content)} characters, over the hard limit"
+    return None
+
 
 class ExtractedObservation(BaseModel):
     """A single observation extracted from a run transcript."""
 
     category: ObservationCategoryLiteral = Field(description="The kind of learning this observation captures.")
-    content: str = Field(
-        min_length=10,
-        max_length=500,
+    content: StrippedContent = Field(
         description=(
             "One specific, self-contained, verifiable fact useful in a future session on this repository. "
-            "Plain text, one or two sentences, understandable without the transcript."
-        ),
+            f"Plain text, one or two sentences of at most ~{CONTENT_GUIDELINE_CHARS} characters, "
+            "understandable without the transcript."
+        )
     )
+
+    def shape_error(self) -> str | None:
+        """Why this observation is not worth storing, or ``None`` when it is."""
+        return _content_error(self.content)
 
 
 class ExtractedObservations(BaseModel):
@@ -29,8 +58,9 @@ class ExtractedObservations(BaseModel):
 
     observations: list[ExtractedObservation] = Field(
         default_factory=list,
-        max_length=10,
-        description="0-10 observations. An empty list is the expected output when the run taught nothing new.",
+        description=(
+            f"0-{MAX_OBSERVATIONS} observations. An empty list is the expected output when the run taught nothing new."
+        ),
     )
 
 
@@ -79,12 +109,12 @@ class MemoryOperation(BaseModel):
             "inherits the category of the entries it combines."
         ),
     )
-    content: str | None = Field(
+    content: StrippedContent | None = Field(
         default=None,
-        max_length=500,
         description=(
             "The new entry's full text for ADD, UPDATE and MERGE — self-contained, specific, plain "
-            "text, one or two sentences. Leave empty for CONFIRM and DISCARD."
+            f"text, one or two sentences of at most ~{CONTENT_GUIDELINE_CHARS} characters. "
+            "Leave empty for CONFIRM and DISCARD."
         ),
     )
     reason: str | None = Field(
@@ -113,7 +143,7 @@ class MemoryOperation(BaseModel):
         if not self.observation_ids:
             return "references no observation"
 
-        content = (self.content or "").strip()
+        content = self.content or ""
         match self.op:
             case "ADD":
                 if self.entry_ids:
@@ -136,16 +166,20 @@ class MemoryOperation(BaseModel):
             case "CONFIRM":
                 if len(self.entry_ids) != 1:
                     return f"CONFIRM must target exactly one entry, got {len(self.entry_ids)}"
+                return None
             case "DISCARD":
                 if self.entry_ids:
                     return "DISCARD must not target existing entries"
                 if not (self.reason or "").strip():
                     return "DISCARD without a reason"
+                return None
             case unhandled:
                 # Unreachable while every literal has an arm; a missing one would otherwise abort the
                 # whole round at ``_write``'s ``raise`` instead of rejecting the single operation.
                 return f"unhandled operation {unhandled}"
-        return None
+        # Reached only by the three ops that persist content: ``_write`` never reads it for CONFIRM
+        # or DISCARD, so rejecting those would re-queue an observation over a discarded field.
+        return _content_error(content)
 
 
 class MemoryOperations(BaseModel):
@@ -153,6 +187,8 @@ class MemoryOperations(BaseModel):
 
     operations: list[MemoryOperation] = Field(
         default_factory=list,
-        max_length=50,
-        description="The operations to apply to this repository's memory. Every observation should be covered by one.",
+        description=(
+            "The operations to apply to this repository's memory. Every observation should be covered "
+            f"by one. At most {MAX_OPERATIONS}; anything beyond that is deferred to the next round."
+        ),
     )
