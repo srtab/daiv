@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -317,6 +318,16 @@ class SiteConfiguration(models.Model):
             "(subject to the consolidation interval below)."
         ),
     )
+    memory_consolidation_max_pending_age_days = models.PositiveIntegerField(
+        _("consolidation flush age (days)"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_(
+            "Consolidate a repository that is still below the threshold above once its oldest "
+            "pending observation reaches this age, so low-volume repositories still form memory."
+        ),
+    )
     memory_consolidation_min_interval_hours = models.PositiveIntegerField(
         _("consolidation interval (hours)"),
         blank=True,
@@ -327,13 +338,15 @@ class SiteConfiguration(models.Model):
         _("memory max lines"),
         blank=True,
         null=True,
-        help_text=_("Hard cap on the consolidated memory document length, in lines."),
+        validators=[MinValueValidator(1)],
+        help_text=_("Cap on the memory document length in lines; entries beyond it are evicted."),
     )
     memory_max_bytes = models.PositiveIntegerField(
         _("memory max bytes"),
         blank=True,
         null=True,
-        help_text=_("Hard cap on the consolidated memory document size, in bytes."),
+        validators=[MinValueValidator(1)],
+        help_text=_("Cap on the memory document size in bytes; entries beyond it are evicted."),
     )
 
     # -- Run Classifier --

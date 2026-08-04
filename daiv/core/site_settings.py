@@ -82,6 +82,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "memory_extraction_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
         "memory_consolidation_model_name": None,
         "memory_consolidation_min_pending": 10,
+        "memory_consolidation_max_pending_age_days": 7,
         "memory_consolidation_min_interval_hours": 24,
         "memory_max_lines": 200,
         "memory_max_bytes": 10_240,

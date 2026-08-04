@@ -41,46 +41,56 @@ Return an empty list if there are none.""",
 )
 
 consolidation_system = SystemMessagePromptTemplate.from_template(
-    """You maintain the long-term memory document for a code repository.
-It is injected into the system prompt of a coding agent before every future run,
-so every line must earn its place.
+    """You maintain the long-term memory of a code repository. Memory is a set of individual
+entries; each is injected into a coding agent's system prompt before every future run, so every
+entry must earn its place.
 
-Rewrite the document by merging the current memory with the new observations:
-- Merge duplicates and near-duplicates into a single entry.
-- Resolve contradictions: newer observations win over older memory content.
-- Generalize recurring observations into durable rules.
-- Prune one-off details unlikely to matter again, and anything stale or superseded.
-- Keep entries specific and actionable; drop generic advice.
+You are given the repository's current entries and a batch of new observations extracted from
+recent runs. Decide what each observation means for the entries and return the operations that
+express it. You do NOT write the memory document — it is rendered from the entries by code.
 
-Output format — return ONLY the document body in markdown, using exactly these section headers
-and omitting any section that would be empty:
-## Build & test
-## Codebase facts
-## Pitfalls
-## Reviewer preferences
-## Workflow
+Operations:
+- ADD(observation_ids, category, content) — the observation states a fact no entry covers yet.
+- UPDATE(entry_ids=[one], observation_ids, content) — the observation corrects, contradicts or
+  sharpens exactly one entry. The new content replaces that entry entirely, so it must stand
+  alone. Prefer UPDATE over ADD whenever an entry already covers the same ground.
+- MERGE(entry_ids=[two or more], observation_ids, content) — several entries of the SAME
+  category are fragments of one fact; combine them into one. The merged entry keeps that
+  category, so do not supply one. Never merge across categories.
+- CONFIRM(entry_ids=[one], observation_ids) — the observation restates a fact an entry already
+  captures correctly. Nothing changes; this is the normal outcome for a duplicate.
+- DISCARD(observation_ids, reason) — the observation is not worth keeping.
 
-Hard budget: at most {{max_lines}} lines and {{max_bytes}} bytes total. Stay under it yourself by dropping the least
-valuable entries first; anything over the limit is truncated from the end and lost.""",
+Rules:
+- Every operation MUST name at least one observation from the batch, and every observation
+  SHOULD be covered by exactly one operation.
+- Copy entry and observation IDs verbatim. An operation naming an ID that is not in the lists
+  below is rejected and its observations are re-queued, so never invent or reformat one.
+- Entries you do not name are left exactly as they are. There is no operation that rewrites
+  memory as a whole, and you must not attempt one.
+- DISCARD is a decision, not a fallback: reject an observation when it is ephemeral (a one-off
+  error count, a resolved incident, the state of one run), generic advice, a restatement of a
+  task, or specific to a deployment rather than the repository. Always give a reason — a
+  DISCARD without one is rejected.
+- Keep content specific, verifiable and self-contained: at most 500 characters, plain text, no
+  markdown headings or bullets.""",
     "mustache",
 )
 
 consolidation_human = HumanMessagePromptTemplate.from_template(
     """Repository: {{repo_id}}
 
-{{#current_memory}}
-Current memory document:
-~~~markdown
-{{current_memory}}
-~~~
-{{/current_memory}}
-{{^current_memory}}
-There is no current memory document yet; create one from the observations.
-{{/current_memory}}
+{{#entries}}
+Current memory entries (id | category | last confirmed | content):
+{{entries}}
+{{/entries}}
+{{^entries}}
+This repository has no memory entries yet; everything worth keeping is an ADD.
+{{/entries}}
 
-New observations (oldest first, each tagged with category and date):
+New observations, oldest first (id | category | date | content):
 {{observations}}
 
-Rewrite the complete memory document.""",
+Return the operations to apply.""",
     "mustache",
 )

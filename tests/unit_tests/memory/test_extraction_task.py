@@ -168,6 +168,26 @@ async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_extraction_skips_transcript_without_ai_turns(caplog):
+    # A run that died before the agent loop started (sandbox unavailable, auth failure) can only
+    # produce an empty extraction — the model call is pure cost, so it is never made.
+    run = await _create_run(status=RunStatus.FAILED)
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with([HumanMessage(content="fix the bug")])),
+        patch("memory.tasks._build_structured_llm") as build,
+        caplog.at_level("INFO", logger="daiv.memory"),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    build.assert_not_called()
+    assert await MemoryObservation.objects.acount() == 0
+    assert any("no AI turns" in record.message for record in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_extraction_respects_daiv_yml_flag():
     run = await _create_run()
 

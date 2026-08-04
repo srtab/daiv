@@ -114,7 +114,7 @@ class MemoryConsolidateView(AdminRequiredMixin, View):
 
         # Mirror the task's own guard so we don't report success for a run it will silently skip:
         # ``consolidate_memory_task`` no-ops when the repo has no pending observations.
-        pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
+        pending = MemoryObservation.objects.filter(repo_id=repo_id).pending().count()
         if pending == 0:
             messages.info(
                 request, _("Nothing to consolidate for %(repo)s — no pending observations.") % {"repo": repo_id}
