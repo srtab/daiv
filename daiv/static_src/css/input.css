@@ -2114,3 +2114,19 @@ main:has(.chat-shell) {
     @apply pointer-events-none opacity-50 transition-opacity duration-150;
   }
 }
+
+/* -- Public landing page feature cards -----------------------------------
+   Templates must also carry `animate-fade-up group`: the first is a plain
+   class (not a utility) and the second is a variant marker, so neither can
+   be @applied. */
+
+@layer components {
+  .landing-card {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02]
+      p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04];
+  }
+  .landing-card__icon {
+    @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl
+      border border-white/[0.08] bg-white/[0.03];
+  }
+}
