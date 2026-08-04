@@ -92,3 +92,10 @@ Issue addressing is enabled by default. To disable it, add the following to your
 issue_addressing:
   enabled: false
 ```
+
+## Related pages
+
+- [Repository Config](../customization/repository-config.md) — control which issues DAIV picks up and how it plans
+- [Slash Commands & Skills](slash-commands.md) — steer an issue with `/plan` and custom skills
+- [Pull Request Assistant](pull-request-assistant.md) — what happens once the merge request is open
+- [Sandbox](sandbox.md) — where the implementation is built and tested

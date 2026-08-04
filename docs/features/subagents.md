@@ -112,3 +112,9 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Related pages
+
+- [Agent Architecture](../reference/agent-architecture.md) — where subagents sit in the middleware stack and how their context stays isolated
+- [Agent Skills](../customization/agent-skills.md) — package reusable instructions that subagents and the main agent both load
+- [Slash Commands & Skills](slash-commands.md) — run `/agents` to list every subagent available in a repository

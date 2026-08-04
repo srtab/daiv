@@ -113,3 +113,10 @@ The code review agent checks for rule sources at the start of every review and, 
 You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
 
 Every custom-rule finding passes the same confidence gate and skeptical aggregation as built-in findings, so a noisy `AGENTS.md` will not flood the review.
+
+## Related pages
+
+- [Slash Commands & Skills](slash-commands.md) — invoke `/code-review` from a merge request and define per-repository review rules
+- [Sandbox](sandbox.md) — the isolated container where DAIV reproduces and repairs failing pipelines
+- [Sessions](sessions.md) — follow a running review and revisit what the agent changed
+- [Repository Config](../customization/repository-config.md) — tune review behaviour per repository with `.daiv.yml`
