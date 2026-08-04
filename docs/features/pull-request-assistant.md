@@ -116,7 +116,7 @@ Every custom-rule finding passes the same confidence gate and skeptical aggregat
 
 ## Related pages
 
-- [Slash Commands & Skills](slash-commands.md) — invoke `/code-review` from a merge request and define per-repository review rules
+- [Slash Commands & Skills](slash-commands.md) — invoke `/code-review` from a merge request, and write custom skills to extend it
 - [Sandbox](sandbox.md) — the isolated container where DAIV reproduces and repairs failing pipelines
 - [Sessions](sessions.md) — follow a running review and revisit what the agent changed
 - [Repository Config](../customization/repository-config.md) — tune review behaviour per repository with `.daiv.yml`

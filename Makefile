@@ -36,7 +36,7 @@ setup:
 	@echo "       docker compose --profile gitlab up    # local GitLab instance"
 	@echo "       docker compose --profile sandbox up   # sandbox code executor"
 	@echo "       docker compose --profile github up    # smee webhook forwarder for GitHub"
-	@echo "       docker compose --profile full up      # all services"
+	@echo "       docker compose --profile full up      # gitlab + runner + sandbox (not smee)"
 
 test:
 	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests -n auto

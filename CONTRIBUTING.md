@@ -59,7 +59,7 @@ We expect all contributors to be respectful and constructive. Please ensure that
    docker compose --profile gitlab up     # local GitLab instance + runner
    docker compose --profile sandbox up    # sandbox code executor
    docker compose --profile github up     # smee webhook forwarder for GitHub deliveries
-   docker compose --profile full up       # everything
+   docker compose --profile full up       # gitlab + runner + sandbox (not smee)
    ```
 
    Profiles combine: `docker compose --profile gitlab --profile sandbox up`.
@@ -96,7 +96,7 @@ We expect all contributors to be respectful and constructive. Please ensure that
 
 For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials. To receive webhook deliveries locally, start the `github` profile — it runs a [smee](https://smee.io/) client that forwards GitHub events to the local app.
 
-Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/latest/getting-started/deployment/).
+Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/).
 
 ## Development Guidelines
 

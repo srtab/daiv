@@ -139,7 +139,7 @@ Every signed-in user — member or admin — has these self-service pages:
 
 API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). Members see only their own keys; admins see every user's keys in the list.
 
-## Next steps
+## Related pages
 
 <div class="grid cards" markdown>
 

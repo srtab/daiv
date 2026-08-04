@@ -95,7 +95,7 @@ issue_addressing:
 
 ## Related pages
 
-- [Repository Config](../customization/repository-config.md) — control which issues DAIV picks up and how it plans
+- [Repository Config](../customization/repository-config.md) — turn issue addressing on or off, restrict who can trigger DAIV, and set branch and commit conventions
 - [Slash Commands & Skills](slash-commands.md) — steer an issue with `/plan` and custom skills
 - [Pull Request Assistant](pull-request-assistant.md) — what happens once the merge request is open
 - [Sandbox](sandbox.md) — where the implementation is built and tested
