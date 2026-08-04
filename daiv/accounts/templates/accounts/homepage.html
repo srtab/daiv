@@ -214,8 +214,8 @@
 
         <div class="mt-12 grid gap-4 sm:grid-cols-2">
             <!-- Slash Commands -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 80ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 80ms">
+                <div class="landing-card__icon">
                     {% icon "command-line" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Slash Commands & Skills</h3>
@@ -223,8 +223,8 @@
             </div>
 
             <!-- Sandbox -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 120ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 120ms">
+                <div class="landing-card__icon">
                     {% icon "cube" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Secure Sandbox</h3>
@@ -232,8 +232,8 @@
             </div>
 
             <!-- MCP -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 160ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 160ms">
+                <div class="landing-card__icon">
                     {% icon "puzzle-piece" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">MCP Tool Integrations</h3>
@@ -241,8 +241,8 @@
             </div>
 
             <!-- Subagents -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 200ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 200ms">
+                <div class="landing-card__icon">
                     {% icon "squares-2x2" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Subagents</h3>
@@ -250,8 +250,8 @@
             </div>
 
             <!-- Multi-provider -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 240ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 240ms">
+                <div class="landing-card__icon">
                     {% icon "cpu-chip" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Multi-provider LLMs</h3>
@@ -259,21 +259,81 @@
             </div>
 
             <!-- Jobs API -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 280ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 280ms">
+                <div class="landing-card__icon">
                     {% icon "bolt" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Jobs API</h3>
                 <p class="mt-1 text-[14px] text-gray-400">Trigger agents programmatically via REST. Chain tasks from CI/CD, or integrate with Slack bots.</p>
             </div>
 
+            <!-- MCP Endpoint -->
+            <div class="animate-fade-up group landing-card" style="animation-delay: 320ms">
+                <div class="landing-card__icon">
+                    {% icon "link" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">MCP Endpoint</h3>
+                <p class="mt-1 text-[14px] text-gray-400">The inverse direction: DAIV itself is an MCP server. Delegate tasks to it from Claude Code, Cursor, or Codex CLI without leaving your editor.</p>
+            </div>
+
             <!-- Scheduled Jobs -->
-            <div class="animate-fade-up group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]" style="animation-delay: 320ms">
-                <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div class="animate-fade-up group landing-card" style="animation-delay: 360ms">
+                <div class="landing-card__icon">
                     {% icon "clock" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 </div>
                 <h3 class="text-[15px] font-semibold text-white">Scheduled Jobs</h3>
                 <p class="mt-1 text-[14px] text-gray-400">Run agents on a recurring basis — hourly, daily, weekly, or custom cron. Automate dependency audits, code scans, and maintenance tasks.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Dashboard -->
+<section class="border-t border-white/[0.06] py-24">
+    <div class="mx-auto max-w-5xl px-6">
+        <div class="animate-fade-up">
+            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">Dashboard</p>
+            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">A self-hosted control plane</h2>
+            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+                Every run lands in one place — whether it started from a webhook, the API, your editor, a schedule, or by hand. Pick the model and thinking effort per run.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-4 sm:grid-cols-2">
+            <!-- Sessions -->
+            <div class="animate-fade-up group landing-card" style="animation-delay: 80ms">
+                <div class="landing-card__icon">
+                    {% icon "chat-bubble" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Sessions</h3>
+                <p class="mt-1 text-[14px] text-gray-400">Chat with the agent live, start background runs, and browse the full history in one list — with retries when something needs another pass.</p>
+            </div>
+
+            <!-- Sandbox Environments -->
+            <div class="animate-fade-up group landing-card" style="animation-delay: 120ms">
+                <div class="landing-card__icon">
+                    {% icon "sandbox" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Sandbox Environments</h3>
+                <p class="mt-1 text-[14px] text-gray-400">Define a runtime once and reuse it: base image, CPU and memory, network egress policy, and encrypted secrets — scoped to the repositories you choose.</p>
+            </div>
+
+            <!-- Notifications -->
+            <div class="animate-fade-up group landing-card" style="animation-delay: 160ms">
+                <div class="landing-card__icon">
+                    {% icon "bell" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Notifications</h3>
+                <p class="mt-1 text-[14px] text-gray-400">Know the moment work finishes, via the in-app bell, email, or Rocket Chat.</p>
+            </div>
+
+            <!-- Merge Metrics -->
+            <div class="animate-fade-up group landing-card" style="animation-delay: 200ms">
+                <div class="landing-card__icon">
+                    {% icon "chart-bar" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                </div>
+                <h3 class="text-[15px] font-semibold text-white">Merge Metrics</h3>
+                <p class="mt-1 text-[14px] text-gray-400">Track code velocity with commit-level attribution — what DAIV wrote versus what your team wrote.</p>
             </div>
         </div>
     </div>
