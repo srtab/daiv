@@ -35,7 +35,7 @@ setup:
 	@echo "  3. Optional services:"
 	@echo "       docker compose --profile gitlab up    # local GitLab instance"
 	@echo "       docker compose --profile sandbox up   # sandbox code executor"
-	@echo "       docker compose --profile mcp up       # MCP proxy"
+	@echo "       docker compose --profile github up    # smee webhook forwarder for GitHub"
 	@echo "       docker compose --profile full up      # all services"
 
 test:

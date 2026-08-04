@@ -6,6 +6,7 @@ Thank you for your interest in contributing to DAIV! This document provides guid
 
 - [Code of Conduct](#code-of-conduct)
 - [Development Environment](#development-environment)
+  - [Testing against a local GitLab](#testing-against-a-local-gitlab)
 - [Development Guidelines](#development-guidelines)
   - [Code Style](#code-style)
   - [Testing](#testing)
@@ -32,17 +33,17 @@ We expect all contributors to be respectful and constructive. Please ensure that
    make setup
    ```
 
-   `make setup` creates `config.secrets.env` and `config.toml` from their templates. Edit `docker/local/app/config.secrets.env` and add your API keys — at minimum one LLM provider key (Anthropic, OpenAI, Google, or OpenRouter), plus `CODEBASE_GITLAB_AUTH_TOKEN` if you are using GitLab.
+   `make setup` creates `docker/local/app/config.secrets.env` and `docker/local/gitlab-runner/config.toml` from their templates. Edit `docker/local/app/config.secrets.env` and add your API keys — at minimum one LLM provider key (Anthropic, OpenAI, Google, or OpenRouter), plus `CODEBASE_GITLAB_AUTH_TOKEN` if you are using GitLab.
 
-2. **Install dependencies** (optional)
+2. **Install dependencies**
 
-   DAIV uses [uv](https://docs.astral.sh/uv/) for dependency management:
+   DAIV uses [uv](https://docs.astral.sh/uv/) for dependency management. Required if you run `make test` or `make lint*` on the host:
 
    ```bash
    uv sync
    ```
 
-   This installs into a virtual environment — useful for running linters outside Docker or for editor autocompletion.
+   Skip this step if you run all commands inside the Docker container (`docker compose exec -it app bash`).
 
 3. **Start core services**
 
@@ -57,7 +58,7 @@ We expect all contributors to be respectful and constructive. Please ensure that
    ```bash
    docker compose --profile gitlab up     # local GitLab instance + runner
    docker compose --profile sandbox up    # sandbox code executor
-   docker compose --profile mcp up        # MCP servers
+   docker compose --profile github up     # smee webhook forwarder for GitHub deliveries
    docker compose --profile full up       # everything
    ```
 
@@ -93,7 +94,7 @@ We expect all contributors to be respectful and constructive. Please ensure that
 
 6. **Try it** — create an issue labelled `daiv`. DAIV will respond with a plan.
 
-For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials.
+For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials. To receive webhook deliveries locally, start the `github` profile — it runs a [smee](https://smee.io/) client that forwards GitHub events to the local app.
 
 Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/latest/getting-started/deployment/).
 

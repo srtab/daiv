@@ -51,7 +51,8 @@ def slugify(text: str) -> str:
 
 def heading_text(raw: str) -> str:
     """Strip inline markdown so a heading slugifies like its rendered text."""
-    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", raw)
+    text = re.sub(r":[a-z0-9_+-]+:", "", raw)  # pymdownx.emoji shortcodes render to nothing in the TOC
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
     return text.replace("`", "").replace("*", "")
 
 
@@ -86,12 +87,14 @@ def iter_repo_files() -> Iterator[Path]:
 
 def test_absolute_docs_urls_resolve():
     failures = []
+    checked_count = 0
     for path in iter_repo_files():
         content = path.read_text(encoding="utf-8", errors="ignore")
         for match in DOCS_URL_RE.finditer(content):
             rest = match.group("rest")
             if rest is None or not rest.strip("/"):
                 continue  # bare project URL, e.g. the OpenRouter HTTP-Referer header
+            checked_count += 1
             url_path, _, fragment = rest.partition("#")
             segments = url_path.strip("/").split("/")
             version, page_segments = segments[0], segments[1:]
@@ -108,6 +111,10 @@ def test_absolute_docs_urls_resolve():
                 continue
             if fragment and fragment not in anchors_of(target):
                 failures.append(f"{rel}: anchor '#{fragment}' missing from {target.relative_to(REPO_ROOT)}")
+    assert checked_count > 20, (
+        f"Only {checked_count} docs URLs evaluated — DOCS_URL_RE or SKIPPED_DIR_NAMES may have drifted "
+        f"(base URL changed, or skip logic now matches everything)"
+    )
     assert not failures, "Broken documentation URLs:\n" + "\n".join(failures)
 
 
@@ -134,5 +141,9 @@ def test_no_orphan_docs_pages():
     root_index = (DOCS_DIR / "index.md").resolve()
     orphans = sorted(
         str(p.relative_to(REPO_ROOT)) for p in pages if p.resolve() != root_index and p.resolve() not in linked
+    )
+    assert len(pages) > 20, (
+        f"Only {len(pages)} docs pages collected — DOCS_DIR or SKIPPED_DIR_NAMES may have drifted "
+        f"(docs directory moved, or skip logic now matches everything)"
     )
     assert not orphans, "Docs pages with no inbound link:\n" + "\n".join(orphans)
