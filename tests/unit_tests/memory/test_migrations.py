@@ -2,7 +2,7 @@ from importlib import import_module
 
 import pytest
 from memory.models import MemoryEntry, ObservationCategory, RepositoryMemory
-from memory.tasks import CATEGORY_SECTIONS, render_memory_document
+from memory.render import CATEGORY_SECTIONS, render_memory_document
 
 backfill_migration = import_module("memory.migrations.0004_backfill_entries_from_documents")
 

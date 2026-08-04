@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.db import migrations
 
 # Headers the model-written documents were prompted to emit, mapped to the category they became.
-# Must stay in sync with ``memory.tasks.CATEGORY_SECTIONS`` for a document to round-trip.
+# Must stay in sync with ``memory.render.CATEGORY_SECTIONS`` for a document to round-trip.
 LEGACY_SECTIONS = {
     "## Build & test": "build_test",
     "## Codebase facts": "codebase_fact",
