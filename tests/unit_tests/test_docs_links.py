@@ -109,3 +109,30 @@ def test_absolute_docs_urls_resolve():
             if fragment and fragment not in anchors_of(target):
                 failures.append(f"{rel}: anchor '#{fragment}' missing from {target.relative_to(REPO_ROOT)}")
     assert not failures, "Broken documentation URLs:\n" + "\n".join(failures)
+
+
+def test_no_orphan_docs_pages():
+    """Every docs page needs at least one inbound link.
+
+    Only the site root is exempt. Section index pages such as
+    integrations/rt/index.md are not — they are exactly the kind of page
+    that goes orphaned.
+    """
+    pages = [p for p in DOCS_DIR.rglob("*.md") if not is_skipped(p)]
+    linked: set[Path] = set()
+    for page in pages:
+        for match in MD_LINK_RE.finditer(page.read_text(encoding="utf-8")):
+            target = match.group("target").split("#")[0]
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            if not target.endswith(".md"):
+                continue
+            resolved = (page.parent / target).resolve()
+            if resolved != page.resolve():
+                linked.add(resolved)
+
+    root_index = (DOCS_DIR / "index.md").resolve()
+    orphans = sorted(
+        str(p.relative_to(REPO_ROOT)) for p in pages if p.resolve() != root_index and p.resolve() not in linked
+    )
+    assert not orphans, "Docs pages with no inbound link:\n" + "\n".join(orphans)
