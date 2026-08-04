@@ -28,9 +28,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.memory")
 
-# A validated operation paired with the deduplicated targets the apply phase must use.
-type AcceptedOperation = tuple[MemoryOperation, list[str], list[MemoryObservation]]
-
 
 def _build_structured_llm(schema: type, model_names: Sequence[str]):
     """Structured-output chain with retry + model fallbacks (same pattern as titling).
@@ -62,8 +59,6 @@ class RoundOutcome:
 
 def _validate_operation(
     operation: MemoryOperation,
-    observations: list[str],
-    entries: list[str],
     *,
     entries_by_id: dict[str, MemoryEntry],
     round_observation_ids: set[str],
@@ -72,58 +67,25 @@ def _validate_operation(
 ) -> str | None:
     """Return why this operation cannot be applied, or ``None`` when it can.
 
-    ``observations`` and ``entries`` are the operation's ids already deduplicated by the caller,
-    so validation and apply reason about exactly the same targets. Semantic checks the flat schema
-    deliberately does not make: reference validity, per-op shape, and the same-category fence on MERGE.
+    Self-consistency is ``MemoryOperation.shape_error``; this adds the checks that need the
+    round's snapshot: reference validity and the same-category fence on MERGE.
     """
-    if not observations:
-        return "references no observation"
-    if unknown := [oid for oid in observations if oid not in round_observation_ids]:
+    if reason := operation.shape_error():
+        return reason
+    if unknown := [oid for oid in operation.observation_ids if oid not in round_observation_ids]:
         return f"references observations outside this round: {unknown}"
-    if taken := [oid for oid in observations if oid in claimed]:
+    if taken := [oid for oid in operation.observation_ids if oid in claimed]:
         return f"references observations already claimed by an earlier operation: {taken}"
-
-    if unknown := [eid for eid in entries if eid not in entries_by_id]:
+    if unknown := [eid for eid in operation.entry_ids if eid not in entries_by_id]:
         return f"references unknown or superseded entries: {unknown}"
     # ``entries_by_id`` is the pre-round snapshot, so a second operation would reason about
     # content the first already replaced (and for UPDATE/MERGE would orphan a successor link).
-    if retargeted := [eid for eid in entries if eid in claimed_entries]:
+    if retargeted := [eid for eid in operation.entry_ids if eid in claimed_entries]:
         return f"targets entries an earlier operation already changed: {retargeted}"
-
-    content = (operation.content or "").strip()
-    match operation.op:
-        case "ADD":
-            if entries:
-                return "ADD must not target existing entries"
-            if not content:
-                return "ADD without content"
-            # Pydantic's literal already rejected any non-empty value outside the choices.
-            if operation.category is None:
-                return "ADD without a category"
-        case "UPDATE":
-            if len(entries) != 1:
-                return f"UPDATE must target exactly one entry, got {len(entries)}"
-            if not content:
-                return "UPDATE without content"
-        case "MERGE":
-            if len(entries) < 2:
-                return f"MERGE must target at least two entries, got {len(entries)}"
-            if not content:
-                return "MERGE without content"
-            if len(categories := {entries_by_id[eid].category for eid in entries}) > 1:
-                return f"MERGE crosses categories: {sorted(categories)}"
-        case "CONFIRM":
-            if len(entries) != 1:
-                return f"CONFIRM must target exactly one entry, got {len(entries)}"
-        case "DISCARD":
-            if entries:
-                return "DISCARD must not target existing entries"
-            if not (operation.reason or "").strip():
-                return "DISCARD without a reason"
-        case unhandled:
-            # Unreachable while every literal has an arm; keeps a newly added op from being
-            # waved through unvalidated and then silently no-oping in the apply match.
-            return f"unhandled operation {unhandled}"
+    if operation.op == "MERGE":
+        categories = {entries_by_id[eid].category for eid in operation.entry_ids}
+        if len(categories) > 1:
+            return f"MERGE crosses categories: {sorted(categories)}"
     return None
 
 
@@ -144,25 +106,19 @@ def _accept_operations(
     operations: Sequence[MemoryOperation],
     entries_by_id: dict[str, MemoryEntry],
     observations_by_id: dict[str, MemoryObservation],
-) -> tuple[list[AcceptedOperation], set[str], int]:
+) -> tuple[list[MemoryOperation], set[str], int]:
     """Partition a round's operations into the applicable ones and a rejected count.
 
-    Ids are deduplicated once, here, and carried into the apply phase so both reason about the
-    same targets. Returns the accepted operations, the observation ids they claim, and how many
-    operations were rejected.
+    Returns the accepted operations, the observation ids they claim, and how many were rejected.
     """
     claimed: set[str] = set()
     claimed_entries: set[str] = set()
-    accepted: list[AcceptedOperation] = []
+    accepted: list[MemoryOperation] = []
     rejected = 0
 
     for operation in operations:
-        observation_ids = list(dict.fromkeys(operation.observation_ids))
-        entry_ids = list(dict.fromkeys(operation.entry_ids))
         if reason := _validate_operation(
             operation,
-            observation_ids,
-            entry_ids,
             entries_by_id=entries_by_id,
             round_observation_ids=set(observations_by_id),
             claimed=claimed,
@@ -178,15 +134,19 @@ def _accept_operations(
             )
             rejected += 1
             continue
-        claimed.update(observation_ids)
-        claimed_entries.update(entry_ids)
-        accepted.append((operation, entry_ids, [observations_by_id[oid] for oid in observation_ids]))
+        claimed.update(operation.observation_ids)
+        claimed_entries.update(operation.entry_ids)
+        accepted.append(operation)
 
     return accepted, claimed, rejected
 
 
 def _write_operations(
-    repo_id: str, accepted: Sequence[AcceptedOperation], entries_by_id: dict[str, MemoryEntry], now: datetime
+    repo_id: str,
+    accepted: Sequence[MemoryOperation],
+    entries_by_id: dict[str, MemoryEntry],
+    observations_by_id: dict[str, MemoryObservation],
+    now: datetime,
 ) -> tuple[list, list, list[MemoryEntry]]:
     """Perform each accepted operation's entry writes.
 
@@ -197,7 +157,9 @@ def _write_operations(
     discarded_ids: list = []
     created: list[MemoryEntry] = []
 
-    for operation, entry_ids, sources in accepted:
+    for operation in accepted:
+        entry_ids = operation.entry_ids
+        sources = [observations_by_id[oid] for oid in operation.observation_ids]
         match operation.op:
             case "ADD":
                 created.append(_create_entry(repo_id, cast("str", operation.category), operation, sources, now))
@@ -274,7 +236,9 @@ def _apply_round(
     now = timezone.now()
 
     with transaction.atomic():
-        consolidated_ids, discarded_ids, created = _write_operations(repo_id, accepted, entries_by_id, now)
+        consolidated_ids, discarded_ids, created = _write_operations(
+            repo_id, accepted, entries_by_id, observations_by_id, now
+        )
 
         if consolidated_ids:
             MemoryObservation.objects.filter(pk__in=consolidated_ids).update(status=ObservationStatus.CONSOLIDATED)

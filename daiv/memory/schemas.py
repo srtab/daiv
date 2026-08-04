@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Static mirror of ``memory.models.ObservationCategory.values`` — declared explicitly (not derived) so
 # pydantic and ty see the allowed values directly. Kept in sync with the model by
@@ -90,6 +90,58 @@ class MemoryOperation(BaseModel):
             "operation that drops a learning must say why — and ignored elsewhere."
         ),
     )
+
+    @field_validator("entry_ids", "observation_ids")
+    @classmethod
+    def _dedupe_ids(cls, ids: list[str]) -> list[str]:
+        """Order-preserving dedup so arity checks and the apply phase see the same targets.
+
+        A repeated id in a MERGE would otherwise satisfy "two or more" and supersede one entry twice.
+        """
+        return list(dict.fromkeys(ids))
+
+    def shape_error(self) -> str | None:
+        """Why this operation is internally inconsistent, or ``None`` when it is well-formed.
+
+        Self-consistency only: reference validity and the MERGE same-category fence need the
+        round's entry snapshot and live in :class:`memory.consolidation.ConsolidationRound`.
+        """
+        if not self.observation_ids:
+            return "references no observation"
+
+        content = (self.content or "").strip()
+        match self.op:
+            case "ADD":
+                if self.entry_ids:
+                    return "ADD must not target existing entries"
+                if not content:
+                    return "ADD without content"
+                # Pydantic's literal already rejected any non-empty value outside the choices.
+                if self.category is None:
+                    return "ADD without a category"
+            case "UPDATE":
+                if len(self.entry_ids) != 1:
+                    return f"UPDATE must target exactly one entry, got {len(self.entry_ids)}"
+                if not content:
+                    return "UPDATE without content"
+            case "MERGE":
+                if len(self.entry_ids) < 2:
+                    return f"MERGE must target at least two entries, got {len(self.entry_ids)}"
+                if not content:
+                    return "MERGE without content"
+            case "CONFIRM":
+                if len(self.entry_ids) != 1:
+                    return f"CONFIRM must target exactly one entry, got {len(self.entry_ids)}"
+            case "DISCARD":
+                if self.entry_ids:
+                    return "DISCARD must not target existing entries"
+                if not (self.reason or "").strip():
+                    return "DISCARD without a reason"
+            case unhandled:
+                # Unreachable while every literal has an arm; keeps a newly added op from being
+                # waved through unvalidated and then silently no-oping in the apply match.
+                return f"unhandled operation {unhandled}"
+        return None
 
 
 class MemoryOperations(BaseModel):
