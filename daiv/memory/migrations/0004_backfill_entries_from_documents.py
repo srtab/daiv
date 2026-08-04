@@ -59,6 +59,6 @@ def backfill(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("memory", "0003_memoryentry")]
+    dependencies = [("memory", "0003_memoryentry_and_last_attempted_at")]
 
     operations = [migrations.RunPython(backfill, migrations.RunPython.noop, elidable=True)]
