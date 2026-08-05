@@ -25,9 +25,8 @@ from memory.tasks import consolidate_memory_task
 
 MEMORY_LIST_PAGE_SIZE = 25
 
-# Value -> (label, predicate over a repo row dict). Also the source of the status pill
-# choices, so the filter set and the UI can't drift. Left un-annotated so the lambda
-# stays inferred as callable (an explicit `object` value type would make ty reject the call).
+# Single source for the status filter predicates AND the pill choices, so they can't drift.
+# Un-annotated on purpose: an explicit `object` value type makes ty reject the lambda call.
 _STATUS_FILTERS = {
     "document": (_("Document"), lambda row: row["has_document"]),
     "no_document": (_("No document"), lambda row: not row["has_document"]),
@@ -83,7 +82,6 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
 
         page_obj = Paginator(repos, MEMORY_LIST_PAGE_SIZE).get_page(self.request.GET.get("page"))
 
-        ctx["repos"] = repos
         ctx["page_obj"] = page_obj
         ctx["paginator"] = page_obj.paginator
         ctx["is_paginated"] = page_obj.has_other_pages()

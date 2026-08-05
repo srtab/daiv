@@ -46,7 +46,7 @@ def test_list_unions_repos_from_both_tables(client, member_user):
 
     client.force_login(member_user)
     resp = client.get(reverse("memory:list"))
-    repos = {r["repo_id"]: r for r in resp.context["repos"]}
+    repos = {r["repo_id"]: r for r in resp.context["page_obj"]}
 
     assert set(repos) == {"group/only-doc", "group/only-obs"}
     assert list(repos) == sorted(repos)  # ordered by repo_id
@@ -62,7 +62,7 @@ def test_list_empty_state(client, member_user):
     client.force_login(member_user)
     resp = client.get(reverse("memory:list"))
     assert resp.status_code == 200
-    assert resp.context["repos"] == []
+    assert list(resp.context["page_obj"]) == []
     assert b"No repository memory yet" in resp.content
 
 
@@ -284,7 +284,7 @@ def test_list_filters_repos_to_viewable(client, member_user):
     with patch("memory.views.viewable_repo_ids", new=MagicMock(side_effect=lambda user, ids: {"ok/repo"})):
         resp = client.get(reverse("memory:list"))
 
-    repo_ids = [row["repo_id"] for row in resp.context["repos"]]
+    repo_ids = [row["repo_id"] for row in resp.context["page_obj"]]
     assert repo_ids == ["ok/repo"]
 
 
@@ -306,6 +306,27 @@ def test_list_search_filters_by_repo_id(client, member_user):
     client.force_login(member_user)
     resp = client.get(reverse("memory:list"), {"q": "alph"})
     assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/alpha"]
+
+
+@pytest.mark.django_db
+def test_list_whitespace_search_is_ignored(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/alpha", content="# Memory\nx")
+    RepositoryMemory.objects.create(repo_id="group/beta", content="# Memory\nx")
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"q": "   "})
+    assert {r["repo_id"] for r in resp.context["page_obj"]} == {"group/alpha", "group/beta"}
+    assert resp.context["search_query"] == ""
+    assert resp.context["has_active_filters"] is False
+
+
+@pytest.mark.django_db
+def test_list_no_search_matches_shows_filtered_empty_state(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/alpha", content="# Memory\nx")
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"q": "nomatchxyz"})
+    assert list(resp.context["page_obj"]) == []
+    assert resp.context["has_active_filters"] is True
+    assert b"No repositories match your search" in resp.content
 
 
 @pytest.mark.django_db

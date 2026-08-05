@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load i18n icon_tags static %}
+{% load dashboard_tags i18n icon_tags static %}
 
 {% block title %}{% translate "Memory" %} — DAIV{% endblock %}
 
@@ -31,16 +31,15 @@
         {% icon "magnifying-glass" "h-4 w-4" %}
       </span>
       <input type="text" class="filter-search" x-model="q"
-             value="{{ search_query }}"
              placeholder="{% translate 'Search by repository' %}"
              @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
     <div class="filter-seg">
-      <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}"
+      <a href="?{% querystring_without 'status' 'page' %}"
          class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
          @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
       {% for value, label in statuses %}
-      <a href="?{% if search_query %}q={{ search_query|urlencode }}&{% endif %}status={{ value }}"
+      <a href="?{% querystring_without 'status' 'page' %}status={{ value }}"
          class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
          @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">{{ label }}</a>
       {% endfor %}
