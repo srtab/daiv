@@ -24,9 +24,9 @@ logger = logging.getLogger("daiv.tools")
 def _model_name(model: object) -> str:
     """Best-effort model-name string from a BaseChatModel instance.
 
-    ChatAnthropic stores it on ``.model`` (alias ``model_name``); ChatOpenAI/ChatOpenRouter on
-    ``.model_name``. A non-str (e.g. a test MagicMock attribute) yields "" so the caller treats it
-    as non-frozen instead of crashing on ``.startswith``.
+    ChatAnthropic exposes it on ``.model``; ChatOpenAI/ChatOpenRouter on ``.model_name``. A non-str
+    (e.g. a test MagicMock attribute) yields "" so the caller treats it as non-frozen instead of
+    crashing on ``.startswith``.
     """
     name = getattr(model, "model_name", None) or getattr(model, "model", None)
     return name if isinstance(name, str) else ""
