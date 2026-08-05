@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from langchain_core.tools import StructuredTool
@@ -9,17 +10,21 @@ def _make_tool(name: str, description: str) -> StructuredTool:
     return StructuredTool.from_function(func=lambda **kwargs: "ok", name=name, description=description)
 
 
-def _request(*, system_prompt: str = "", tools: list | None = None, state: dict | None = None) -> MagicMock:
+def _request(
+    *, system_prompt: str = "", tools: list | None = None, state: dict | None = None, model: object | None = None
+) -> MagicMock:
     request = MagicMock()
     request.system_prompt = system_prompt
     request.tools = list(tools or [])
     request.state = state or {}
+    request.model = model  # None → _model_name() == "" → non-frozen (today's behaviour)
 
     def _override(**kwargs) -> MagicMock:
         new = MagicMock()
         new.system_prompt = kwargs.get("system_prompt", request.system_prompt)
         new.tools = kwargs.get("tools", request.tools)
         new.state = request.state
+        new.model = request.model
         new.override = _override
         return new
 
@@ -355,3 +360,110 @@ class TestDeferredToolsMiddlewareCorrectiveMessages:
 
         assert "removed_tool" in caplog.text
         assert "github_create_issue" not in [t.name for t in captured["tools"]]
+
+
+class TestDeferredToolsMiddlewareFrozenBinding:
+    @staticmethod
+    def _frozen_model():
+        # ChatAnthropic exposes the name on ``.model`` — native Anthropic name matches the
+        # "claude-" prefix in the default allowlist.
+        return SimpleNamespace(model="claude-sonnet-5")
+
+    @staticmethod
+    def _non_frozen_model():
+        # ChatOpenAI/ChatOpenRouter expose the name on ``.model_name``; GLM is not allowlisted.
+        return SimpleNamespace(model_name="z-ai/glm-5.2")
+
+    async def test_frozen_array_identical_regardless_of_loaded_state(self, monkeypatch):
+        # THE core invariant: for an allowlisted model the bound tools array is a pure function of
+        # always_loaded + extra_tools — byte-identical whether loaded_tool_names is empty or full.
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        a = _make_tool("a_tool", "A")
+        b = _make_tool("b_tool", "B")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a, b])
+
+        captured: list[list[str]] = []
+
+        async def handler(req):
+            captured.append([t.name for t in req.tools])
+            return MagicMock()
+
+        model = self._frozen_model()
+        await middleware.awrap_model_call(_request(state={}, model=model), handler)
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"a_tool", "b_tool"}}, model=model), handler
+        )
+
+        assert captured[0] == captured[1]
+        assert captured[0] == ["tool_search"]  # loaded tools are delivered via content, never bound
+
+    async def test_non_allowlisted_model_retains_array_append(self, monkeypatch):
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        a = _make_tool("a_tool", "A")
+        b = _make_tool("b_tool", "B")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a, b])
+
+        captured: list[list[str]] = []
+
+        async def handler(req):
+            captured.append([t.name for t in req.tools])
+            return MagicMock()
+
+        model = self._non_frozen_model()
+        await middleware.awrap_model_call(_request(state={"loaded_tool_names": {"b_tool"}}, model=model), handler)
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"a_tool", "b_tool"}}, model=model), handler
+        )
+
+        deferred_only = [[n for n in step if n != "tool_search"] for step in captured]
+        assert deferred_only == [["b_tool"], ["a_tool", "b_tool"]]  # index order, appended as today
+
+    async def test_frozen_post_eviction_array_stays_frozen(self, monkeypatch):
+        # Migration / post-summarization shape: loaded_tool_names is populated but no schema is in
+        # the (mocked-away) message history. The frozen array must NOT re-bind the tool — recovery
+        # is the model re-calling tool_search (idempotent re-delivery, Task 1), not array membership.
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        github = _make_tool("github_create_issue", "Create issue")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
+
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = [t.name for t in req.tools]
+            return MagicMock()
+
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"github_create_issue"}}, model=self._frozen_model()), handler
+        )
+
+        assert "github_create_issue" not in captured["tools"]
+        assert captured["tools"] == ["tool_search"]
+
+    async def test_frozen_model_still_gets_corrective_for_unloaded_tool(self, monkeypatch):
+        from langchain.agents.middleware.types import ModelResponse
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        github = _make_tool("github_create_issue", "Create issue")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
+
+        ai_message = AIMessage(
+            content="", tool_calls=[{"name": "github_create_issue", "id": "call_z", "args": {}, "type": "tool_call"}]
+        )
+
+        async def handler(req):
+            return ModelResponse(result=[ai_message])
+
+        result = await middleware.awrap_model_call(_request(state={}, model=self._frozen_model()), handler)
+
+        tool_messages = [m for m in result.result if isinstance(m, ToolMessage)]
+        assert len(tool_messages) == 1
+        assert "tool_search" in tool_messages[0].content

@@ -77,12 +77,11 @@ def _general_purpose_system_prompt(working_directory: str) -> str:
 """  # noqa: E501
 
 
-# Tools kept eagerly bound on a subagent's model; web search/fetch, git-platform, and the MCP toolset
-# are all deferred behind tool_search — the same policy as the main agent. This mirrors
-# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool stays
-# loaded for the rest of the subagent's session once loaded, so a delegate that needs web/git pays at
-# most one tool_search. DAIV-owned tool names reference their canonical constant; deepagents-provided
-# names (filesystem, write_todos) stay as literals.
+# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool
+# stays loaded for the rest of the subagent's session once loaded; a delegate discovers needs
+# incrementally, so expect several tool_search calls across a session. DAIV-owned tool names
+# reference their canonical constant; deepagents-provided names (filesystem, write_todos) stay as
+# literals.
 SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
     "ls",
     "read_file",
