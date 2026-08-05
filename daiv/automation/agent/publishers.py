@@ -309,13 +309,9 @@ class GitChangePublisher(ChangePublisher):
             The merge request.
         """
         assignee_id = None
-
-        if self.ctx.issue and self.ctx.issue.assignee:
-            assignee_id = (
-                self.ctx.issue.assignee.id
-                if self.ctx.git_platform == GitPlatform.GITLAB
-                else self.ctx.issue.assignee.username
-            )
+        if self.ctx.issue:
+            assignee = self.ctx.issue.assignee or self.ctx.issue.author
+            assignee_id = assignee.id if self.ctx.git_platform == GitPlatform.GITLAB else assignee.username
 
         target_branch = (
             fallback_from_mr.target_branch

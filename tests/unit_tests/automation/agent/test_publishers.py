@@ -7,7 +7,7 @@ import pytest
 
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
-from codebase.base import GitPlatform, MergeRequest, User
+from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
@@ -232,6 +232,47 @@ class TestCreateMergeRequestDescription:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
+
+class TestCreateMergeRequestAssignee:
+    """_create_merge_request assigns the MR to the issue assignee, falling back to the author."""
+
+    def _issue(self, *, assignee, author):
+        return Issue(iid=5, title="t", description="d", assignee=assignee, author=author)
+
+    async def test_uses_issue_assignee_when_present_gitlab(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = self._issue(
+            assignee=User(id=7, username="assignee"), author=User(id=9, username="author")
+        )
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 7
+
+    async def test_falls_back_to_author_when_unassigned_gitlab(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 9
+
+    async def test_falls_back_to_author_username_on_github(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
+        publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == "author"
+
+    async def test_no_assignee_when_no_issue(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = None
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
 
 
 class TestBuildIssueCreationUrl:
