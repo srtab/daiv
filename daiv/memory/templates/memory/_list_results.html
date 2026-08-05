@@ -1,0 +1,37 @@
+{% load humanize i18n %}
+{% if page_obj.object_list %}
+<ul class="divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
+  {% for repo in page_obj %}
+  <li class="flex items-center justify-between gap-4 px-4 py-3">
+    <div class="min-w-0">
+      <a href="{% url 'memory:detail' repo.repo_id %}" class="block truncate font-mono text-sm text-gray-200 hover:text-white">{{ repo.repo_id }}</a>
+      <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        {% if repo.has_document %}
+        <span class="status-badge status-badge-success">{% translate "Document" %}</span>
+        {% else %}
+        <span class="status-badge status-badge-pending">{% translate "No document" %}</span>
+        {% endif %}
+        {% if repo.last_consolidated_at %}
+        <span>{% translate "Consolidated" %} {{ repo.last_consolidated_at|naturaltime }}</span>
+        {% else %}
+        <span>{% translate "Never consolidated" %}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="flex shrink-0 items-center gap-2 text-xs">
+      <span class="status-badge status-badge-pending">{% blocktranslate with n=repo.pending %}{{ n }} pending{% endblocktranslate %}</span>
+      <span class="text-gray-500">{% blocktranslate count n=repo.total %}{{ n }} observation{% plural %}{{ n }} observations{% endblocktranslate %}</span>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% include "accounts/_pagination.html" with paginate_swap=True %}
+{% elif has_active_filters %}
+<div class="rounded-2xl border border-white/[0.06] px-4 py-12 text-center text-sm text-gray-500">
+  {% translate "No repositories match your search." %}
+</div>
+{% else %}
+<div class="rounded-2xl border border-white/[0.06] px-4 py-12 text-center text-sm text-gray-500">
+  {% translate "No repository memory yet. Memory is captured automatically as agent runs finish." %}
+</div>
+{% endif %}
