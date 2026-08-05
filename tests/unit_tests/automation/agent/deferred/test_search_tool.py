@@ -142,3 +142,58 @@ class TestToolSearch:
         assert isinstance(result, Command)
         assert "loaded_tool_names" not in result.update
         assert "42" in result.update["messages"][0].content
+
+
+class TestToolSearchSchemaDelivery:
+    def _index_with_typed_tool(self):
+        from pydantic import BaseModel, Field
+
+        class _Args(BaseModel):
+            ticket: str = Field(description="Ticket identifier.")
+            max_notes: int = Field(default=5, description="Max correspondence notes.")
+
+        def _run(ticket: str, max_notes: int = 5) -> str:
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            func=_run, name="rt_fetch_ticket_digest", description="Fetch a ticket digest.", args_schema=_Args
+        )
+        return DeferredToolsIndex([tool])
+
+    async def test_result_embeds_full_schema_in_functions_block(self):
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": _runtime()})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" in content and "</functions>" in content
+        assert "rt_fetch_ticket_digest" in content
+        # The schema's real parameter names ride in the result — this is what a frozen-array model reads.
+        assert "max_notes" in content
+        assert "ticket" in content
+
+    async def test_reselecting_loaded_name_resends_schema(self):
+        # Idempotent re-delivery: a summarization-evicted (or migration-inherited) schema is
+        # recoverable by re-searching. No short-circuit on already-loaded names.
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+        runtime = _runtime({"loaded_tool_names": {"rt_fetch_ticket_digest"}})
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": runtime})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" in content
+        assert "max_notes" in content
+        assert result.update["loaded_tool_names"] == {"rt_fetch_ticket_digest"}
+
+    async def test_valve_off_returns_summaries_only(self, monkeypatch):
+        from automation.agent.deferred import search_tool as search_tool_module
+
+        monkeypatch.setattr(search_tool_module.deferred_settings, "EMBED_SCHEMAS_IN_RESULTS", False)
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": _runtime()})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" not in content
+        assert "rt_fetch_ticket_digest" in content
+        assert "Fetch a ticket digest." in content

@@ -6,9 +6,11 @@ from typing import TYPE_CHECKING, Annotated
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.types import Command
 from pydantic import BeforeValidator
 
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.deferred.state import DeferredToolsState  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -16,7 +18,7 @@ if TYPE_CHECKING:
 
     from langchain_core.tools import BaseTool
 
-    from automation.agent.deferred.index import DeferredToolsIndex
+    from automation.agent.deferred.index import DeferredToolsIndex, ToolEntry
 
 logger = logging.getLogger("daiv.tools")
 
@@ -66,6 +68,33 @@ Examples (parameter values shown in JSON form):
   - query: "open pull request"                                # only when browsing by capability"""
 
 
+def _render_loaded(entries: list[ToolEntry]) -> str:
+    """Render the tool_search result body.
+
+    With schema embedding on (default), each loaded tool's full OpenAI-format schema rides in a
+    ``<functions>`` block so an allowlisted model can call it directly without the tool being in
+    its bound array. Re-selecting an already-loaded name re-sends its schema, so a
+    summarization-evicted schema stays recoverable. With the valve off, falls back to name/summary
+    lines only (pre-change behaviour).
+    """
+    if not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
+        body = "\n".join(f"- {entry.name}: {entry.summary}" for entry in entries)
+        return f"Loaded {len(entries)} tool(s):\n{body}"
+
+    functions: list[str] = []
+    for entry in entries:
+        try:
+            schema = convert_to_openai_tool(entry.tool)
+        except Exception:
+            logger.debug("tool_search: no JSON schema for %s; embedding summary only", entry.name)
+            functions.append(f"<function-summary>{entry.name}: {entry.summary}</function-summary>")
+            continue
+        functions.append(f"<function>{json.dumps(schema, separators=(',', ':'))}</function>")
+    body = "\n".join(functions)
+    header = f"Loaded {len(entries)} tool(s). Their full schemas follow — call them directly by name."
+    return f"{header}\n\n<functions>\n{body}\n</functions>"
+
+
 def make_tool_search(get_index: Callable[[], DeferredToolsIndex], *, top_k_default: int, top_k_max: int) -> BaseTool:
     async def tool_search(
         runtime: ToolRuntime[object, DeferredToolsState],
@@ -104,8 +133,7 @@ def make_tool_search(get_index: Callable[[], DeferredToolsIndex], *, top_k_defau
         existing = runtime.state.get("loaded_tool_names") or set()
         new_loaded = existing | {entry.name for entry in entries}
 
-        summary = "\n".join(f"- {entry.name}: {entry.summary}" for entry in entries)
-        content = f"Loaded {len(entries)} tool(s):\n{summary}"
+        content = _render_loaded(entries)
         if missing:
             content += f"\n\nIgnored unknown names: {', '.join(missing)}"
         return Command(
