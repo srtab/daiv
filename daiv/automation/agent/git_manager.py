@@ -359,7 +359,9 @@ class GitManager:
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
 
-    async def push_head_to(self, branch: str, *, force: bool = False, integrate_on_reject: bool = False) -> str:
+    async def push_head_to(
+        self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False
+    ) -> str:
         """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
 
         When ``integrate_on_reject`` is set and a *non-fast-forward* rejection comes back — the
@@ -375,8 +377,16 @@ class GitManager:
         retry. Raises ``GitPushPermissionError`` on an auth/permission failure, ``GitPushNetworkError``
         when the remote host is unreachable (e.g. a network-disabled sandbox), and ``GitCommandError``
         on any other push failure. Returns ``branch``.
+
+        skip_ci: pass ``-o ci.skip`` so the push creates no pipeline.
         """
-        push_args = ["push", "origin", f"HEAD:{branch}", *(["--force"] if force else [])]
+        push_args = [
+            "push",
+            *(["-o", "ci.skip"] if skip_ci else []),
+            "origin",
+            f"HEAD:{branch}",
+            *(["--force"] if force else []),
+        ]
         push = await self._git(*push_args, check=False)
         if push.exit_code == 0:
             return branch

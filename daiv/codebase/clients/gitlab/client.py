@@ -28,6 +28,7 @@ from codebase.base import (
     NotePosition,
     NotePositionLineRange,
     NoteType,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -557,6 +558,11 @@ class GitLabClient(RepoClient):
         :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
         return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints
+        # another ephemeral token, so this boolean stays stable even when the value differs.
+        return get_ephemeral_clone_token(self.client, repository.pk) is not None
+
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
@@ -918,6 +924,20 @@ class GitLabClient(RepoClient):
             to_return = merge_request.notes.create({"body": body}).id
 
         return to_return
+
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+        """Create an MR pipeline (``POST .../merge_requests/:iid/pipelines``). Runs as the PAT user
+        (the DAIV service account), so cross-project CI includes resolve with its permissions."""
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        pipeline = merge_request.pipelines.create()
+        return Pipeline(
+            id=pipeline.id,
+            iid=getattr(pipeline, "iid", None),
+            sha=pipeline.sha,
+            status=pipeline.status,
+            web_url=pipeline.web_url,
+        )
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

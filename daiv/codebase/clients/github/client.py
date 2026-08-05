@@ -515,7 +515,7 @@ class GitHubClient(RepoClient):
         if labels is not None and not any(label.name in labels for label in pr.labels):
             pr.add_to_labels(*labels)
 
-        if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
+        if assignee_id and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
         return MergeRequest(
@@ -620,7 +620,7 @@ class GitHubClient(RepoClient):
         if labels is not None and not any(label.name in labels for label in pr.labels):
             pr.add_to_labels(*labels)
 
-        if assignee_id is not None and not any(assignee.id == assignee_id for assignee in pr.assignees):
+        if assignee_id is not None and not any(assignee.login == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
         return MergeRequest(

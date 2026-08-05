@@ -904,3 +904,35 @@ async def test_get_diff_raises_on_ls_files_failure() -> None:
     gm, _ = _sandbox_manager({"ls-files": (128, "fatal: boom")})
     with pytest.raises(GitCommandError):
         await gm.get_diff()
+
+
+async def test_push_head_to_adds_ci_skip_push_option_when_skip_ci() -> None:
+    client = FakeSandboxClient()
+    gm = GitManager.for_sandbox(_backend_for(client))
+    await gm.push_head_to("b", skip_ci=True)
+    push_cmds = [c for c in client.commands if " push " in f" {c} "]
+    assert push_cmds and all("-o ci.skip" in c for c in push_cmds)
+
+
+async def test_push_head_to_omits_ci_skip_by_default() -> None:
+    client = FakeSandboxClient()
+    gm = GitManager.for_sandbox(_backend_for(client))
+    await gm.push_head_to("b")
+    assert not any("ci.skip" in c for c in client.commands)
+
+
+async def test_push_head_to_skip_ci_survives_the_integrate_on_reject_retry() -> None:
+    # Heal path: an existing MR's ephemeral-token push is skip-ci'd and may hit a non-ff rejection.
+    # `-o ci.skip` must ride the rebase-retry push too, or the bot's doomed pipeline fires on the
+    # second attempt and silently defeats the heal.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    assert await gm.push_head_to("b", integrate_on_reject=True, skip_ci=True) == "b"
+
+    pushes = [c for c in _issued(client) if "origin HEAD:b" in c]
+    assert len(pushes) == 2  # first push + rebase-retry push
+    assert all("-o ci.skip" in c for c in pushes)

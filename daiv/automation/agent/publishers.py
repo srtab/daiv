@@ -150,10 +150,23 @@ class GitChangePublisher(ChangePublisher):
             else:
                 branch_name = merge_request.source_branch
 
+            # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
+            # private cross-project CI includes; skip that push's CI and re-trigger as the service
+            # account below. The client capability answers False for platforms without ephemeral
+            # tokens, so no platform check is needed here; an explicit skip_ci ("no CI at all") also
+            # leaves nothing to heal.
+            heal_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
+                self.ctx.repository
+            )
+
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
             # A fresh, unique branch can't, so leave integration off for new MRs.
-            await git_manager.push_head_to(branch_name, integrate_on_reject=merge_request is not None)
+            # skip_ci here suppresses only the ephemeral bot's doomed pipeline (not the caller's
+            # skip_ci intent); _trigger_service_account_pipeline recreates it below.
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=heal_pipeline
+            )
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
@@ -169,10 +182,18 @@ class GitChangePublisher(ChangePublisher):
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
                 # and discard the agent's reply, so report a partial publish (MR pending) and log loudly.
+                # On the heal path the push was skip-ci'd with no MR yet to trigger against, so name the
+                # suppressed pipeline in the log — the branch has no CI until the MR is created.
+                pipeline_note = (
+                    " The push skipped CI and no pipeline was triggered; CI will not run until the MR exists."
+                    if heal_pipeline
+                    else ""
+                )
                 logger.error(
                     "Pushed branch '%s' but GitLab did not make it visible for MR creation within the retry "
-                    "budget; reporting a partial publish (MR pending).",
+                    "budget; reporting a partial publish (MR pending).%s",
                     branch_name,
+                    pipeline_note,
                 )
                 return PublishOutcome(
                     merge_request=None,
@@ -196,6 +217,9 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
+
+        if heal_pipeline and merge_request is not None:
+            await self._trigger_service_account_pipeline(merge_request)
 
         return PublishOutcome(
             merge_request=merge_request,
@@ -242,6 +266,39 @@ class GitChangePublisher(ChangePublisher):
                 "turn-start token",
                 self.ctx.repository.slug,
             )
+
+    async def _trigger_service_account_pipeline(self, merge_request: MergeRequest) -> None:
+        """Create the MR's CI pipeline as the service account (which can read private cross-project
+        CI includes), used after a ``-o ci.skip`` push suppressed the ephemeral bot's pipeline.
+
+        Best-effort and never raises: this runs at turn-end publish, so a failure here must not sink
+        the whole publish. Because the push was skip-ci'd, a failed trigger leaves the MR with no
+        pipeline — surface that loudly (error log for Sentry) and visibly (an MR note), never
+        silently. A single attempt only: ``mr.pipelines.create()`` is a non-idempotent POST and
+        python-gitlab may already retry transient errors, so we add no retry multiplier of our own.
+        """
+        try:
+            pipeline = await sync_to_async(self.client.trigger_merge_request_pipeline)(
+                merge_request.repo_id, merge_request.merge_request_id
+            )
+            logger.info(
+                "Triggered CI pipeline %s for MR !%s as the service account",
+                pipeline.id,
+                merge_request.merge_request_id,
+            )
+        except Exception:
+            logger.exception(
+                "Could not trigger the CI pipeline for MR !%s as the service account; posting a note",
+                merge_request.merge_request_id,
+            )
+            try:
+                await sync_to_async(self.client.create_merge_request_comment)(
+                    merge_request.repo_id,
+                    merge_request.merge_request_id,
+                    "⚠️ DAIV could not start the CI pipeline automatically. Please run it manually.",
+                )
+            except Exception:
+                logger.exception("Could not post the pipeline-failure note on MR !%s", merge_request.merge_request_id)
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """
@@ -309,13 +366,9 @@ class GitChangePublisher(ChangePublisher):
             The merge request.
         """
         assignee_id = None
-
-        if self.ctx.issue and self.ctx.issue.assignee:
-            assignee_id = (
-                self.ctx.issue.assignee.id
-                if self.ctx.git_platform == GitPlatform.GITLAB
-                else self.ctx.issue.assignee.username
-            )
+        if self.ctx.issue:
+            assignee = self.ctx.issue.assignee or self.ctx.issue.author
+            assignee_id = assignee.id if self.ctx.git_platform == GitPlatform.GITLAB else assignee.username
 
         target_branch = (
             fallback_from_mr.target_branch
