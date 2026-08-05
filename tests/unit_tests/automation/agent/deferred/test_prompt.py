@@ -49,3 +49,18 @@ class TestBuildDeferredToolsBlock:
         index = DeferredToolsIndex(tools)
         block = build_deferred_tools_block(index)
         assert "tool_search" in block
+
+    def test_advertisement_is_mechanism_neutral(self):
+        index = DeferredToolsIndex([_make_tool("github_create_issue", "Create issue")])
+        block = build_deferred_tools_block(index)
+
+        # Mechanism-neutral: no array-membership phrasing that would mislead the frozen-array path.
+        assert "appears in your loaded tools" not in block
+        assert "loaded-tools view" not in block
+        assert "callable for the rest of the session" in block
+
+    def test_advertisement_has_self_heal_line(self):
+        index = DeferredToolsIndex([_make_tool("github_create_issue", "Create issue")])
+        block = build_deferred_tools_block(index)
+
+        assert "call `tool_search` again" in block
