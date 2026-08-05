@@ -75,7 +75,18 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     publisher = GitChangePublisher(ctx)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
+    publisher.client.push_uses_ephemeral_token.return_value = False
     return publisher
+
+
+def _metadata_stub():
+    commit = Mock()
+    commit.commit_message = "msg"
+    pr = Mock()
+    pr.branch = "feature"
+    pr.title = "Title"
+    pr.description = "Body"
+    return {"commit_message": commit, "pr_metadata": pr}
 
 
 def _make_sandbox_publisher(*, egress="default"):
@@ -449,7 +460,7 @@ class TestPublishSuggestsContextFile:
 
             gm.commit_all.assert_awaited_once()
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
             assert result == PublishOutcome(merge_request=mr, published=True)
 
@@ -478,7 +489,7 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=None)
 
         gm.commit_all.assert_awaited_once()
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
         mock_suggest.assert_not_called()
         assert result == PublishOutcome(merge_request=None, published=True)
         assert "MR pending" in caplog.text
@@ -535,7 +546,7 @@ class TestPublishSuggestsContextFile:
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
             # Fresh unique branch generated + pushed for the fallback MR (no remote work to integrate).
             gm.unique_branch_name.assert_called_once_with("feature-fix", [])
-            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False)
+            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False, skip_ci=False)
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
@@ -627,7 +638,7 @@ class TestPublishSuggestsContextFile:
 
             # Existing MR: push to its source branch, integrating remote work on a non-ff rejection
             # (the branch may have moved under the run, e.g. a concurrent push).
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True)
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
             mock_suggest.assert_not_called()
 
 
@@ -698,7 +709,7 @@ class TestPublishDecision:
 
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
-        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True)
+        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
         assert outcome == PublishOutcome(merge_request=mr, published=True)
 
     async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
@@ -747,3 +758,80 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
 
         await publisher._trigger_service_account_pipeline(_make_merge_request())  # must not raise
+
+
+class TestPublishPipelineHeal:
+    """GitLab ephemeral-token pushes skip the bot pipeline and trigger it as the service account."""
+
+    async def test_ephemeral_push_skips_ci_and_triggers_pipeline(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
+        trigger.assert_awaited_once_with(mr)
+
+    async def test_pat_push_does_not_skip_ci_or_trigger(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = False
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()
+
+    async def test_github_never_heals(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
+        publisher.client.push_uses_ephemeral_token.return_value = True  # must be ignored for GitHub
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()
+
+    async def test_skip_ci_flag_disables_heal(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish(skip_ci=True)
+
+        # explicit skip_ci means "no CI at all" — no bot pipeline, no service-account trigger
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()

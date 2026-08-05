@@ -103,6 +103,10 @@ class GitChangePublisher(ChangePublisher):
         else:
             await self._refresh_sandbox_egress()
 
+        heal_pipeline = False
+        if self.ctx.git_platform == GitPlatform.GITLAB and not skip_ci:
+            heal_pipeline = await sync_to_async(self.client.push_uses_ephemeral_token)(self.ctx.repository)
+
         async with open_git_manager(
             sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
@@ -153,7 +157,9 @@ class GitChangePublisher(ChangePublisher):
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
             # A fresh, unique branch can't, so leave integration off for new MRs.
-            await git_manager.push_head_to(branch_name, integrate_on_reject=merge_request is not None)
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=heal_pipeline
+            )
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
@@ -196,6 +202,9 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
+
+        if heal_pipeline and merge_request is not None:
+            await self._trigger_service_account_pipeline(merge_request)
 
         return PublishOutcome(
             merge_request=merge_request,
