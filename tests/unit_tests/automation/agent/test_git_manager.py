@@ -919,3 +919,20 @@ async def test_push_head_to_omits_ci_skip_by_default() -> None:
     gm = GitManager.for_sandbox(_backend_for(client))
     await gm.push_head_to("b")
     assert not any("ci.skip" in c for c in client.commands)
+
+
+async def test_push_head_to_skip_ci_survives_the_integrate_on_reject_retry() -> None:
+    # Heal path: an existing MR's ephemeral-token push is skip-ci'd and may hit a non-ff rejection.
+    # `-o ci.skip` must ride the rebase-retry push too, or the bot's doomed pipeline fires on the
+    # second attempt and silently defeats the heal.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    assert await gm.push_head_to("b", integrate_on_reject=True, skip_ci=True) == "b"
+
+    pushes = [c for c in _issued(client) if "origin HEAD:b" in c]
+    assert len(pushes) == 2  # first push + rebase-retry push
+    assert all("-o ci.skip" in c for c in pushes)

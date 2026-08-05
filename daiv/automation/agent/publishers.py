@@ -103,6 +103,8 @@ class GitChangePublisher(ChangePublisher):
         else:
             await self._refresh_sandbox_egress()
 
+        # A GitLab ephemeral-token push yields a pipeline that can't read private cross-project CI
+        # includes; skip that push's CI and re-trigger as the service account (skip_ci off ⇒ nothing to heal).
         heal_pipeline = False
         if self.ctx.git_platform == GitPlatform.GITLAB and not skip_ci:
             heal_pipeline = await sync_to_async(self.client.push_uses_ephemeral_token)(self.ctx.repository)
@@ -157,6 +159,8 @@ class GitChangePublisher(ChangePublisher):
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
             # A fresh, unique branch can't, so leave integration off for new MRs.
+            # skip_ci here suppresses only the ephemeral bot's doomed pipeline (not the caller's
+            # skip_ci intent); _trigger_service_account_pipeline recreates it below.
             await git_manager.push_head_to(
                 branch_name, integrate_on_reject=merge_request is not None, skip_ci=heal_pipeline
             )
@@ -175,10 +179,18 @@ class GitChangePublisher(ChangePublisher):
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
                 # and discard the agent's reply, so report a partial publish (MR pending) and log loudly.
+                # On the heal path the push was skip-ci'd with no MR yet to trigger against, so name the
+                # suppressed pipeline in the log — the branch has no CI until the MR is created.
+                pipeline_note = (
+                    " The push skipped CI and no pipeline was triggered; CI will not run until the MR exists."
+                    if heal_pipeline
+                    else ""
+                )
                 logger.error(
                     "Pushed branch '%s' but GitLab did not make it visible for MR creation within the retry "
-                    "budget; reporting a partial publish (MR pending).",
+                    "budget; reporting a partial publish (MR pending).%s",
                     branch_name,
+                    pipeline_note,
                 )
                 return PublishOutcome(
                     merge_request=None,
@@ -268,7 +280,7 @@ class GitChangePublisher(ChangePublisher):
             )
             logger.info(
                 "Triggered CI pipeline %s for MR !%s as the service account",
-                getattr(pipeline, "id", "?"),
+                pipeline.id,
                 merge_request.merge_request_id,
             )
         except Exception:

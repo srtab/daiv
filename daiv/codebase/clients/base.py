@@ -268,11 +268,12 @@ class RepoClient(abc.ABC):
         includes and must be re-triggered as the service account. Base default: ``False``."""
         return False
 
-    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
         """Create a CI pipeline for the merge request as the service account, so it runs with the
-        service account's permissions (e.g. reading private cross-project CI includes). Base default:
-        no-op returning ``None`` (platforms that don't need it)."""
-        return None
+        service account's permissions (e.g. reading private cross-project CI includes). GitLab-only
+        capability: the publish path calls this only when :meth:`push_uses_ephemeral_token` is true,
+        so reaching the base implementation means a mis-wired caller, not a supported no-op."""
+        raise NotImplementedError
 
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations

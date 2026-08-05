@@ -559,8 +559,8 @@ class GitLabClient(RepoClient):
         return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
 
     def push_uses_ephemeral_token(self, repository: Repository) -> bool:
-        # get_ephemeral_clone_token is day-cached, so this is the same value the push used — a cache
-        # hit, not a second mint.
+        # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints
+        # another ephemeral token, so this boolean stays stable even when the value differs.
         return get_ephemeral_clone_token(self.client, repository.pk) is not None
 
     # Issue
@@ -925,7 +925,7 @@ class GitLabClient(RepoClient):
 
         return to_return
 
-    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
         """Create an MR pipeline (``POST .../merge_requests/:iid/pipelines``). Runs as the PAT user
         (the DAIV service account), so cross-project CI includes resolve with its permissions."""
         project = self.client.projects.get(repo_id, lazy=True)
