@@ -103,12 +103,6 @@ class GitChangePublisher(ChangePublisher):
         else:
             await self._refresh_sandbox_egress()
 
-        # A GitLab ephemeral-token push yields a pipeline that can't read private cross-project CI
-        # includes; skip that push's CI and re-trigger as the service account (skip_ci off ⇒ nothing to heal).
-        heal_pipeline = False
-        if self.ctx.git_platform == GitPlatform.GITLAB and not skip_ci:
-            heal_pipeline = await sync_to_async(self.client.push_uses_ephemeral_token)(self.ctx.repository)
-
         async with open_git_manager(
             sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
@@ -155,6 +149,15 @@ class GitChangePublisher(ChangePublisher):
                 )
             else:
                 branch_name = merge_request.source_branch
+
+            # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
+            # private cross-project CI includes; skip that push's CI and re-trigger as the service
+            # account below. The client capability answers False for platforms without ephemeral
+            # tokens, so no platform check is needed here; an explicit skip_ci ("no CI at all") also
+            # leaves nothing to heal.
+            heal_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
+                self.ctx.repository
+            )
 
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.

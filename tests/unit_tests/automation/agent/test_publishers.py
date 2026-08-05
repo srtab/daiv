@@ -801,7 +801,9 @@ class TestPublishPipelineHeal:
 
     async def test_github_never_heals(self, monkeypatch):
         publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
-        publisher.client.push_uses_ephemeral_token.return_value = True  # must be ignored for GitHub
+        # GitHub's client reports no ephemeral token (base default), so the polymorphic heal never
+        # fires — the publisher special-cases no platform.
+        publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
         _patch_open_git_manager(monkeypatch, gm)
         mr = _make_merge_request()

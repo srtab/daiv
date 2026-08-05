@@ -500,6 +500,21 @@ class TestGitHubClient:
 
         mock_pr.add_to_assignees.assert_called_once_with("daiv")
 
+    def test_push_uses_ephemeral_token_is_false(self, github_client):
+        """GitHub pushes with a long-lived installation token, not a project-scoped ephemeral one, so
+        the publisher's cross-project-CI heal never fires. This is the guarantee the polymorphic
+        publish path relies on instead of a platform check."""
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+        assert github_client.push_uses_ephemeral_token(repository) is False
+
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()
         mock_repo.get_branch.return_value = Mock(protected=True)
