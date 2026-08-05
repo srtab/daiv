@@ -6,6 +6,7 @@ from git import GitCommandError
 from github import Consts
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
+from github.NamedUser import NamedUser
 from github.Repository import Repository as GhRepository
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
@@ -447,6 +448,57 @@ class TestGitHubClient:
 
         mock_repo.get_pull.return_value = _pr(merged)
         assert github_client.get_merge_request("owner/repo", 7).merged is merged
+
+    @staticmethod
+    def _create_path_pr(assignees):
+        """A mock PR on the create path, wired with the concrete attributes ``MergeRequest`` reads
+        plus real ``add_to_labels``/``add_to_assignees`` spies and the given ``assignees`` list."""
+        mock_pr = Mock()
+        mock_pr.number = 7
+        mock_pr.head = Mock(ref="feat-x", sha="abc123")
+        mock_pr.base = Mock(ref="main")
+        mock_pr.title = "feat: add x"
+        mock_pr.body = "details"
+        mock_pr.labels = []
+        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_pr.draft = False
+        user = Mock(id=1, login="alice")
+        user.name = "Alice"
+        mock_pr.user = user
+        mock_pr.assignees = assignees
+        return mock_pr
+
+    def test_update_or_create_merge_request_skips_assignee_when_already_assigned(self, github_client):
+        """The dedup guard matches usernames: ``assignee_id`` is a login on the GitHub path, so an
+        already-assigned author must not be re-added. Regression guard for the int-vs-str comparison
+        (``assignee.id == assignee_id``) that made this branch unreachable."""
+        requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
+        assignee = NamedUser(requester, {}, {"login": "daiv", "id": 123}, completed=True)
+        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_repo = Mock()
+        mock_repo.create_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.update_or_create_merge_request(
+            "owner/repo", "feat-x", "main", "feat: add x", "details", assignee_id="daiv"
+        )
+
+        mock_pr.add_to_assignees.assert_not_called()
+
+    def test_update_or_create_merge_request_adds_assignee_when_not_assigned(self, github_client):
+        """A login not already present is added exactly once."""
+        requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
+        assignee = NamedUser(requester, {}, {"login": "someone-else", "id": 123}, completed=True)
+        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_repo = Mock()
+        mock_repo.create_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.update_or_create_merge_request(
+            "owner/repo", "feat-x", "main", "feat: add x", "details", assignee_id="daiv"
+        )
+
+        mock_pr.add_to_assignees.assert_called_once_with("daiv")
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()
