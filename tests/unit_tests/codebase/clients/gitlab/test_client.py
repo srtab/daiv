@@ -1072,3 +1072,22 @@ class TestGitLabClient:
     def test_push_uses_ephemeral_token_false_when_pat_fallback(self, gitlab_client):
         with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
             assert gitlab_client.push_uses_ephemeral_token(self._repo()) is False
+
+    def test_trigger_merge_request_pipeline_creates_mr_pipeline(self, gitlab_client):
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_pipeline = Mock(
+            id=987, iid=3, sha="deadbeef", status="pending", web_url="https://gitlab.com/group/repo/-/pipelines/987"
+        )
+        gitlab_client.client.projects.get.return_value = mock_project
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_mr.pipelines.create.return_value = mock_pipeline
+
+        pipeline = gitlab_client.trigger_merge_request_pipeline("group/repo", 42)
+
+        gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
+        mock_project.mergerequests.get.assert_called_once_with(42, lazy=True)
+        mock_mr.pipelines.create.assert_called_once_with()
+        assert pipeline.id == 987
+        assert pipeline.status == "pending"
+        assert pipeline.web_url.endswith("/pipelines/987")

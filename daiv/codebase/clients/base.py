@@ -20,6 +20,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -266,6 +267,12 @@ class RepoClient(abc.ABC):
         user cannot read other projects — so the resulting pipeline cannot resolve cross-project CI
         includes and must be re-triggered as the service account. Base default: ``False``."""
         return False
+
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline | None:
+        """Create a CI pipeline for the merge request as the service account, so it runs with the
+        service account's permissions (e.g. reading private cross-project CI includes). Base default:
+        no-op returning ``None`` (platforms that don't need it)."""
+        return None
 
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
