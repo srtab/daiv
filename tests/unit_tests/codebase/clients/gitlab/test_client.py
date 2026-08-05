@@ -1053,3 +1053,22 @@ class TestGitLabClient:
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.host == "gitlab.example.com"
         assert cred.value is None
+
+    def _repo(self):
+        return Repository(
+            pk=7,
+            slug="group/repo",
+            name="repo",
+            clone_url="https://gitlab.com/group/repo.git",
+            html_url="https://gitlab.com/group/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+
+    def test_push_uses_ephemeral_token_true_when_ephemeral_minted(self, gitlab_client):
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            assert gitlab_client.push_uses_ephemeral_token(self._repo()) is True
+
+    def test_push_uses_ephemeral_token_false_when_pat_fallback(self, gitlab_client):
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            assert gitlab_client.push_uses_ephemeral_token(self._repo()) is False

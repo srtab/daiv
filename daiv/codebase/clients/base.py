@@ -261,6 +261,12 @@ class RepoClient(abc.ABC):
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        """True when the git push authenticates with a short-lived, project-scoped token whose bot
+        user cannot read other projects — so the resulting pipeline cannot resolve cross-project CI
+        includes and must be re-triggered as the service account. Base default: ``False``."""
+        return False
+
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential

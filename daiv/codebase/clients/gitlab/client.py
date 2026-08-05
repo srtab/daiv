@@ -557,6 +557,11 @@ class GitLabClient(RepoClient):
         :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
         return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        # get_ephemeral_clone_token is day-cached, so this is the same value the push used — a cache
+        # hit, not a second mint.
+        return get_ephemeral_clone_token(self.client, repository.pk) is not None
+
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
