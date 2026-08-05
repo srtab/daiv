@@ -21,12 +21,48 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 
+def _model_name(model: object) -> str:
+    """Best-effort model-name string from a BaseChatModel instance.
+
+    ChatAnthropic exposes it on ``.model``; ChatOpenAI/ChatOpenRouter on ``.model_name``. A non-str
+    (e.g. a test MagicMock attribute) yields "" so the caller treats it as non-frozen instead of
+    crashing on ``.startswith``. A real (non-None) model reaching that fallback is a
+    misconfiguration or an upstream shape change that silently forfeits the cache benefit, so it is
+    logged rather than swallowed.
+    """
+    name = getattr(model, "model_name", None) or getattr(model, "model", None)
+    if isinstance(name, str):
+        return name
+    if model is not None:
+        logger.warning(
+            "deferred-tools: model %s exposes no str name attribute; treating as non-frozen (cache not preserved)",
+            type(model).__name__,
+        )
+    return ""
+
+
+def _is_frozen(model: object) -> bool:
+    """Whether this model gets a frozen tools array (schemas reach it via tool_search results only).
+
+    Freezing is off whenever ``EMBED_SCHEMAS_IN_RESULTS`` is off: a frozen model gets its schemas
+    only from tool_search results, so with embedding disabled it would get neither bound tools nor
+    embedded schemas and could call nothing. Forcing freezing off there degrades that config to the
+    array-append + summary (pre-change) behaviour for every model instead of breaking frozen ones.
+    """
+    if not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
+        return False
+    prefixes = tuple(deferred_settings.FROZEN_TOOLS_MODELS)
+    return bool(prefixes) and _model_name(model).startswith(prefixes)
+
+
 class DeferredToolsMiddleware(AgentMiddleware):
     """Defers every tool not in ``always_loaded`` behind a ``tool_search`` capability.
 
     On the first model call, the middleware snapshots the union of ``request.tools`` and
-    ``extra_tools``, sends only the always-loaded tools (plus already-loaded deferred ones)
-    to the model, and indexes the rest for ``tool_search``. Subsequent calls reuse the index.
+    ``extra_tools``, sends the always-loaded tools to the model, and indexes the rest for
+    ``tool_search``. On allowlisted models (``FROZEN_TOOLS_MODELS``) the bound array stays frozen
+    and loaded schemas arrive via ``tool_search`` results; off the allowlist, already-loaded
+    deferred tools are appended to the array as before. Subsequent calls reuse the index.
     """
 
     state_schema = DeferredToolsState
@@ -80,12 +116,6 @@ class DeferredToolsMiddleware(AgentMiddleware):
             self._index = self._build_index(request.tools)
 
         loaded_names: set[str] = request.state.get("loaded_tool_names") or set()
-        # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
-        # set. Set iteration is not contractually stable across CPython versions, and any
-        # reordering of the tools array invalidates Anthropic's cached prefix.
-        loaded_tools: list[BaseTool] = [
-            entry.tool for entry in self._index.deferred_entries() if entry.name in loaded_names
-        ]
         if loaded_names:
             stale = sorted(loaded_names - set(self._index.names()))
             if stale:
@@ -103,13 +133,23 @@ class DeferredToolsMiddleware(AgentMiddleware):
             if tool.name in self._always_loaded and tool.name not in seen_names:
                 allowed.append(tool)
                 seen_names.add(tool.name)
-        # Surface any always-loaded extra_tools the request doesn't already carry.
-        for tool in self._extra_tools:
+        # Surface any always-loaded tools the request doesn't already carry (self.tools includes
+        # tool_search itself and all extra_tools).
+        for tool in self.tools:
             if tool.name in self._always_loaded and tool.name not in seen_names:
                 allowed.append(tool)
                 seen_names.add(tool.name)
 
-        new_tools = [*allowed, *loaded_tools]
+        # Allowlisted models get a frozen array (schemas arrive via tool_search results);
+        # everyone else keeps the append. Evaluated per call, so a mid-run fallback model is gated right.
+        if _is_frozen(request.model):
+            new_tools = allowed
+        else:
+            # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
+            # set. Set iteration is not contractually stable across CPython versions, and any
+            # reordering of the tools array invalidates Anthropic's cached prefix.
+            loaded_tools = [entry.tool for entry in self._index.deferred_entries() if entry.name in loaded_names]
+            new_tools = [*allowed, *loaded_tools]
 
         response = await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
         self._inject_corrective_messages(response, loaded_names)
@@ -169,7 +209,9 @@ def deferred_tools_middleware(always_loaded: Iterable[str], mcp_tools: list[Base
     Installed whenever deferral is enabled — both the main agent and the general-purpose/custom
     subagents keep only the file/bash/todo core eagerly bound, so they always have non-always-loaded
     tools (web search/fetch, git-platform, and any MCP tools) to defer. A loaded deferred tool stays
-    loaded for the rest of the session, so the cost is at most one ``tool_search`` per session.
+    loaded for the rest of the session; the agent discovers tool needs incrementally, so expect
+    several ``tool_search`` calls per session — on allowlisted models each merely extends the cached
+    prefix instead of rewriting it.
     """
     if not deferred_settings.ENABLED:
         return []
