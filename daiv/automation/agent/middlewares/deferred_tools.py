@@ -26,14 +26,31 @@ def _model_name(model: object) -> str:
 
     ChatAnthropic exposes it on ``.model``; ChatOpenAI/ChatOpenRouter on ``.model_name``. A non-str
     (e.g. a test MagicMock attribute) yields "" so the caller treats it as non-frozen instead of
-    crashing on ``.startswith``.
+    crashing on ``.startswith``. A real (non-None) model reaching that fallback is a
+    misconfiguration or an upstream shape change that silently forfeits the cache benefit, so it is
+    logged rather than swallowed.
     """
     name = getattr(model, "model_name", None) or getattr(model, "model", None)
-    return name if isinstance(name, str) else ""
+    if isinstance(name, str):
+        return name
+    if model is not None:
+        logger.warning(
+            "deferred-tools: model %s exposes no str name attribute; treating as non-frozen (cache not preserved)",
+            type(model).__name__,
+        )
+    return ""
 
 
 def _is_frozen(model: object) -> bool:
-    """Whether this model gets a frozen tools array (schemas reach it via tool_search results only)."""
+    """Whether this model gets a frozen tools array (schemas reach it via tool_search results only).
+
+    Freezing is off whenever ``EMBED_SCHEMAS_IN_RESULTS`` is off: a frozen model gets its schemas
+    only from tool_search results, so with embedding disabled it would get neither bound tools nor
+    embedded schemas and could call nothing. Forcing freezing off there degrades that config to the
+    array-append + summary (pre-change) behaviour for every model instead of breaking frozen ones.
+    """
+    if not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
+        return False
     prefixes = tuple(deferred_settings.FROZEN_TOOLS_MODELS)
     return bool(prefixes) and _model_name(model).startswith(prefixes)
 
@@ -99,12 +116,6 @@ class DeferredToolsMiddleware(AgentMiddleware):
             self._index = self._build_index(request.tools)
 
         loaded_names: set[str] = request.state.get("loaded_tool_names") or set()
-        # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
-        # set. Set iteration is not contractually stable across CPython versions, and any
-        # reordering of the tools array invalidates Anthropic's cached prefix.
-        loaded_tools: list[BaseTool] = [
-            entry.tool for entry in self._index.deferred_entries() if entry.name in loaded_names
-        ]
         if loaded_names:
             stale = sorted(loaded_names - set(self._index.names()))
             if stale:
@@ -129,9 +140,16 @@ class DeferredToolsMiddleware(AgentMiddleware):
                 allowed.append(tool)
                 seen_names.add(tool.name)
 
-        # Allowlisted models get a frozen array (schemas arrive via tool_search results, Task 1);
+        # Allowlisted models get a frozen array (schemas arrive via tool_search results);
         # everyone else keeps the append. Evaluated per call, so a mid-run fallback model is gated right.
-        new_tools = allowed if _is_frozen(request.model) else [*allowed, *loaded_tools]
+        if _is_frozen(request.model):
+            new_tools = allowed
+        else:
+            # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
+            # set. Set iteration is not contractually stable across CPython versions, and any
+            # reordering of the tools array invalidates Anthropic's cached prefix.
+            loaded_tools = [entry.tool for entry in self._index.deferred_entries() if entry.name in loaded_names]
+            new_tools = [*allowed, *loaded_tools]
 
         response = await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
         self._inject_corrective_messages(response, loaded_names)

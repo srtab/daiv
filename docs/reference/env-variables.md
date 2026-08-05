@@ -319,6 +319,8 @@ When enabled, tools outside the always-loaded set are deferred behind a `tool_se
 | `DEFERRED_TOOLS_ENABLED`        | Defer non-essential tools behind `tool_search` instead of binding them eagerly | `true` | `false` |
 | `DEFERRED_TOOLS_TOP_K_DEFAULT`  | Default number of results returned by a `tool_search` call     | `3`            | `5` |
 | `DEFERRED_TOOLS_TOP_K_MAX`      | Maximum number of results `tool_search` will return per call   | `10`           | `20` |
+| `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS` | Prefix-matched model names whose bound tools array is kept frozen (loaded schemas reach them via `tool_search` results only), preserving the provider prompt cache. Empty list disables freezing. | `claude-,anthropic/claude-,qwen/qwen3.8-max` | `claude-` |
+| `DEFERRED_TOOLS_EMBED_SCHEMAS_IN_RESULTS` | Embed each loaded tool's full schema in the `tool_search` result. Emergency valve: when `false`, results carry summaries only **and freezing is forced off** (a frozen model has no other way to receive schemas), so every model falls back to the array-append + summary pre-change behaviour. | `true` | `false` |
 
 ---
 

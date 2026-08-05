@@ -25,8 +25,9 @@ class DeferredToolsSettings(BaseSettings):
     EMBED_SCHEMAS_IN_RESULTS: bool = Field(
         default=True,
         description=(
-            "Emergency valve: if False, tool_search results carry summaries only (pre-change "
-            "behaviour). Only meaningful with freezing also disabled."
+            "Emergency valve: if False, tool_search results carry summaries only and freezing is "
+            "forced off (a frozen model has no other way to receive schemas), so every model falls "
+            "back to the array-append + summary pre-change behaviour."
         ),
     )
 

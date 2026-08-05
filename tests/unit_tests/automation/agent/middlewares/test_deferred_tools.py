@@ -374,6 +374,32 @@ class TestDeferredToolsMiddlewareFrozenBinding:
         # ChatOpenAI/ChatOpenRouter expose the name on ``.model_name``; GLM is not allowlisted.
         return SimpleNamespace(model_name="z-ai/glm-5.2")
 
+    async def test_stale_loaded_name_still_warns_on_frozen_path(self, monkeypatch, caplog):
+        # The stale-name diagnostic sits before the frozen/non-frozen split, so it must fire even for
+        # a frozen model (whose loaded_tools list is never built). Pins it to that position: moving it
+        # into the else branch would silence the warning for exactly the allowlisted (Claude) models.
+        import logging
+
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        github = _make_tool("github_create_issue", "Create issue")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
+
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = [t.name for t in req.tools]
+            return MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            await middleware.awrap_model_call(
+                _request(state={"loaded_tool_names": {"removed_tool"}}, model=self._frozen_model()), handler
+            )
+
+        assert "removed_tool" in caplog.text
+        assert captured["tools"] == ["tool_search"]  # frozen array: stale name warned, never bound
+
     async def test_frozen_array_identical_regardless_of_loaded_state(self, monkeypatch):
         # THE core invariant: for an allowlisted model the bound tools array is a pure function of
         # always_loaded + extra_tools — byte-identical whether loaded_tool_names is empty or full.
@@ -467,3 +493,83 @@ class TestDeferredToolsMiddlewareFrozenBinding:
         tool_messages = [m for m in result.result if isinstance(m, ToolMessage)]
         assert len(tool_messages) == 1
         assert "tool_search" in tool_messages[0].content
+
+    async def test_empty_allowlist_disables_freezing(self, monkeypatch):
+        # The documented kill-switch / rollback lever: an empty FROZEN_TOOLS_MODELS turns freezing
+        # off even for a claude- model, so the array reverts to the append shape.
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", [])
+        a = _make_tool("a_tool", "A")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a])
+
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = [t.name for t in req.tools]
+            return MagicMock()
+
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"a_tool"}}, model=self._frozen_model()), handler
+        )
+
+        assert "a_tool" in captured["tools"]  # appended despite the claude- model, because the allowlist is empty
+
+    async def test_embed_off_gracefully_degrades_frozen_model_to_append(self, monkeypatch):
+        # The footgun guard: EMBED_SCHEMAS_IN_RESULTS=False can't deliver schemas to a frozen model,
+        # so freezing is forced off and even an allowlisted claude- model gets the tool bound in the
+        # array (pre-change behaviour) instead of an empty, uncallable array.
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        monkeypatch.setattr(mw_module.deferred_settings, "EMBED_SCHEMAS_IN_RESULTS", False)
+        a = _make_tool("a_tool", "A")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a])
+
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = [t.name for t in req.tools]
+            return MagicMock()
+
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"a_tool"}}, model=self._frozen_model()), handler
+        )
+
+        assert "a_tool" in captured["tools"]  # bound despite the claude- model, because embedding is off
+
+
+class TestModelNameGating:
+    def test_model_name_prefers_model_name_then_model(self):
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        assert mw_module._model_name(SimpleNamespace(model_name="gpt-x")) == "gpt-x"
+        assert mw_module._model_name(SimpleNamespace(model="claude-x")) == "claude-x"
+        assert mw_module._model_name(None) == ""
+
+    def test_empty_allowlist_is_never_frozen(self, monkeypatch):
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", [])
+        assert mw_module._is_frozen(SimpleNamespace(model="claude-sonnet-5")) is False
+
+    def test_embed_off_forces_non_frozen_even_for_allowlisted_model(self, monkeypatch):
+        # A frozen model receives schemas only via tool_search results, so freezing must be off
+        # when embedding is off — otherwise it would get neither bound tools nor embedded schemas.
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        monkeypatch.setattr(mw_module.deferred_settings, "EMBED_SCHEMAS_IN_RESULTS", False)
+        assert mw_module._is_frozen(SimpleNamespace(model="claude-sonnet-5")) is False
+
+    def test_non_str_model_name_degrades_to_non_frozen_and_warns(self, monkeypatch, caplog):
+        # The isinstance guard: a model whose name attribute isn't a str (unexpected shape) must
+        # degrade to non-frozen instead of crashing on .startswith — and warn so it's visible.
+        import logging
+
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            assert mw_module._is_frozen(MagicMock()) is False
+        assert "no str name attribute" in caplog.text

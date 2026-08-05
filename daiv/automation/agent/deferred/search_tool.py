@@ -9,6 +9,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.types import Command
 from pydantic import BeforeValidator
+from pydantic.errors import PydanticInvalidForJsonSchema
 
 from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.deferred.state import DeferredToolsState  # noqa: TC001
@@ -74,8 +75,12 @@ def _render_loaded(entries: list[ToolEntry]) -> str:
     With schema embedding on (default), each loaded tool's full OpenAI-format schema rides in a
     ``<functions>`` block so an allowlisted model can call it directly without the tool being in
     its bound array. Re-selecting an already-loaded name re-sends its schema, so a
-    summarization-evicted schema stays recoverable. With the valve off, falls back to name/summary
-    lines only (pre-change behaviour).
+    summarization-evicted schema stays recoverable. A tool whose args can't emit a JSON schema
+    (non-serializable arg types, e.g. ``git.Repo``) degrades to a summary-only
+    ``<function-summary>`` entry — on a frozen model that tool is then uncallable, hence the
+    warning-level log. Any other conversion fault degrades the same way but logs at error level
+    (it is unexpected, unlike the known git.Repo case) and never aborts the rest of the batch.
+    With the valve off, falls back to name/summary lines only (pre-change behaviour).
     """
     if not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
         body = "\n".join(f"- {entry.name}: {entry.summary}" for entry in entries)
@@ -85,8 +90,15 @@ def _render_loaded(entries: list[ToolEntry]) -> str:
     for entry in entries:
         try:
             schema = convert_to_openai_tool(entry.tool)
+        except PydanticInvalidForJsonSchema:
+            logger.warning("tool_search: no JSON schema for %s; embedding summary only", entry.name)
+            functions.append(f"<function-summary>{entry.name}: {entry.summary}</function-summary>")
+            continue
         except Exception:
-            logger.debug("tool_search: no JSON schema for %s; embedding summary only", entry.name)
+            # Contain an unexpected conversion fault to this one tool — a raise would abort the whole
+            # tool_search batch and drop every other selected tool. Log at error (Sentry) since,
+            # unlike the git.Repo case above, this is not a known-benign degradation.
+            logger.exception("tool_search: unexpected schema-conversion failure for %s; summary only", entry.name)
             functions.append(f"<function-summary>{entry.name}: {entry.summary}</function-summary>")
             continue
         functions.append(f"<function>{json.dumps(schema, separators=(',', ':'))}</function>")
