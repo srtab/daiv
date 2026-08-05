@@ -297,3 +297,98 @@ def test_detail_hidden_repo_404(client, member_user):
         resp = client.get(reverse("memory:detail", args=["hidden/repo"]))
 
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_list_search_filters_by_repo_id(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/alpha", content="# Memory\nx")
+    RepositoryMemory.objects.create(repo_id="group/beta", content="# Memory\nx")
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"q": "alph"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/alpha"]
+
+
+@pytest.mark.django_db
+def test_list_status_document_filter(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/has-doc", content="# Memory\nx")
+    MemoryObservation.objects.create(repo_id="group/no-doc", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"status": "document"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/has-doc"]
+
+
+@pytest.mark.django_db
+def test_list_status_no_document_filter(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/has-doc", content="# Memory\nx")
+    MemoryObservation.objects.create(repo_id="group/no-doc", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"status": "no_document"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/no-doc"]
+
+
+@pytest.mark.django_db
+def test_list_status_pending_filter(client, member_user):
+    MemoryObservation.objects.create(repo_id="group/pending", category=ObservationCategory.PITFALL, content="c" * 20)
+    MemoryObservation.objects.create(
+        repo_id="group/done",
+        category=ObservationCategory.PITFALL,
+        content="c" * 20,
+        status=ObservationStatus.CONSOLIDATED,
+    )
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"status": "pending"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/pending"]
+
+
+@pytest.mark.django_db
+def test_list_invalid_status_shows_all(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/a", content="# Memory\nx")
+    MemoryObservation.objects.create(repo_id="group/b", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"status": "bogus"})
+    assert {r["repo_id"] for r in resp.context["page_obj"]} == {"group/a", "group/b"}
+    assert resp.context["current_status"] == ""
+
+
+@pytest.mark.django_db
+def test_list_paginates_repositories(client, member_user):
+    for i in range(26):
+        RepositoryMemory.objects.create(repo_id=f"group/repo-{i:02d}", content="# Memory\nx")
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"))
+    assert resp.context["is_paginated"] is True
+    assert len(resp.context["page_obj"].object_list) == 25
+    resp2 = client.get(reverse("memory:list"), {"page": "2"})
+    assert len(resp2.context["page_obj"].object_list) == 1
+
+
+@pytest.mark.django_db
+def test_list_search_and_status_combined(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/alpha-doc", content="# Memory\nx")
+    MemoryObservation.objects.create(repo_id="group/alpha-obs", category=ObservationCategory.PITFALL, content="c" * 20)
+    RepositoryMemory.objects.create(repo_id="group/beta-doc", content="# Memory\nx")
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"), {"q": "alpha", "status": "document"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["group/alpha-doc"]
+
+
+@pytest.mark.django_db
+def test_list_search_respects_viewable(client, member_user):
+    MemoryObservation.objects.create(repo_id="ok/match", category=ObservationCategory.PITFALL, content="c" * 20)
+    MemoryObservation.objects.create(repo_id="hidden/match", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+    with patch("memory.views.viewable_repo_ids", new=MagicMock(side_effect=lambda user, ids: {"ok/match"})):
+        resp = client.get(reverse("memory:list"), {"q": "match"})
+    assert [r["repo_id"] for r in resp.context["page_obj"]] == ["ok/match"]
+
+
+@pytest.mark.django_db
+def test_list_htmx_returns_results_fragment(client, member_user):
+    RepositoryMemory.objects.create(repo_id="group/alpha", content="# Memory\nx")
+    client.force_login(member_user)
+    full = client.get(reverse("memory:list"))
+    assert "memory/list.html" in [t.name for t in full.templates]
+    frag = client.get(reverse("memory:list"), HTTP_HX_REQUEST="true")
+    names = [t.name for t in frag.templates]
+    assert "memory/_list_results.html" in names
+    assert "memory/list.html" not in names

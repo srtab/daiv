@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import redirect
@@ -15,15 +16,32 @@ from django_filters.views import FilterView
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from codebase.authorization import can_view, viewable_repo_ids
 from core.site_settings import site_settings
+from core.utils import is_htmx
 from memory.consolidation import document_would_be_discarded
 from memory.filters import MemoryObservationFilter
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
 from memory.render import document_size
 from memory.tasks import consolidate_memory_task
 
+MEMORY_LIST_PAGE_SIZE = 25
+
+# Value -> (label, predicate over a repo row dict). Also the source of the status pill
+# choices, so the filter set and the UI can't drift. Left un-annotated so the lambda
+# stays inferred as callable (an explicit `object` value type would make ty reject the call).
+_STATUS_FILTERS = {
+    "document": (_("Document"), lambda row: row["has_document"]),
+    "no_document": (_("No document"), lambda row: not row["has_document"]),
+    "pending": (_("Pending"), lambda row: row["pending"] > 0),
+}
+
 
 class MemoryListView(LoginRequiredMixin, TemplateView):
     template_name = "memory/list.html"
+
+    def get_template_names(self):
+        if is_htmx(self.request):
+            return ["memory/_list_results.html"]
+        return ["memory/list.html"]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -51,7 +69,28 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
                 "last_consolidated_at": mem.last_consolidated_at if mem else None,
             })
 
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            needle = query.lower()
+            repos = [row for row in repos if needle in row["repo_id"].lower()]
+
+        status = self.request.GET.get("status", "")
+        if status in _STATUS_FILTERS:
+            predicate = _STATUS_FILTERS[status][1]
+            repos = [row for row in repos if predicate(row)]
+        else:
+            status = ""
+
+        page_obj = Paginator(repos, MEMORY_LIST_PAGE_SIZE).get_page(self.request.GET.get("page"))
+
         ctx["repos"] = repos
+        ctx["page_obj"] = page_obj
+        ctx["paginator"] = page_obj.paginator
+        ctx["is_paginated"] = page_obj.has_other_pages()
+        ctx["search_query"] = query
+        ctx["current_status"] = status
+        ctx["statuses"] = [(value, label) for value, (label, _predicate) in _STATUS_FILTERS.items()]
+        ctx["has_active_filters"] = bool(query or status)
         ctx["memory_enabled"] = site_settings.memory_enabled
         return ctx
 
