@@ -243,6 +243,39 @@ class GitChangePublisher(ChangePublisher):
                 self.ctx.repository.slug,
             )
 
+    async def _trigger_service_account_pipeline(self, merge_request: MergeRequest) -> None:
+        """Create the MR's CI pipeline as the service account (which can read private cross-project
+        CI includes), used after a ``-o ci.skip`` push suppressed the ephemeral bot's pipeline.
+
+        Best-effort and never raises: this runs at turn-end publish, so a failure here must not sink
+        the whole publish. Because the push was skip-ci'd, a failed trigger leaves the MR with no
+        pipeline — surface that loudly (error log for Sentry) and visibly (an MR note), never
+        silently. A single attempt only: ``mr.pipelines.create()`` is a non-idempotent POST and
+        python-gitlab may already retry transient errors, so we add no retry multiplier of our own.
+        """
+        try:
+            pipeline = await sync_to_async(self.client.trigger_merge_request_pipeline)(
+                merge_request.repo_id, merge_request.merge_request_id
+            )
+            logger.info(
+                "Triggered CI pipeline %s for MR !%s as the service account",
+                getattr(pipeline, "id", "?"),
+                merge_request.merge_request_id,
+            )
+        except Exception:
+            logger.exception(
+                "Could not trigger the CI pipeline for MR !%s as the service account; posting a note",
+                merge_request.merge_request_id,
+            )
+            try:
+                await sync_to_async(self.client.create_merge_request_comment)(
+                    merge_request.repo_id,
+                    merge_request.merge_request_id,
+                    "⚠️ DAIV could not start the CI pipeline automatically. Please run it manually.",
+                )
+            except Exception:
+                logger.exception("Could not post the pipeline-failure note on MR !%s", merge_request.merge_request_id)
+
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """
         Get the PR metadata from the diff.

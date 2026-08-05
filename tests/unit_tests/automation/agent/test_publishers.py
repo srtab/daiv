@@ -715,3 +715,35 @@ class TestPublishDecision:
 def test_create_merge_request_and_suggest_are_async():
     assert inspect.iscoroutinefunction(GitChangePublisher._create_merge_request)
     assert inspect.iscoroutinefunction(GitChangePublisher._suggest_context_file)
+
+
+class TestTriggerServiceAccountPipeline:
+    async def test_triggers_pipeline_via_client(self):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=Mock(id=5))
+        mr = _make_merge_request()
+
+        await publisher._trigger_service_account_pipeline(mr)
+
+        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42)
+        publisher.client.create_merge_request_comment.assert_not_called()
+
+    async def test_logs_and_notes_on_failure(self, caplog):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
+        mr = _make_merge_request()
+
+        with caplog.at_level("ERROR"):
+            await publisher._trigger_service_account_pipeline(mr)
+
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        publisher.client.create_merge_request_comment.assert_called_once()
+        body = publisher.client.create_merge_request_comment.call_args[0][2]
+        assert "pipeline" in body.lower()
+
+    async def test_does_not_raise_when_note_also_fails(self):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
+        publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
+
+        await publisher._trigger_service_account_pipeline(_make_merge_request())  # must not raise
