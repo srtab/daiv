@@ -17,6 +17,12 @@ from mcp_servers.validators import validate_http_url
 _UNSET = object()
 
 
+class MCPServerStatus(models.TextChoices):
+    ACTIVE = "active", _("Active")
+    ON_DEMAND = "on-demand", _("On-demand")
+    DISABLED = "disabled", _("Disabled")
+
+
 class MCPServerQuerySet(models.QuerySet):
     """Scoping helpers shared by views and runtime. GLOBAL rows are admin-managed
     and visible to everyone; USER rows are owned by one user and load only in that
@@ -90,10 +96,7 @@ class MCPServer(TimeStampedModel):
         GLOBAL = "global", _("Global")
         USER = "user", _("User")
 
-    class Status(models.TextChoices):
-        ACTIVE = "active", _("Active")
-        ON_DEMAND = "on-demand", _("On-demand")
-        DISABLED = "disabled", _("Disabled")
+    Status = MCPServerStatus
 
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=MCP_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
@@ -148,7 +151,7 @@ class MCPServer(TimeStampedModel):
                 condition=~(models.Q(source="builtin") & models.Q(scope="user")), name="mcp_builtin_is_global"
             ),
             models.CheckConstraint(
-                condition=models.Q(status__in=["active", "on-demand", "disabled"]), name="mcp_server_status_valid"
+                condition=models.Q(status__in=MCPServerStatus.values), name="mcp_server_status_valid"
             ),
         ]
 
