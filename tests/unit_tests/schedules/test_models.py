@@ -327,3 +327,11 @@ def test_intent_constraint_literals_match_enum():
         constraint = next(c for c in model._meta.constraints if c.name == name)
         conditions = dict(constraint.condition.children)
         assert set(conditions["intent__in"]) == set(Intent.values)
+
+
+@pytest.mark.django_db
+def test_scheduledjob_mcp_overrides_defaults_to_empty_dict(member_user):
+    job = ScheduledJob.objects.create(
+        user=member_user, name="n", prompt="p", repos=[{"repo_id": "g/r", "ref": ""}], frequency=Frequency.HOURLY
+    )
+    assert job.mcp_overrides == {}
