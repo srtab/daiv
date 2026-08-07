@@ -618,19 +618,20 @@ def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
     assert result["mine"].headers == {"X-Lit": "ok"}  # env_ref dropped
 
 
-async def test_mcptoolkit_forwards_user_id(monkeypatch):
+async def test_mcptoolkit_forwards_user_id_and_overrides(monkeypatch):
     from automation.agent.mcp import toolkits
 
     seen = {}
 
-    def fake_build(user_id=None):
+    def fake_build(user_id=None, overrides=None):
         seen["user_id"] = user_id
+        seen["overrides"] = overrides
         return []
 
     monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
-    tools = await toolkits.MCPToolkit.get_tools(user_id=42)
+    tools = await toolkits.MCPToolkit.get_tools(user_id=42, overrides={"a": "off"})
     assert tools == []
-    assert seen["user_id"] == 42
+    assert seen == {"user_id": 42, "overrides": {"a": "off"}}
 
 
 @pytest.mark.django_db
