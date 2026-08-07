@@ -54,7 +54,7 @@ def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
                     url=seed.url,
                     tool_filter_mode=seed.tool_filter_mode,
                     tool_filter_items=list(seed.tool_filter_items),
-                    enabled=seed.enabled,
+                    status=seed.status,
                 )
         except IntegrityError:
             logger.exception("Failed to upsert built-in MCP server row %r", seed.name)
