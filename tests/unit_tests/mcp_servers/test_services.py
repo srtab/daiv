@@ -567,7 +567,7 @@ def test_build_runtime_servers_merges_user_and_global(member_user):
     assert names_anon == ["glob"]  # no user → globals only
 
     names_user = [n for n, _ in services.build_runtime_servers(user_id=member_user.id)]
-    assert set(names_user) == {"glob", "mine"}
+    assert names_user == ["glob", "mine"]  # globals first, then user rows, each name-sorted
 
 
 @pytest.mark.django_db
@@ -724,7 +724,7 @@ def test_malformed_override_value_ignored_and_logged(caplog):
     with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
         names = [n for n, _ in build_runtime_servers(overrides={"a": True, "x": "banana"})]
     assert names == ["a"]  # "a": True is not "off" → left at its default (on); "x" ignored
-    assert "unrecognized value" in caplog.text
+    assert caplog.text.count("unrecognized value") == 2  # both malformed values logged
 
 
 @pytest.mark.django_db

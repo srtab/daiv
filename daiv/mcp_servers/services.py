@@ -112,6 +112,7 @@ def build_runtime_servers(user_id: int | None = None, overrides: dict | None = N
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
+            # One bad row must not blank peers; transport/header shape anomalies reach here only via raw DB writes.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )
