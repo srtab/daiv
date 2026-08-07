@@ -1,5 +1,9 @@
 import re
 
+# Non-idempotent creates opt out per call: GitLab can answer 5xx *after* the write persisted, so the
+# client-level retry would re-POST a duplicate. Also drops 409-lock and connection-error retry.
+NO_TRANSIENT_RETRY_ON_WRITE = {"retry_transient_errors": False}
+
 
 def replace_section_start_and_end_markers(log: str) -> str:
     """

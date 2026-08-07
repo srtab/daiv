@@ -9,6 +9,8 @@ from django.core.cache import cache
 import requests
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError
 
+from codebase.clients.gitlab.utils import NO_TRANSIENT_RETRY_ON_WRITE
+
 if TYPE_CHECKING:
     from gitlab import Gitlab
 
@@ -81,12 +83,15 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
     expires_at = (datetime.now(UTC).date() + timedelta(days=CLONE_TOKEN_LIFETIME_DAYS)).isoformat()
     project = client.projects.get(project_pk, lazy=True)
     try:
-        token = project.access_tokens.create({
-            "name": CLONE_TOKEN_NAME,
-            "scopes": CLONE_TOKEN_SCOPES,
-            "access_level": CLONE_TOKEN_ACCESS_LEVEL,
-            "expires_at": expires_at,
-        })
+        token = project.access_tokens.create(
+            {
+                "name": CLONE_TOKEN_NAME,
+                "scopes": CLONE_TOKEN_SCOPES,
+                "access_level": CLONE_TOKEN_ACCESS_LEVEL,
+                "expires_at": expires_at,
+            },
+            **NO_TRANSIENT_RETRY_ON_WRITE,
+        )
     except GitlabAuthenticationError as e:
         # The fallback authenticates with the very credential GitLab just rejected, so the clone
         # is likely to fail too — name the real culprit instead of claiming a benign degradation.

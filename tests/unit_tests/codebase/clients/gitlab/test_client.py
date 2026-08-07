@@ -4,6 +4,7 @@ from unittest.mock import Mock, call, patch
 from django.core.exceptions import ImproperlyConfigured
 
 import pytest
+import requests
 from git import GitCommandError
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
@@ -16,6 +17,16 @@ from codebase.clients.gitlab.client import (
 )
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
+
+
+def _http_response(status_code: int) -> requests.Response:
+    """A minimal requests.Response, for driving python-gitlab's retry stack at the transport seam."""
+    response = requests.Response()
+    response.status_code = status_code
+    response.reason = "Internal Server Error"
+    response._content = b"{}"
+    response.headers["Content-Type"] = "application/json"
+    return response
 
 
 def _expected_clone_env(token: str) -> dict[str, str]:
@@ -326,7 +337,9 @@ class TestGitLabClient:
 
         assert result == "disc-abc"
         mock_project.mergerequests.get.assert_called_once_with(5, lazy=True)
-        mock_mr.discussions.create.assert_called_once_with({"body": "This looks wrong.", "position": _POSITION})
+        mock_mr.discussions.create.assert_called_once_with(
+            {"body": "This looks wrong.", "position": _POSITION}, retry_transient_errors=False
+        )
 
     def test_create_merge_request_inline_discussion_returns_discussion_id(self, gitlab_client):
         """The returned value must be the discussion ID string from GitLab."""
@@ -341,6 +354,114 @@ class TestGitLabClient:
         result = gitlab_client.create_merge_request_inline_discussion("ns/proj", 99, "body text", _POSITION)
 
         assert result == "unique-id-xyz"
+
+    @staticmethod
+    def _write_target_project() -> Mock:
+        """A project mock wired for the create-write paths (issue/MR, replies and threads)."""
+        project = Mock()
+        for discussions in (
+            project.issues.get.return_value.discussions,
+            project.mergerequests.get.return_value.discussions,
+        ):
+            discussions.create.return_value.attributes = {"notes": [{"id": 1}]}
+        return project
+
+    @pytest.mark.parametrize(
+        ("invoke", "create_mock", "expected_payload"),
+        [
+            pytest.param(
+                lambda client: client.create_issue("group/repo", "Title", "Desc"),
+                lambda project: project.issues.create,
+                {"title": "Title", "description": "Desc"},
+                id="issue",
+            ),
+            pytest.param(
+                lambda client: client.create_issue_comment("group/repo", 1, "body", reply_to_id="disc-1"),
+                lambda project: project.issues.get.return_value.discussions.get.return_value.notes.create,
+                {"body": "body"},
+                id="issue-comment-reply",
+            ),
+            pytest.param(
+                lambda client: client.create_issue_comment("group/repo", 1, "body", as_thread=True),
+                lambda project: project.issues.get.return_value.discussions.create,
+                {"body": "body"},
+                id="issue-comment-thread",
+            ),
+            pytest.param(
+                lambda client: client.create_issue_comment("group/repo", 1, "body"),
+                lambda project: project.issues.get.return_value.notes.create,
+                {"body": "body"},
+                id="issue-comment",
+            ),
+            pytest.param(
+                lambda client: client.create_merge_request_comment("group/repo", 5, "body", reply_to_id="disc-1"),
+                lambda project: project.mergerequests.get.return_value.discussions.get.return_value.notes.create,
+                {"body": "body"},
+                id="mr-comment-reply",
+            ),
+            pytest.param(
+                lambda client: client.create_merge_request_comment("group/repo", 5, "body", as_thread=True),
+                lambda project: project.mergerequests.get.return_value.discussions.create,
+                {"body": "body"},
+                id="mr-comment-thread",
+            ),
+            pytest.param(
+                lambda client: client.create_merge_request_comment("group/repo", 5, "body"),
+                lambda project: project.mergerequests.get.return_value.notes.create,
+                {"body": "body"},
+                id="mr-comment",
+            ),
+            pytest.param(
+                lambda client: client.create_merge_request_inline_discussion("group/repo", 5, "body", _POSITION),
+                lambda project: project.mergerequests.get.return_value.discussions.create,
+                {"body": "body", "position": _POSITION},
+                id="mr-inline-discussion",
+            ),
+        ],
+    )
+    def test_non_idempotent_writes_disable_transient_retry(self, gitlab_client, invoke, create_mock, expected_payload):
+        """Every create-write opts out of python-gitlab's 5xx retry.
+
+        GitLab can answer 500 *after* the object persisted; retrying the POST then duplicates it.
+        """
+        project = self._write_target_project()
+        gitlab_client.client.projects.get.return_value = project
+
+        invoke(gitlab_client)
+
+        create_mock(project).assert_called_once_with(expected_payload, retry_transient_errors=False)
+
+    def test_transient_5xx_on_a_write_is_not_retried(self):
+        """A 5xx on a create must reach the caller after exactly one POST.
+
+        Drives the real python-gitlab retry stack (only the HTTP transport is mocked): asserting the
+        kwarg is *passed* would still pass if the kwarg were misspelled, since python-gitlab silently
+        forwards unknown kwargs as query params and keeps retrying.
+        """
+        client = GitLabClient(auth_token="test-token", url="https://gitlab.com")  # noqa: S106
+
+        with (
+            patch("requests.Session.request", return_value=_http_response(500)) as session_request,
+            patch("gitlab.utils.time.sleep") as mock_sleep,
+            pytest.raises(GitlabCreateError),
+        ):
+            client.create_issue("group/repo", "Title", "Desc")
+
+        assert session_request.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_transient_5xx_on_an_idempotent_read_is_still_retried(self):
+        """The opt-out is strictly per-call: a GET keeps the client-level retry (1 attempt + 10 retries)."""
+        client = GitLabClient(auth_token="test-token", url="https://gitlab.com")  # noqa: S106
+
+        with (
+            patch("requests.Session.request", return_value=_http_response(500)) as session_request,
+            patch("gitlab.utils.time.sleep"),
+            pytest.raises(GitlabGetError),
+        ):
+            client.get_repository("group/repo")
+
+        assert session_request.call_count == 11
 
     @pytest.mark.parametrize(
         ("raw_state", "work_in_progress", "expected"),
@@ -434,6 +555,13 @@ class TestGitLabClient:
         # One attempt per backoff step, plus the final attempt after the retries are exhausted.
         expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
         assert mock_project.mergerequests.create.call_count == expected_attempts
+        # Every attempt — the in-loop retries and the final one — opts out of python-gitlab's 5xx retry,
+        # so a transient 5xx raises instead of silently opening a duplicate MR. The DAIV-level 400
+        # branch-visibility retry above is unaffected.
+        assert all(
+            attempt.kwargs == {"retry_transient_errors": False}
+            for attempt in mock_project.mergerequests.create.call_args_list
+        )
 
     def test_update_or_create_merge_request_does_not_retry_unrelated_400(self, gitlab_client):
         """A 400 that isn't the branch-visibility race must fail fast (no retry/sleep)."""
@@ -458,9 +586,7 @@ class TestGitLabClient:
             error_message="Another open merge request already exists", response_code=409
         )
         existing_mr = self._merge_request_mock(source_branch="feat/x")
-        mock_iterator = Mock()
-        mock_iterator.next.return_value = existing_mr
-        mock_project.mergerequests.list.return_value = mock_iterator
+        mock_project.mergerequests.list.return_value = [existing_mr]
         gitlab_client.client.projects.get.return_value = mock_project
 
         with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep:
@@ -477,6 +603,51 @@ class TestGitLabClient:
         existing_mr.save.assert_called_once()
         mock_project.mergerequests.create.assert_called_once()
         mock_sleep.assert_not_called()
+
+    def test_update_or_create_merge_request_adopts_mr_persisted_before_a_5xx(self, gitlab_client):
+        """A 5xx can be returned *after* the MR persisted; the create is not retried, so adopt it.
+
+        Without this the pushed branch is orphaned and the whole publish fails.
+        """
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = GitlabCreateError(
+            error_message="500 Internal Server Error", response_code=500
+        )
+        existing_mr = self._merge_request_mock(source_branch="feat/x")
+        mock_project.mergerequests.list.return_value = [existing_mr]
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"):
+            result = gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo",
+                source_branch="feat/x",
+                target_branch="main",
+                title="New Title",
+                description="New Desc",
+            )
+
+        assert result.source_branch == "feat/x"
+        existing_mr.save.assert_called_once()
+
+    def test_update_or_create_merge_request_reraises_5xx_when_nothing_persisted(self, gitlab_client):
+        """A 5xx where no MR landed must surface the original error, not a lookup artefact."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = GitlabCreateError(
+            error_message="500 Internal Server Error", response_code=500
+        )
+        mock_project.mergerequests.list.return_value = []
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError) as exc_info:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo",
+                source_branch="feat/x",
+                target_branch="main",
+                title="New Title",
+                description="New Desc",
+            )
+
+        assert exc_info.value.response_code == 500
 
     @pytest.mark.parametrize(
         ("error_message", "response_code", "expected"),

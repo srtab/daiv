@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.utils import sanitize_tool_call_id
+from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
@@ -576,6 +577,16 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
             repo_client.create_merge_request_inline_discussion, runtime.context.repository.slug, mr_iid, body, position
         )
         return json.dumps({"id": discussion_id, "status": "created"})
+    except GitlabError as e:
+        logger.exception("[%s] Failed to create inline MR diff discussion.", GITLAB_TOOL_NAME)
+        if e.response_code is not None and 500 <= e.response_code < 600:
+            # GitLab can answer 5xx *after* persisting the note, and the write is not retried, so the
+            # outcome is genuinely unknown — a retry here is what produced duplicate inline comments.
+            return (
+                f"error: Inline discussion status UNKNOWN — GitLab returned {e.response_code} and the comment "
+                f"may already have been posted. Do NOT retry this comment. Details: {e}"
+            )
+        return f"error: Failed to create inline discussion. Details: {e}"
     except Exception as e:
         logger.exception("[%s] Failed to create inline MR diff discussion.", GITLAB_TOOL_NAME)
         return f"error: Failed to create inline discussion. Details: {e}"

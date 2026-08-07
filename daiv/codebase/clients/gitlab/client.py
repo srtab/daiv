@@ -36,6 +36,7 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.clients.gitlab.utils import NO_TRANSIENT_RETRY_ON_WRITE
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri, is_git_auth_error_text
 from daiv import USER_AGENT
@@ -59,6 +60,11 @@ logger = logging.getLogger("daiv.clients")
 # seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
 # surfaces to the caller.
 MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
+
+def _is_transient_server_error(error: GitlabError) -> bool:
+    """True for a 5xx, i.e. an error where GitLab may still have persisted the write before failing."""
+    return error.response_code is not None and 500 <= error.response_code < 600
 
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
@@ -352,6 +358,7 @@ class GitLabClient(RepoClient):
             project_hook.save()
             return WebhookSetupResult.UPDATED
 
+        # Exempt from NO_TRANSIENT_RETRY_ON_WRITE: one-time guarded setup, not a per-run hot path.
         project.hooks.create(data)
         return WebhookSetupResult.CREATED
 
@@ -519,7 +526,7 @@ class GitLabClient(RepoClient):
         issue_data = {"title": title, "description": description}
         if labels:
             issue_data["labels"] = ",".join(labels)
-        issue = project.issues.create(issue_data)
+        issue = project.issues.create(issue_data, **NO_TRANSIENT_RETRY_ON_WRITE)
         return issue.iid
 
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
@@ -559,11 +566,11 @@ class GitLabClient(RepoClient):
         issue = project.issues.get(issue_id, lazy=True)
         if reply_to_id:
             discussion = issue.discussions.get(reply_to_id, lazy=True)
-            return discussion.notes.create({"body": body}).id
+            return discussion.notes.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE).id
         elif as_thread:
-            discussion = issue.discussions.create({"body": body})
+            discussion = issue.discussions.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE)
             return discussion.attributes["notes"][0]["id"]
-        return issue.notes.create({"body": body}).id
+        return issue.notes.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE).id
 
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
@@ -571,6 +578,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
+        # Exempt from NO_TRANSIENT_RETRY_ON_WRITE: the unique-reaction constraint makes a retry 409, not a duplicate.
         if note_id is not None:
             note = issue.notes.get(note_id, lazy=True)
             note.awardemojis.create({"name": emoji})
@@ -641,20 +649,25 @@ class GitLabClient(RepoClient):
             merge_request = self._create_merge_request_awaiting_branch(project, payload, source_branch)
             return self._serialize_merge_request(repo_id, merge_request)
         except GitlabCreateError as e:
-            if e.response_code != 409:
+            # 409 means GitLab rejected a duplicate. A 5xx may still have persisted the MR before failing,
+            # and the create is no longer retried, so adopt it here rather than orphan the pushed branch.
+            if e.response_code != 409 and not _is_transient_server_error(e):
                 raise e
-            if merge_requests := project.mergerequests.list(
-                source_branch=source_branch, target_branch=target_branch, iterator=True
-            ):
-                merge_request = merge_requests.next()
-                merge_request.title = title
-                merge_request.description = description
-                merge_request.labels = labels or []
-                merge_request.assignee_id = assignee_id
-                merge_request.work_in_progress = as_draft
-                merge_request.save()
-                return self._serialize_merge_request(repo_id, merge_request)
-            raise e
+            merge_request = next(
+                iter(
+                    project.mergerequests.list(source_branch=source_branch, target_branch=target_branch, iterator=True)
+                ),
+                None,
+            )
+            if merge_request is None:
+                raise e
+            merge_request.title = title
+            merge_request.description = description
+            merge_request.labels = labels or []
+            merge_request.assignee_id = assignee_id
+            merge_request.work_in_progress = as_draft
+            merge_request.save()
+            return self._serialize_merge_request(repo_id, merge_request)
 
     def _create_merge_request_awaiting_branch(
         self, project: Any, payload: dict[str, Any], source_branch: str
@@ -670,7 +683,7 @@ class GitLabClient(RepoClient):
         retries = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
         for attempt, delay in enumerate(retries, start=1):
             try:
-                return project.mergerequests.create(payload)
+                return project.mergerequests.create(payload, **NO_TRANSIENT_RETRY_ON_WRITE)
             except GitlabCreateError as e:
                 if not _is_source_branch_missing_error(e):
                     raise
@@ -685,7 +698,7 @@ class GitLabClient(RepoClient):
                 time.sleep(delay)
         # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
         # error, if the branch genuinely never appeared — is the caller's to handle.
-        return project.mergerequests.create(payload)
+        return project.mergerequests.create(payload, **NO_TRANSIENT_RETRY_ON_WRITE)
 
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str
@@ -784,17 +797,17 @@ class GitLabClient(RepoClient):
 
         if reply_to_id:
             discussion = merge_request.discussions.get(reply_to_id, lazy=True)
-            to_return = discussion.notes.create({"body": body}).id
+            to_return = discussion.notes.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE).id
 
             if mark_as_resolved:
                 self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
 
         elif as_thread:
-            discussion = merge_request.discussions.create({"body": body})
+            discussion = merge_request.discussions.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE)
             note_id = discussion.attributes["notes"][0]["id"]
             to_return = note_id
         else:
-            to_return = merge_request.notes.create({"body": body}).id
+            to_return = merge_request.notes.create({"body": body}, **NO_TRANSIENT_RETRY_ON_WRITE).id
 
         return to_return
 
@@ -956,6 +969,7 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         note = merge_request.notes.get(note_id, lazy=True)
+        # Exempt from NO_TRANSIENT_RETRY_ON_WRITE: the unique-reaction constraint makes a retry 409, not a duplicate.
         try:
             note.awardemojis.create({"name": emoji})
         except GitlabCreateError as e:
@@ -993,7 +1007,9 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        discussion = merge_request.discussions.create({"body": body, "position": position})
+        discussion = merge_request.discussions.create(
+            {"body": body, "position": position}, **NO_TRANSIENT_RETRY_ON_WRITE
+        )
         return discussion.id
 
     # User
