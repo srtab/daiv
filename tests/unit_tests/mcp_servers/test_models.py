@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from django.core.exceptions import PermissionDenied
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import Http404
 
 import pytest
@@ -227,3 +227,17 @@ def test_new_server_has_empty_tool_snapshot():
     s = MCPServer.objects.create(name="snap1", transport=MCPServer.Transport.HTTP, url="http://snap1.test")
     assert s.discovered_tools == []
     assert s.tools_synced_at is None
+
+
+@pytest.mark.django_db
+def test_status_defaults_to_active():
+    s = MCPServer.objects.create(name="s-def", transport=MCPServer.Transport.HTTP, url="http://x")
+    assert s.status == MCPServer.Status.ACTIVE
+
+
+@pytest.mark.django_db
+def test_status_check_constraint_rejects_unknown_value():
+    with pytest.raises(IntegrityError), transaction.atomic():
+        # Bypass field-choice validation with a raw update to hit the DB constraint.
+        s = MCPServer.objects.create(name="s-bad", transport=MCPServer.Transport.HTTP, url="http://x")
+        MCPServer.objects.filter(pk=s.pk).update(status="banana")
