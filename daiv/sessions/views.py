@@ -432,9 +432,12 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        from mcp_servers.selection import mcp_picker_context
+
         ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
+        ctx.update(mcp_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):

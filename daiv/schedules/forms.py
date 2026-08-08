@@ -33,7 +33,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
         widgets = {"subscribers": forms.SelectMultiple(attrs={"class": "hidden"})}
 
     def __init__(self, *args, owner=None, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, owner=owner, **kwargs)
         if "subscribers" in self.fields:
             qs = User.objects.filter(is_active=True)
             if owner is not None:
@@ -46,6 +46,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
+        instance.mcp_overrides = self.cleaned_data.get("mcp_overrides", {})
         compute_next_run_or_raise(instance)
         if commit:
             instance.save()
