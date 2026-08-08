@@ -20,6 +20,9 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 # Bounded per tick so a backlog after a long provider/broker outage drains steadily rather than
 # storming the queue in a single pass.
 RECLASSIFY_BATCH_LIMIT = 200
+# Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
+# run into paid classification, and the notification relevance window (NOTIFY_MAX_AGE) shares this knob.
+RECLASSIFY_MAX_AGE = timedelta(hours=24)  # tunable
 
 
 @task(dedup=True)
@@ -200,29 +203,41 @@ def reclassify_missing_envelopes_cron_task():
     failed unrecoverably (provider errors past all retries + fallback) or an ``.enqueue()`` that was
     dropped (a broker/DB blip, swallowed in ``classify_on_run_finished``) would otherwise strand the
     run at "classifying…" forever — nothing re-fires the signal. This periodic sweep re-targets
-    terminal SCHEDULE runs that still have no ``RunEnvelope`` and re-enqueues classification, which is
-    idempotent (``dedup=True`` + the in-task ``aexists`` guard) so re-enqueuing an in-flight or
-    already-classified run is a safe no-op. A FAILED run with no envelope is likewise re-targeted and
-    gets its ``failed`` envelope with no LLM call.
+    terminal non-chat runs (all origins returned by ``get_classify_origins()``) that still have no
+    ``RunEnvelope`` and re-enqueues classification, which is idempotent (``dedup=True`` + the in-task
+    ``aexists`` guard) so re-enqueuing an in-flight or already-classified run is a safe no-op.
+    A FAILED run with no envelope is likewise re-targeted and gets its ``failed`` envelope with no LLM
+    call.
+
+    Both the grace cutoff and the recency floor are keyed on ``finished_at``, not ``created_at``:
+    batch siblings and orphan-queued recovery can make created_at→finished_at gaps exceed a day, so a
+    ``created_at`` floor would permanently skip a run that finishes long after creation.
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock, so a pass
     that overruns the interval is never double-dispatched.
     """
-    from sessions.models import Run, RunStatus, SessionOrigin
+    from sessions.models import Run, RunStatus
+    from sessions.signals import get_classify_origins
 
-    cutoff = timezone.now() - RECLASSIFY_GRACE
+    now = timezone.now()
+    grace_cutoff = now - RECLASSIFY_GRACE
+    age_floor = now - RECLASSIFY_MAX_AGE
     stranded_ids = list(
         Run.objects
         .filter(
-            trigger_type=SessionOrigin.SCHEDULE,
+            trigger_type__in=get_classify_origins(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
-            created_at__lt=cutoff,
+            # Key the grace AND the floor on finished_at: batch siblings and orphan-queued recovery can
+            # make created_at→finished_at gaps exceed a day, so a created_at floor would permanently skip
+            # a run that finishes long after creation. Terminal runs always have finished_at set.
+            finished_at__lt=grace_cutoff,
+            finished_at__gte=age_floor,
         )
-        .order_by("created_at")
+        .order_by("finished_at")
         .values_list("pk", flat=True)[:RECLASSIFY_BATCH_LIMIT]
     )
     for run_id in stranded_ids:
         classify_run_task.enqueue(str(run_id))
     if stranded_ids:
-        logger.info("reclassify_missing_envelopes: re-enqueued %d stranded scheduled run(s)", len(stranded_ids))
+        logger.info("reclassify_missing_envelopes: re-enqueued %d stranded run(s)", len(stranded_ids))
