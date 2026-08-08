@@ -165,18 +165,15 @@ class TestScheduleFinishedRenderer:
 class TestJobBatchFinishedRenderer:
     def _ctx(self, **overrides):
         base = {
-            "successful_count": 4,
+            "found_count": 2,
+            "needs_attention_count": 1,
             "failed_count": 1,
+            "all_clear_count": 1,
+            "notable_count": 4,
             "total": 5,
             "duration_seconds": 371,
             "trigger_owner": "alice",
-            "repo_results": [
-                {"repo": "acme/api", "ok": True},
-                {"repo": "acme/web", "ok": True},
-                {"repo": "acme/cli", "ok": True},
-                {"repo": "acme/db", "ok": True},
-                {"repo": "acme/legacy", "ok": False},
-            ],
+            "repo_ids": ["acme/api", "acme/web", "acme/cli", "acme/db", "acme/legacy"],
             "input_tokens": 184_217,
             "output_tokens": 412_780,
             "cost_usd": 0.83,
@@ -185,40 +182,38 @@ class TestJobBatchFinishedRenderer:
         return base
 
     def test_partial_batch_uses_warning_color_and_emoji(self):
-        notif = _stub_notification(subject="'nightly' batch: 4/5 succeeded — alice", context=self._ctx())
+        notif = _stub_notification(subject="'nightly' batch: 4/5 need a look — alice", context=self._ctx())
         text, attachments = JobBatchFinishedRenderer().render(notif)
         assert text.startswith("⚠️ ")
         assert attachments[0]["color"] == COLOR_PARTIAL
         fields = _fields_by_title(attachments[0])
-        assert fields["Results"] == "✓ 4 · ✗ 1 of 5"
         assert fields["Owner"] == "alice"
         assert fields["Usage"] == "184.2k in · 412.8k out"
         assert fields["Total cost"] == "$0.83"
-        assert "✓ acme/api" in fields["Repositories"]
-        assert "✗ acme/legacy" in fields["Repositories"]
+        assert "acme/api" in fields["Repositories"]
 
-    def test_all_succeed_uses_green(self):
-        notif = _stub_notification(context=self._ctx(successful_count=5, failed_count=0))
-        text, attachments = JobBatchFinishedRenderer().render(notif)
-        assert text.startswith("✅ ")
-        assert attachments[0]["color"] == COLOR_SUCCESS
-
-    def test_all_fail_uses_red(self):
-        notif = _stub_notification(context=self._ctx(successful_count=0, failed_count=5))
+    def test_all_notable_uses_red(self):
+        notif = _stub_notification(context=self._ctx(notable_count=5, all_clear_count=0))
         text, attachments = JobBatchFinishedRenderer().render(notif)
         assert text.startswith("❌ ")
         assert attachments[0]["color"] == COLOR_FAILURE
 
-    def test_repo_breakdown_truncates_past_limit(self):
-        repo_results = [{"repo": f"acme/r{i}", "ok": True} for i in range(12)]
-        notif = _stub_notification(context=self._ctx(repo_results=repo_results))
+    def test_none_notable_uses_green(self):
+        notif = _stub_notification(context=self._ctx(notable_count=0, all_clear_count=5))
+        text, attachments = JobBatchFinishedRenderer().render(notif)
+        assert text.startswith("✅ ")
+        assert attachments[0]["color"] == COLOR_SUCCESS
+
+    def test_repo_list_truncates_past_limit(self):
+        repo_ids = [f"acme/r{i}" for i in range(12)]
+        notif = _stub_notification(context=self._ctx(repo_ids=repo_ids))
         _text, attachments = JobBatchFinishedRenderer().render(notif)
         breakdown = _fields_by_title(attachments[0])["Repositories"]
         # 8-item cap + overflow marker.
         assert "and 4 more" in breakdown
         assert "acme/r11" not in breakdown  # past the cap
 
-    def test_empty_repo_results_drops_repositories_field(self):
-        notif = _stub_notification(context=self._ctx(repo_results=[]))
+    def test_empty_repo_ids_drops_repositories_field(self):
+        notif = _stub_notification(context=self._ctx(repo_ids=[]))
         _text, attachments = JobBatchFinishedRenderer().render(notif)
         assert "Repositories" not in _fields_by_title(attachments[0])

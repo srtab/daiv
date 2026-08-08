@@ -1,4 +1,4 @@
-"""Tests for notifications receivers wired to sessions.signals.run_finished."""
+"""Tests for notifications receivers wired to sessions.signals.run_classified (and run_finished for memory)."""
 
 import logging
 import uuid
@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
-from notifications.choices import ChannelType, NotifyOn
+from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.signals import run_classified, run_finished
@@ -111,125 +111,85 @@ class TestMemorySkipChatRuns:
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
 
+def _classify(run, status, *, count=0, summary=""):
+    actionable = (
+        [{"id": "0", "kind": "bug", "label": "x", "ref": "y", "schema_version": 1}]
+        if status == EnvelopeStatus.FOUND_ISSUES
+        else []
+    )
+    return RunEnvelope.objects.create(run=run, status=status, summary=summary, actionable=actionable)
+
+
 @pytest.mark.django_db
 class TestRunBatchRollup:
-    """Ported from the old activity-batch suite; the batch path (``_handle_batch_completion_run``)
-    is live receiver code that the sessions refactor left uncovered."""
+    def _finish(self, run):
+        run.finished_at = timezone.now()
+        run.save(update_fields=["finished_at"])
 
-    def test_intermediate_sibling_does_not_emit(self, member_user):
-        member_user.notify_on_jobs = NotifyOn.ALWAYS
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        a, _b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.RUNNING])
-        run_finished.send(sender=Run, run=a)
-
-        assert Notification.objects.count() == 0
-
-    def test_two_job_batch_emits_one_rollup_after_both_finish(self, member_user, email_binding):
-        member_user.notify_on_jobs = NotifyOn.ALWAYS
-        member_user.save(update_fields=["notify_on_jobs"])
-
+    def test_rollup_fires_only_after_all_siblings_classified(self, member_user, email_binding):
         a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
-        run_finished.send(sender=Run, run=a)
-        run_finished.send(sender=Run, run=b)
+        for r in (a, b):
+            self._finish(r)
+        env_a = _classify(a, EnvelopeStatus.FOUND_ISSUES)
+        run_classified.send(sender=Run, run=a, envelope=env_a)
+        assert Notification.objects.filter(event_type="job_batch.finished").count() == 0  # b not classified yet
 
+        env_b = _classify(b, EnvelopeStatus.ALL_CLEAR)
+        run_classified.send(sender=Run, run=b, envelope=env_b)
         rollups = Notification.objects.filter(recipient=member_user, event_type="job_batch.finished")
         assert rollups.count() == 1
         rollup = rollups.get()
-        assert rollup.source_type == "sessions.Batch"
-        assert rollup.source_id == str(a.batch_id)
-        assert rollup.link_url.endswith(f"?batch={a.batch_id}")
-        assert "2" in rollup.subject and "succeed" in rollup.subject.lower()
-        assert NotificationDelivery.objects.filter(notification=rollup, channel_type=ChannelType.EMAIL).count() == 1
+        assert rollup.context["notable_count"] == 1
+        assert rollup.context["total"] == 2
 
-    def test_single_job_batch_falls_back_to_per_run_notification(self, member_user):
-        member_user.notify_on_jobs = NotifyOn.ALWAYS
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        (a,) = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL])
-        run_finished.send(sender=Run, run=a)
-
-        assert Notification.objects.filter(event_type="job.finished").count() == 1
+    def test_all_clear_batch_is_silent(self, member_user, email_binding):
+        a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
+        for r, env_status in ((a, EnvelopeStatus.ALL_CLEAR), (b, EnvelopeStatus.ALL_CLEAR)):
+            self._finish(r)
+            run_classified.send(sender=Run, run=r, envelope=_classify(r, env_status))
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
-    def test_mixed_outcomes_uses_failed_status_for_gating(self, member_user, email_binding):
-        """notify_on=ON_FAILURE + a batch with at least one failure → email is delivered."""
-        member_user.notify_on_jobs = NotifyOn.ON_FAILURE
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        a, b, c = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL, RunStatus.FAILED])
-        for run in (a, b, c):
-            run_finished.send(sender=Run, run=run)
-
-        rollup = Notification.objects.get(event_type="job_batch.finished")
-        assert "1 failed" in rollup.body or "1 failed" in rollup.subject
-        assert rollup.context["failed_count"] == 1
-        assert rollup.context["successful_count"] == 2
-        assert rollup.context["is_successful"] is False
-        assert NotificationDelivery.objects.filter(notification=rollup, channel_type=ChannelType.EMAIL).count() == 1
-
-    def test_all_succeed_with_notify_on_on_failure_writes_bell_only(self, member_user, email_binding):
-        member_user.notify_on_jobs = NotifyOn.ON_FAILURE
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
-        run_finished.send(sender=Run, run=a)
-        run_finished.send(sender=Run, run=b)
-
-        assert Notification.objects.filter(event_type="job_batch.finished").count() == 1
-        assert NotificationDelivery.objects.count() == 0
-
-    def test_race_two_simultaneous_terminal_emissions_create_one_notification(self, member_user, caplog):
-        """Both siblings observe terminal_count == total before either inserts; the second
-        emission must hit the IntegrityError-recovery path (guards the partial unique constraint)."""
-        member_user.notify_on_jobs = NotifyOn.NEVER
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
-        run_finished.send(sender=Run, run=a)
-        with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
-            run_finished.send(sender=Run, run=b)
-
-        assert Notification.objects.filter(event_type="job_batch.finished").count() == 1
-        assert any("already exists" in rec.message for rec in caplog.records)
-
-    def test_schedule_batch_uses_schedule_name_and_fans_out_to_subscribers(self, member_user, run_schedule):
-        sub = User.objects.create_user(username="batch_sub", email="batch_sub@test.com", password="x")  # noqa: S106
-        run_schedule.subscribers.add(sub)
-
+    def test_muted_batch_is_silent(self, member_user, run_schedule):
+        run_schedule.muted = True
+        run_schedule.save(update_fields=["muted"])
         a, b = _make_run_batch(
             member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL], scheduled_job=run_schedule
         )
-        run_finished.send(sender=Run, run=a)
-        run_finished.send(sender=Run, run=b)
+        for r in (a, b):
+            self._finish(r)
+            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FAILED))
+        assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
-        owner_rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
-        sub_rollup = Notification.objects.get(recipient=sub, event_type="job_batch.finished")
-        assert run_schedule.name in owner_rollup.subject
-        assert run_schedule.name in sub_rollup.subject
-        assert str(member_user) in sub_rollup.subject
-        assert owner_rollup.context["trigger_name"] == run_schedule.name
-        assert sub_rollup.context["trigger_owner"] == str(member_user)
+    def test_concurrent_last_siblings_create_one_rollup(self, member_user, caplog):
+        a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
+        for r in (a, b):
+            self._finish(r)
+        _classify(a, EnvelopeStatus.FAILED)
+        _classify(b, EnvelopeStatus.FAILED)
+        # Both observe all-classified before either inserts; the second hits the IntegrityError path.
+        run_classified.send(sender=Run, run=a, envelope=a.envelope)
+        with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
+            run_classified.send(sender=Run, run=b, envelope=b.envelope)
+        assert Notification.objects.filter(event_type="job_batch.finished").count() == 1
 
-    def test_user_none_does_not_emit_rollup(self):
-        a, b = _make_run_batch(None, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL], notify_on=NotifyOn.ALWAYS)
-        run_finished.send(sender=Run, run=a)
-        run_finished.send(sender=Run, run=b)
+    def test_single_run_batch_falls_back_to_per_run(self, member_user, email_binding):
+        (a,) = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL])
+        self._finish(a)
+        run_classified.send(sender=Run, run=a, envelope=_classify(a, EnvelopeStatus.FOUND_ISSUES))
+        assert Notification.objects.filter(event_type="job.finished").count() == 1
+        assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
 
-        assert Notification.objects.count() == 0
-
-    def test_webhook_trigger_skipped_before_batch_branch(self, member_user):
-        member_user.notify_on_jobs = NotifyOn.ALWAYS
-        member_user.save(update_fields=["notify_on_jobs"])
-
-        bid = uuid.uuid4()
-        session = _session(origin=SessionOrigin.ISSUE_WEBHOOK, thread_id=str(uuid.uuid4()), user=member_user)
-        a = _run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, batch_id=bid)
-        b = _run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, batch_id=bid)
-        run_finished.send(sender=Run, run=a)
-        run_finished.send(sender=Run, run=b)
-
-        assert Notification.objects.count() == 0
+    def test_schedule_batch_fans_out_to_subscribers(self, member_user, run_schedule):
+        sub = User.objects.create_user(username="batch_sub", email="batch_sub@test.com", password="x")  # noqa: S106
+        run_schedule.subscribers.add(sub)
+        a, b = _make_run_batch(
+            member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL], scheduled_job=run_schedule
+        )
+        for r in (a, b):
+            self._finish(r)
+            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FOUND_ISSUES))
+        assert Notification.objects.filter(recipient=member_user, event_type="job_batch.finished").count() == 1
+        assert Notification.objects.filter(recipient=sub, event_type="job_batch.finished").count() == 1
 
 
 @pytest.mark.django_db
@@ -297,8 +257,6 @@ class TestNotificationPolicy:
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
     def test_idempotent_second_emit_is_deduped(self, member_user, caplog):
-        import logging
-
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=EnvelopeStatus.FAILED, user=member_user)
         run_classified.send(sender=Run, run=run, envelope=envelope)

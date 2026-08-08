@@ -130,18 +130,25 @@ def _per_run_notification_exists(recipient, run, event_type) -> bool:
 
 
 def _handle_batch_completion_run(run, siblings, total: int) -> None:
-    """Emit a single rollup notification when every sibling in a Run batch is terminal."""
-    from sessions.models import RunStatus
+    """Emit one rollup once every sibling in the batch is classified (has an envelope)."""
+    from sessions.models import EnvelopeStatus
+
+    classified = siblings.filter(envelope__isnull=False).count()
+    if classified < total:
+        return
 
     agg = siblings.aggregate(
-        terminal=Count("id", filter=Q(status__in=RunStatus.terminal())),
-        successful=Count("id", filter=Q(status=RunStatus.SUCCESSFUL)),
+        found=Count("id", filter=Q(envelope__status=EnvelopeStatus.FOUND_ISSUES)),
+        needs=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_ATTENTION)),
+        failed=Count("id", filter=Q(envelope__status=EnvelopeStatus.FAILED)),
+        clear=Count("id", filter=Q(envelope__status=EnvelopeStatus.ALL_CLEAR)),
         total_input_tokens=Sum("input_tokens"),
         total_output_tokens=Sum("output_tokens"),
         total_total_tokens=Sum("total_tokens"),
         total_cost_usd=Sum("cost_usd"),
     )
-    if agg["terminal"] < total:
+    notable = agg["found"] + agg["needs"] + agg["failed"]
+    if notable == 0 or run.effective_muted:
         return
 
     recipients = _resolve_recipients_run(run)
@@ -151,22 +158,15 @@ def _handle_batch_completion_run(run, siblings, total: int) -> None:
         )
         return
 
-    successful = agg["successful"]
-    failed = total - successful
-    agg_status = RunStatus.SUCCESSFUL if failed == 0 else RunStatus.FAILED
-
-    rows = list(siblings.values_list("repo_id", "started_at", "finished_at", "status"))
-
-    effective = run.effective_notify_on
-    channels = [cls.channel_type for cls in enabled_channels()] if _status_matches_run(effective, agg_status) else []  # noqa: F821
-
+    channels = [cls.channel_type for cls in enabled_channels()]
+    rows = list(siblings.values_list("repo_id", "started_at", "finished_at", "envelope__status"))
     usage = {
         "input_tokens": agg["total_input_tokens"],
         "output_tokens": agg["total_output_tokens"],
         "total_tokens": agg["total_total_tokens"],
         "cost_usd": float(agg["total_cost_usd"]) if agg["total_cost_usd"] is not None else None,
     }
-    subject, body, context = _render_batch_payload_run(run, rows, total, successful, failed, agg_status, usage)
+    subject, body, context = _render_batch_payload_run(run, rows, total, agg, notable, usage)
     link_url = f"{reverse('session_list')}?batch={run.batch_id}"
 
     for recipient in recipients.values():
@@ -204,59 +204,47 @@ def _handle_batch_completion_run(run, siblings, total: int) -> None:
 
 
 def _render_batch_payload_run(
-    run, rows: list[tuple], total: int, successful: int, failed: int, agg_status: str, usage: dict
+    run, rows: list[tuple], total: int, agg: dict, notable: int, usage: dict
 ) -> tuple[str, str, dict]:
-    from sessions.models import RunStatus
-
     is_schedule = _is_schedule_run(run)
-    ok = failed == 0
     repo_ids = sorted({repo for repo, _start, _end, _status in rows if repo})
-    repo_results = [{"repo": repo, "ok": status == RunStatus.SUCCESSFUL} for repo, _start, _end, status in rows if repo]
     name = run.session.scheduled_job.name if is_schedule else ""
     owner = str(run.session.scheduled_job.user) if is_schedule else ""
+    breakdown = {
+        "found": agg["found"],
+        "needs": agg["needs"],
+        "failed": agg["failed"],
+        "clear": agg["clear"],
+        "notable": notable,
+        "total": total,
+    }
 
     if is_schedule:
-        params = {"name": name, "owner": owner, "total": total, "ok": successful, "failed": failed}
-        if ok:
-            subject = _("'%(name)s' batch succeeded (%(total)d runs) — %(owner)s") % params
-            body = _("All %(total)d runs of '%(name)s' by %(owner)s finished successfully.") % params
-        elif successful == 0:
-            subject = _("'%(name)s' batch failed (%(total)d runs) — %(owner)s") % params
-            body = _("All %(total)d runs of '%(name)s' by %(owner)s failed.") % params
-        else:
-            subject = _("'%(name)s' batch: %(ok)d/%(total)d succeeded — %(owner)s") % params
-            body = _("%(ok)d of %(total)d runs of '%(name)s' by %(owner)s succeeded; %(failed)d failed.") % params
+        params = {"name": name, "owner": owner, "notable": notable, "total": total}
+        subject = _("'%(name)s' batch: %(notable)d/%(total)d need a look — %(owner)s") % params
     else:
         repo_summary = _summarize_repos(repo_ids)
-        if ok:
-            subject = _("Agent run batch succeeded (%(total)d runs)") % {"total": total}
-            body = _("All %(total)d runs on %(repos)s finished successfully.") % {"total": total, "repos": repo_summary}
-        elif successful == 0:
-            subject = _("Agent run batch failed (%(total)d runs)") % {"total": total}
-            body = _("All %(total)d runs on %(repos)s failed.") % {"total": total, "repos": repo_summary}
-        else:
-            subject = _("Agent run batch finished: %(ok)d/%(total)d succeeded") % {"ok": successful, "total": total}
-            body = _("%(ok)d of %(total)d runs on %(repos)s succeeded; %(failed)d failed.") % {
-                "ok": successful,
-                "total": total,
-                "repos": repo_summary,
-                "failed": failed,
-            }
+        params = {"notable": notable, "total": total, "repos": repo_summary}
+        subject = _("Agent run batch: %(notable)d/%(total)d need a look") % params
+
+    body_tmpl = _(
+        "%(found)d found issues, %(needs)d need attention, %(failed)d failed, %(clear)d all-clear (of %(total)d runs)."
+    )  # noqa: E501
+    body = body_tmpl % breakdown
 
     context = {
-        "status": str(agg_status),
-        "status_label": RunStatus(agg_status).label,
-        "is_successful": ok,
+        "found_count": agg["found"],
+        "needs_attention_count": agg["needs"],
+        "failed_count": agg["failed"],
+        "all_clear_count": agg["clear"],
+        "notable_count": notable,
+        "total": total,
         "trigger_label": run.get_trigger_type_display(),
         "trigger_name": name,
         "trigger_owner": owner,
         "repo_id": repo_ids[0] if len(repo_ids) == 1 else "",
         "repo_ids": repo_ids,
-        "repo_results": repo_results,
-        "total": total,
-        "successful_count": successful,
-        "failed_count": failed,
-        "duration_seconds": _batch_duration(rows),
+        "duration_seconds": _batch_duration([(r, s, e, st) for r, s, e, st in rows]),
         "batch_id": str(run.batch_id),
         "input_tokens": usage["input_tokens"],
         "output_tokens": usage["output_tokens"],
