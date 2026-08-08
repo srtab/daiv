@@ -20,12 +20,23 @@ logger = logging.getLogger("daiv.sessions")
 # Arguments: run (Run instance).
 run_finished = Signal()
 
+# Emitted exactly once when a RunEnvelope is persisted for a Run.
+# Arguments: run (Run instance), envelope (RunEnvelope instance).
+run_classified = Signal()
+
 # ``error_message`` prefix for the orphan-task failure mode: the broker holds a task
 # that couldn't be linked back to its Run row, so the agent may run to completion
 # (push a commit / open an MR) while the row shows FAILED. Shared by both the
 # batch-submit path (services) and the dispatcher (signals) so the sentinel an
 # operator greps for stays identical across them.
 LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
+
+
+def get_classify_origins() -> frozenset[str]:
+    """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
+    from sessions.models import SessionOrigin
+
+    return frozenset({SessionOrigin.SCHEDULE}) | SessionOrigin.webhooks() | SessionOrigin.prompt_driven()
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -235,25 +246,24 @@ def _enqueue_queued_run(run: Any) -> bool:
 
 @receiver(run_finished, dispatch_uid="agent_sessions.classify_on_run_finished")
 def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
-    """Enqueue post-run classification when a scheduled run reaches a terminal status.
+    """Enqueue post-run classification for all non-chat origins (SCHEDULE + webhooks + prompt-driven).
 
-    A single gated receiver (AC1), sitting alongside the dispatcher and the notification/memory
-    receivers — never folded into them. Only scheduled, terminal runs get an envelope.
-    ``skip_dispatch=True`` marks re-emits for runs that never executed (empty ``response_text``),
-    so they must not be classified — hence it is checked first.
+    Universal gate: every terminal, non-chat run gets a RunEnvelope. ``skip_dispatch=True`` marks
+    re-emits from dispatch/link failures; a FAILED re-emit still deserves a ``failed`` envelope
+    + failure notification (F5), so only the non-FAILED skip_dispatch case returns early.
 
-    Exception-safe: classification must never affect the run lifecycle (the signal is
-    ``send_robust``, but we wrap here like the peer receivers so one failure can't stall the emit
-    loop). ``RunStatus``/``SessionOrigin`` are imported locally (``sessions.models`` cannot be
-    imported at this module's top without a cycle); ``classify_run_task`` is a module-level import,
-    mirroring ``memory.signals``.
+    Exception-safe: classification must never affect the run lifecycle. ``RunStatus`` is imported
+    locally (``sessions.models`` cannot be imported at this module's top without a cycle);
+    ``classify_run_task`` is a module-level import, mirroring ``memory.signals``.
     """
-    from sessions.models import RunStatus, SessionOrigin
+    from sessions.models import RunStatus
 
     try:
-        if kwargs.get("skip_dispatch"):
+        # skip_dispatch re-emits are dispatch/link failures; a FAILED one still deserves a `failed`
+        # envelope + failure notification (F5). Only the dispatcher's (non-failed) re-entry is skipped.
+        if kwargs.get("skip_dispatch") and run.status != RunStatus.FAILED:
             return
-        if run.trigger_type != SessionOrigin.SCHEDULE:
+        if run.trigger_type not in get_classify_origins():
             return
         if run.status not in RunStatus.terminal():
             return

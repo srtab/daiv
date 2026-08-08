@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 from django.utils.translation import gettext
 
+from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
@@ -67,19 +68,34 @@ async def classify_run_task(run_id: str) -> None:
         # Write exactly one envelope. ``count`` is always ``len(actionable)`` (derived here so the two
         # can never disagree). The ``aexists`` guard above is check-then-act, so a concurrent task can
         # still race past it; the OneToOne then rejects the second insert with an ``IntegrityError``.
+        from sessions.signals import run_classified  # local import: sessions.signals imports sessions.tasks
+
         try:
-            await RunEnvelope.objects.acreate(
+            envelope = await RunEnvelope.objects.acreate(
                 run=run, status=status, count=len(actionable), summary=summary, actionable=actionable
             )
         except IntegrityError:
             # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
-            # wrote it and we lost. Any *other* IntegrityError (a genuine constraint violation) must
-            # surface as a FAILED task, not be silently disguised as a race — otherwise the run is left
-            # unclassified with no signal.
+            # wrote it and we lost — the raced loser returns WITHOUT emitting (fire-once, F2). Any other
+            # IntegrityError must surface as a FAILED task, not be disguised as a race.
             if await RunEnvelope.objects.filter(run=run).aexists():
                 logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
                 return
             raise
+        # Emit on the success path only. Bridge to the sync executor: every receiver (notify() and its
+        # recipient/subscriber queries) is synchronous ORM and would raise SynchronousOnlyOperation on
+        # the event loop. thread_sensitive=True runs them in the shared sync executor.
+        results = await sync_to_async(run_classified.send_robust, thread_sensitive=True)(
+            sender=type(run), run=run, envelope=envelope
+        )
+        for recv, response in results:
+            if isinstance(response, Exception):
+                logger.error(
+                    "run_classified receiver %s failed for run=%s",
+                    getattr(recv, "__name__", recv),
+                    run.pk,
+                    exc_info=response,
+                )
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and
     # without — any LLM call. Its prose report may be empty, so the summary comes from error_message.
