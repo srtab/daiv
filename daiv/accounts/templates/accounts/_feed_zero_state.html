@@ -1,0 +1,34 @@
+{% load i18n icon_tags %}
+{% comment %}
+Feed zero-state seal (Story 2.3, AC6) — "nothing needs you." as a first-class positive state,
+never a blank or error panel. Two variants:
+  • audited-clean — ≥1 all-clear scheduled run → audit meta (N runs all clear · last checked <ago>,
+    + next sweep <time> when a schedule has one).
+  • never-ran — no scheduled runs yet → distinct calm copy, no audit meta.
+{% endcomment %}
+<section data-testid="feed-zero-state"
+         data-variant="{{ zero.variant }}"
+         class="rounded-xl border border-border bg-surface-2 p-6 text-center">
+  <div class="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full"
+       style="background-color: color-mix(in srgb, var(--color-status-clear) 14%, transparent); color: var(--color-status-clear)">
+    {% icon "check-circle" "h-5 w-5" %}
+  </div>
+  <h3 class="text-[15px] font-semibold text-text">{% translate "nothing needs you." %}</h3>
+  {% if zero.variant == "audited-clean" %}
+    <p class="mx-auto mt-1.5 max-w-sm text-[13px] text-text-muted">
+      {% translate "DAIV checked and everything's clear." %}
+    </p>
+    <p class="mt-3 font-mono text-[12px] tabular-nums text-text-faint">
+      {% if zero.last_checked %}
+        {% blocktranslate with ago=zero.last_checked|timesince count counter=zero.all_clear_count %}{{ counter }} run all clear · last checked {{ ago }}{% plural %}{{ counter }} runs all clear · last checked {{ ago }}{% endblocktranslate %}
+      {% else %}
+        {% blocktranslate count counter=zero.all_clear_count %}{{ counter }} run all clear{% plural %}{{ counter }} runs all clear{% endblocktranslate %}
+      {% endif %}
+      {% if zero.next_sweep %} · {% blocktranslate with sweep=zero.next_sweep|date:"H:i" %}next sweep {{ sweep }}{% endblocktranslate %}{% endif %}
+    </p>
+  {% else %}
+    <p class="mx-auto mt-1.5 max-w-sm text-[13px] text-text-muted">
+      {% translate "No scheduled runs yet." %}
+    </p>
+  {% endif %}
+</section>

@@ -1,15 +1,153 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  /* Self-hosted Geist (see @font-face below). Sans for prose/headings, Mono for data. */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Skill usage chart palette — tuned for the dark body background (#030712). */
+  /* ---------------------------------------------------------------------
+     Review Console dark-only semantic token layer (Story 2.1).
+     Authoritative values from DESIGN.md — dark theme only, no light variant.
+     Declared in the Tailwind v4 `--color-*` namespace so utilities generate
+     (bg-ground, text-text-muted, border-border, text-status-found, …).
+     --------------------------------------------------------------------- */
+  --color-ground: #0d1117; /* base plane */
+  --color-surface-1: #10151d; /* sidebar + top bar */
+  --color-surface-2: #161c26; /* cards + hero */
+  --color-surface-3: #1e2733; /* hover / inset chips */
+  --color-border: #232b36; /* 1px hairline separators */
+
+  --color-text: #e6edf3; /* primary content */
+  --color-text-strong: #ffffff; /* the single most-important number only */
+  --color-text-muted: #9aa4b0; /* secondary meta */
+  --color-text-faint: #767f8e; /* timestamps / captions (AA-fixed) */
+
+  --color-brand: #8b5cf6; /* violet — WHO / brand fills & mark only */
+  --color-brand-bright: #a78bfa; /* violet text/glyphs needing AA lift; avatar initials */
+
+  --color-accent: #2dd4bf; /* teal — DO / action; owns "clickable" */
+  --color-accent-bright: #5fe6d4; /* teal text (AA) */
+  --color-accent-ink: #04211d; /* text on a solid teal fill */
+
+  --color-focus: #5fe6d4; /* focus ring */
+
+  --color-status-clear: #3fb950; /* all-clear (green) */
+  --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
+  --color-status-attn: #38bdf8; /* needs-attention / "review this" (cyan) */
+  --color-status-fail: #f85149; /* failed tooling / "retry" (red) */
+
+  /* Flat elevation: persistent surfaces carry NO shadow. This single overlay
+     shadow is reserved for transient overlays (menus/popovers/dialogs). */
+  --shadow-overlay: 0 16px 40px -24px rgba(0, 0, 0, 0.85);
+
+  /* Skill usage chart palette — translucent white overlays, dark-bg tuned. */
   --chart-bar: rgba(255, 255, 255, 0.18);
   --chart-bar-hover: rgba(255, 255, 255, 0.42);
   --chart-tick: rgba(255, 255, 255, 0.35);
   --chart-grid: rgba(255, 255, 255, 0.04);
   --chart-tooltip-bg: rgba(15, 23, 42, 0.95);
   --chart-tooltip-fg: rgba(255, 255, 255, 0.92);
+}
+
+/* Self-hosted Geist Sans + Geist Mono (OFL-1.1) — variable woff2, latin subset
+   covers pt-PT diacritics (ã ç õ é). No font CDN (UX-DR2). Paths are relative to
+   the compiled stylesheet at daiv/static/css/styles.css. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/geist/geist-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/geist/geist-mono-latin-wght-normal.woff2") format("woff2");
+}
+
+@layer base {
+  /* Global teal focus-visible ring on every interactive element that does not
+     opt out with `focus:outline-none` + its own ring utility (UX-DR13). */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Respect prefers-reduced-motion everywhere — blanket kill switch. Written as a
+   plain rule (outside @layer) so it wins over animation utilities/keyframes. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Cold-load skeleton for placeholder console regions (Hero/Queue/Feed). */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-3),
+    var(--color-surface-2),
+    var(--color-surface-3)
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--color-surface-3);
+  }
+}
+
+/* Sidebar icon-rail collapse for the 768–1023px tier (AC5). The persistent
+   sidebar carries `.sidebar--rail`; between md and lg it narrows to an icon
+   rail and hides text. The mobile sheet reuses the same partial WITHOUT the
+   `--rail` modifier, so it always shows full labels. Plain rule so it beats
+   the width utility on the sidebar root. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .sidebar--rail {
+    width: 4rem;
+  }
+
+  .sidebar--rail .sidebar__label,
+  .sidebar--rail .sidebar__group-label,
+  .sidebar--rail .sidebar__cta-label,
+  .sidebar--rail .sidebar__brand-text,
+  .sidebar--rail .sidebar__badge {
+    display: none;
+  }
+
+  .sidebar--rail .sidebar__brand,
+  .sidebar--rail .sidebar__cta,
+  .sidebar--rail .sidebar__nav-item,
+  .sidebar--rail .sidebar__footer-link {
+    justify-content: center;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .sidebar--rail .sidebar__group-heading {
+    height: 1.25rem;
+  }
 }
 
 @keyframes fade-up {

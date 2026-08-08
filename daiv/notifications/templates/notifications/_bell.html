@@ -13,7 +13,7 @@
           aria-label="{% translate 'Notifications' %}">
     {% icon "bell" "h-5 w-5" %}
     {% if unread_count %}
-      <span class="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
+      <span class="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold tabular-nums text-white">
         {{ unread_count }}
       </span>
     {% endif %}

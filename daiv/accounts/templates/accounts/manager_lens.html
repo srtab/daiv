@@ -1,0 +1,16 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Manager Lens" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block topbar_start %}
+  {# Admin-gated console surface toggle, active on "Manager Lens". #}
+  {% include "accounts/_manager_lens_toggle.html" with surface="manager" %}
+{% endblock topbar_start %}
+
+{% block app_content %}
+{# #console-main is the HTMX swap target for the top-bar toggle (see the toggle partial). #}
+<div id="console-main">{% include "accounts/_manager_lens.html" %}</div>
+{% endblock app_content %}
