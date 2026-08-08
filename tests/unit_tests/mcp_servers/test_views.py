@@ -446,7 +446,8 @@ def test_set_status_cycles_through_values(client, admin_user):
     assert resp.status_code == 302
     obj.refresh_from_db()
     assert obj.status == MCPServer.Status.DISABLED
-    client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "active"})
+    resp = client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "active"})
+    assert resp.status_code == 302
     obj.refresh_from_db()
     assert obj.status == MCPServer.Status.ACTIVE
 
@@ -1183,6 +1184,9 @@ def test_member_cannot_manage_global(member_client, route):
     resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]), data)
     assert resp.status_code == 403
     assert MCPServer.objects.filter(pk=g.pk).exists()  # delete had no effect
+    if route == "set_status":
+        g.refresh_from_db()
+        assert g.status == MCPServer.Status.ACTIVE  # set_status had no effect
 
 
 @pytest.mark.django_db
@@ -1194,6 +1198,9 @@ def test_member_cannot_manage_other_users_server(member_client, admin_user, rout
     resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]), data)
     assert resp.status_code == 404
     assert MCPServer.objects.filter(pk=other.pk).exists()  # delete had no effect
+    if route == "set_status":
+        other.refresh_from_db()
+        assert other.status == MCPServer.Status.ACTIVE  # set_status had no effect
 
 
 @pytest.mark.django_db
