@@ -72,6 +72,7 @@ async def aget_or_create_session(
     scheduled_job=None,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
+    mcp_overrides: dict | None = None,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
@@ -92,6 +93,7 @@ async def aget_or_create_session(
             "scheduled_job": scheduled_job,
             "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
+            "mcp_overrides": mcp_overrides or {},
         },
     )
     if not created:
@@ -121,6 +123,7 @@ async def acreate_run(
     title: str = "",
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
+    mcp_overrides: dict | None = None,
 ) -> Run:
     """Async: create a Session (idempotent) then a Run linked to it.
 
@@ -147,6 +150,7 @@ async def acreate_run(
         scheduled_job=scheduled_job,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
+        mcp_overrides=mcp_overrides,
     )
     return await Run.objects.acreate(
         session=session,
@@ -209,6 +213,7 @@ async def asubmit_batch_runs(
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
     thread_id: str | None = None,
+    mcp_overrides: dict | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -260,6 +265,7 @@ async def asubmit_batch_runs(
             "thread_id": effective_thread_id,
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
+            "mcp_overrides": mcp_overrides,
         }
 
         # Claim the session atomically by trying to create a READY row. The partial
