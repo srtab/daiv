@@ -21,6 +21,7 @@
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
   <script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
+  <script defer src="{% static 'mcp_servers/js/mcp-chat-picker.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
   {% if poll_transcript %}
   <script defer src="{% static 'sessions/js/session-sync.js' %}"></script>
@@ -78,6 +79,7 @@
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
+       @daiv:mcp-changed.window="applyMcpSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
        x-cloak
        class="chat-shell"
@@ -122,6 +124,8 @@
             <div class="chat-hero__picker">
               {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
               {% include "automation/_agent_picker.html" with providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
+              {% url 'api:mcp_selection_pool' as mcp_pool_url %}
+              {% include "mcp_servers/_mcp_chat_picker.html" with pool_url=mcp_pool_url %}
               {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
             </div>
           </div>

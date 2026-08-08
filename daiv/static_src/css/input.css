@@ -1980,6 +1980,33 @@ main:has(.chat-shell) {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
   }
 
+  /* MCP chat picker pill — tinted teal to distinguish it from env (dark) and agent (grey-blue). */
+  .mcp-pill {
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1
+           text-[13px] font-medium text-[#c8dcd8];
+    background-color: rgba(80, 160, 150, 0.12);
+    border: 1px solid rgba(80, 160, 150, 0.28);
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .mcp-pill:hover {
+    background-color: rgba(80, 160, 150, 0.20);
+  }
+  .mcp-pill:focus-visible {
+    outline: 2px solid rgba(100, 190, 180, 0.5);
+    outline-offset: 2px;
+  }
+  .mcp-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
+  .mcp-pill__name { @apply max-w-[18ch] truncate; }
+  .mcp-pill__count {
+    @apply rounded-full bg-white/[0.12] px-1.5 text-[11px] text-gray-300;
+  }
+  .mcp-pill__caret { @apply h-2.5 w-2.5 opacity-50 ml-px; }
+  .mcp-pill--locked {
+    @apply opacity-75 pointer-events-none;
+    background-color: rgba(80, 160, 150, 0.07);
+  }
+  .mcp-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
+
   /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).
      Firefox uses `scrollbar-*`; WebKit needs the pseudo-elements. */
   .scrollbar-thin {

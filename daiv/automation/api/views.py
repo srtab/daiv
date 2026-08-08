@@ -1,6 +1,7 @@
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
 from asgiref.sync import async_to_sync
+from mcp_servers.selection import PoolEntry, build_selection_pool
 from ninja import Router
 from ninja.security import django_auth
 
@@ -9,6 +10,11 @@ from automation.api.schemas import AgentModelsResponse, ProviderInfo
 from core.models import Provider
 
 router = Router(tags=["automation"])
+
+
+@router.get("/mcp/pool", response=list[PoolEntry], auth=django_auth, url_name="mcp_selection_pool")
+def mcp_selection_pool(request: HttpRequest) -> list[PoolEntry]:
+    return build_selection_pool(request.user.pk)
 
 
 @router.get("/agent/models", response=AgentModelsResponse, auth=django_auth, url_name="agent_models")
