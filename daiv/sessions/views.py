@@ -428,6 +428,11 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 "agent_model": source.agent_model,
                 "agent_thinking_level": source.agent_thinking_level,
             })
+            from mcp_servers.selection import build_selection_pool, effective_selection
+
+            pool = build_selection_pool(self.request.user.pk)
+            source_overrides = source.session.mcp_overrides if source.session_id else {}
+            initial["mcp_servers"] = sorted(effective_selection(source_overrides, pool))
         return initial
 
     def get_context_data(self, **kwargs):
@@ -458,6 +463,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
+                mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise

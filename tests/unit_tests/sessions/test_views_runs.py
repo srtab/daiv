@@ -158,3 +158,64 @@ def test_post_submit_failure_rerenders_form_with_error(member_client):
     assert resp.status_code == 200
     # Non-field error surfaced and the page re-rendered rather than redirecting.
     assert resp.context["form"].errors
+
+
+# --- MCP overrides ---------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
+    import json
+
+    from mcp_servers.models import MCPServer
+    from mcp_servers.selection import build_selection_pool, effective_selection
+
+    MCPServer.objects.create(
+        name="b",
+        scope=MCPServer.Scope.GLOBAL,
+        status=MCPServer.Status.ON_DEMAND,
+        transport=MCPServer.Transport.HTTP,
+        url="http://b.test/mcp",
+    )
+    pool = build_selection_pool(member_user.pk)
+    # Default selection (no overrides) plus "b" opted in.
+    selected = sorted(effective_selection({}, pool)) + ["b"]
+    result = _fake_result(runs=1, failed=0, session_id="thread-abc")
+    captured: dict = {}
+
+    def _capture(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    with (
+        patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
+        patch("sessions.views.submit_batch_runs", side_effect=_capture),
+    ):
+        resp = member_client.post(NEW_RUN_URL, {**_post_data(), "mcp_servers": json.dumps(selected)})
+    assert resp.status_code == 302
+    assert captured.get("mcp_overrides") == {"b": "on"}
+
+
+@pytest.mark.django_db
+def test_retry_prefills_selection_from_source_session(member_client, member_user):
+    from mcp_servers.models import MCPServer
+    from mcp_servers.selection import build_selection_pool, effective_selection
+
+    MCPServer.objects.create(
+        name="b",
+        scope=MCPServer.Scope.GLOBAL,
+        status=MCPServer.Status.ON_DEMAND,
+        transport=MCPServer.Transport.HTTP,
+        url="http://b.test/mcp",
+    )
+    source = _create_run(member_user)
+    source.session.mcp_overrides = {"b": "on"}
+    source.session.save(update_fields=["mcp_overrides"])
+
+    resp = member_client.get(NEW_RUN_URL, {"from": str(source.pk)})
+    assert resp.status_code == 200
+
+    pool = build_selection_pool(member_user.pk)
+    expected = sorted(effective_selection({"b": "on"}, pool))
+    assert resp.context["form"].initial.get("mcp_servers") == expected
+    assert "b" in expected
