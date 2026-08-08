@@ -256,6 +256,31 @@ class TestNotificationPolicy:
         run_classified.send(sender=Run, run=run, envelope=envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
+    def test_notification_context_carries_run_metadata(self, member_user, run_schedule):
+        from decimal import Decimal
+
+        session = _session(origin=SessionOrigin.SCHEDULE, thread_id=str(uuid.uuid4()), scheduled_job=run_schedule)
+        run, envelope = _classified_run(
+            session,
+            status=EnvelopeStatus.FOUND_ISSUES,
+            trigger_type=SessionOrigin.SCHEDULE,
+            user=member_user,
+            repo_id="acme/app",
+            input_tokens=100,
+            output_tokens=200,
+            total_tokens=300,
+            cost_usd=Decimal("0.05"),
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        n = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert n.context["repo_id"] == "acme/app"
+        assert n.context["status"] == RunStatus.SUCCESSFUL
+        assert n.context["input_tokens"] == 100
+        assert n.context["output_tokens"] == 200
+        assert n.context["total_tokens"] == 300
+        assert n.context["cost_usd"] == 0.05
+
     def test_idempotent_second_emit_is_deduped(self, member_user, caplog):
         session = _session(user=member_user)
         run, envelope = _classified_run(session, status=EnvelopeStatus.FAILED, user=member_user)
