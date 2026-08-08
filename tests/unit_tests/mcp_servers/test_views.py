@@ -27,7 +27,7 @@ def _create_post_data(name="srv", url="https://srv.test/mcp"):
         "description": "",
         "transport": "http",
         "url": url,
-        "enabled": "on",
+        "status": "active",
         "tool_filter_mode": "none",
         "tool_filter_items": "",
         "headers-TOTAL_FORMS": "0",
@@ -69,7 +69,7 @@ def test_member_can_create_personal_server(member_client, member_user):
             "description": "",
             "transport": "http",
             "url": "https://u.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "headers-TOTAL_FORMS": "0",
             "headers-INITIAL_FORMS": "0",
@@ -229,7 +229,7 @@ def test_create_post_creates_server(client, admin_user):
             "name": "from-ui",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -253,7 +253,7 @@ def test_edit_custom_updates_fields(client, admin_user):
             "name": "ed",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -328,7 +328,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
             "name": "rt",
             "transport": "http",
             "url": "http://rt.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "3",
@@ -371,7 +371,7 @@ def test_edit_builtin_full_form_persists(client, admin_user):
             "description": "repointed at on-prem bridge",
             "transport": "http",
             "url": "https://bridge.internal/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -578,7 +578,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
             "name": "multi",
             "transport": "http",
             "url": "http://multi.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "allow",
             "tool_filter_items": ["alpha", "beta", "gamma"],
             "headers-TOTAL_FORMS": "0",
@@ -609,7 +609,7 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
             "name": "synced",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -638,7 +638,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
             "name": "synced-create",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -667,7 +667,7 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
             "name": "warned",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -700,7 +700,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
             "name": "locked",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -727,7 +727,7 @@ def test_create_rejects_reserved_name(client, admin_user):
             "name": "new",
             "transport": "http",
             "url": "http://x.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -1402,7 +1402,7 @@ def test_edit_global_save_redirects_to_global_list(admin_client):
             "name": "edg",
             "transport": "http",
             "url": "http://edg.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -1419,14 +1419,14 @@ def test_edit_global_save_redirects_to_global_list(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_form_header_hosts_enabled_toggle(admin_client):
+def test_create_form_renders_status_segmented_control(admin_client):
     resp = admin_client.get(reverse("mcp_servers:create"))
     body = resp.content.decode()
     assert 'id="mcp-server-form"' in body
-    # The toggle lives outside <form> and binds via the form attribute, checked by default.
-    assert 'form="mcp-server-form"' in body
-    toggle = next(seg for seg in body.split("<input") if 'form="mcp-server-form"' in seg)
-    assert "checked" in toggle
+    # The status segmented control renders exactly the three Status choices as radio inputs.
+    assert body.count('name="status"') == len(MCPServer.Status.choices)
+    for value, _label in MCPServer.Status.choices:
+        assert f'value="{value}"'.encode() in resp.content
 
 
 # --- Tool-filter visibility gating ---
