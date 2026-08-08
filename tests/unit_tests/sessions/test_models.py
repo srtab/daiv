@@ -251,6 +251,51 @@ def test_effective_notify_on_falls_back_to_never_without_override_schedule_or_us
     assert run.effective_notify_on == NotifyOn.NEVER
 
 
+@pytest.mark.django_db
+class TestEffectiveMuted:
+    def _run(self, *, muted=None, schedule=None):
+        origin = SessionOrigin.SCHEDULE if schedule else SessionOrigin.API_JOB
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=origin, repo_id="x/y", scheduled_job=schedule
+        )
+        return Run.objects.create(
+            session=session, trigger_type=origin, repo_id="x/y", status=RunStatus.SUCCESSFUL, muted=muted
+        )
+
+    def test_run_override_wins(self, member_user):
+        from schedules.models import Frequency, ScheduledJob
+
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="n",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            muted=True,
+        )
+        assert self._run(muted=False, schedule=schedule).effective_muted is False
+        assert self._run(muted=True, schedule=schedule).effective_muted is True
+
+    def test_inherits_schedule_when_no_override(self, member_user):
+        from schedules.models import Frequency, ScheduledJob
+
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="n",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            muted=True,
+        )
+        assert self._run(muted=None, schedule=schedule).effective_muted is True
+
+    def test_non_scheduled_defaults_false(self):
+        assert self._run(muted=None, schedule=None).effective_muted is False
+        assert self._run(muted=True, schedule=None).effective_muted is True
+
+
 def test_run_message_id_defaults_blank_and_persists(session_fixture):
     run = Run.objects.create(
         session=session_fixture,

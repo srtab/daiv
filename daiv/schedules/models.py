@@ -173,6 +173,7 @@ class ScheduledJob(TimeStampedModel):
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
     intent = models.CharField(
         _("intent"),
         max_length=16,
@@ -355,6 +356,7 @@ class ScheduleTemplate(TimeStampedModel):
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
     intent = models.CharField(
         _("intent"),
         max_length=16,

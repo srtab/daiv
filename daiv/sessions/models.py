@@ -250,6 +250,7 @@ class Run(models.Model):
     notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
         _("notify on"), max_length=16, choices=NotifyOn.choices, null=True, blank=True
     )
+    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # noqa: DJ001 — null = inherit
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
@@ -334,6 +335,15 @@ class Run(models.Model):
         if self.user_id is not None and self.user is not None:
             return NotifyOn(self.user.notify_on_jobs)
         return NotifyOn.NEVER
+
+    @property
+    def effective_muted(self) -> bool:
+        if self.muted is not None:
+            return self.muted
+        schedule = self.session.scheduled_job if self.session_id else None
+        if schedule is not None:
+            return schedule.muted
+        return False  # non-scheduled runs notify unless the run itself is muted
 
     @property
     def is_retryable(self) -> bool:
