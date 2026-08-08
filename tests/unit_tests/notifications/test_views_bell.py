@@ -7,7 +7,13 @@ class TestBellDropdown:
     def test_renders_unread_count_and_recent(self, member_client, member_user):
         for i in range(3):
             Notification.objects.create(
-                recipient=member_user, event_type="schedule.finished", subject=f"n{i}", body="b", link_url="/"
+                recipient=member_user,
+                event_type="schedule.finished",
+                source_type="sessions.Run",
+                source_id=f"run-{i}",
+                subject=f"n{i}",
+                body="b",
+                link_url="/",
             )
         response = member_client.get("/dashboard/notifications/bell/")
         assert response.status_code == 200
@@ -17,7 +23,13 @@ class TestBellDropdown:
     def test_limits_to_ten_recent(self, member_client, member_user):
         for i in range(15):
             Notification.objects.create(
-                recipient=member_user, event_type="schedule.finished", subject=f"msg{i}", body="b", link_url="/"
+                recipient=member_user,
+                event_type="schedule.finished",
+                source_type="sessions.Run",
+                source_id=f"run-{i}",
+                subject=f"msg{i}",
+                body="b",
+                link_url="/",
             )
         response = member_client.get("/dashboard/notifications/bell/")
         # Newest ten are msg5..msg14
@@ -28,7 +40,13 @@ class TestBellDropdown:
     def test_marks_all_unread_as_read_on_open(self, member_client, member_user):
         for i in range(15):
             Notification.objects.create(
-                recipient=member_user, event_type="schedule.finished", subject=f"n{i}", body="b", link_url="/"
+                recipient=member_user,
+                event_type="schedule.finished",
+                source_type="sessions.Run",
+                source_id=f"run-{i}",
+                subject=f"n{i}",
+                body="b",
+                link_url="/",
             )
         response = member_client.get("/dashboard/notifications/bell/")
         assert response.status_code == 200

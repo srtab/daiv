@@ -72,7 +72,13 @@ class TestMarkAsRead:
     def test_mark_all_as_read_redirects(self, member_client, member_user):
         for i in range(3):
             Notification.objects.create(
-                recipient=member_user, event_type="schedule.finished", subject=f"s{i}", body="b", link_url="/"
+                recipient=member_user,
+                event_type="schedule.finished",
+                source_type="sessions.Run",
+                source_id=f"run-{i}",
+                subject=f"s{i}",
+                body="b",
+                link_url="/",
             )
         response = member_client.post("/dashboard/notifications/read-all/")
         assert response.status_code == 302
