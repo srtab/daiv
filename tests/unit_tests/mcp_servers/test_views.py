@@ -439,16 +439,16 @@ def test_delete_builtin_redirects_with_error(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_toggle_flips_enabled(client, admin_user):
-    obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", enabled=True)
+def test_set_status_cycles_through_values(client, admin_user):
+    obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", status=MCPServer.Status.ACTIVE)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
+    resp = client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "disabled"})
     assert resp.status_code == 302
     obj.refresh_from_db()
-    assert obj.enabled is False
-    client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
+    assert obj.status == MCPServer.Status.DISABLED
+    client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "active"})
     obj.refresh_from_db()
-    assert obj.enabled is True
+    assert obj.status == MCPServer.Status.ACTIVE
 
 
 @pytest.mark.django_db
@@ -767,7 +767,7 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
         transport="http",
         url="http://x.test",
         headers=[{"name": "X", "mode": "env_ref", "value": "ALSO_NOT_SET"}],
-        enabled=False,
+        status=MCPServer.Status.DISABLED,
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
@@ -1175,23 +1175,23 @@ def test_test_endpoint_undecryptable_borrow_returns_400(member_client, member_us
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+@pytest.mark.parametrize("route", ["set_status", "delete", "refresh_tools"])
 def test_member_cannot_manage_global(member_client, route):
-    """A member cannot toggle/delete/refresh a global server (admin-only) → 403."""
+    """A member cannot set_status/delete/refresh a global server (admin-only) → 403."""
     g = _global(name="glob")
-    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]))
+    data = {"status": "disabled"} if route == "set_status" else {}
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]), data)
     assert resp.status_code == 403
-    g.refresh_from_db()
-    assert g.enabled is True  # toggle had no effect
     assert MCPServer.objects.filter(pk=g.pk).exists()  # delete had no effect
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+@pytest.mark.parametrize("route", ["set_status", "delete", "refresh_tools"])
 def test_member_cannot_manage_other_users_server(member_client, admin_user, route):
-    """A member cannot toggle/delete/refresh another user's personal server → 404."""
+    """A member cannot set_status/delete/refresh another user's personal server → 404."""
     other = _user_server(admin_user, name="theirs")
-    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]))
+    data = {"status": "disabled"} if route == "set_status" else {}
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]), data)
     assert resp.status_code == 404
     assert MCPServer.objects.filter(pk=other.pk).exists()  # delete had no effect
 
@@ -1372,17 +1372,17 @@ def test_global_section_is_read_only_on_personal_page_even_for_admin(admin_clien
 
 
 @pytest.mark.django_db
-def test_toggle_global_redirects_to_global_list(admin_client):
+def test_set_status_global_redirects_to_global_list(admin_client):
     g = _global(name="tgl")
-    resp = admin_client.post(reverse("mcp_servers:toggle", args=[g.pk]))
+    resp = admin_client.post(reverse("mcp_servers:set_status", args=[g.pk]), {"status": "disabled"})
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:global_list")
 
 
 @pytest.mark.django_db
-def test_toggle_personal_redirects_to_list(member_client, member_user):
+def test_set_status_personal_redirects_to_list(member_client, member_user):
     s = _user_server(member_user)
-    resp = member_client.post(reverse("mcp_servers:toggle", args=[s.pk]))
+    resp = member_client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "disabled"})
     assert resp.url == reverse("mcp_servers:list")
 
 
@@ -1493,3 +1493,35 @@ def test_edit_refresh_is_icon_button_with_metadata(admin_client):
     body = resp.content.decode()
     assert 'form="refresh-tools-form"' in body  # icon button submits the hidden form
     assert "2 tools" in body  # discovered count in the legend metadata
+
+
+@pytest.mark.django_db
+def test_set_status_view_updates_status(client, admin_user):
+    s = MCPServer.objects.create(
+        name="s",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        status=MCPServer.Status.ACTIVE,
+    )
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "on-demand"})
+    assert resp.status_code in (302, 303)
+    s.refresh_from_db()
+    assert s.status == MCPServer.Status.ON_DEMAND
+
+
+@pytest.mark.django_db
+def test_set_status_view_rejects_unknown_status(client, admin_user):
+    s = MCPServer.objects.create(
+        name="s2",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        status=MCPServer.Status.ACTIVE,
+    )
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "banana"})
+    assert resp.status_code == 400
+    s.refresh_from_db()
+    assert s.status == MCPServer.Status.ACTIVE

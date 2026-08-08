@@ -4,7 +4,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -33,7 +33,7 @@ def _decorate(servers, *, global_names=frozenset()):
     the owner it does not load — a condition the create-time guard can't catch when
     the global is added *after* the personal server."""
     for s in servers:
-        s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
+        s.health = services.server_health(s) if s.status != MCPServer.Status.DISABLED else {"ok": True, "reason": None}
         s.exposed = services.exposed_tools(s)
         s.filtered_out = (
             len(s.discovered_tools) - len(s.exposed) if s.tool_filter_mode != MCPServer.FilterMode.NONE else 0
@@ -301,13 +301,16 @@ class MCPServerDeleteView(LoginRequiredMixin, View):
         return redirect(url)
 
 
-class MCPServerToggleView(LoginRequiredMixin, View):
+class MCPServerStatusView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
         obj = MCPServer.objects.manageable_get(request.user, pk)
-        obj.enabled = not obj.enabled
-        obj.save(update_fields=["enabled", "modified"])
+        status = request.POST.get("status")
+        if status not in MCPServer.Status.values:
+            return HttpResponseBadRequest("invalid status")
+        obj.status = status
+        obj.save(update_fields=["status", "modified"])
         return redirect(_list_url_for(obj))
 
 
