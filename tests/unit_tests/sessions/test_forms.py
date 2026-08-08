@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 
 import pytest
-from sessions.forms import AgentRunCreateForm, RepoListField
+from sessions.forms import AgentRunCreateForm, MCPSelectionField, RepoListField
 
 from automation.agent.validators import AgentOverrideError
 
@@ -40,6 +40,35 @@ def test_repo_list_field_prepare_value_serializes_empty_as_bracket():
     field = RepoListField(required=False)
     assert field.prepare_value(None) == "[]"
     assert field.prepare_value([]) == "[]"
+
+
+def test_mcp_selection_field_normalizes_empty_to_list():
+    field = MCPSelectionField(required=False)
+    assert field.clean("") == []
+    assert field.clean("[]") == []
+
+
+def test_mcp_selection_field_accepts_list_of_str():
+    assert MCPSelectionField(required=False).clean('["a", "b"]') == ["a", "b"]
+
+
+def test_mcp_selection_field_rejects_non_list():
+    with pytest.raises(ValidationError):
+        MCPSelectionField(required=False).clean('{"a": 1}')
+
+
+def test_mcp_selection_field_rejects_non_str_elements():
+    with pytest.raises(ValidationError):
+        MCPSelectionField(required=False).clean("[1, 2]")
+
+
+def test_mcp_selection_field_prepare_value_degrades_malformed_string_to_empty():
+    field = MCPSelectionField(required=False)
+    # A bound-form re-render feeds the raw submitted string back; a malformed one degrades to [].
+    assert field.prepare_value("not json") == []
+    assert field.prepare_value('["a"]') == ["a"]
+    assert field.prepare_value(["a"]) == ["a"]
+    assert field.prepare_value(None) == []
 
 
 def _form_data(**overrides):

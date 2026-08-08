@@ -1,6 +1,13 @@
 import pytest
 from mcp_servers.models import MCPServer
-from mcp_servers.selection import PoolEntry, build_selection_pool, default_names, diff_selection, effective_selection
+from mcp_servers.selection import (
+    PoolEntry,
+    build_selection_pool,
+    default_names,
+    diff_selection,
+    effective_selection,
+    mcp_picker_context,
+)
 
 POOL = [
     PoolEntry(name="a", scope="global", description="", is_default=True),
@@ -71,3 +78,36 @@ def test_build_selection_pool_marks_defaults_and_excludes_disabled(member_user):
     assert by_name["g-active"].is_default is True and by_name["g-active"].scope == "global"
     assert by_name["g-ond"].is_default is False
     assert by_name["u1"].scope == "user" and by_name["u1"].is_default is True
+
+
+@pytest.mark.django_db
+def test_build_selection_pool_global_shadows_same_named_user_row(member_user):
+    """A user row is dropped from the *pool* (not just the runtime set) when an on-demand
+    global of the same name exists — the picker must not offer a server that never loads."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://g",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://u",
+        status=MCPServer.Status.ACTIVE,
+    )
+    pool = build_selection_pool(member_user.id)
+    dup_entries = [e for e in pool if e.name == "dup"]
+    assert len(dup_entries) == 1
+    assert dup_entries[0].scope == "global"
+
+
+def test_mcp_picker_context_empty_when_field_absent():
+    class _StubForm:
+        fields: dict = {}
+
+    assert mcp_picker_context(_StubForm()) == {"mcp_pool_global": [], "mcp_pool_user": [], "mcp_selected_names": []}

@@ -149,8 +149,11 @@
     // Forwarded in forwardedProps.mcp_servers on the first turn only; null until the
     // picker dispatches (pool may still be loading).
     _mcpServers: null,
-    lockedMcpLabel: config.initialMcpCount > 0 ? `MCP · ${config.initialMcpCount}` : "MCP",
     lockedMcpCount: config.initialMcpCount || 0,
+    // Derived label for the locked composer pill; the count is the single source of truth.
+    get lockedMcpLabel() {
+      return this.lockedMcpCount > 0 ? `MCP · ${this.lockedMcpCount}` : "MCP";
+    },
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
@@ -202,9 +205,7 @@
 
     applyMcpSelection(detail) {
       this._mcpServers = detail?.servers ?? null;
-      const n = (this._mcpServers || []).length;
-      this.lockedMcpLabel = n > 0 ? `MCP · ${n}` : "MCP";
-      this.lockedMcpCount = n;
+      this.lockedMcpCount = (this._mcpServers || []).length;
     },
 
     applyPolledTurns(turns) {

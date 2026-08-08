@@ -6,7 +6,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from asgiref.sync import sync_to_async
-from mcp_servers.selection import build_selection_pool, diff_selection
+from mcp_servers.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
@@ -189,8 +189,12 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     raw_selection = forwarded.get("mcp_servers")
     submitted_overrides = None
     if raw_selection is not None:
+        try:
+            names = parse_server_names(raw_selection)
+        except ValueError as err:
+            raise HttpError(400, str(err)) from err
         pool = await sync_to_async(build_selection_pool)(user.pk)
-        submitted_overrides = diff_selection(set(raw_selection), pool)
+        submitted_overrides = diff_selection(set(names), pool)
 
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:

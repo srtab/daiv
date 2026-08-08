@@ -141,7 +141,7 @@ def test_builtin_row_included_in_runtime_servers():
 @pytest.mark.django_db
 def test_disabled_builtin_row_excluded():
     # Same context7-leak caveat as the exact-output tests above: this test's own assertion
-    # (out == []) only holds once the seeded enabled built-ins are cleared.
+    # (out == []) only holds once the seeded active built-ins are cleared.
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="fake-builtin",

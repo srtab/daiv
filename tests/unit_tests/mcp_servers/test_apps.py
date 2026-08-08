@@ -41,10 +41,11 @@ def test_defaults_to_builtin_seeds():
 @pytest.mark.django_db
 def test_subsequent_run_never_touches_existing_rows():
     upsert_builtin_rows([_STUB_SEED])
-    MCPServer.objects.filter(name="stub").update(enabled=True, url="https://edited.test/mcp")
+    # _STUB_SEED seeds status="disabled"; edit it to prove the second pass preserves admin edits.
+    MCPServer.objects.filter(name="stub").update(status=MCPServer.Status.ACTIVE, url="https://edited.test/mcp")
     upsert_builtin_rows([_STUB_SEED])  # second pass
     row = MCPServer.objects.get(name="stub")
-    assert row.enabled is True
+    assert row.status == MCPServer.Status.ACTIVE
     assert row.url == "https://edited.test/mcp"
 
 

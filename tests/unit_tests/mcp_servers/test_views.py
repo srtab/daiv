@@ -361,7 +361,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
 @pytest.mark.django_db
 def test_edit_builtin_full_form_persists(client, admin_user):
     obj = MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp"
     )
     client.force_login(admin_user)
     resp = client.post(
@@ -390,7 +390,7 @@ def test_edit_builtin_full_form_persists(client, admin_user):
 @pytest.mark.django_db
 def test_edit_builtin_rename_rejected(client, admin_user):
     obj = MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp"
     )
     client.force_login(admin_user)
     resp = client.post(
@@ -750,7 +750,6 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
         transport="http",
         url="http://broken.test",
         headers=[{"name": "Authorization", "mode": "env_ref", "value": "DEFINITELY_NOT_SET"}],
-        enabled=True,
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
@@ -876,7 +875,6 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
         name="withtools",
         transport="http",
         url="http://x.test",
-        enabled=True,
         discovered_tools=[
             {"name": "create_pr", "description": "", "read_only": False},
             {"name": "get_file", "description": "", "read_only": True},
@@ -894,7 +892,7 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
 @pytest.mark.django_db
 def test_list_shows_not_synced_when_never_synced(client, admin_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
+    MCPServer.objects.create(name="nosync", transport="http", url="http://x.test")
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
     assert b"not synced yet" in resp.content.lower()
@@ -909,9 +907,39 @@ def test_list_shows_your_servers_section_to_member(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_list_shadow_badge_ignores_disabled_globals(member_client, member_user):
+    """Shadow badge mirrors deduped_pool_rows: a non-disabled global shadows a same-named
+    user row (it won't load at runtime), but a disabled global does not — that user row still
+    loads, so it must not be flagged."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    for name, gstatus in (("act", MCPServer.Status.ACTIVE), ("dis", MCPServer.Status.DISABLED)):
+        MCPServer.objects.create(
+            name=name,
+            scope=MCPServer.Scope.GLOBAL,
+            transport=MCPServer.Transport.HTTP,
+            url=f"http://g-{name}",
+            status=gstatus,
+        )
+        MCPServer.objects.create(
+            name=name,
+            scope=MCPServer.Scope.USER,
+            user=member_user,
+            transport=MCPServer.Transport.HTTP,
+            url=f"http://u-{name}",
+            status=MCPServer.Status.ACTIVE,
+        )
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    your = {s.name: s for s in resp.context["your_servers"]}
+    assert your["act"].shadowed is True
+    assert your["dis"].shadowed is False
+
+
+@pytest.mark.django_db
 def test_member_list_hides_global_health_reason(member_client):
     g = _global()
-    g.enabled = True
     # Force a degraded health with a reason that names an env var.
     g.headers = [{"name": "A", "mode": "env_ref", "value": "SECRET_HOST_VAR"}]
     g.save()

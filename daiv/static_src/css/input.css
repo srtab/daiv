@@ -2006,6 +2006,18 @@ main:has(.chat-shell) {
     background-color: rgba(80, 160, 150, 0.07);
   }
   .mcp-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
+  .mcp-pill--error {
+    background-color: rgba(220, 80, 80, 0.12);
+    border-color: rgba(220, 80, 80, 0.40);
+    color: #f3b4b4;
+  }
+  .mcp-pill--error:hover {
+    background-color: rgba(220, 80, 80, 0.20);
+  }
+  .mcp-pill__error {
+    @apply rounded-full px-1.5 text-[11px] font-semibold text-red-300;
+    background-color: rgba(220, 80, 80, 0.20);
+  }
 
   /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).
      Firefox uses `scrollbar-*`; WebKit needs the pseudo-elements. */

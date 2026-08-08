@@ -6,19 +6,13 @@
 {% if servers %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
     {% for s in servers %}
-    <div class="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if s.status == 'disabled' %}opacity-60{% endif %}">
+    <div class="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.is_loadable %}opacity-60{% endif %}">
         <div class="min-w-0 flex-1">
             <div class="flex items-center gap-3">
                 <span class="text-[15px] font-medium text-white">{{ s.name }}</span>
                 <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
-                {% if s.status == 'active' %}
-                <span class="status-badge status-badge-success">{% translate "Active" %}</span>
-                {% elif s.status == 'on-demand' %}
-                <span class="status-badge status-badge-pending">{% translate "On-demand" %}</span>
-                {% else %}
-                <span class="status-badge status-badge-pending">{% translate "Disabled" %}</span>
-                {% endif %}
-                {% if s.status != 'disabled' and not s.health.ok %}
+                {% include "mcp_servers/_status_badge.html" with s=s %}
+                {% if s.is_loadable and not s.health.ok %}
                 <span class="status-badge status-badge-queued">{% translate "Degraded" %}</span>
                 {% endif %}
             </div>

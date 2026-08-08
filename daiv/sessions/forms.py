@@ -11,6 +11,7 @@ from __future__ import annotations
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from mcp_servers.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
 from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
 
@@ -64,9 +65,10 @@ class MCPSelectionField(forms.JSONField):
         parsed = super().to_python(value)
         if parsed in (None, ""):
             return []
-        if not isinstance(parsed, list) or not all(isinstance(v, str) for v in parsed):
-            raise forms.ValidationError(self.error_messages["invalid"], code="invalid")
-        return parsed
+        try:
+            return parse_server_names(parsed)
+        except ValueError as err:
+            raise forms.ValidationError(self.error_messages["invalid"], code="invalid") from err
 
     def prepare_value(self, value):
         if isinstance(value, str):
@@ -108,8 +110,6 @@ class AgentRunFieldsMixin(forms.Form):
         if "sandbox_environment" in self.fields and user is not None:
             self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
 
-        from mcp_servers.selection import build_selection_pool, effective_selection
-
         # Pool is scoped to the run/schedule OWNER, not the editing admin, so an admin
         # editing a member's schedule sees the member's USER-scoped servers.
         self.mcp_owner = owner or user
@@ -139,8 +139,6 @@ class AgentRunFieldsMixin(forms.Form):
                 assert_can_run(self.user, [entry["repo_id"] for entry in repos])
             except RepositoryAccessDenied:
                 self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
-
-        from mcp_servers.selection import diff_selection
 
         selected = set(cleaned.get("mcp_servers") or [])
         cleaned["mcp_overrides"] = diff_selection(selected, self.mcp_pool)

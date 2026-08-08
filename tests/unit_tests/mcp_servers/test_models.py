@@ -156,7 +156,7 @@ def test_name_is_unique():
 def test_defaults():
     server = MCPServer.objects.create(name="d", transport=MCPServer.Transport.HTTP, url="http://x")
     assert server.source == MCPServer.Source.CUSTOM
-    assert server.enabled is True
+    assert server.status == MCPServer.Status.ACTIVE
     assert server.tool_filter_mode == MCPServer.FilterMode.NONE
     assert server.tool_filter_items == []
     assert server.headers is None

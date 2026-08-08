@@ -85,13 +85,20 @@ def build_runtime_servers(user_id: int | None = None, overrides: dict | None = N
     """
     overrides = overrides or {}
     pool = {row.name: row for row in deduped_pool_rows(user_id)}
-    selected = {name for name, row in pool.items() if row.status == MCPServer.Status.ACTIVE}
+    selected = {name for name, row in pool.items() if row.is_default}
     for name, value in overrides.items():
         if value == "off":
             selected.discard(name)
         elif value == "on":
             if name in pool:
                 selected.add(name)
+            else:
+                logger.warning(
+                    "MCP override '%s'='on' refers to a server absent from the pool "
+                    "(disabled/deleted/shadowed); dropping from the run (user_id=%s)",
+                    name,
+                    user_id,
+                )
         else:
             logger.warning("MCP override for '%s' has unrecognized value %r; ignoring", name, value)
 
@@ -112,7 +119,7 @@ def build_runtime_servers(user_id: int | None = None, overrides: dict | None = N
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
-            # One bad row must not blank peers; transport/header shape anomalies reach here only via raw DB writes.
+            # One bad row must not blank peers; skip and log.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )
@@ -257,7 +264,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
 
 def server_health(server: MCPServer) -> dict[str, Any]:
     """Synchronous decryption + env-ref check, no network. Flags rows that
-    look enabled but whose headers ``build_runtime_servers`` would skip
+    look loadable but whose headers ``build_runtime_servers`` would skip
     (undecryptable) or partially drop (missing env-ref var), plus literal
     headers that still carry an unexpanded ``${...}`` reference (migration
     0002 imports ``"Bearer ${TOKEN}"``-style headers verbatim because the

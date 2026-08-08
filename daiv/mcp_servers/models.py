@@ -117,7 +117,6 @@ class MCPServer(TimeStampedModel):
         _("tool filter mode"), max_length=10, choices=FilterMode.choices, default=FilterMode.NONE
     )
     tool_filter_items = models.JSONField(_("tool filter items"), default=list, blank=True)
-    enabled = models.BooleanField(_("enabled"), default=True)
     status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.ACTIVE)
     discovered_tools = models.JSONField(_("discovered tools"), default=list, blank=True, editable=False)
     tools_synced_at = models.DateTimeField(_("tools synced at"), null=True, blank=True, editable=False)
@@ -188,12 +187,25 @@ class MCPServer(TimeStampedModel):
         custom server). Built-in rows are seeded from ``mcp_servers.seeds``,
         cannot be renamed or deleted, but are otherwise fully editable — this
         row is the source of truth for connection details (URL, headers,
-        tool filter, enabled)."""
+        tool filter, status)."""
         return self.source == self.Source.BUILTIN
 
     @property
     def is_user_scoped(self) -> bool:
         return self.scope == self.Scope.USER
+
+    @property
+    def is_loadable(self) -> bool:
+        """Whether the row participates at runtime at all — anything but ``disabled``.
+        The single predicate behind ``deduped_pool_rows``' exclude, the list-page dimming,
+        and health/shadow decoration."""
+        return self.status != self.Status.DISABLED
+
+    @property
+    def is_default(self) -> bool:
+        """Whether the row loads without an explicit opt-in — i.e. it is ``active``.
+        ``on-demand`` rows are loadable but not default (a run must opt in)."""
+        return self.status == self.Status.ACTIVE
 
     def is_shadowed_by(self, global_names) -> bool:
         """Whether this personal server is superseded at runtime by a global server

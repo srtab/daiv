@@ -314,9 +314,7 @@ async def test_end_to_end_db_row_yields_tool():
 
     @sync_to_async
     def _create():
-        MCPServer.objects.create(
-            name="acme", transport=MCPServer.Transport.HTTP, url="http://acme.test/mcp", enabled=True
-        )
+        MCPServer.objects.create(name="acme", transport=MCPServer.Transport.HTTP, url="http://acme.test/mcp")
 
     await _create()
 
@@ -353,7 +351,6 @@ async def test_end_to_end_db_tool_filter_applied():
             name="acme",
             transport=MCPServer.Transport.HTTP,
             url="http://acme.test/mcp",
-            enabled=True,
             tool_filter_mode=MCPServer.FilterMode.BLOCK,
             tool_filter_items=["secret"],
         )

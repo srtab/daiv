@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from mcp_servers.models import MCPServerStatus
+
 
 @dataclass(frozen=True)
 class BuiltinSeed:
@@ -17,7 +19,7 @@ class BuiltinSeed:
     url: str
     tool_filter_mode: str
     tool_filter_items: tuple[str, ...]
-    status: str
+    status: MCPServerStatus
 
 
 BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
@@ -42,7 +44,7 @@ BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
             "search_events",
             "search_issues",
         ),
-        status="disabled",
+        status=MCPServerStatus.DISABLED,
     ),
     BuiltinSeed(
         name="context7",
@@ -53,6 +55,6 @@ BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
         url="https://mcp.context7.com/mcp",
         tool_filter_mode="allow",
         tool_filter_items=("resolve-library-id", "query-docs"),
-        status="active",
+        status=MCPServerStatus.ACTIVE,
     ),
 )
