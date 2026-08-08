@@ -74,7 +74,8 @@
          initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
-         envAutoLabel: "{{ locked_env_fallback|escapejs }}"
+         envAutoLabel: "{{ locked_env_fallback|escapejs }}",
+         initialMcpCount: {{ initial_mcp_count|default:0 }}
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"

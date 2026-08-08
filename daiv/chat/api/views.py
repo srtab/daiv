@@ -265,6 +265,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     # MCP selection is pinned at creation; an omitted payload (submitted_overrides is None)
     # never diverges. A divergent submitted selection is rejected rather than run silently.
+    # Both sides are pool-relative diffs: if an admin flips a server's status between turns,
+    # an unchanged visual selection produces a different diff, triggering this guard.
     if not created and submitted_overrides is not None and submitted_overrides != session.mcp_overrides:
         raise HttpError(
             409,

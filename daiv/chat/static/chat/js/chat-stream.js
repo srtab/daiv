@@ -149,8 +149,8 @@
     // Forwarded in forwardedProps.mcp_servers on the first turn only; null until the
     // picker dispatches (pool may still be loading).
     _mcpServers: null,
-    lockedMcpLabel: "MCP",
-    lockedMcpCount: 0,
+    lockedMcpLabel: config.initialMcpCount > 0 ? `MCP · ${config.initialMcpCount}` : "MCP",
+    lockedMcpCount: config.initialMcpCount || 0,
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",

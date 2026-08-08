@@ -266,6 +266,15 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             )
         )
 
+        if session is not None:
+            from mcp_servers.selection import build_selection_pool, effective_selection
+
+            ctx["initial_mcp_count"] = len(
+                effective_selection(session.mcp_overrides, build_selection_pool(session.user_id))
+            )
+        else:
+            ctx["initial_mcp_count"] = 0
+
         if session is None:
             ctx.update({
                 "turns": [],
