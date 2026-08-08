@@ -12,10 +12,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from sessions.signals import run_finished
+from sessions.signals import run_classified
 
 from notifications.channels.registry import enabled_channels
-from notifications.choices import ChannelType, EventType, NotifyOn
+from notifications.choices import ChannelType, EventType
 from notifications.models import UserChannelBinding
 from notifications.services import notify
 
@@ -47,21 +47,6 @@ def _is_schedule_run(run) -> bool:
     return session is not None and session.scheduled_job_id is not None and session.scheduled_job is not None
 
 
-def _status_matches_run(notify_on: NotifyOn, status: str) -> bool:
-    from sessions.models import RunStatus
-
-    if notify_on == NotifyOn.NEVER:
-        return False
-    if notify_on == NotifyOn.ALWAYS:
-        return status in RunStatus.terminal()
-    if notify_on == NotifyOn.ON_SUCCESS:
-        return status == RunStatus.SUCCESSFUL
-    if notify_on == NotifyOn.ON_FAILURE:
-        return status == RunStatus.FAILED
-    logger.warning("Unknown notify_on value %r; treating as NEVER", notify_on)
-    return False
-
-
 def _resolve_recipients_run(run) -> dict[int, object]:
     if _is_schedule_run(run):
         schedule = run.session.scheduled_job
@@ -74,35 +59,44 @@ def _resolve_recipients_run(run) -> dict[int, object]:
     return {}
 
 
-def _render_payload_run(run) -> tuple[str, str, dict]:
-    from sessions.models import RunStatus
+def _render_payload_run(run, envelope) -> tuple[str, str, dict]:
+    from sessions.models import EnvelopeStatus, RunStatus
 
     is_schedule = _is_schedule_run(run)
-    ok = run.status == RunStatus.SUCCESSFUL
     repo = run.repo_id
     name = run.session.scheduled_job.name if is_schedule else ""
     owner = str(run.session.scheduled_job.user) if is_schedule else ""
+    status = envelope.status
+    count = envelope.count
 
     if is_schedule:
-        params = {"name": name, "owner": owner, "repo": repo}
-        if ok:
-            subject = _("'%(name)s' succeeded on %(repo)s — %(owner)s") % params
-            body = _("Scheduled run '%(name)s' by %(owner)s finished on %(repo)s.") % params
-        else:
+        params = {"name": name, "owner": owner, "repo": repo, "count": count}
+        if status == EnvelopeStatus.FOUND_ISSUES:
+            subject = _("'%(name)s' found %(count)d issue(s) on %(repo)s — %(owner)s") % params
+        elif status == EnvelopeStatus.NEEDS_ATTENTION:
+            subject = _("'%(name)s' needs attention on %(repo)s — %(owner)s") % params
+        else:  # FAILED
             subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
-            body = _("Scheduled run '%(name)s' by %(owner)s failed on %(repo)s.") % params
     else:
-        if ok:
-            subject = _("Agent run on %(repo)s succeeded") % {"repo": repo}
-            body = _("Agent run on %(repo)s finished successfully.") % {"repo": repo}
-        else:
-            subject = _("Agent run on %(repo)s failed") % {"repo": repo}
-            body = _("Agent run on %(repo)s failed.") % {"repo": repo}
+        params = {"repo": repo, "count": count}
+        if status == EnvelopeStatus.FOUND_ISSUES:
+            subject = _("Agent run on %(repo)s found %(count)d issue(s)") % params
+        elif status == EnvelopeStatus.NEEDS_ATTENTION:
+            subject = _("Agent run on %(repo)s needs attention") % params
+        else:  # FAILED
+            subject = _("Agent run on %(repo)s failed") % params
+
+    body = envelope.summary or subject
 
     context = {
+        "envelope_status": status,
+        "envelope_status_label": envelope.get_status_display(),
+        "envelope_summary": envelope.summary,
+        "envelope_count": count,
+        # Existing keys kept so channel renderers (email / rocketchat) do not break.
         "status": run.status,
         "status_label": run.get_status_display(),
-        "is_successful": ok,
+        "is_successful": run.status == RunStatus.SUCCESSFUL,
         "trigger_label": run.get_trigger_type_display(),
         "trigger_name": name,
         "trigger_owner": owner,
@@ -124,6 +118,14 @@ def _rollup_exists_run(recipient, batch_id) -> bool:
         source_type="sessions.Batch",
         source_id=str(batch_id),
         event_type=EventType.JOB_BATCH_FINISHED,
+    ).exists()
+
+
+def _per_run_notification_exists(recipient, run, event_type) -> bool:
+    from notifications.models import Notification
+
+    return Notification.objects.filter(
+        recipient=recipient, source_type="sessions.Run", source_id=str(run.pk), event_type=event_type
     ).exists()
 
 
@@ -156,7 +158,7 @@ def _handle_batch_completion_run(run, siblings, total: int) -> None:
     rows = list(siblings.values_list("repo_id", "started_at", "finished_at", "status"))
 
     effective = run.effective_notify_on
-    channels = [cls.channel_type for cls in enabled_channels()] if _status_matches_run(effective, agg_status) else []
+    channels = [cls.channel_type for cls in enabled_channels()] if _status_matches_run(effective, agg_status) else []  # noqa: F821
 
     usage = {
         "input_tokens": agg["total_input_tokens"],
@@ -300,19 +302,20 @@ def _within_relevance_window(finished_at) -> bool:
     return True
 
 
-@receiver(run_finished, dispatch_uid="notifications.on_run_finished")
-def on_run_finished(sender, run, **kwargs) -> None:
-    """Notify recipients when a Run transitions to a terminal status.
+@receiver(run_classified, dispatch_uid="notifications.on_run_classified")
+def on_run_classified(sender, run, envelope, **kwargs) -> None:
+    """Notify recipients when a Run is classified, driven by the envelope (not raw status).
 
-    Chat-triggered runs are excluded: those are interactive sessions and should
-    not generate bell/email notifications (preserves today's behaviour for chat).
-    Webhook-triggered runs are excluded to avoid noise on automated operations.
+    Chat is never classified, so no chat special-case is needed. all-clear is silent; found-issues /
+    needs-attention / failed notify unless muted, within the relevance window. Delivery is
+    at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
     """
-    from sessions.models import Run, SessionOrigin
+    from sessions.models import Run
 
     try:
-        # Chat turns are interactive (no bell/email); webhook runs are automated ops (too noisy).
-        if run.trigger_type in (SessionOrigin.webhooks() | {SessionOrigin.CHAT}):
+        # Relevance window first: a coverage-widening deploy must not retro-blast pre-feature runs,
+        # and a run with no finished_at (not yet terminal in-memory) is never notified.
+        if not _within_relevance_window(run.finished_at):
             return
 
         if run.batch_id is not None:
@@ -322,19 +325,15 @@ def on_run_finished(sender, run, **kwargs) -> None:
                 _handle_batch_completion_run(run, siblings, total)
                 return
 
+        if not notify_worthy(envelope.status) or run.effective_muted:
+            return
+
         recipients = _resolve_recipients_run(run)
         if not recipients:
             return
 
-        # The Notification row doubles as the in-app bell entry and is always written for
-        # terminal runs with a recipient. notify_on only gates external delivery channels
-        # (email, etc.) — an empty channels list means bell-only, no external dispatch.
-        effective = run.effective_notify_on
-        channels = (
-            [cls.channel_type for cls in enabled_channels()] if _status_matches_run(effective, run.status) else []
-        )
-
-        subject, body, context = _render_payload_run(run)
+        channels = [cls.channel_type for cls in enabled_channels()]
+        subject, body, context = _render_payload_run(run, envelope)
         link_url = reverse("session_detail", kwargs={"thread_id": run.session_id})
         event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
 
@@ -351,12 +350,25 @@ def on_run_finished(sender, run, **kwargs) -> None:
                     channels=channels,
                     context=context,
                 )
+            except IntegrityError:
+                if _per_run_notification_exists(recipient, run, event_type):
+                    logger.debug(
+                        "Per-run notification already exists for run=%s recipient_pk=%s (raced/re-driven)",
+                        run.pk,
+                        getattr(recipient, "pk", None),
+                    )
+                else:
+                    logger.exception(
+                        "Unexpected IntegrityError creating notification for run=%s recipient pk=%s",
+                        run.pk,
+                        getattr(recipient, "pk", None),
+                    )
             except Exception:
                 logger.exception(
                     "Failed to create notification for run %s, recipient pk=%s", run.pk, getattr(recipient, "pk", None)
                 )
     except Exception:
-        logger.exception("on_run_finished: unexpected error for run=%s", getattr(run, "pk", run))
+        logger.exception("on_run_classified: unexpected error for run=%s", getattr(run, "pk", run))
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid="notifications.sync_email_binding")
