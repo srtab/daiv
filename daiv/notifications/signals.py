@@ -229,7 +229,7 @@ def _render_batch_payload_run(
 
     body_tmpl = _(
         "%(found)d found issues, %(needs)d need attention, %(failed)d failed, %(clear)d all-clear (of %(total)d runs)."
-    )  # noqa: E501
+    )
     body = body_tmpl % breakdown
 
     context = {

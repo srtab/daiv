@@ -171,6 +171,7 @@ class TestRunBatchRollup:
         with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
             run_classified.send(sender=Run, run=b, envelope=b.envelope)
         assert Notification.objects.filter(event_type="job_batch.finished").count() == 1
+        assert any("already exists" in rec.message for rec in caplog.records)
 
     def test_single_run_batch_falls_back_to_per_run(self, member_user, email_binding):
         (a,) = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL])
