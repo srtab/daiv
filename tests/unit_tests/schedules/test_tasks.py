@@ -331,6 +331,35 @@ def test_dispatch_skips_only_inactive_owner_in_mixed_run(member_user):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_dispatch_stamps_schedule_mcp_overrides_onto_session(member_user):
+    past = datetime.now(tz=UTC) - timedelta(minutes=1)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="daily",
+        prompt="do stuff",
+        repos=[{"repo_id": "acme/repo", "ref": ""}],
+        frequency="daily",
+        time="09:00",
+        mcp_overrides={"a": "off"},
+        is_enabled=True,
+        next_run_at=past,
+    )
+
+    with patch("sessions.services.run_job_task") as mock_task:
+
+        async def _aenqueue(**kwargs):
+            return await _amake_task_result()
+
+        mock_task.aenqueue.side_effect = _aenqueue
+        dispatch_scheduled_jobs_cron_task.func()
+
+    from sessions.models import Session
+
+    session = Session.objects.get(scheduled_job=schedule)
+    assert session.mcp_overrides == {"a": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
 def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_user):
     member_user.is_active = False
     member_user.save(update_fields=["is_active"])

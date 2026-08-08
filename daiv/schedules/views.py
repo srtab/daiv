@@ -239,6 +239,7 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
+                mcp_overrides=schedule.mcp_overrides,
             )
         except RepositoryAccessDenied:
             messages.error(request, f"Schedule '{schedule.name}' was not triggered: {REPO_ACCESS_DENIED_MESSAGE}")
