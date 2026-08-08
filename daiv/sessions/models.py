@@ -121,6 +121,7 @@ class Session(models.Model):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
+    mcp_overrides = models.JSONField(_("MCP overrides"), default=dict, blank=True)
     sandbox_environment = models.ForeignKey(
         "sandbox_envs.SandboxEnvironment",
         on_delete=models.SET_NULL,

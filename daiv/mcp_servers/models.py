@@ -17,6 +17,12 @@ from mcp_servers.validators import validate_http_url
 _UNSET = object()
 
 
+class MCPServerStatus(models.TextChoices):
+    ACTIVE = "active", _("Active")
+    ON_DEMAND = "on-demand", _("On-demand")
+    DISABLED = "disabled", _("Disabled")
+
+
 class MCPServerQuerySet(models.QuerySet):
     """Scoping helpers shared by views and runtime. GLOBAL rows are admin-managed
     and visible to everyone; USER rows are owned by one user and load only in that
@@ -90,6 +96,8 @@ class MCPServer(TimeStampedModel):
         GLOBAL = "global", _("Global")
         USER = "user", _("User")
 
+    Status = MCPServerStatus
+
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=MCP_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
     source = models.CharField(_("source"), max_length=10, choices=Source.choices, default=Source.CUSTOM)
@@ -110,6 +118,7 @@ class MCPServer(TimeStampedModel):
     )
     tool_filter_items = models.JSONField(_("tool filter items"), default=list, blank=True)
     enabled = models.BooleanField(_("enabled"), default=True)
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.ACTIVE)
     discovered_tools = models.JSONField(_("discovered tools"), default=list, blank=True, editable=False)
     tools_synced_at = models.DateTimeField(_("tools synced at"), null=True, blank=True, editable=False)
     created_by = models.ForeignKey(
@@ -140,6 +149,9 @@ class MCPServer(TimeStampedModel):
             ),
             models.CheckConstraint(
                 condition=~(models.Q(source="builtin") & models.Q(scope="user")), name="mcp_builtin_is_global"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=MCPServerStatus.values), name="mcp_server_status_valid"
             ),
         ]
 

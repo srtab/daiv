@@ -13,7 +13,7 @@ _STUB_SEED = BuiltinSeed(
     url="https://stub.test/mcp",
     tool_filter_mode="allow",
     tool_filter_items=("one", "two"),
-    enabled=False,
+    status="disabled",
 )
 
 
@@ -27,7 +27,7 @@ def test_first_run_creates_row_with_all_seed_fields():
     assert row.transport == MCPServer.Transport.HTTP
     assert row.tool_filter_mode == "allow"
     assert row.tool_filter_items == ["one", "two"]
-    assert row.enabled is False
+    assert row.status == MCPServer.Status.DISABLED
 
 
 @pytest.mark.django_db

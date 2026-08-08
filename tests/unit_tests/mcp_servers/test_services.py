@@ -17,10 +17,14 @@ def _no_network_tool_sync():
 
 
 @pytest.mark.django_db
-def test_returns_only_enabled_rows():
+def test_returns_only_active_rows():
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(name="on", transport=MCPServer.Transport.HTTP, url="http://on", enabled=True)
-    MCPServer.objects.create(name="off", transport=MCPServer.Transport.HTTP, url="http://off", enabled=False)
+    MCPServer.objects.create(
+        name="on", transport=MCPServer.Transport.HTTP, url="http://on", status=MCPServer.Status.ACTIVE
+    )
+    MCPServer.objects.create(
+        name="off", transport=MCPServer.Transport.HTTP, url="http://off", status=MCPServer.Status.DISABLED
+    )
     out = build_runtime_servers()
     names = [dto_name for dto_name, _ in out]
     assert names == ["on"]
@@ -128,7 +132,7 @@ def test_builtin_row_included_in_runtime_servers():
         source=MCPServer.Source.BUILTIN,
         transport=MCPServer.Transport.HTTP,
         url="https://mcp.sentry.dev/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
     )
     out = build_runtime_servers()
     assert "sentry-x" in [name for name, _ in out]
@@ -144,7 +148,7 @@ def test_disabled_builtin_row_excluded():
         source=MCPServer.Source.BUILTIN,
         transport=MCPServer.Transport.HTTP,
         url="http://db",
-        enabled=False,
+        status=MCPServer.Status.DISABLED,
     )
     out = build_runtime_servers()
     assert out == []
@@ -548,7 +552,7 @@ def test_build_runtime_servers_merges_user_and_global(member_user):
         scope=MCPServer.Scope.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="https://g.test/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="mine",
@@ -556,14 +560,14 @@ def test_build_runtime_servers_merges_user_and_global(member_user):
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://u.test/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
     )
 
     names_anon = [n for n, _ in services.build_runtime_servers()]
     assert names_anon == ["glob"]  # no user → globals only
 
     names_user = [n for n, _ in services.build_runtime_servers(user_id=member_user.id)]
-    assert set(names_user) == {"glob", "mine"}
+    assert names_user == ["glob", "mine"]  # globals first, then user rows, each name-sorted
 
 
 @pytest.mark.django_db
@@ -577,7 +581,7 @@ def test_build_runtime_servers_global_wins_on_name_collision(member_user):
         scope=MCPServer.Scope.GLOBAL,
         transport=MCPServer.Transport.HTTP,
         url="https://global.test/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
     )
     MCPServer.objects.create(
         name="dup",
@@ -585,7 +589,7 @@ def test_build_runtime_servers_global_wins_on_name_collision(member_user):
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://user.test/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
     )
 
     result = dict(services.build_runtime_servers(user_id=member_user.id))
@@ -604,7 +608,7 @@ def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
         user=member_user,
         transport=MCPServer.Transport.HTTP,
         url="https://u.test/mcp",
-        enabled=True,
+        status=MCPServer.Status.ACTIVE,
         headers=[
             {"name": "X-Lit", "mode": "literal", "value": "ok"},
             {"name": "X-Env", "mode": "env_ref", "value": "SOME_HOST_VAR"},
@@ -614,19 +618,20 @@ def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
     assert result["mine"].headers == {"X-Lit": "ok"}  # env_ref dropped
 
 
-async def test_mcptoolkit_forwards_user_id(monkeypatch):
+async def test_mcptoolkit_forwards_user_id_and_overrides(monkeypatch):
     from automation.agent.mcp import toolkits
 
     seen = {}
 
-    def fake_build(user_id=None):
+    def fake_build(user_id=None, overrides=None):
         seen["user_id"] = user_id
+        seen["overrides"] = overrides
         return []
 
     monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
-    tools = await toolkits.MCPToolkit.get_tools(user_id=42)
+    tools = await toolkits.MCPToolkit.get_tools(user_id=42, overrides={"a": "off"})
     assert tools == []
-    assert seen["user_id"] == 42
+    assert seen == {"user_id": 42, "overrides": {"a": "off"}}
 
 
 @pytest.mark.django_db
@@ -657,3 +662,107 @@ def test_sync_discovered_tools_decryption_error_preserves_snapshot(monkeypatch):
     assert probed is False  # never reached the network probe
     assert s.discovered_tools == [{"name": "old", "description": ""}]  # untouched
     assert s.tools_synced_at is None
+
+
+@pytest.mark.django_db
+def test_default_set_is_active_only():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a", transport=MCPServer.Transport.HTTP, url="http://a", status=MCPServer.Status.ACTIVE
+    )
+    MCPServer.objects.create(
+        name="b", transport=MCPServer.Transport.HTTP, url="http://b", status=MCPServer.Status.ON_DEMAND
+    )
+    MCPServer.objects.create(
+        name="c", transport=MCPServer.Transport.HTTP, url="http://c", status=MCPServer.Status.DISABLED
+    )
+    assert [n for n, _ in build_runtime_servers()] == ["a"]
+
+
+@pytest.mark.django_db
+def test_override_off_drops_a_default():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a", transport=MCPServer.Transport.HTTP, url="http://a", status=MCPServer.Status.ACTIVE
+    )
+    assert [n for n, _ in build_runtime_servers(overrides={"a": "off"})] == []
+
+
+@pytest.mark.django_db
+def test_override_on_adds_an_on_demand():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="b", transport=MCPServer.Transport.HTTP, url="http://b", status=MCPServer.Status.ON_DEMAND
+    )
+    assert [n for n, _ in build_runtime_servers()] == []
+    assert [n for n, _ in build_runtime_servers(overrides={"b": "on"})] == ["b"]
+
+
+@pytest.mark.django_db
+def test_override_on_for_disabled_is_ignored():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="d", transport=MCPServer.Transport.HTTP, url="http://d", status=MCPServer.Status.DISABLED
+    )
+    assert [n for n, _ in build_runtime_servers(overrides={"d": "on"})] == []
+
+
+@pytest.mark.django_db
+def test_override_on_for_unknown_and_off_for_absent_are_noops():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a", transport=MCPServer.Transport.HTTP, url="http://a", status=MCPServer.Status.ACTIVE
+    )
+    assert [n for n, _ in build_runtime_servers(overrides={"ghost": "on", "also-absent": "off"})] == ["a"]
+
+
+@pytest.mark.django_db
+def test_malformed_override_value_ignored_and_logged(caplog):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a", transport=MCPServer.Transport.HTTP, url="http://a", status=MCPServer.Status.ACTIVE
+    )
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        names = [n for n, _ in build_runtime_servers(overrides={"a": True, "x": "banana"})]
+    assert names == ["a"]  # "a": True is not "off" → left at its default (on); "x" ignored
+    assert caplog.text.count("unrecognized value") == 2  # both malformed values logged
+
+
+@pytest.mark.django_db
+def test_on_demand_global_shadows_active_user_row(member_user):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://global",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://user",
+        status=MCPServer.Status.ACTIVE,
+    )
+    # Default load: neither (global is on-demand, user is shadowed out).
+    assert [n for n, _ in build_runtime_servers(user_id=member_user.id)] == []
+    # "on" resolves to the GLOBAL row, not the user row.
+    result = dict(build_runtime_servers(user_id=member_user.id, overrides={"dup": "on"}))
+    assert result["dup"].url == "http://global"
+
+
+@pytest.mark.django_db
+def test_on_demand_user_server_resolves_only_for_owner(member_user, admin_user):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    assert [n for n, _ in build_runtime_servers(user_id=member_user.id, overrides={"mine": "on"})] == ["mine"]
+    assert [n for n, _ in build_runtime_servers(user_id=admin_user.id, overrides={"mine": "on"})] == []

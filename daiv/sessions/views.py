@@ -266,6 +266,15 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             )
         )
 
+        if session is not None:
+            from mcp_servers.selection import build_selection_pool, effective_selection
+
+            ctx["initial_mcp_count"] = len(
+                effective_selection(session.mcp_overrides, build_selection_pool(session.user_id))
+            )
+        else:
+            ctx["initial_mcp_count"] = 0
+
         if session is None:
             ctx.update({
                 "turns": [],
@@ -428,13 +437,21 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 "agent_model": source.agent_model,
                 "agent_thinking_level": source.agent_thinking_level,
             })
+            from mcp_servers.selection import build_selection_pool, effective_selection
+
+            pool = build_selection_pool(self.request.user.pk)
+            source_overrides = source.session.mcp_overrides if source.session_id else {}
+            initial["mcp_servers"] = sorted(effective_selection(source_overrides, pool))
         return initial
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        from mcp_servers.selection import mcp_picker_context
+
         ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
+        ctx.update(mcp_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):
@@ -455,6 +472,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
+                mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise

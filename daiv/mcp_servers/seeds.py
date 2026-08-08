@@ -17,7 +17,7 @@ class BuiltinSeed:
     url: str
     tool_filter_mode: str
     tool_filter_items: tuple[str, ...]
-    enabled: bool
+    status: str
 
 
 BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
@@ -42,7 +42,7 @@ BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
             "search_events",
             "search_issues",
         ),
-        enabled=False,
+        status="disabled",
     ),
     BuiltinSeed(
         name="context7",
@@ -53,6 +53,6 @@ BUILTIN_SEEDS: tuple[BuiltinSeed, ...] = (
         url="https://mcp.context7.com/mcp",
         tool_filter_mode="allow",
         tool_filter_items=("resolve-library-id", "query-docs"),
-        enabled=True,
+        status="active",
     ),
 )

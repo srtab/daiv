@@ -37,41 +37,67 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcpServer]]:
-    """Read enabled ``MCPServer`` rows and convert each to the ``UserMcpServer``
-    DTO the toolkit consumes. Returns ``(name, dto)`` tuples.
+def deduped_pool_rows(user_id: int | None = None) -> list[MCPServer]:
+    """Non-``disabled`` servers visible to ``user_id``, name-deduped with GLOBAL winning.
 
-    Loads all enabled GLOBAL rows (built-in + custom). When ``user_id`` is given,
-    also loads that user's enabled USER rows. On a name collision the GLOBAL row
-    wins and the USER row is skipped — a member must never redirect traffic for a
-    name an admin controls.
-
-    A row whose ``headers`` cannot be decrypted, or that can't be converted, is
-    skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
-    dropped defensively (the form forbids them; a raw DB write could still add one).
-
-    A failure of the DB query itself propagates to the caller: ``MCPToolkit.get_tools``
-    does not guard it, so a DB outage surfaces as a failed agent-graph build rather
-    than as silently-empty tools.
-    """
-    global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
+    A user-scoped row whose name matches ANY non-disabled global (active or on-demand) is
+    dropped: an admin publishing a name — even on demand — controls it. Order is globals
+    then user rows, each sorted by name; the returned rows carry full ``status`` for callers
+    to split default vs. opt-in."""
+    globals_ = list(
+        MCPServer.objects
+        .exclude(status=MCPServer.Status.DISABLED)
+        .filter(scope=MCPServer.Scope.GLOBAL)
+        .order_by("name")
+    )
     user_rows: list[MCPServer] = []
     if user_id is not None:
         user_rows = list(
-            MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.USER, user_id=user_id).order_by("name")
+            MCPServer.objects
+            .exclude(status=MCPServer.Status.DISABLED)
+            .filter(scope=MCPServer.Scope.USER, user_id=user_id)
+            .order_by("name")
         )
-
-    global_names = {row.name for row in global_rows}
-    out: list[tuple[str, UserMcpServer]] = []
-    for row in [*global_rows, *user_rows]:
-        if row.is_shadowed_by(global_names):
+    global_names = {r.name for r in globals_}
+    pool: list[MCPServer] = list(globals_)
+    for row in user_rows:
+        if row.name in global_names:
             logger.warning(
-                "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
-                "user-scoped row",
+                "MCP server '%s' (pk=%s, user_id=%s) is shadowed by a non-disabled global server of the "
+                "same name; excluding the user-scoped row",
                 row.name,
                 row.pk,
                 row.user_id,
             )
+            continue
+        pool.append(row)
+    return pool
+
+
+def build_runtime_servers(user_id: int | None = None, overrides: dict | None = None) -> list[tuple[str, UserMcpServer]]:
+    """Resolve the effective MCP server set for a run and convert each to a ``UserMcpServer`` DTO.
+
+    Default set = the ``active`` rows of the deduped pool (``deduped_pool_rows``). ``overrides``
+    (``{name: "on"|"off"}``) deviate from it: ``"off"`` drops a default; ``"on"`` adds a pool entry
+    (a stale ``"on"`` for a disabled/deleted/unknown name self-heals to a no-op). Any value other
+    than the exact strings ``"on"``/``"off"`` is ignored and logged. Empty/omitted ``overrides``
+    reproduce the pure-default behavior. Header resolution and tool-filter conversion are unchanged.
+    """
+    overrides = overrides or {}
+    pool = {row.name: row for row in deduped_pool_rows(user_id)}
+    selected = {name for name, row in pool.items() if row.status == MCPServer.Status.ACTIVE}
+    for name, value in overrides.items():
+        if value == "off":
+            selected.discard(name)
+        elif value == "on":
+            if name in pool:
+                selected.add(name)
+        else:
+            logger.warning("MCP override for '%s' has unrecognized value %r; ignoring", name, value)
+
+    out: list[tuple[str, UserMcpServer]] = []
+    for name, row in pool.items():
+        if name not in selected:
             continue
         try:
             raw_headers = row.headers or []
@@ -86,15 +112,12 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
-            # A single malformed row — e.g. a transport/mode outside the DTO's allowed literals,
-            # or a header column of the wrong JSON shape (reachable via a raw DB write, since the
-            # form and model choices otherwise constrain these) — must not blank tools from healthy
-            # peers. Skip it loudly, consistent with the per-server isolation in MCPToolkit.get_tools.
+            # One bad row must not blank peers; transport/header shape anomalies reach here only via raw DB writes.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )
             continue
-        out.append((row.name, dto))
+        out.append((name, dto))
     return out
 
 

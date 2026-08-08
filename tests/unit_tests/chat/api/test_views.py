@@ -612,6 +612,86 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     await user.adelete()
 
 
+@pytest.fixture
+async def ondemand_global_mcp():
+    """A non-default (on-demand) global MCP server named ``b`` — checking it produces
+    an override ``{"b": "on"}`` since it is not in the default (active) set. Clears any
+    seeded servers so ``b`` is the only pool member and the diff is unambiguous."""
+    from mcp_servers.models import MCPServer
+
+    await MCPServer.objects.all().adelete()
+    return await MCPServer.objects.acreate(
+        name="b",
+        scope=MCPServer.Scope.GLOBAL,
+        status=MCPServer.Status.ON_DEMAND,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mcp-b.internal/mcp",
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_creation_stamps_mcp_overrides(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer, ondemand_global_mcp
+):
+    """First turn with ``mcp_servers=["b"]`` (an on-demand global) diffs to ``{"b": "on"}``
+    and pins it on the created Session."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-new", forwardedProps={"mcp_servers": ["b"]}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    created = await Session.objects.aget(thread_id="t-mcp-new")
+    assert created.mcp_overrides == {"b": "on"}
+    assert patched_streamer.call_args.kwargs["mcp_overrides"] == {"b": "on"}
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_divergent_mcp_selection_on_existing_thread_409(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer, ondemand_global_mcp
+):
+    """A pinned thread rejects a divergent selection with 409, but an omitted
+    ``mcp_servers`` (no override supplied) proceeds normally against the pin."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-mcp-pinned",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        mcp_overrides={"b": "on"},
+    )
+
+    # Divergent selection (unchecking "b" → {}) is rejected.
+    divergent = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-pinned", forwardedProps={"mcp_servers": []}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert divergent.status_code == 409
+
+    # Omitted mcp_servers must NOT diverge — the turn runs with the stored override.
+    omitted = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-pinned"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert omitted.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert patched_streamer.call_args.kwargs["mcp_overrides"] == {"b": "on"}
+    await user.adelete()
+
+
 # ---------------------------------------------------------------------------
 # GET /chat/stream — SSE replay + tail of a run's relay stream
 # ---------------------------------------------------------------------------

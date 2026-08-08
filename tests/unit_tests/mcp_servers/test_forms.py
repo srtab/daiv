@@ -16,7 +16,7 @@ def test_valid_minimal_form_creates_row():
             "description": "",
             "transport": "http",
             "url": "http://demo.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
         },
@@ -38,7 +38,7 @@ def test_url_validator_wired_to_form():
         "name": "demo",
         "description": "",
         "transport": "http",
-        "enabled": "on",
+        "status": "active",
         "tool_filter_mode": "none",
         "tool_filter_items": "",
     }
@@ -55,7 +55,7 @@ def test_invalid_name_pattern_rejected():
             "name": "BAD NAME",
             "transport": "http",
             "url": "http://x",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
         },
@@ -72,7 +72,7 @@ def test_tool_filter_items_required_when_mode_not_none():
             "name": "demo",
             "transport": "http",
             "url": "http://demo",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "allow",
             "tool_filter_items": "",
         },
@@ -89,7 +89,7 @@ def test_tool_filter_items_parsed_from_newline_separated_text():
             "name": "demo",
             "transport": "http",
             "url": "http://demo.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "allow",
             "tool_filter_items": "search_events\nfind_organizations\n",
         },
@@ -243,7 +243,13 @@ def test_header_formset_value_without_name_is_rejected():
 def test_reserved_name_rejected():
     """Names that collide with non-slug URL segments are rejected at the form layer."""
     form = MCPServerForm(
-        data={"name": "test", "transport": "http", "url": "http://x.test", "enabled": "on", "tool_filter_mode": "none"},
+        data={
+            "name": "test",
+            "transport": "http",
+            "url": "http://x.test",
+            "status": "active",
+            "tool_filter_mode": "none",
+        },
         scope=MCPServer.Scope.USER,
     )
     assert not form.is_valid()
@@ -261,7 +267,7 @@ def test_name_cannot_change_on_edit():
             "name": "renamed",
             "transport": "http",
             "url": "http://x.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
         },
@@ -313,7 +319,7 @@ def test_form_with_checkboxes_saves_selected_items():
             "name": "demo",
             "transport": "http",
             "url": "http://demo.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "allow",
             "tool_filter_items": ["search_events"],
         },
@@ -354,7 +360,7 @@ def _base_form_data(**overrides):
         "description": "",
         "transport": "http",
         "url": "http://multi.test/mcp",
-        "enabled": "on",
+        "status": "active",
         "tool_filter_mode": "allow",
     }
     data.update(overrides)
@@ -468,7 +474,7 @@ def _data(**over):
         "description": "",
         "transport": "http",
         "url": "https://x.test/mcp",
-        "enabled": "on",
+        "status": "active",
         "tool_filter_mode": "none",
     }
     d.update(over)
@@ -581,7 +587,7 @@ def test_edit_ignores_smuggled_scope_in_post_data(member_user):
             "name": "scoped",
             "transport": "http",
             "url": "https://x.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "scope": "global",  # attacker-controlled value — must be ignored; not a form field
         },
@@ -590,3 +596,22 @@ def test_edit_ignores_smuggled_scope_in_post_data(member_user):
     assert form.is_valid(), form.errors
     saved = form.save()
     assert saved.scope == MCPServer.Scope.USER
+
+
+@pytest.mark.django_db
+def test_form_persists_status(admin_user):
+    form = MCPServerForm(
+        data={
+            "name": "srv",
+            "description": "",
+            "transport": "http",
+            "url": "http://x",
+            "status": "on-demand",
+            "tool_filter_mode": "none",
+        },
+        user=admin_user,
+        scope=MCPServer.Scope.GLOBAL,
+    )
+    assert form.is_valid(), form.errors
+    obj = form.save()
+    assert obj.status == MCPServer.Status.ON_DEMAND

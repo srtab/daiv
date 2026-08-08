@@ -24,15 +24,6 @@
             {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
         </p>
     </div>
-    <div class="flex shrink-0 items-center gap-3 pt-1.5">
-        <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
-        <label class="toggle-switch">
-            <input type="checkbox" name="{{ form.enabled.html_name }}" form="mcp-server-form"
-                   class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
-            <span class="toggle-switch__track"></span>
-        </label>
-        {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
-    </div>
 </div>
 
 {% if form.non_field_errors %}
@@ -56,6 +47,7 @@
           testUrl: '{% url 'mcp_servers:test' %}',
           transport: '{{ form.transport.value|default:'http'|escapejs }}',
           filterMode: '{{ form.tool_filter_mode.value|default:'none'|escapejs }}',
+          serverStatus: '{{ form.status.value|default:'active'|escapejs }}',
           showFilter: {{ tool_filter_visible|yesno:'true,false' }},
           filterPlaceholder: '{% translate 'Filter tools…'|escapejs %}',
           notInListLabel: '{% translate 'not in current tool list'|escapejs %}',
@@ -82,6 +74,8 @@
             <div class="mt-1.5">{{ form.description }}</div>
             {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
         </div>
+
+        {% include "mcp_servers/_segmented_control.html" with field=form.status model="serverStatus" %}
     </fieldset>
 
     <div class="border-t border-white/[0.06]"></div>

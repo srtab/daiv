@@ -2,7 +2,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
@@ -89,6 +89,9 @@ class RuntimeCtx:
     """The DAIV user who triggered this run, when known. Selects that user's
     personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
     which load global servers only."""
+    mcp_overrides: dict = field(default_factory=dict)
+    """Per-run MCP server selection deviations ({name: "on"|"off"}). Empty = pure default set.
+    Stamped on the Session at creation and read on every run; ``build_runtime_servers`` applies it."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
@@ -167,6 +170,7 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_env_id: str | None = None,
     acting_user_id: int | None = None,
+    mcp_overrides: dict | None = None,
     fallback_ref_on_missing: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
@@ -185,6 +189,7 @@ async def set_runtime_ctx(
             :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
             to the GLOBAL default env if nothing matches.
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
+        mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
@@ -256,6 +261,7 @@ async def set_runtime_ctx(
                 issue=issue,
                 merge_request=merge_request,
                 acting_user_id=acting_user_id,
+                mcp_overrides=mcp_overrides or {},
             )
             token = runtime_ctx.set(ctx)
             try:

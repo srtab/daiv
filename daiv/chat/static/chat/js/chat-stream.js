@@ -145,6 +145,12 @@
     // picker's hidden inputs so a no-touch submit still carries the seeded spec.
     _agentModel: "",
     _agentThinkingLevel: "",
+    // MCP server names selected in the picker, kept in sync via ``daiv:mcp-changed``.
+    // Forwarded in forwardedProps.mcp_servers on the first turn only; null until the
+    // picker dispatches (pool may still be loading).
+    _mcpServers: null,
+    lockedMcpLabel: config.initialMcpCount > 0 ? `MCP · ${config.initialMcpCount}` : "MCP",
+    lockedMcpCount: config.initialMcpCount || 0,
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
@@ -192,6 +198,13 @@
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
       this.lockedAgentEffortDots = detail?.effort_dots || 0;
+    },
+
+    applyMcpSelection(detail) {
+      this._mcpServers = detail?.servers ?? null;
+      const n = (this._mcpServers || []).length;
+      this.lockedMcpLabel = n > 0 ? `MCP · ${n}` : "MCP";
+      this.lockedMcpCount = n;
     },
 
     applyPolledTurns(turns) {
@@ -660,6 +673,7 @@
     async submit() {
       if (!this.canSend() || this.streaming || this.resuming) return;
 
+      const isFirstTurn = !this.thread;
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
@@ -719,6 +733,11 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+      // Only forward MCP selection on the first turn. The server pins the overrides on
+      // first sight and 409s a divergent list on subsequent turns.
+      if (this._mcpServers !== null && isFirstTurn) {
+        forwardedProps.mcp_servers = this._mcpServers;
+      }
 
       const body = {
         threadId: this.thread.thread_id,

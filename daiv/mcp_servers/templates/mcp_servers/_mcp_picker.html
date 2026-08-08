@@ -1,0 +1,63 @@
+{% load i18n icon_tags %}
+{% comment %}
+Collapsible MCP-server selector. Two groups (Global / Your servers) of checkboxes bound to
+an Alpine ``selected`` array; a hidden ``mcp_servers`` input serializes that array on submit.
+Initial checked names come from ``mcp_selected_names`` (the form's effective selection).
+Pool + selection are supplied by ``mcp_servers.selection.mcp_picker_context``.
+{% endcomment %}
+{{ mcp_selected_names|json_script:'mcp-initial' }}
+<div class="mt-6"
+     x-data="{
+         open: false,
+         selected: JSON.parse(document.getElementById('mcp-initial').textContent),
+     }">
+    <button type="button" @click="open = !open"
+            class="flex w-full items-center justify-between text-[15px] font-medium text-gray-400 hover:text-gray-300">
+        <span class="flex items-center gap-2">
+            {% translate "MCP servers" %}
+            <span x-show="selected.length" x-cloak x-text="selected.length"
+                  class="rounded-full bg-white/[0.08] px-2 py-0.5 text-xs text-gray-300"></span>
+        </span>
+        <span class="transition-transform duration-200" :class="open ? 'rotate-180' : ''">
+            {% icon "chevron-down" "h-4 w-4" %}
+        </span>
+    </button>
+
+    <div x-show="open" x-cloak class="mt-3 space-y-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+        {% if not mcp_pool_global and not mcp_pool_user %}
+        <p class="text-sm text-gray-500">{% translate "No MCP servers available." %}</p>
+        {% endif %}
+
+        {% if mcp_pool_global %}
+        <div class="space-y-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-gray-500">{% translate "Global" %}</p>
+            {% for e in mcp_pool_global %}
+            <label class="flex items-start gap-2.5">
+                <input type="checkbox" value="{{ e.name }}" x-model="selected" class="mt-0.5">
+                <span class="min-w-0">
+                    <span class="block text-[15px] text-gray-200">{{ e.name }}</span>
+                    {% if e.description %}<span class="block text-xs text-gray-500">{{ e.description }}</span>{% endif %}
+                </span>
+            </label>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if mcp_pool_user %}
+        <div class="space-y-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-gray-500">{% translate "Your servers" %}</p>
+            {% for e in mcp_pool_user %}
+            <label class="flex items-start gap-2.5">
+                <input type="checkbox" value="{{ e.name }}" x-model="selected" class="mt-0.5">
+                <span class="min-w-0">
+                    <span class="block text-[15px] text-gray-200">{{ e.name }}</span>
+                    {% if e.description %}<span class="block text-xs text-gray-500">{{ e.description }}</span>{% endif %}
+                </span>
+            </label>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <input type="hidden" name="mcp_servers" :value="JSON.stringify(selected)">
+</div>

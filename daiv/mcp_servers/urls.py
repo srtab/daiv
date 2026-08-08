@@ -8,8 +8,8 @@ from mcp_servers.views import (
     MCPServerGlobalListView,
     MCPServerListView,
     MCPServerRefreshToolsView,
+    MCPServerStatusView,
     MCPServerTestView,
-    MCPServerToggleView,
 )
 
 app_name = "mcp_servers"
@@ -22,6 +22,6 @@ urlpatterns = [
     path("test/", MCPServerTestView.as_view(), name="test"),
     path("<int:pk>/edit/", MCPServerEditView.as_view(), name="edit"),
     path("<int:pk>/delete/", MCPServerDeleteView.as_view(), name="delete"),
-    path("<int:pk>/toggle/", MCPServerToggleView.as_view(), name="toggle"),
+    path("<int:pk>/status/", MCPServerStatusView.as_view(), name="set_status"),
     path("<int:pk>/refresh-tools/", MCPServerRefreshToolsView.as_view(), name="refresh_tools"),
 ]

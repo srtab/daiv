@@ -60,3 +60,62 @@ def test_clean_passes_when_agent_model_available(member_user):
     with patch("sessions.forms.ensure_agent_model_available", return_value=None):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert form.is_valid(), form.errors
+
+
+def test_run_form_diffs_selection_to_overrides(member_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://a",
+        status=MCPServer.Status.ACTIVE,
+    )
+    MCPServer.objects.create(
+        name="b",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://b",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    form = AgentRunCreateForm(
+        data={
+            "prompt": "p",
+            "repos": '[{"repo_id": "g/r", "ref": ""}]',
+            "notify_on": "never",
+            "agent_model": "",
+            "agent_thinking_level": "",
+            "mcp_servers": '["b"]',
+        },
+        user=member_user,
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["mcp_overrides"] == {"a": "off", "b": "on"}
+
+
+def test_run_form_untouched_selection_yields_empty_overrides(member_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://a",
+        status=MCPServer.Status.ACTIVE,
+    )
+    form = AgentRunCreateForm(
+        data={
+            "prompt": "p",
+            "repos": '[{"repo_id": "g/r", "ref": ""}]',
+            "notify_on": "never",
+            "agent_model": "",
+            "agent_thinking_level": "",
+            "mcp_servers": '["a"]',
+        },
+        user=member_user,
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["mcp_overrides"] == {}

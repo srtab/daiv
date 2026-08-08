@@ -11,7 +11,7 @@ def test_catalog_contains_sentry_and_context7():
 def test_sentry_seed_defaults():
     sentry = next(s for s in BUILTIN_SEEDS if s.name == "sentry")
     assert sentry.url == "https://mcp.sentry.dev/mcp?disable-skills=seer,docs,project-management"
-    assert sentry.enabled is False  # 401s until an auth header is configured
+    assert sentry.status == "disabled"  # 401s until an auth header is configured
     assert sentry.tool_filter_mode == "allow"
     # Read-only intent: no mutating tools, no meta-dispatch tools.
     assert "update_issue" not in sentry.tool_filter_items
@@ -22,5 +22,5 @@ def test_sentry_seed_defaults():
 def test_context7_seed_defaults():
     context7 = next(s for s in BUILTIN_SEEDS if s.name == "context7")
     assert context7.url == "https://mcp.context7.com/mcp"
-    assert context7.enabled is True  # keyless works at low rate limits
+    assert context7.status == "active"  # keyless works at low rate limits
     assert context7.tool_filter_items == ("resolve-library-id", "query-docs")
