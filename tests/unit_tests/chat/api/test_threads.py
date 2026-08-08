@@ -1,4 +1,3 @@
-import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,11 +7,6 @@ from sessions.models import Session, SessionOrigin
 from accounts.models import User
 from chat.api.threads import ChatSessionService, _extract_first_user_message
 from core.models import Provider, ProviderType
-
-
-@pytest.fixture
-def chat_input_data():
-    return SimpleNamespace(thread_id=str(uuid.uuid4()), messages=[SimpleNamespace(role="user", content="hello")])
 
 
 @pytest.fixture
@@ -239,15 +233,13 @@ def test_extract_last_user_message_id_missing_id_coerced_to_empty():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_chat_session_stamps_mcp_overrides(member_user, chat_input_data):
-    from chat.api.threads import ChatSessionService
-
+async def test_chat_session_stamps_mcp_overrides(member_user):
     session, created = await ChatSessionService.get_or_create_for_user(
         user=member_user,
-        thread_id=chat_input_data.thread_id,
+        thread_id="t-mcp-ov",
         repo_id="g/r",
         ref="main",
-        input_data=chat_input_data,
+        input_data=_fake_input(["hello"]),
         mcp_overrides={"x": "on"},
     )
     assert created is True
