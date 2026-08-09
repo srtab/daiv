@@ -278,6 +278,7 @@ async def test_submit_job_notify_on_accepted_but_not_forwarded(authenticated_cli
         response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="always"))
     assert response.status_code == 202
     assert "notify_on" not in captured
+    assert captured.get("muted") is False
 
 
 @pytest.mark.django_db(transaction=True)

@@ -208,9 +208,35 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
     assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
+def _capture_asubmit_batch_runs(captured: dict):
+    """Patch ``mcp_server.server.asubmit_batch_runs`` to record kwargs and return one run."""
+    from sessions.services import BatchSubmitResult
+
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[_FakeRun(task_result_id=None)], failed=[])
+
+    return patch("mcp_server.server.asubmit_batch_runs", side_effect=_fake)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_muted_at_batch_boundary():
+    """MCP submit tool forwards ``muted`` and does NOT forward ``notify_on`` to asubmit_batch_runs."""
+    from notifications.choices import NotifyOn
+
+    captured: dict = {}
+    with _capture_asubmit_batch_runs(captured):
+        await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True, notify_on=NotifyOn.ALWAYS
+        )
+
+    assert captured.get("muted") is True
+    assert "notify_on" not in captured
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_muted_to_runs():
-    """MCP submit tool threads ``muted`` into ``asubmit_batch_runs``."""
+    """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True)
