@@ -137,7 +137,7 @@ The composer accepts:
 - **Ref** — the starting branch or commit each run reads from (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](sandbox-environments.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
-- **Notify me** — when to send a notification for this run
+- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
 
 Runs started this way are tagged with the **UI Run** origin. A single-repository submission takes you straight to the session detail page; a multi-repository submission takes you to the batch-filtered list.
 
