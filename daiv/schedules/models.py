@@ -61,7 +61,7 @@ _USER_FACING_FIELDS = (
     "time",
     "agent_model",
     "agent_thinking_level",
-    "notify_on",
+    "muted",
     "intent",
 )
 
@@ -333,7 +333,6 @@ class ScheduleTemplate(TimeStampedModel):
         "time",
         "agent_model",
         "agent_thinking_level",
-        "notify_on",
     )
 
     name = models.CharField(_("name"), max_length=200, unique=True)
@@ -442,7 +441,6 @@ class ScheduleTemplate(TimeStampedModel):
             "repos_summary": self.repos_summary,
             "frequency_display": self.get_frequency_display(),
             "frequency_summary": self.frequency_summary,
-            "notify_on_display": self.get_notify_on_display(),
             "agent_model": self.agent_model,
             "agent_model_display": display_model_name(str(self.agent_model), max_len=MODEL_NAME_MAX_LEN),
             "agent_thinking_level": self.agent_thinking_level,

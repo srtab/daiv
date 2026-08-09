@@ -60,3 +60,10 @@ def test_clean_passes_when_agent_model_available(member_user):
     with patch("sessions.forms.ensure_agent_model_available", return_value=None):
         form = AgentRunCreateForm(data=_form_data(), user=member_user)
         assert form.is_valid(), form.errors
+
+
+def test_agent_run_form_has_no_notify_field(member_user):
+    from sessions.forms import AgentRunCreateForm
+
+    form = AgentRunCreateForm(user=member_user)
+    assert "notify_on" not in form.fields

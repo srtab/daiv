@@ -48,8 +48,6 @@
         {% include "sessions/_agent_run_fields.html" with form=form with_env_picker=True env_picker_envs=sandbox_envs env_picker_selected_id=selected_sandbox_env_id %}
     </div>
 
-    {% include "notifications/_notify_on_radio.html" with form=form %}
-
     <div class="mt-8 flex items-center gap-3">
         <button type="submit" class="btn-primary">
             {% if source_run %}Retry{% else %}Start run{% endif %}
