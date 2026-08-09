@@ -20,7 +20,7 @@ There are three event types:
     A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.
 
 !!! info "Webhook-triggered runs notify on worthy outcomes"
-    Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) report back inside the issue or MR/PR thread. Prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)) notify their initiator when the outcome is notify-worthy.
+    Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
 
 ## Channels
 
@@ -61,7 +61,7 @@ Rocket Chat is an optional integration. It appears as a channel only when an adm
 
 Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via `Run.muted` for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
 **Non-scheduled runs** — runs started from the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
@@ -89,7 +89,7 @@ When a run finishes with a notify-worthy classification, DAIV records the notifi
 
 - A channel with no usable binding (for example Rocket Chat before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
 - Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried.
-- The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails.
+- The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)
 
 ## Related pages
 
