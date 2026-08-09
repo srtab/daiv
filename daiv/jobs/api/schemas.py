@@ -24,7 +24,10 @@ class JobSubmitRequest(Schema):
     prompt: str = Field(min_length=1)
     agent_model: str | None = None
     agent_thinking_level: ThinkingLevelChoices | None = None
-    notify_on: NotifyOn | None = None
+    notify_on: NotifyOn | None = Field(
+        default=None, deprecated=True, description="Deprecated and ignored. Use `muted`."
+    )
+    muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None
 

@@ -248,36 +248,46 @@ async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyn
     assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
+def _fake_submit_factory(captured: dict):
+    """Return an async ``asubmit_batch_runs`` stand-in that records kwargs and returns one run."""
+    from sessions.services import BatchSubmitResult
+
+    async def _fake_submit(**kwargs):
+        captured.update(kwargs)
+        run = _FakeRun(task_result_id=None)
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run], failed=[])
+
+    return _fake_submit
+
+
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_notify_on_to_run(authenticated_client: TestAsyncClient):
-    """POST /jobs threads ``notify_on`` into ``acreate_run``."""
+async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: TestAsyncClient):
+    """POST /jobs with muted=True threads ``muted=True`` into ``asubmit_batch_runs``."""
+    captured: dict = {}
+    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(muted=True))
+    assert response.status_code == 202
+    assert captured.get("muted") is True
 
-    async def _aenq(**kwargs):
-        return await _make_task_row()
 
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
-        mock_task.aenqueue.side_effect = _aenq
-        mock_task.module_path = run_job_task.module_path
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_notify_on_accepted_but_not_forwarded(authenticated_client: TestAsyncClient):
+    """notify_on is still accepted (deprecated, not removed) but is not forwarded to services."""
+    captured: dict = {}
+    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="always"))
-
     assert response.status_code == 202
-    assert mock_create.await_args.kwargs["notify_on"] == "always"
+    assert "notify_on" not in captured
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_notify_on_optional(authenticated_client: TestAsyncClient):
-    """Omitting ``notify_on`` is valid and forwards ``None`` (defer to user preference)."""
-
-    async def _aenq(**kwargs):
-        return await _make_task_row()
-
-    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
-        mock_task.aenqueue.side_effect = _aenq
-        mock_task.module_path = run_job_task.module_path
+async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyncClient):
+    """Omitting ``muted`` defaults to False."""
+    captured: dict = {}
+    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
-
     assert response.status_code == 202
-    assert mock_create.await_args.kwargs["notify_on"] is None
+    assert captured.get("muted") is False
 
 
 @pytest.mark.django_db(transaction=True)
