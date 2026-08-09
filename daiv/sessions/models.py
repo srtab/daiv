@@ -141,7 +141,7 @@ class Session(models.Model):
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
     # Same semantics as the old ChatThread.active_run_id.
-    active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # ruff: ignore[django-nullable-model-string-field]
+    active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
 
     # default (not auto_now_add) so the data migration can backfill historical values.
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
@@ -245,7 +245,7 @@ class Run(models.Model):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)
+    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # noqa: DJ001 — null = inherit
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
@@ -386,7 +386,6 @@ class Run(models.Model):
 
         Returns:
             List of field names that were updated (empty if nothing changed).
-
         """
         if self.task_result is None:
             return []
@@ -473,7 +472,7 @@ class RunEnvelope(models.Model):
     def __str__(self) -> str:
         return f"Envelope({self.status}) for run {self.run_id}"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs):
         """Keep ``count`` a derived mirror of ``len(actionable)``.
 
         ``count`` is a queryable column (the Feed badge) but never an independently-authored value:

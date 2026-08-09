@@ -17,7 +17,7 @@ def _mock_task():
 class _FakeRun:
     _next_pk = 0
 
-    def __init__(self, task_result_id) -> None:
+    def __init__(self, task_result_id):
         self.id = uuid.uuid4()
         self.task_result_id = task_result_id
         self.session_id = str(uuid.uuid4())
@@ -65,13 +65,13 @@ def _default_mcp_user(db):
     """
     from accounts.models import User
 
-    user = User.objects.create_user(username="mcp_default", email="mcp@test.com", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    user = User.objects.create_user(username="mcp_default", email="mcp@test.com", password="x")  # noqa: S106
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         yield user
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_single_repo_returns_batch_response() -> None:
+async def test_submit_job_single_repo_returns_batch_response():
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
@@ -85,7 +85,7 @@ async def test_submit_job_single_repo_returns_batch_response() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_multi_repo_enqueues_each() -> None:
+async def test_submit_job_multi_repo_enqueues_each():
     tasks = [_mock_task() for _ in range(3)]
     call_log = []
 
@@ -104,16 +104,14 @@ async def test_submit_job_multi_repo_enqueues_each() -> None:
     assert len(data["jobs"]) == 3
     assert {j["repo_id"] for j in data["jobs"]} == {"o/a", "o/b", "o/c"}
     refs = [c["ref"] for c in call_log]
-    assert None in refs
-    assert "dev" in refs
+    assert None in refs and "dev" in refs
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_reports_partial_failure() -> None:
+async def test_submit_job_reports_partial_failure():
     async def _flaky(**kwargs):
         if kwargs["repo_id"] == "o/b":
-            msg = "boom"
-            raise RuntimeError(msg)
+            raise RuntimeError("boom")
         return _mock_task()
 
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
@@ -127,7 +125,7 @@ async def test_submit_job_reports_partial_failure() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_passes_ref() -> None:
+async def test_submit_job_passes_ref():
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
@@ -153,7 +151,7 @@ def openrouter_provider(db):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_unknown_provider() -> None:
+async def test_submit_job_rejects_unknown_provider():
     with _patch_acreate():
         payload = await submit_job(
             repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix it", agent_model="bogus:nope"
@@ -163,11 +161,10 @@ async def test_submit_job_rejects_unknown_provider() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatch) -> None:
+async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatch):
     """The Auto fallback is gone: when the caller omits ``agent_model`` AND the admin
     hasn't configured a system default, the MCP tool refuses at submit time instead
-    of letting the run reach the agent kickoff and explode with ``AgentConfigurationError``.
-    """
+    of letting the run reach the agent kickoff and explode with ``AgentConfigurationError``."""
     from core.site_settings import site_settings
 
     monkeypatch.setattr(site_settings, "agent_model_name", "")
@@ -178,11 +175,10 @@ async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatc
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider) -> None:
+async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
     """The MCP tool's direct (in-process) call path bypasses FastMCP's protocol-layer
     Pydantic validation, so the explicit ``validate_agent_override`` call inside the
-    tool must catch out-of-enum thinking levels.
-    """
+    tool must catch out-of-enum thinking levels."""
     with _patch_acreate():
         payload = await submit_job(
             repos=[{"repo_id": "group/project", "ref": None}],
@@ -195,7 +191,7 @@ async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider) ->
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_agent_override(openrouter_provider) -> None:
+async def test_submit_job_forwards_agent_override(openrouter_provider):
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(
@@ -224,7 +220,7 @@ def _capture_asubmit_batch_runs(captured: dict):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_muted_at_batch_boundary() -> None:
+async def test_submit_job_forwards_muted_at_batch_boundary():
     """MCP submit tool forwards ``muted`` to asubmit_batch_runs."""
     captured: dict = {}
     with _capture_asubmit_batch_runs(captured):
@@ -234,7 +230,7 @@ async def test_submit_job_forwards_muted_at_batch_boundary() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_muted_to_runs() -> None:
+async def test_submit_job_forwards_muted_to_runs():
     """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
@@ -244,7 +240,7 @@ async def test_submit_job_forwards_muted_to_runs() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_muted_defaults_to_false() -> None:
+async def test_submit_job_muted_defaults_to_false():
     """Omitting ``muted`` defaults to False."""
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
@@ -254,7 +250,7 @@ async def test_submit_job_muted_defaults_to_false() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_all_fail() -> None:
+async def test_submit_job_all_fail():
     """When every enqueue fails, no jobs in response, all entries in failed."""
     with patch("sessions.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
@@ -267,7 +263,7 @@ async def test_submit_job_all_fail() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_repos_returns_error_json() -> None:
+async def test_submit_job_empty_repos_returns_error_json():
     result = await submit_job(repos=[], prompt="p")
     data = json.loads(result)
     assert "error" in data
@@ -275,7 +271,7 @@ async def test_submit_job_empty_repos_returns_error_json() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_oversized_batch_returns_error_json() -> None:
+async def test_submit_job_oversized_batch_returns_error_json():
     repos = [{"repo_id": f"o/r{i}", "ref": None} for i in range(21)]
     result = await submit_job(repos=repos, prompt="p")
     data = json.loads(result)
@@ -283,7 +279,7 @@ async def test_submit_job_oversized_batch_returns_error_json() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_success() -> None:
+async def test_submit_job_wait_success():
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
@@ -296,7 +292,7 @@ async def test_submit_job_wait_success() -> None:
         return run
 
     class _AsyncRows:
-        def __init__(self, rows) -> None:
+        def __init__(self, rows):
             self._rows = rows
 
         def __aiter__(self):
@@ -333,7 +329,7 @@ async def test_submit_job_wait_success() -> None:
             finished.finished_at = now
             return _AsyncRows([finished])
 
-        mock_model.objects.filter = MagicMock(side_effect=_make_filter)
+        mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
@@ -345,7 +341,7 @@ async def test_submit_job_wait_success() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_running_when_never_terminal() -> None:
+async def test_submit_job_wait_running_when_never_terminal():
     """When the batch poll times out without terminal results, statuses surface as RUNNING.
 
     RUNNING is the closest valid Run status; PENDING is not in the documented enum.
@@ -380,11 +376,10 @@ async def test_submit_job_wait_running_when_never_terminal() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_user) -> None:
+async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_user):
     """The batch poll must scope its Run lookup by ``user=mcp_user`` to prevent
     cross-user reads. Asserts the call construction (not just behavior) so a refactor
-    that drops the kwarg fails immediately.
-    """
+    that drops the kwarg fails immediately."""
     from mcp_server.server import _poll_batch_until_complete
 
     captured: list[dict] = []
@@ -420,7 +415,7 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_not_found() -> None:
+async def test_get_job_status_not_found():
     caller = MagicMock(pk=1)
 
     class _DoesNotExistError(Exception):
@@ -437,7 +432,7 @@ async def test_get_job_status_not_found() -> None:
     assert data["error"] == "Job not found."
 
 
-async def test_get_job_status_invalid_uuid() -> None:
+async def test_get_job_status_invalid_uuid():
     caller = MagicMock(pk=1)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
         result = await get_job_status(job_id="not-a-uuid")
@@ -446,7 +441,7 @@ async def test_get_job_status_invalid_uuid() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_wait_already_complete() -> None:
+async def test_get_job_status_wait_already_complete():
     """When wait=True but the job is already complete, return immediately."""
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
@@ -478,7 +473,7 @@ async def test_get_job_status_wait_already_complete() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_wait_polls_until_complete() -> None:
+async def test_get_job_status_wait_polls_until_complete():
     """When wait=True and the job is still running, poll until complete."""
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
@@ -516,7 +511,7 @@ async def test_get_job_status_wait_polls_until_complete() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_wait_not_found_then_appears() -> None:
+async def test_get_job_status_wait_not_found_then_appears():
     """When wait=True and the job doesn't exist yet, poll until it appears."""
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
@@ -551,7 +546,7 @@ async def test_get_job_status_wait_not_found_then_appears() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_batch_poll_db_exception_breaks_loop() -> None:
+async def test_submit_job_batch_poll_db_exception_breaks_loop():
     """DB error during batch polling terminates the loop; unresolved jobs surface as RUNNING."""
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
@@ -575,7 +570,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_db_exception() -> None:
+async def test_get_job_status_db_exception():
     """Generic DB exception in get_job_status returns error response."""
     job_id = str(uuid.uuid4())
 
@@ -620,7 +615,7 @@ def _cat(slug: str, name: str, topics: list[str] | None = None):
 # ---------------------------------------------------------------------------
 
 
-async def test_list_repositories_default() -> None:
+async def test_list_repositories_default():
     rows = [_cat("group/alpha", "alpha", ["python", "backend"]), _cat("group/beta", "beta")]
 
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
@@ -635,7 +630,7 @@ async def test_list_repositories_default() -> None:
     mock_search.assert_awaited_once_with(ANY, search=None, topics=None, limit=MAX_REPOSITORIES + 1)
 
 
-async def test_list_repositories_with_search() -> None:
+async def test_list_repositories_with_search():
     with patch(
         "mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[_cat("group/alpha", "alpha")])
     ) as mock_search:
@@ -645,7 +640,7 @@ async def test_list_repositories_with_search() -> None:
     mock_search.assert_awaited_once_with(ANY, search="alpha", topics=None, limit=MAX_REPOSITORIES + 1)
 
 
-async def test_list_repositories_with_topics() -> None:
+async def test_list_repositories_with_topics():
     rows = [_cat("group/alpha", "alpha", ["python"]), _cat("group/beta", "beta", ["python"])]
 
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
@@ -655,7 +650,7 @@ async def test_list_repositories_with_topics() -> None:
     mock_search.assert_awaited_once_with(ANY, search=None, topics=["python"], limit=MAX_REPOSITORIES + 1)
 
 
-async def test_list_repositories_truncated_with_warning() -> None:
+async def test_list_repositories_truncated_with_warning():
     """More than MAX_REPOSITORIES accessible → truncated to MAX with an exact overflow warning."""
     rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES + 1)]
 
@@ -668,7 +663,7 @@ async def test_list_repositories_truncated_with_warning() -> None:
     assert data["next_cursor"] is None
 
 
-async def test_list_repositories_at_limit_no_warning() -> None:
+async def test_list_repositories_at_limit_no_warning():
     """Exactly MAX_REPOSITORIES accessible → full window, no overflow warning (negative boundary)."""
     rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES)]
 
@@ -680,7 +675,7 @@ async def test_list_repositories_at_limit_no_warning() -> None:
     assert data["next_cursor"] is None
 
 
-async def test_list_repositories_error_handling() -> None:
+async def test_list_repositories_error_handling():
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(side_effect=RuntimeError("DB down"))):
         data = await list_repositories()
 
@@ -690,7 +685,7 @@ async def test_list_repositories_error_handling() -> None:
 
 @pytest.mark.django_db(transaction=True)
 class TestMCPThreadContinuation:
-    async def test_response_includes_thread_id_and_status(self) -> None:
+    async def test_response_includes_thread_id_and_status(self):
         with (
             patch("sessions.services.run_job_task") as mock_task,
             _patch_acreate(),
@@ -703,14 +698,14 @@ class TestMCPThreadContinuation:
         assert data["jobs"][0]["thread_id"]
         assert data["jobs"][0]["status"] in {"READY", "QUEUED"}
 
-    async def test_unknown_thread_id_rejected(self) -> None:
+    async def test_unknown_thread_id_rejected(self):
         user = MagicMock(pk=1)
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=str(uuid.uuid4()))
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
-    async def test_multi_repo_with_thread_id_rejected(self) -> None:
+    async def test_multi_repo_with_thread_id_rejected(self):
         user = MagicMock(pk=1)
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(
@@ -721,24 +716,23 @@ class TestMCPThreadContinuation:
         data = json.loads(result)
         assert "exactly one repo" in data["error"]
 
-    async def test_malformed_thread_id_rejected(self) -> None:
+    async def test_malformed_thread_id_rejected(self):
         user = MagicMock(pk=1)
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id="not-a-uuid")
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
-    async def test_non_string_thread_id_rejected(self) -> None:
+    async def test_non_string_thread_id_rejected(self):
         """Pins the TypeError arm: direct callers passing a non-str/non-UUID value get the
-        opaque error instead of an unhandled 500.
-        """
+        opaque error instead of an unhandled 500."""
         user = MagicMock(pk=1)
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=12345)
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
-    async def test_unauthenticated_user_rejected(self) -> None:
+    async def test_unauthenticated_user_rejected(self):
         """Without a resolvable user, submit_job must reject — not silently submit as user=None."""
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
@@ -747,7 +741,7 @@ class TestMCPThreadContinuation:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_other_user_run_returns_not_found() -> None:
+async def test_get_job_status_other_user_run_returns_not_found():
     """An MCP caller cannot read another user's Run by id."""
     from accounts.models import User
 
@@ -755,7 +749,7 @@ async def test_get_job_status_other_user_run_returns_not_found() -> None:
     owner = await User.objects.acreate_user(
         username="owner_mcp",
         email="owner_mcp@example.com",
-        password="x",  # ruff: ignore[hardcoded-password-func-arg]
+        password="x",  # noqa: S106
     )
     session = await Session.objects.acreate(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=owner, repo_id="a/b"
@@ -768,7 +762,7 @@ async def test_get_job_status_other_user_run_returns_not_found() -> None:
     caller = await User.objects.acreate_user(
         username="caller_mcp",
         email="caller_mcp@example.com",
-        password="x",  # ruff: ignore[hardcoded-password-func-arg]
+        password="x",  # noqa: S106
     )
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
         result = await get_job_status(job_id=str(run.id))
@@ -777,7 +771,7 @@ async def test_get_job_status_other_user_run_returns_not_found() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_list_repositories_unauthenticated_rejected() -> None:
+async def test_list_repositories_unauthenticated_rejected():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
         result = await list_repositories()
     assert "error" in result

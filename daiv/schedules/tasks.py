@@ -34,7 +34,7 @@ def _advance_or_disable(schedule: ScheduledJob, now: datetime) -> None:
 
 @cron("* * * * *")
 @task
-def dispatch_scheduled_jobs_cron_task() -> None:
+def dispatch_scheduled_jobs_cron_task():
     """Check for scheduled jobs that are due and enqueue them.
 
     Uses ``select_for_update(skip_locked=True)`` so that if the dispatcher

@@ -33,7 +33,7 @@ def _make_run(*, session_id: str, status: str, **kwargs) -> Run:
 
 @pytest.mark.django_db
 class TestBackfillSessionUser:
-    def test_backfills_orphaned_runs_on_user_create(self) -> None:
+    def test_backfills_orphaned_runs_on_user_create(self):
         session = _make_session()
         orphan = _create_run(
             session=session,
@@ -47,13 +47,13 @@ class TestBackfillSessionUser:
         user = User.objects.create_user(
             username="newdev",
             email="newdev@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
 
         orphan.refresh_from_db()
         assert orphan.user == user
 
-    def test_backfills_orphaned_sessions_on_user_create(self) -> None:
+    def test_backfills_orphaned_sessions_on_user_create(self):
         session = Session.objects.create(
             thread_id=str(uuid.uuid4()),
             origin=SessionOrigin.ISSUE_WEBHOOK,
@@ -65,17 +65,17 @@ class TestBackfillSessionUser:
         user = User.objects.create_user(
             username="newdev2",
             email="newdev2@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
 
         session.refresh_from_db()
         assert session.user == user
 
-    def test_does_not_backfill_already_linked_runs(self) -> None:
+    def test_does_not_backfill_already_linked_runs(self):
         existing_user = User.objects.create_user(
             username="existing",
             email="existing@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
         session = _make_session()
         linked = _create_run(
@@ -90,14 +90,14 @@ class TestBackfillSessionUser:
         new_user = User.objects.create_user(
             username="newdev",
             email="newdev@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
 
         linked.refresh_from_db()
         assert linked.user == existing_user, "Should not overwrite existing user FK"
         assert linked.user != new_user
 
-    def test_does_not_backfill_on_user_update(self) -> None:
+    def test_does_not_backfill_on_user_update(self):
         session = _make_session()
         orphan = _create_run(
             session=session,
@@ -110,7 +110,7 @@ class TestBackfillSessionUser:
         user = User.objects.create_user(
             username="devuser",
             email="dev@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
 
         orphan.refresh_from_db()
@@ -124,7 +124,7 @@ class TestBackfillSessionUser:
         orphan.refresh_from_db()
         assert orphan.user is None, "Should not backfill on user update, only on create"
 
-    def test_no_match_when_external_username_differs(self) -> None:
+    def test_no_match_when_external_username_differs(self):
         session = _make_session()
         orphan = _create_run(
             session=session,
@@ -137,7 +137,7 @@ class TestBackfillSessionUser:
         User.objects.create_user(
             username="newdev",
             email="newdev@test.com",
-            password="testpass",  # ruff: ignore[hardcoded-password-func-arg]
+            password="testpass",  # noqa: S106
         )
 
         orphan.refresh_from_db()
@@ -146,7 +146,7 @@ class TestBackfillSessionUser:
 
 @pytest.mark.django_db
 class TestSyncRunOnTaskSignals:
-    def test_task_finished_syncs_successful_run(self, create_db_task_result) -> None:
+    def test_task_finished_syncs_successful_run(self, create_db_task_result):
         finished = datetime(2026, 4, 13, 12, 0, 0, tzinfo=UTC)
         tr = create_db_task_result(
             status="SUCCESSFUL",
@@ -166,7 +166,7 @@ class TestSyncRunOnTaskSignals:
         assert run.code_changes is True
         assert run.merge_request_iid == 42
 
-    def test_task_finished_syncs_failed_run(self, create_db_task_result) -> None:
+    def test_task_finished_syncs_failed_run(self, create_db_task_result):
         tr = create_db_task_result(
             status="FAILED",
             exception_class_path="builtins.ValueError",
@@ -184,7 +184,7 @@ class TestSyncRunOnTaskSignals:
         assert "ValueError" in run.error_message
         assert "Traceback" in run.error_message
 
-    def test_task_started_syncs_running_status(self, create_db_task_result) -> None:
+    def test_task_started_syncs_running_status(self, create_db_task_result):
         started = datetime(2026, 4, 13, 11, 0, 0, tzinfo=UTC)
         tr = create_db_task_result(status="RUNNING", started_at=started)
         session = _make_session()
@@ -196,15 +196,15 @@ class TestSyncRunOnTaskSignals:
         assert run.status == RunStatus.RUNNING
         assert run.started_at == started
 
-    def test_task_finished_no_run_does_not_raise(self, create_db_task_result) -> None:
+    def test_task_finished_no_run_does_not_raise(self, create_db_task_result):
         tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
         task_finished.send(sender=type(None), task_result=tr.task_result)
 
-    def test_task_started_no_run_does_not_raise(self, create_db_task_result) -> None:
+    def test_task_started_no_run_does_not_raise(self, create_db_task_result):
         tr = create_db_task_result(status="RUNNING")
         task_started.send(sender=type(None), task_result=tr.task_result)
 
-    def test_signal_handler_swallows_sync_errors(self, create_db_task_result) -> None:
+    def test_signal_handler_swallows_sync_errors(self, create_db_task_result):
         tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
         session = _make_session()
         _create_run(session=session, task_result=tr, status=RunStatus.READY)
@@ -215,7 +215,7 @@ class TestSyncRunOnTaskSignals:
 
 @pytest.mark.django_db
 class TestRunFinishedSignal:
-    def test_emitted_on_transition_to_successful(self, member_user) -> None:
+    def test_emitted_on_transition_to_successful(self, member_user):
         from unittest.mock import MagicMock
 
         from sessions.signals import emit_run_finished_if_terminal, run_finished
@@ -235,7 +235,7 @@ class TestRunFinishedSignal:
         finally:
             run_finished.disconnect(dispatch_uid="test-succ")
 
-    def test_not_emitted_when_still_running(self, member_user) -> None:
+    def test_not_emitted_when_still_running(self, member_user):
         from unittest.mock import MagicMock
 
         from sessions.signals import emit_run_finished_if_terminal, run_finished
@@ -250,7 +250,7 @@ class TestRunFinishedSignal:
         finally:
             run_finished.disconnect(dispatch_uid="test-run")
 
-    def test_not_emitted_when_already_terminal(self, member_user) -> None:
+    def test_not_emitted_when_already_terminal(self, member_user):
         from unittest.mock import MagicMock
 
         from sessions.signals import emit_run_finished_if_terminal, run_finished
@@ -268,7 +268,7 @@ class TestRunFinishedSignal:
 
 @pytest.mark.django_db(transaction=True)
 class TestDispatchNextInSession:
-    def test_releases_oldest_queued_sibling(self, create_db_task_result) -> None:
+    def test_releases_oldest_queued_sibling(self, create_db_task_result):
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
         oldest = _make_run(session_id=session_id, status=RunStatus.QUEUED)
@@ -284,7 +284,7 @@ class TestDispatchNextInSession:
         assert oldest.status == RunStatus.READY
         assert oldest.task_result_id == fake_task.id
 
-    def test_no_op_when_no_session_id(self) -> None:
+    def test_no_op_when_no_session_id(self):
         # Create a run without a session (shouldn't happen in practice but guard the code path)
         session = _make_session()
         _create_run(session=session, status=RunStatus.SUCCESSFUL)
@@ -296,7 +296,7 @@ class TestDispatchNextInSession:
             run_finished.send(sender=Run, run=finished_mock)
             mock_task.aenqueue.assert_not_called()
 
-    def test_no_op_when_no_queued_sibling(self) -> None:
+    def test_no_op_when_no_queued_sibling(self):
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
         with patch("sessions.signals.run_job_task") as mock_task:
@@ -304,7 +304,7 @@ class TestDispatchNextInSession:
             run_finished.send(sender=Run, run=finished)
             mock_task.aenqueue.assert_not_called()
 
-    def test_dispatch_failure_marks_queued_failed_and_unblocks_chain(self, create_db_task_result) -> None:
+    def test_dispatch_failure_marks_queued_failed_and_unblocks_chain(self, create_db_task_result):
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
         bad = _make_run(session_id=session_id, status=RunStatus.QUEUED)
@@ -323,7 +323,7 @@ class TestDispatchNextInSession:
         assert next_q.status == RunStatus.READY
         assert next_q.task_result_id == fake_task.id
 
-    def test_skip_dispatch_kwarg_suppresses_dispatcher(self) -> None:
+    def test_skip_dispatch_kwarg_suppresses_dispatcher(self):
         """run_finished with skip_dispatch=True must not re-enter dispatch_next_in_session."""
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
@@ -335,17 +335,16 @@ class TestDispatchNextInSession:
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
 
-    def test_enqueue_failure_reemit_uses_skip_dispatch(self) -> None:
+    def test_enqueue_failure_reemit_uses_skip_dispatch(self):
         """The dispatch-failure path must re-emit ``run_finished`` with
-        ``skip_dispatch=True`` so the dispatcher does not recurse — notifications still fire.
-        """
+        ``skip_dispatch=True`` so the dispatcher does not recurse — notifications still fire."""
         from sessions.signals import _enqueue_queued_run
 
         session_id = str(uuid.uuid4())
         bad = _make_run(session_id=session_id, status=RunStatus.READY)
         captured: list = []
 
-        def _spy(sender, run, **kwargs) -> None:
+        def _spy(sender, run, **kwargs):
             captured.append(kwargs.get("skip_dispatch"))
 
         run_finished.connect(_spy, dispatch_uid="t-skip-test")
@@ -359,7 +358,7 @@ class TestDispatchNextInSession:
         assert ok is False
         assert captured == [True], f"expected one emit with skip_dispatch=True, got {captured}"
 
-    def test_bails_after_max_consecutive_failures(self, create_db_task_result) -> None:
+    def test_bails_after_max_consecutive_failures(self, create_db_task_result):
         """A persistent broker outage must not mass-fail every QUEUED row on the session."""
         from sessions.signals import MAX_CONSECUTIVE_DISPATCH_FAILURES
 
@@ -381,7 +380,7 @@ class TestDispatchNextInSession:
         assert statuses[RunStatus.FAILED] == MAX_CONSECUTIVE_DISPATCH_FAILURES
         assert statuses[RunStatus.QUEUED] == 2
 
-    def test_re_enqueue_propagates_agent_override(self, create_db_task_result) -> None:
+    def test_re_enqueue_propagates_agent_override(self, create_db_task_result):
         """Releasing a QUEUED sibling must forward the per-row agent override pair."""
         session_id = str(uuid.uuid4())
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
@@ -406,7 +405,7 @@ class TestDispatchNextInSession:
 
 @pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:
-    def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result) -> None:
+    def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result):
         """When sync_stuck_runs reconciles a stuck RUNNING Run whose
         DBTaskResult is already terminal, the resulting run_finished signal
         must release the oldest QUEUED sibling on the same session_id.
@@ -438,7 +437,7 @@ class TestClassifyOnRunFinished:
         session = _make_session()
         return _create_run(session=session, trigger_type=SessionOrigin.SCHEDULE, status=status, **kwargs)
 
-    def test_enqueues_for_scheduled_terminal_run(self) -> None:
+    def test_enqueues_for_scheduled_terminal_run(self):
         from sessions.signals import classify_on_run_finished
 
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)
@@ -446,7 +445,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_enqueues_for_failed_scheduled_run(self) -> None:
+    def test_enqueues_for_failed_scheduled_run(self):
         from sessions.signals import classify_on_run_finished
 
         run = self._schedule_run(status=RunStatus.FAILED)
@@ -454,7 +453,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_enqueues_for_webhook_and_prompt_driven_origins(self) -> None:
+    def test_enqueues_for_webhook_and_prompt_driven_origins(self):
         from sessions.signals import classify_on_run_finished
 
         for origin in (
@@ -470,7 +469,7 @@ class TestClassifyOnRunFinished:
                 classify_on_run_finished(sender=Run, run=run)
             task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_skips_chat_trigger(self) -> None:
+    def test_skips_chat_trigger(self):
         from sessions.signals import classify_on_run_finished
 
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="acme/api")
@@ -479,7 +478,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
-    def test_failed_run_classifies_even_on_skip_dispatch(self) -> None:
+    def test_failed_run_classifies_even_on_skip_dispatch(self):
         # F5: a skip_dispatch re-emit that is FAILED still deserves a `failed` envelope + notification.
         run = self._schedule_run(status=RunStatus.FAILED)
         from sessions.signals import classify_on_run_finished
@@ -488,7 +487,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_non_failed_skip_dispatch_still_skips(self) -> None:
+    def test_non_failed_skip_dispatch_still_skips(self):
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)
         from sessions.signals import classify_on_run_finished
 
@@ -496,7 +495,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
         task_mock.enqueue.assert_not_called()
 
-    def test_skips_non_terminal_status(self) -> None:
+    def test_skips_non_terminal_status(self):
         from sessions.signals import classify_on_run_finished
 
         run = self._schedule_run(status=RunStatus.RUNNING)
@@ -504,7 +503,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
-    def test_skips_dispatch_failure_reemits(self) -> None:
+    def test_skips_dispatch_failure_reemits(self):
         """``skip_dispatch=True`` is checked first: re-emitted runs never executed."""
         from sessions.signals import classify_on_run_finished
 
@@ -513,7 +512,7 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
         task_mock.enqueue.assert_not_called()
 
-    def test_never_raises_on_enqueue_failure(self) -> None:
+    def test_never_raises_on_enqueue_failure(self):
         from sessions.signals import classify_on_run_finished
 
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)
@@ -523,7 +522,7 @@ class TestClassifyOnRunFinished:
         # The enqueue was actually attempted (and its failure swallowed) — not skipped by an early gate.
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_wired_to_run_finished_signal(self) -> None:
+    def test_wired_to_run_finished_signal(self):
         """apps.ready() must register the receiver on the run_finished signal."""
         run = self._schedule_run(status=RunStatus.SUCCESSFUL)
         with patch("sessions.signals.classify_run_task") as task_mock:

@@ -6,7 +6,6 @@ called; the deterministic gating/invariants (enforced in the task) are what thes
 """
 
 import uuid
-from typing import Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import IntegrityError
@@ -73,7 +72,7 @@ async def _make_scheduled_run(
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac2_well_formed_envelope_for_watch_find() -> None:
+async def test_ac2_well_formed_envelope_for_watch_find():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="Found a couple of problems.")
     classification = RunClassification(
         status="found-issues",
@@ -106,7 +105,7 @@ async def test_ac2_well_formed_envelope_for_watch_find() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac3_report_intent_coerces_found_issues_to_needs_attention() -> None:
+async def test_ac3_report_intent_coerces_found_issues_to_needs_attention():
     run = await _make_scheduled_run(intent=Intent.REPORT)
     classification = RunClassification(
         status="found-issues",
@@ -124,7 +123,7 @@ async def test_ac3_report_intent_coerces_found_issues_to_needs_attention() -> No
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac3_report_intent_passes_all_clear_through_with_no_findings() -> None:
+async def test_ac3_report_intent_passes_all_clear_through_with_no_findings():
     run = await _make_scheduled_run(intent=Intent.REPORT)
     classification = RunClassification(
         status="all-clear", summary="Nothing notable.", actionable=[ActionableDraft(kind="bug", label="x", ref="y")]
@@ -140,7 +139,7 @@ async def test_ac3_report_intent_passes_all_clear_through_with_no_findings() -> 
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear() -> None:
+async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="found-issues", summary="Odd but empty.", actionable=[])
 
@@ -154,7 +153,7 @@ async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac5_failed_run_is_failed_status_no_llm_call() -> None:
+async def test_ac5_failed_run_is_failed_status_no_llm_call():
     # Non-empty prose on purpose: proves the FAILED gate wins over the classification path even when
     # there *is* text to classify (not merely over the empty-prose short-circuit).
     run = await _make_scheduled_run(
@@ -176,7 +175,7 @@ async def test_ac5_failed_run_is_failed_status_no_llm_call() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac5_failed_run_without_error_message_uses_generic_gloss() -> None:
+async def test_ac5_failed_run_without_error_message_uses_generic_gloss():
     run = await _make_scheduled_run(status=RunStatus.FAILED, response_text="", error_message="")
 
     with patch("sessions.classification._build_structured_llm") as build:
@@ -189,7 +188,7 @@ async def test_ac5_failed_run_without_error_message_uses_generic_gloss() -> None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac6_idempotent_writes_exactly_one_envelope() -> None:
+async def test_ac6_idempotent_writes_exactly_one_envelope():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="all-clear", summary="All good.", actionable=[])
 
@@ -203,7 +202,7 @@ async def test_ac6_idempotent_writes_exactly_one_envelope() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac6_pending_run_has_no_envelope() -> None:
+async def test_ac6_pending_run_has_no_envelope():
     run = await _make_scheduled_run()
     # Task not run yet → envelope is absent ("classifying…"). ``for_run`` is sync-only, so it is
     # wrapped for this async test.
@@ -212,7 +211,7 @@ async def test_ac6_pending_run_has_no_envelope() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_schedule_deleted_defaults_intent_to_watch_find() -> None:
+async def test_schedule_deleted_defaults_intent_to_watch_find():
     # A SCHEDULE-triggered run whose schedule was deleted (scheduled_job is None) still classifies;
     # intent defaults to WATCH_FIND, so found-issues + items is preserved as a finding.
     run = await _make_scheduled_run(with_schedule=False)
@@ -229,7 +228,7 @@ async def test_schedule_deleted_defaults_intent_to_watch_find() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_no_model_configured_leaves_run_unclassified() -> None:
+async def test_no_model_configured_leaves_run_unclassified():
     run = await _make_scheduled_run()
 
     with (
@@ -243,7 +242,7 @@ async def test_no_model_configured_leaves_run_unclassified() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_missing_run_is_a_clean_skip() -> None:
+async def test_missing_run_is_a_clean_skip():
     with patch("sessions.classification._build_structured_llm") as build:
         await classify_run_task.func(str(uuid.uuid4()))  # must not raise
 
@@ -252,7 +251,7 @@ async def test_missing_run_is_a_clean_skip() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_method_failure_propagates_without_partial_envelope() -> None:
+async def test_method_failure_propagates_without_partial_envelope():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     failing = MagicMock()
     failing.with_config.return_value.ainvoke = AsyncMock(side_effect=RuntimeError("upstream 500"))
@@ -264,7 +263,7 @@ async def test_method_failure_propagates_without_partial_envelope() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_non_report_all_clear_with_items_is_emptied() -> None:
+async def test_non_report_all_clear_with_items_is_emptied():
     # Off-contract draft: a non-report run returns ``all-clear`` yet carries items. Only
     # ``found-issues`` may carry items, so the task empties them — status and actionable can never
     # disagree (the reverse of the AC4 invariant).
@@ -283,7 +282,7 @@ async def test_non_report_all_clear_with_items_is_emptied() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_non_report_needs_attention_with_items_is_emptied() -> None:
+async def test_non_report_needs_attention_with_items_is_emptied():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(
         status="needs-attention", summary="Take a look.", actionable=[ActionableDraft(kind="bug", label="x", ref="y")]
@@ -299,7 +298,7 @@ async def test_non_report_needs_attention_with_items_is_emptied() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call() -> None:
+async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call():
     # A SUCCESSFUL run with empty prose (code-only run) has nothing to classify: write ``all-clear``
     # directly, never calling the method with an empty prompt.
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="")
@@ -316,7 +315,7 @@ async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call() -
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_forwards_run_prose_and_model_names_to_method() -> None:
+async def test_forwards_run_prose_and_model_names_to_method():
     # Seam assertion: the run's prose and the primary-before-fallback model tuple (empties filtered)
     # actually reach the classification method — not just that the output happens to be right.
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="classify this exact prose")
@@ -334,7 +333,7 @@ async def test_forwards_run_prose_and_model_names_to_method() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_single_configured_model_forwards_one_tuple() -> None:
+async def test_single_configured_model_forwards_one_tuple():
     # The empty-fallback is filtered out, so the method receives a 1-tuple (not an empty or 2-tuple).
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
@@ -349,7 +348,7 @@ async def test_single_configured_model_forwards_one_tuple() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_failed_run_summary_skips_leading_blank_lines() -> None:
+async def test_failed_run_summary_skips_leading_blank_lines():
     # First *non-empty* line, stripped — a regression to ``splitlines()[0]`` would yield "" here and
     # fall back to the generic gloss.
     run = await _make_scheduled_run(
@@ -365,7 +364,7 @@ async def test_failed_run_summary_skips_leading_blank_lines() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_empty_fix_prompt_is_omitted_from_stored_item() -> None:
+async def test_empty_fix_prompt_is_omitted_from_stored_item():
     # An off-contract empty ``fix_prompt`` is treated as absent, never stored as "" (which could seed a
     # downstream Finding -> Fix with no instruction).
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
@@ -383,7 +382,7 @@ async def test_empty_fix_prompt_is_omitted_from_stored_item() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_unexpected_integrity_error_propagates_and_writes_nothing() -> None:
+async def test_unexpected_integrity_error_propagates_and_writes_nothing():
     # A genuine IntegrityError (not the documented OneToOne race) must surface as a FAILED task rather
     # than being swallowed as a no-op — otherwise the run is left unclassified with no signal.
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
@@ -401,18 +400,17 @@ async def test_unexpected_integrity_error_propagates_and_writes_nothing() -> Non
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_persist_noops_when_race_winner_already_wrote_envelope() -> None:
+async def test_persist_noops_when_race_winner_already_wrote_envelope():
     # The documented OneToOne race: the aexists guard passed, but a concurrent task wrote the envelope
     # before our acreate. The IntegrityError is caught, the re-check finds the winner's row, and we
     # no-op cleanly (no raise, exactly one envelope — the winner's).
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="all-clear", summary="loser", actionable=[])
 
-    async def _winner_then_raise(**kwargs) -> Never:
+    async def _winner_then_raise(**kwargs):
         winner = RunEnvelope(run=run, status=EnvelopeStatus.ALL_CLEAR, count=0, summary="winner", actionable=[])
         await winner.asave()
-        msg = "duplicate key value violates unique constraint"
-        raise IntegrityError(msg)
+        raise IntegrityError("duplicate key value violates unique constraint")
 
     with (
         patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)),
@@ -426,7 +424,7 @@ async def test_persist_noops_when_race_winner_already_wrote_envelope() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_non_successful_run_is_skipped_without_llm_call() -> None:
+async def test_non_successful_run_is_skipped_without_llm_call():
     # Defensive guard (Epic 1 review): only a SUCCESSFUL run reaches classification. A non-terminal
     # run (e.g. a manual re-enqueue while still RUNNING, or a future third terminal RunStatus) must be
     # skipped, never dressed as ``all-clear``/``found-issues``.
@@ -440,13 +438,13 @@ async def test_non_successful_run_is_skipped_without_llm_call() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_emits_run_classified_once_on_success(member_user) -> None:
+async def test_emits_run_classified_once_on_success(member_user):
     from sessions.signals import run_classified
 
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="")  # empty prose → all-clear fast path
     received = []
 
-    def _spy(sender, run, envelope, **kwargs) -> None:
+    def _spy(sender, run, envelope, **kwargs):
         # Sync ORM inside the receiver proves the sync_to_async bridge works (no SynchronousOnlyOperation).
         assert RunEnvelope.objects.filter(pk=envelope.pk).exists()
         received.append((run.pk, envelope.status))
@@ -461,20 +459,19 @@ async def test_emits_run_classified_once_on_success(member_user) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_raced_loser_does_not_emit() -> None:
+async def test_raced_loser_does_not_emit():
     from sessions.signals import run_classified
 
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="all-clear", summary="loser", actionable=[])
     received = []
 
-    async def _winner_then_raise(**kwargs) -> Never:
+    async def _winner_then_raise(**kwargs):
         winner = RunEnvelope(run=run, status=EnvelopeStatus.ALL_CLEAR, count=0, summary="winner", actionable=[])
         await winner.asave()
-        msg = "duplicate key value violates unique constraint"
-        raise IntegrityError(msg)
+        raise IntegrityError("duplicate key value violates unique constraint")
 
-    def _spy(sender, run, envelope, **kwargs) -> None:
+    def _spy(sender, run, envelope, **kwargs):
         received.append(envelope.pk)
 
     run_classified.connect(_spy, dispatch_uid="test-raced-loser")

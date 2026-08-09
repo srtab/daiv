@@ -1,13 +1,11 @@
-from datetime import datetime  # ruff: ignore[typing-only-standard-library-import] - required at runtime by Pydantic
+from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from typing import Literal
-from uuid import UUID  # ruff: ignore[typing-only-standard-library-import] - required at runtime by Pydantic
+from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
 from pydantic import ConfigDict
 
-from core.models import (
-    ThinkingLevelChoices,  # ruff: ignore[typing-only-first-party-import] - required at runtime by Ninja
-)
+from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 
 class RepoSubmitItem(Schema):

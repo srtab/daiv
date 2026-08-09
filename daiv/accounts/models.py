@@ -29,12 +29,14 @@ class User(AbstractUser):
             return False
         return not User.objects.filter(role=Role.ADMIN, is_active=True).exclude(pk=self.pk).exists()
 
-    def __str__(self) -> str:
+    def __str__(self):
         return self.get_full_name() or self.name or self.username or self.email
 
 
 class APIKey(TimeStampedModel):
-    """API Key model to allow users to authenticate with the API."""
+    """
+    API Key model to allow users to authenticate with the API.
+    """
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_keys")
     name = models.CharField(_("name"), max_length=128, blank=True)
@@ -49,5 +51,5 @@ class APIKey(TimeStampedModel):
         verbose_name = _("API Key")
         verbose_name_plural = _("API Keys")
 
-    def __str__(self) -> str:
+    def __str__(self):
         return f"{self.name} ({self.user})"

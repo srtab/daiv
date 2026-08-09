@@ -20,7 +20,7 @@ def client():
 
 @pytest.fixture
 def api_key(db):
-    user = User.objects.create_user(username="testuser", email="test@test.com", password="testpass")  # ruff: ignore[hardcoded-password-func-arg]
+    user = User.objects.create_user(username="testuser", email="test@test.com", password="testpass")  # noqa: S106
     _, key = async_to_sync(APIKey.objects.create_key)(user=user, name="test-key")
     return key
 
@@ -46,8 +46,7 @@ def _single_repo_body(**overrides):
 
 async def _make_task_row(task_id=None) -> AsyncMock:
     """Create a real DBTaskResult row so the Run FK is satisfied, and return a mock that
-    exposes the row's id.
-    """
+    exposes the row's id."""
     tid = task_id or uuid.uuid4()
     await DBTaskResult.objects.acreate(
         id=tid,
@@ -67,7 +66,7 @@ async def _make_task_row(task_id=None) -> AsyncMock:
 class _FakeRun:
     """Stand-in for Run returned from a mocked ``acreate_run`` in tests that patch it."""
 
-    def __init__(self, task_result_id) -> None:
+    def __init__(self, task_result_id):
         self.id = uuid.uuid4()
         self.pk = self.id
         self.task_result_id = task_result_id
@@ -92,13 +91,13 @@ def _patch_acreate_run():
 
 
 @pytest.mark.django_db
-async def test_submit_job_unauthenticated(client: TestAsyncClient) -> None:
+async def test_submit_job_unauthenticated(client: TestAsyncClient):
     response = await client.post("/jobs", json=_single_repo_body(prompt="List all Python files"))
     assert response.status_code == 401
 
 
 @pytest.mark.django_db
-async def test_get_job_status_unauthenticated(client: TestAsyncClient) -> None:
+async def test_get_job_status_unauthenticated(client: TestAsyncClient):
     response = await client.get(f"/jobs/{uuid.uuid4()}")
     assert response.status_code == 401
 
@@ -107,19 +106,19 @@ async def test_get_job_status_unauthenticated(client: TestAsyncClient) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_missing_prompt(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_missing_prompt(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post("/jobs", json={"repos": [{"repo_id": "group/project", "ref": None}]})
     assert response.status_code == 422
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_repos(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_empty_repos(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post("/jobs", json={"repos": [], "prompt": "p"})
     assert response.status_code == 422
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": f"o/r{i}", "ref": None} for i in range(21)], "prompt": "p"}
     )
@@ -127,7 +126,7 @@ async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": "", "ref": None}], "prompt": "hello"}
     )
@@ -135,7 +134,7 @@ async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient) -
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_prompt(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_empty_prompt(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": "group/project", "ref": None}], "prompt": ""}
     )
@@ -146,7 +145,7 @@ async def test_submit_job_empty_prompt(authenticated_client: TestAsyncClient) ->
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_success(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_success(authenticated_client: TestAsyncClient):
     task_id = uuid.uuid4()
 
     async def _aenq(**kwargs):
@@ -164,7 +163,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient) -> None
     # Verify it's a valid UUID
     assert uuid.UUID(data["jobs"][0]["job_id"])
     assert data["jobs"][0]["thread_id"]
-    assert data["jobs"][0]["status"] in {"READY", "QUEUED"}
+    assert data["jobs"][0]["status"] in ("READY", "QUEUED")
     assert data["failed"] == []
     mock_task.aenqueue.assert_called_once()
     kwargs = mock_task.aenqueue.call_args.kwargs
@@ -178,7 +177,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient) -> None
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row()
 
@@ -195,7 +194,7 @@ async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient) -> N
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_unknown_provider(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_rejects_unknown_provider(authenticated_client: TestAsyncClient):
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "agent_model": "bogus:nope"}
     )
@@ -204,10 +203,9 @@ async def test_submit_job_rejects_unknown_provider(authenticated_client: TestAsy
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_invalid_thinking_level(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_rejects_invalid_thinking_level(authenticated_client: TestAsyncClient):
     """``agent_thinking_level`` outside the enum returns a clear 4xx instead of a silent
-    accept. Ninja/Pydantic catches the enum mismatch at the protocol layer (422).
-    """
+    accept. Ninja/Pydantic catches the enum mismatch at the protocol layer (422)."""
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "agent_thinking_level": "extreme"}
     )
@@ -215,10 +213,9 @@ async def test_submit_job_rejects_invalid_thinking_level(authenticated_client: T
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_rejects_extra_field(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_rejects_extra_field(authenticated_client: TestAsyncClient):
     """``JobSubmitRequest`` is locked to ``extra='forbid'`` so a stale client still
-    sending the dropped ``use_max`` field gets a 422 instead of a silent strip+202.
-    """
+    sending the dropped ``use_max`` field gets a 422 instead of a silent strip+202."""
     response = await authenticated_client.post(
         "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "use_max": True}
     )
@@ -226,7 +223,7 @@ async def test_submit_job_rejects_extra_field(authenticated_client: TestAsyncCli
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyncClient, openrouter_provider) -> None:
+async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyncClient, openrouter_provider):
     async def _aenq(**kwargs):
         return await _make_task_row()
 
@@ -264,7 +261,7 @@ def _fake_submit_factory(captured: dict):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: TestAsyncClient):
     """POST /jobs with muted=True threads ``muted=True`` into ``asubmit_batch_runs``."""
     captured: dict = {}
     with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
@@ -274,14 +271,14 @@ async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: Te
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_notify_on_rejected(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_notify_on_rejected(authenticated_client: TestAsyncClient):
     """notify_on is no longer accepted — JobSubmitRequest is extra='forbid'."""
     response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="always"))
     assert response.status_code == 422
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyncClient):
     """Omitting ``muted`` defaults to False."""
     captured: dict = {}
     with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
@@ -291,7 +288,7 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient):
     with patch("sessions.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
@@ -325,7 +322,7 @@ async def _create_run_row(user, status="SUCCESSFUL", result_summary="", merge_re
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_successful(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Here are the files...")
     response = await authenticated_client.get(f"/jobs/{run.id}")
@@ -339,7 +336,7 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient) 
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_failed(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_failed(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, status="FAILED")
     response = await authenticated_client.get(f"/jobs/{run.id}")
@@ -352,23 +349,23 @@ async def test_get_job_status_failed(authenticated_client: TestAsyncClient) -> N
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_not_found(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_not_found(authenticated_client: TestAsyncClient):
     response = await authenticated_client.get(f"/jobs/{uuid.uuid4()}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Job not found"
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_invalid_uuid(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_invalid_uuid(authenticated_client: TestAsyncClient):
     response = await authenticated_client.get("/jobs/not-a-uuid")
     assert response.status_code == 404
     assert response.json()["detail"] == "Job not found"
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_other_user_run_returns_404(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_other_user_run_returns_404(authenticated_client: TestAsyncClient):
     """Runs belonging to other users must not be accessible."""
-    other = await User.objects.acreate_user(username="other2", email="other2@test.com", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    other = await User.objects.acreate_user(username="other2", email="other2@test.com", password="x")  # noqa: S106
     run = await _create_run_row(other, status="SUCCESSFUL", result_summary="secret")
     response = await authenticated_client.get(f"/jobs/{run.id}")
     assert response.status_code == 404
@@ -379,7 +376,7 @@ async def test_get_job_status_other_user_run_returns_404(authenticated_client: T
 
 @pytest.mark.django_db(transaction=True)
 class TestThreadContinuationAPI:
-    async def test_response_includes_thread_id_and_status(self, authenticated_client) -> None:
+    async def test_response_includes_thread_id_and_status(self, authenticated_client):
         # New thread, no prior Run — should be READY
         with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run():
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
@@ -390,14 +387,14 @@ class TestThreadContinuationAPI:
         assert body["jobs"][0]["thread_id"]
         assert body["jobs"][0]["status"] == "READY"
 
-    async def test_continuation_with_unknown_thread_id_rejects(self, authenticated_client) -> None:
+    async def test_continuation_with_unknown_thread_id_rejects(self, authenticated_client):
         body = _single_repo_body(prompt="x", thread_id=str(uuid.uuid4()))
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 400
         assert "thread_id not found" in response.json()["detail"]
 
-    async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db) -> None:
-        other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db):
+        other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # noqa: S106
         thread = str(uuid.uuid4())
         session = await Session.objects.acreate(
             thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=other
@@ -408,7 +405,7 @@ class TestThreadContinuationAPI:
         assert response.status_code == 400
         assert "thread_id not found" in response.json()["detail"]
 
-    async def test_continuation_with_multi_repo_rejects(self, authenticated_client) -> None:
+    async def test_continuation_with_multi_repo_rejects(self, authenticated_client):
         body = {
             "repos": [{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
             "prompt": "x",
@@ -418,7 +415,7 @@ class TestThreadContinuationAPI:
         assert response.status_code == 400
         assert "exactly one repo" in response.json()["detail"]
 
-    async def test_job_id_is_run_id(self, authenticated_client) -> None:
+    async def test_job_id_is_run_id(self, authenticated_client):
         created_runs: list = []
 
         async def capture_acreate_run(**kwargs):
@@ -440,19 +437,19 @@ class TestThreadContinuationAPI:
         assert body["jobs"][0]["job_id"] == str(created_runs[0].id)
         assert body["jobs"][0]["job_id"] != str(created_runs[0].task_result_id)
 
-    async def test_empty_thread_id_rejected_at_schema(self, authenticated_client) -> None:
+    async def test_empty_thread_id_rejected_at_schema(self, authenticated_client):
         """An empty-string thread_id is malformed at the protocol layer (422, not 400)."""
         body = _single_repo_body(prompt="x", thread_id="")
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 422
 
-    async def test_malformed_thread_id_rejected_at_schema(self, authenticated_client) -> None:
+    async def test_malformed_thread_id_rejected_at_schema(self, authenticated_client):
         """A non-UUID thread_id is rejected by the schema, not silently mapped to 'not found'."""
         body = _single_repo_body(prompt="x", thread_id="not-a-uuid")
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 422
 
-    async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client) -> None:
+    async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client):
         """When an active sibling exists on the session, the second submission lands in QUEUED."""
         user = await User.objects.aget(username="testuser")
         thread = str(uuid.uuid4())
@@ -477,7 +474,7 @@ class TestThreadContinuationAPI:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_queued_passes_through(authenticated_client: TestAsyncClient) -> None:
+async def test_get_job_status_queued_passes_through(authenticated_client: TestAsyncClient):
     """A QUEUED Run surfaces as ``status='QUEUED'`` in get_job_status (not 'PENDING')."""
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, status=RunStatus.QUEUED)
@@ -487,9 +484,9 @@ async def test_get_job_status_queued_passes_through(authenticated_client: TestAs
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_thread_validation_uses_session_ownership(authenticated_client: TestAsyncClient) -> None:
+async def test_thread_validation_uses_session_ownership(authenticated_client: TestAsyncClient):
     """Continuation of a thread whose session belongs to someone else -> 400 opaque error."""
-    other = await User.objects.acreate_user(username="outsider", email="outsider@test.com", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    other = await User.objects.acreate_user(username="outsider", email="outsider@test.com", password="x")  # noqa: S106
     thread = str(uuid.uuid4())
     session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=other)
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="a/b", user=other)
@@ -500,7 +497,7 @@ async def test_thread_validation_uses_session_ownership(authenticated_client: Te
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: TestAsyncClient) -> None:
+async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: TestAsyncClient):
     from unittest.mock import AsyncMock, patch
 
     from codebase.authorization import RepositoryAccessDenied

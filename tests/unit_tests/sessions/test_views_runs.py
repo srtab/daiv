@@ -55,14 +55,14 @@ def _fake_result(*, runs=1, failed=0, session_id="sess-123"):
 
 
 @pytest.mark.django_db
-def test_get_requires_login(client) -> None:
+def test_get_requires_login(client):
     resp = client.get(NEW_RUN_URL)
     assert resp.status_code == 302
     assert "login" in resp["Location"].lower()
 
 
 @pytest.mark.django_db
-def test_get_blank_form_renders_with_pickers(member_client) -> None:
+def test_get_blank_form_renders_with_pickers(member_client):
     resp = member_client.get(NEW_RUN_URL)
     assert resp.status_code == 200
     assert resp.context["source_run"] is None
@@ -71,7 +71,7 @@ def test_get_blank_form_renders_with_pickers(member_client) -> None:
 
 
 @pytest.mark.django_db
-def test_get_retry_prefills_from_owned_source_run(member_client, member_user) -> None:
+def test_get_retry_prefills_from_owned_source_run(member_client, member_user):
     source = _create_run(member_user, prompt="retry me", agent_model="anthropic:opus")
     resp = member_client.get(NEW_RUN_URL, {"from": str(source.pk)})
     assert resp.status_code == 200
@@ -83,7 +83,7 @@ def test_get_retry_prefills_from_owned_source_run(member_client, member_user) ->
 
 
 @pytest.mark.django_db
-def test_get_retry_from_other_users_run_is_not_prefilled(member_client, other_user) -> None:
+def test_get_retry_from_other_users_run_is_not_prefilled(member_client, other_user):
     """by_owner scoping hides another user's run — the form falls back to blank (not a 404)."""
     foreign = _create_run(other_user)
     resp = member_client.get(NEW_RUN_URL, {"from": str(foreign.pk)})
@@ -93,13 +93,13 @@ def test_get_retry_from_other_users_run_is_not_prefilled(member_client, other_us
 
 
 @pytest.mark.django_db
-def test_get_retry_with_invalid_uuid_is_404(member_client) -> None:
+def test_get_retry_with_invalid_uuid_is_404(member_client):
     resp = member_client.get(NEW_RUN_URL, {"from": "not-a-uuid"})
     assert resp.status_code == 404
 
 
 @pytest.mark.django_db
-def test_get_retry_with_unknown_uuid_falls_back_to_blank(member_client) -> None:
+def test_get_retry_with_unknown_uuid_falls_back_to_blank(member_client):
     resp = member_client.get(NEW_RUN_URL, {"from": str(uuid.uuid4())})
     assert resp.status_code == 200
     assert resp.context["source_run"] is None
@@ -109,7 +109,7 @@ def test_get_retry_with_unknown_uuid_falls_back_to_blank(member_client) -> None:
 
 
 @pytest.mark.django_db
-def test_post_single_run_redirects_to_batch_list(member_client) -> None:
+def test_post_single_run_redirects_to_batch_list(member_client):
     result = _fake_result(runs=1, failed=0, session_id="thread-abc")
     with (
         patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
@@ -124,7 +124,7 @@ def test_post_single_run_redirects_to_batch_list(member_client) -> None:
 
 
 @pytest.mark.django_db
-def test_post_multiple_runs_redirects_to_batch_list(member_client) -> None:
+def test_post_multiple_runs_redirects_to_batch_list(member_client):
     result = _fake_result(runs=2, failed=0)
     with (
         patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
@@ -136,7 +136,7 @@ def test_post_multiple_runs_redirects_to_batch_list(member_client) -> None:
 
 
 @pytest.mark.django_db
-def test_post_with_failures_warns_and_redirects_to_batch(member_client) -> None:
+def test_post_with_failures_warns_and_redirects_to_batch(member_client):
     result = _fake_result(runs=1, failed=1)
     with (
         patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
@@ -149,7 +149,7 @@ def test_post_with_failures_warns_and_redirects_to_batch(member_client) -> None:
 
 
 @pytest.mark.django_db
-def test_post_submit_failure_rerenders_form_with_error(member_client) -> None:
+def test_post_submit_failure_rerenders_form_with_error(member_client):
     with (
         patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
         patch("sessions.views.submit_batch_runs", side_effect=RuntimeError("broker down")),

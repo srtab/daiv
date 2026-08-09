@@ -22,7 +22,7 @@ async def _mk_user(django_user_model):
     return await django_user_model.objects.acreate_user(
         username=f"u-{tag}",
         email=f"u-{tag}@x.io",
-        password="x",  # ruff: ignore[hardcoded-password-func-arg]
+        password="x",  # noqa: S106
     )
 
 
@@ -32,7 +32,7 @@ async def _mk_chat_session(user) -> Session:
     )
 
 
-async def test_start_chat_run_creates_running_run(django_user_model) -> None:
+async def test_start_chat_run_creates_running_run(django_user_model):
     user = await _mk_user(django_user_model)
     session = await _mk_chat_session(user)
     run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hello", repo_id="g/r", ref="main")
@@ -42,7 +42,7 @@ async def test_start_chat_run_creates_running_run(django_user_model) -> None:
     assert run.task_result_id is None
 
 
-async def test_finalize_chat_run_success_records_usage(django_user_model) -> None:
+async def test_finalize_chat_run_success_records_usage(django_user_model):
     user = await _mk_user(django_user_model)
     session = await _mk_chat_session(user)
     run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
@@ -56,7 +56,7 @@ async def test_finalize_chat_run_success_records_usage(django_user_model) -> Non
     assert run.result_summary == "done"
 
 
-async def test_finalize_chat_run_failure(django_user_model) -> None:
+async def test_finalize_chat_run_failure(django_user_model):
     user = await _mk_user(django_user_model)
     session = await _mk_chat_session(user)
     run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")

@@ -18,7 +18,7 @@ def user(db):
     return User.objects.create_user(
         username="alice",
         email="alice@test.com",
-        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
+        password="testpass123",  # noqa: S106
     )
 
 
@@ -51,7 +51,7 @@ def _qs():
 
 @pytest.mark.django_db
 class TestSessionFilter:
-    def test_no_params_returns_all(self, user) -> None:
+    def test_no_params_returns_all(self, user):
         a = _create_session()
         b = _create_session()
         qs = SessionFilter({}, queryset=_qs()).qs
@@ -59,7 +59,7 @@ class TestSessionFilter:
         assert a.pk in pks
         assert b.pk in pks
 
-    def test_trigger_filter(self, user) -> None:
+    def test_trigger_filter(self, user):
         sched = _create_session(origin=SessionOrigin.SCHEDULE)
         webhook = _create_session(origin=SessionOrigin.ISSUE_WEBHOOK)
         qs = SessionFilter({"trigger": SessionOrigin.SCHEDULE}, queryset=_qs()).qs
@@ -67,7 +67,7 @@ class TestSessionFilter:
         assert sched.pk in pks
         assert webhook.pk not in pks
 
-    def test_repo_filter(self, user) -> None:
+    def test_repo_filter(self, user):
         a = _create_session(repo_id="group/project")
         b = _create_session(repo_id="group/other")
         qs = SessionFilter({"repo": "group/project"}, queryset=_qs()).qs
@@ -75,13 +75,13 @@ class TestSessionFilter:
         assert a.pk in pks
         assert b.pk not in pks
 
-    def test_schedule_filter_invalid_is_ignored(self, user) -> None:
+    def test_schedule_filter_invalid_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"schedule": "not-a-number"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
 
-    def test_schedule_filter_matches_fk(self, user) -> None:
+    def test_schedule_filter_matches_fk(self, user):
         job = ScheduledJob.objects.create(
             user=user,
             name="nightly",
@@ -97,7 +97,7 @@ class TestSessionFilter:
         assert match.pk in pks
         assert other.pk not in pks
 
-    def test_date_from_filter(self, user) -> None:
+    def test_date_from_filter(self, user):
         old = _create_session()
         Session.objects.filter(pk=old.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         recent = _create_session()
@@ -107,7 +107,7 @@ class TestSessionFilter:
         assert recent.pk in pks
         assert old.pk not in pks
 
-    def test_date_to_filter(self, user) -> None:
+    def test_date_to_filter(self, user):
         old = _create_session()
         Session.objects.filter(pk=old.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         recent = _create_session()
@@ -117,7 +117,7 @@ class TestSessionFilter:
         assert old.pk in pks
         assert recent.pk not in pks
 
-    def test_date_range_combined(self, user) -> None:
+    def test_date_range_combined(self, user):
         before = _create_session()
         Session.objects.filter(pk=before.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         inside = _create_session()
@@ -130,13 +130,13 @@ class TestSessionFilter:
         assert before.pk not in pks
         assert after.pk not in pks
 
-    def test_invalid_date_is_ignored(self, user) -> None:
+    def test_invalid_date_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"date_from": "not-a-date"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
 
-    def test_combined_filters(self, user) -> None:
+    def test_combined_filters(self, user):
         match = _create_session(origin=SessionOrigin.SCHEDULE, repo_id="group/project")
         _create_run(match, status=RunStatus.SUCCESSFUL)
         wrong_origin = _create_session(origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="group/project")
@@ -152,10 +152,9 @@ class TestSessionFilter:
 
     # --- Brief-specified new tests ---
 
-    def test_status_filters_on_latest_run(self, user) -> None:
+    def test_status_filters_on_latest_run(self, user):
         """?status=RUNNING matches a session whose LATEST run is RUNNING, and does not
-        match a session whose latest run is SUCCESSFUL even if an older one was RUNNING.
-        """
+        match a session whose latest run is SUCCESSFUL even if an older one was RUNNING."""
         # Session A: older RUNNING, newer SUCCESSFUL → should NOT match ?status=RUNNING
         session_a = _create_session()
         _create_run(session_a, status=RunStatus.RUNNING)
@@ -170,7 +169,7 @@ class TestSessionFilter:
         assert session_b.pk in pks
         assert session_a.pk not in pks
 
-    def test_trigger_filters_on_origin(self, user) -> None:
+    def test_trigger_filters_on_origin(self, user):
         """?trigger=issue_webhook returns webhook-origin sessions; ?trigger=chat returns chat sessions."""
         webhook_session = _create_session(origin=SessionOrigin.ISSUE_WEBHOOK)
         chat_session = _create_session(origin=SessionOrigin.CHAT)
@@ -187,7 +186,7 @@ class TestSessionFilter:
         assert chat_session.pk in chat_pks
         assert webhook_session.pk not in chat_pks
 
-    def test_batch_filters_via_runs(self, user) -> None:
+    def test_batch_filters_via_runs(self, user):
         """?batch=<uuid> returns sessions containing a run with that batch_id."""
         batch_id = uuid.uuid4()
 
@@ -205,7 +204,7 @@ class TestSessionFilter:
         assert session_other_batch.pk not in pks
         assert session_no_batch.pk not in pks
 
-    def test_invalid_status_drops_filter(self, user) -> None:
+    def test_invalid_status_drops_filter(self, user):
         """?status=bogus returns the unfiltered list (strict=False semantics)."""
         a = _create_session()
         b = _create_session()
@@ -216,13 +215,13 @@ class TestSessionFilter:
         assert a.pk in pks
         assert b.pk in pks
 
-    def test_batch_filter_invalid_uuid_is_ignored(self, user) -> None:
+    def test_batch_filter_invalid_uuid_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"batch": "not-a-uuid"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
 
-    def test_q_matches_title(self, user) -> None:
+    def test_q_matches_title(self, user):
         match = _create_session(title="Fix the crash", repo_id="group/project")
         other = _create_session(title="Add a feature", repo_id="group/project")
         qs = SessionFilter({"q": "crash"}, queryset=_qs()).qs
@@ -230,7 +229,7 @@ class TestSessionFilter:
         assert match.pk in pks
         assert other.pk not in pks
 
-    def test_q_matches_repo_case_insensitive(self, user) -> None:
+    def test_q_matches_repo_case_insensitive(self, user):
         match = _create_session(title="", repo_id="Group/Payments")
         other = _create_session(title="", repo_id="group/other")
         qs = SessionFilter({"q": "payments"}, queryset=_qs()).qs
@@ -238,14 +237,14 @@ class TestSessionFilter:
         assert match.pk in pks
         assert other.pk not in pks
 
-    def test_q_empty_is_noop(self, user) -> None:
+    def test_q_empty_is_noop(self, user):
         a = _create_session()
         b = _create_session()
         pks = list(SessionFilter({"q": ""}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert a.pk in pks
         assert b.pk in pks
 
-    def test_range_7d_includes_recent_excludes_old(self, user) -> None:
+    def test_range_7d_includes_recent_excludes_old(self, user):
         now = timezone.now()
         recent = _create_session()
         Session.objects.filter(pk=recent.pk).update(last_active_at=now - timedelta(days=2))
@@ -255,7 +254,7 @@ class TestSessionFilter:
         assert recent.pk in pks
         assert old.pk not in pks
 
-    def test_range_today_uses_local_midnight(self, user) -> None:
+    def test_range_today_uses_local_midnight(self, user):
         now = timezone.now()
         today = _create_session()
         Session.objects.filter(pk=today.pk).update(last_active_at=now)
@@ -265,20 +264,20 @@ class TestSessionFilter:
         assert today.pk in pks
         assert yesterday.pk not in pks
 
-    def test_range_invalid_is_ignored(self, user) -> None:
+    def test_range_invalid_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"range": "bogus"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
 
-    def test_q_matches_both_title_and_repo_returns_row_once(self, user) -> None:
+    def test_q_matches_both_title_and_repo_returns_row_once(self, user):
         # filter_q ORs two columns of the SAME row (no join), so a term hitting both
         # title and repo_id must not duplicate the row.
         match = _create_session(title="payments dashboard", repo_id="group/payments")
         pks = list(SessionFilter({"q": "payments"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert pks.count(match.pk) == 1
 
-    def test_range_2d_and_30d_windows(self, user) -> None:
+    def test_range_2d_and_30d_windows(self, user):
         now = timezone.now()
         d1 = _create_session()
         Session.objects.filter(pk=d1.pk).update(last_active_at=now - timedelta(days=1))
@@ -298,7 +297,7 @@ class TestSessionFilter:
         assert {d1.pk, d3.pk, d20.pk} <= pks_30d
         assert d40.pk not in pks_30d
 
-    def test_range_boundary_is_inclusive(self, user) -> None:
+    def test_range_boundary_is_inclusive(self, user):
         # last_active_at__gte makes the window edge inclusive. Use ~1h margins around the
         # 7-day edge so the assertion can't flake on the sub-second gap between the test's
         # ``now`` and filter_range's own ``timezone.now()``.

@@ -144,11 +144,10 @@ def run_backfill(apps, schema_editor=None) -> None:
         Session.objects.bulk_create(sessions_to_create.values(), batch_size=500)
         Run.objects.bulk_create(runs_to_create, batch_size=500)
     except Exception as err:
-        msg = (
+        raise RuntimeError(
             f"backfill: bulk_create failed while copying {len(sessions_to_create)} sessions / "
             f"{len(runs_to_create)} runs from Activity ({type(err).__name__}: {err})"
-        )
-        raise RuntimeError(msg) from err
+        ) from err
 
     logger.info(
         "backfill pass 1 (activity): created %d sessions, %d runs", len(sessions_to_create), len(runs_to_create)

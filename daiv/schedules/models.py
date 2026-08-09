@@ -104,7 +104,7 @@ def _validate_frequency_fields(
                     "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
                 )
             })
-    if frequency in {Frequency.DAILY, Frequency.WEEKDAYS, Frequency.WEEKLY} and not time:
+    if frequency in (Frequency.DAILY, Frequency.WEEKDAYS, Frequency.WEEKLY) and not time:
         raise ValidationError({"time": _("Time is required for this frequency.")})
     if frequency == Frequency.ONCE:
         if require_run_at:
@@ -260,20 +260,17 @@ class ScheduledJob(TimeStampedModel):
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
         if self.frequency == Frequency.ONCE:
-            msg = "ONCE frequency has no cron expression"
-            raise ValueError(msg)
+            raise ValueError("ONCE frequency has no cron expression")
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
-                msg = "Custom frequency requires a cron_expression"
-                raise ValueError(msg)
+                raise ValueError("Custom frequency requires a cron_expression")
             return self.cron_expression
 
         if self.frequency == Frequency.HOURLY:
             return "0 * * * *"
 
         if self.time is None:
-            msg = f"Frequency '{self.frequency}' requires a time value"
-            raise ValueError(msg)
+            raise ValueError(f"Frequency '{self.frequency}' requires a time value")
 
         minute = self.time.minute
         hour = self.time.hour
@@ -285,8 +282,7 @@ class ScheduledJob(TimeStampedModel):
         if self.frequency == Frequency.WEEKLY:
             return f"{minute} {hour} * * 1"
 
-        msg = f"Unknown frequency: {self.frequency}"
-        raise ValueError(msg)
+        raise ValueError(f"Unknown frequency: {self.frequency}")
 
     def compute_next_run(self, after: datetime | None = None) -> None:
         """Compute and set ``next_run_at`` based on the cron expression and timezone.
@@ -296,15 +292,12 @@ class ScheduledJob(TimeStampedModel):
 
         Raises:
             ValueError: If the frequency/cron configuration is invalid.
-
         """
         if self.frequency == Frequency.ONCE:
             if self.run_at is None:
-                msg = "ONCE frequency requires a run_at value"
-                raise ValueError(msg)
+                raise ValueError("ONCE frequency requires a run_at value")
             if self.run_at <= timezone.now() - timedelta(seconds=60):
-                msg = "ONCE schedule run_at is in the past; cannot re-arm (use Duplicate)"
-                raise ValueError(msg)
+                raise ValueError("ONCE schedule run_at is in the past; cannot re-arm (use Duplicate)")
             self.next_run_at = self.run_at
             return
 

@@ -12,7 +12,7 @@ from codebase.authorization import RepositoryAccessDenied
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_denied_user_gets_no_runs(member_user) -> None:
+async def test_denied_user_gets_no_runs(member_user):
     with (
         patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))),
         pytest.raises(RepositoryAccessDenied),
@@ -24,7 +24,7 @@ async def test_denied_user_gets_no_runs(member_user) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_webhook_style_submission_skips_check() -> None:
+async def test_webhook_style_submission_skips_check():
     check = AsyncMock(return_value=None)
     with patch("sessions.services.aassert_can_run", new=check), patch("sessions.services.run_job_task") as m_task:
         m_task.aenqueue = AsyncMock(side_effect=Exception("stop before enqueue matters"))

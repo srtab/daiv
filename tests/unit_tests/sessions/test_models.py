@@ -20,11 +20,11 @@ def _mk_run(session: Session, **kwargs) -> Run:
     return Run.objects.create(session=session, **defaults)
 
 
-def test_run_status_terminal_set() -> None:
+def test_run_status_terminal_set():
     assert RunStatus.terminal() == frozenset({RunStatus.SUCCESSFUL, RunStatus.FAILED})
 
 
-def test_session_origin_includes_chat() -> None:
+def test_session_origin_includes_chat():
     assert SessionOrigin.CHAT == "chat"
     # All Activity trigger values survive with identical strings.
     assert {c[0] for c in SessionOrigin.choices} == {
@@ -38,34 +38,34 @@ def test_session_origin_includes_chat() -> None:
     }
 
 
-def test_one_active_api_run_per_session_constraint() -> None:
+def test_one_active_api_run_per_session_constraint():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB)
     with pytest.raises(IntegrityError):
         _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.API_JOB)
 
 
-def test_webhook_runs_exempt_from_active_constraint() -> None:
+def test_webhook_runs_exempt_from_active_constraint():
     session = _mk_session(origin=SessionOrigin.ISSUE_WEBHOOK)
     _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
     # Second active webhook run on the same session is allowed (FIFO handled by QUEUED).
     _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
 
 
-def test_queued_runs_stack_freely() -> None:
+def test_queued_runs_stack_freely():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY)
     _mk_run(session, status=RunStatus.QUEUED)
     _mk_run(session, status=RunStatus.QUEUED)
 
 
-def test_active_run_id_nonempty_constraint() -> None:
+def test_active_run_id_nonempty_constraint():
     with pytest.raises(IntegrityError):
         _mk_session(active_run_id="")
 
 
-def test_by_owner_admin_sees_all(admin_user, django_user_model) -> None:
-    other = django_user_model.objects.create_user(username="other", email="o@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+def test_by_owner_admin_sees_all(admin_user, django_user_model):
+    other = django_user_model.objects.create_user(username="other", email="o@x.io", password="x")  # noqa: S106
     mine = _mk_session(user=admin_user)
     theirs = _mk_session(user=other)
     orphan = _mk_session(user=None, external_username="ext")
@@ -76,23 +76,23 @@ def test_by_owner_admin_sees_all(admin_user, django_user_model) -> None:
     assert {mine.pk, theirs.pk, orphan.pk} <= visible
 
 
-def test_by_owner_matches_session_user(django_user_model) -> None:
-    user = django_user_model.objects.create_user(username="u1", email="u1@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
-    other = django_user_model.objects.create_user(username="u2", email="u2@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+def test_by_owner_matches_session_user(django_user_model):
+    user = django_user_model.objects.create_user(username="u1", email="u1@x.io", password="x")  # noqa: S106
+    other = django_user_model.objects.create_user(username="u2", email="u2@x.io", password="x")  # noqa: S106
     mine = _mk_session(user=user)
     _mk_session(user=other)
     assert list(Session.objects.by_owner(user)) == [mine]
 
 
-def test_by_owner_matches_run_actor(django_user_model) -> None:
+def test_by_owner_matches_run_actor(django_user_model):
     """A session owned by nobody is visible to a user who acted in one of its runs."""
-    user = django_user_model.objects.create_user(username="gituser", email="g@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    user = django_user_model.objects.create_user(username="gituser", email="g@x.io", password="x")  # noqa: S106
     session = _mk_session(user=None, origin=SessionOrigin.ISSUE_WEBHOOK)
     _mk_run(session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, external_username="gituser")
     assert list(Session.objects.by_owner(user)) == [session]
 
 
-def test_with_latest_status_annotation() -> None:
+def test_with_latest_status_annotation():
     session = _mk_session()
     _mk_run(session, status=RunStatus.SUCCESSFUL)
     _mk_run(session, status=RunStatus.RUNNING)
@@ -100,7 +100,7 @@ def test_with_latest_status_annotation() -> None:
     assert annotated.latest_run_status == RunStatus.RUNNING
 
 
-def test_run_is_retryable_mirrors_activity_semantics() -> None:
+def test_run_is_retryable_mirrors_activity_semantics():
     session = _mk_session()
     done = _mk_run(session, status=RunStatus.SUCCESSFUL)
     webhook = _mk_run(session, status=RunStatus.FAILED, trigger_type=SessionOrigin.MR_WEBHOOK)
@@ -110,7 +110,7 @@ def test_run_is_retryable_mirrors_activity_semantics() -> None:
     assert running.is_retryable is False
 
 
-def test_run_duration() -> None:
+def test_run_duration():
     from datetime import timedelta
 
     from django.utils import timezone
@@ -124,35 +124,34 @@ def test_run_duration() -> None:
 # --- Enum / constraint drift guards ----------------------------------------
 
 
-def test_active_constraint_literals_match_enums() -> None:
+def test_active_constraint_literals_match_enums():
     """The partial unique constraint hardcodes literals (Django serializes them into
     migrations). Guard against the enum drifting away from those literals, which would
-    silently break the one-active-run-per-session guarantee.
-    """
+    silently break the one-active-run-per-session guarantee."""
     constraint = next(c for c in Run._meta.constraints if c.name == "run_one_active_per_session")
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
     assert set(conditions["trigger_type__in"]) == {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB}
 
 
-def test_session_origin_check_constraint_rejects_unknown_value() -> None:
+def test_session_origin_check_constraint_rejects_unknown_value():
     with pytest.raises(IntegrityError):
         _mk_session(origin="bogus_origin")
 
 
-def test_run_status_check_constraint_rejects_unknown_value() -> None:
+def test_run_status_check_constraint_rejects_unknown_value():
     session = _mk_session()
     with pytest.raises(IntegrityError):
         _mk_run(session, status="BOGUS")
 
 
-def test_run_trigger_type_check_constraint_rejects_unknown_value() -> None:
+def test_run_trigger_type_check_constraint_rejects_unknown_value():
     session = _mk_session()
     with pytest.raises(IntegrityError):
         _mk_run(session, trigger_type="bogus_trigger")
 
 
-def test_run_agent_thinking_level_check_constraint() -> None:
+def test_run_agent_thinking_level_check_constraint():
     """Blank ("" = no override) and valid levels pass; an unknown level is rejected."""
     from core.models import ThinkingLevelChoices
 
@@ -163,17 +162,16 @@ def test_run_agent_thinking_level_check_constraint() -> None:
         _mk_run(session, status=RunStatus.QUEUED, agent_thinking_level="ludicrous")
 
 
-def test_session_agent_thinking_level_check_constraint_rejects_unknown_value() -> None:
+def test_session_agent_thinking_level_check_constraint_rejects_unknown_value():
     with pytest.raises(IntegrityError):
         _mk_session(agent_thinking_level="ludicrous")
 
 
-def test_run_status_superset_of_task_result_status() -> None:
+def test_run_status_superset_of_task_result_status():
     """``Run.sync_from_task_result`` assigns ``DBTaskResult.status`` straight into
     ``Run.status``, so every django-tasks status must be a valid ``RunStatus`` member —
     otherwise a synced row would violate the ``run_status_valid`` CHECK constraint. This
-    guards a django-tasks upgrade that introduces a new status value.
-    """
+    guards a django-tasks upgrade that introduces a new status value."""
     from django_tasks.base import TaskResultStatus
 
     assert set(TaskResultStatus.values) <= set(RunStatus.values)
@@ -182,8 +180,8 @@ def test_run_status_superset_of_task_result_status() -> None:
 # --- RunManager.by_owner (run-level authorization boundary) ----------------
 
 
-def test_run_by_owner_admin_sees_all(admin_user, django_user_model) -> None:
-    other = django_user_model.objects.create_user(username="ro", email="ro@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+def test_run_by_owner_admin_sees_all(admin_user, django_user_model):
+    other = django_user_model.objects.create_user(username="ro", email="ro@x.io", password="x")  # noqa: S106
     session = _mk_session(user=other)
     mine = _mk_run(session, user=admin_user, status=RunStatus.QUEUED)
     theirs = _mk_run(session, user=other, status=RunStatus.SUCCESSFUL)
@@ -191,9 +189,9 @@ def test_run_by_owner_admin_sees_all(admin_user, django_user_model) -> None:
     assert {mine.pk, theirs.pk} <= visible
 
 
-def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django_user_model) -> None:
-    user = django_user_model.objects.create_user(username="ru1", email="ru1@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
-    other = django_user_model.objects.create_user(username="ru2", email="ru2@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django_user_model):
+    user = django_user_model.objects.create_user(username="ru1", email="ru1@x.io", password="x")  # noqa: S106
+    other = django_user_model.objects.create_user(username="ru2", email="ru2@x.io", password="x")  # noqa: S106
     # Webhook session: runs are exempt from the one-active-per-session constraint, so
     # several active runs can coexist for this authorization test.
     session = _mk_session(user=None, origin=SessionOrigin.ISSUE_WEBHOOK)
@@ -206,11 +204,11 @@ def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django
     assert stranger.pk not in visible
 
 
-def test_run_by_owner_matches_subscribed_schedule(django_user_model) -> None:
+def test_run_by_owner_matches_subscribed_schedule(django_user_model):
     from schedules.models import Frequency, ScheduledJob
 
-    owner = django_user_model.objects.create_user(username="rowner", email="rowner@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
-    sub = django_user_model.objects.create_user(username="rsub", email="rsub@x.io", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    owner = django_user_model.objects.create_user(username="rowner", email="rowner@x.io", password="x")  # noqa: S106
+    sub = django_user_model.objects.create_user(username="rsub", email="rsub@x.io", password="x")  # noqa: S106
     sched = ScheduledJob.objects.create(
         user=owner, name="s", prompt="p", repos=[{"repo_id": "x/y", "ref": ""}], frequency=Frequency.DAILY, time="12:00"
     )
@@ -232,7 +230,7 @@ class TestEffectiveMuted:
             session=session, trigger_type=origin, repo_id="x/y", status=RunStatus.SUCCESSFUL, muted=muted
         )
 
-    def test_run_override_wins(self, member_user) -> None:
+    def test_run_override_wins(self, member_user):
         from schedules.models import Frequency, ScheduledJob
 
         schedule = ScheduledJob.objects.create(
@@ -247,7 +245,7 @@ class TestEffectiveMuted:
         assert self._run(muted=False, schedule=schedule).effective_muted is False
         assert self._run(muted=True, schedule=schedule).effective_muted is True
 
-    def test_inherits_schedule_when_no_override(self, member_user) -> None:
+    def test_inherits_schedule_when_no_override(self, member_user):
         from schedules.models import Frequency, ScheduledJob
 
         schedule = ScheduledJob.objects.create(
@@ -261,12 +259,12 @@ class TestEffectiveMuted:
         )
         assert self._run(muted=None, schedule=schedule).effective_muted is True
 
-    def test_non_scheduled_defaults_false(self) -> None:
+    def test_non_scheduled_defaults_false(self):
         assert self._run(muted=None, schedule=None).effective_muted is False
         assert self._run(muted=True, schedule=None).effective_muted is True
 
 
-def test_run_message_id_defaults_blank_and_persists(session_fixture) -> None:
+def test_run_message_id_defaults_blank_and_persists(session_fixture):
     run = Run.objects.create(
         session=session_fixture,
         trigger_type=SessionOrigin.CHAT,

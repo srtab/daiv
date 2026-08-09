@@ -17,7 +17,7 @@ def user(db):
     return User.objects.create_user(
         username="streamuser",
         email="streamuser@test.com",
-        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
+        password="testpass123",  # noqa: S106
     )
 
 
@@ -47,7 +47,7 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 @pytest.mark.django_db
 class TestSessionStreamView:
-    def test_unauthenticated_returns_403(self, client) -> None:
+    def test_unauthenticated_returns_403(self, client):
         """Unauthenticated requests get 403."""
         from django.test import Client
 
@@ -55,16 +55,16 @@ class TestSessionStreamView:
         resp = anon.get(reverse("session_stream"), {"ids": str(uuid.uuid4())})
         assert resp.status_code == 403
 
-    def test_missing_ids_returns_400(self, logged_in_client) -> None:
+    def test_missing_ids_returns_400(self, logged_in_client):
         resp = logged_in_client.get(reverse("session_stream"))
         assert resp.status_code == 400
 
-    def test_invalid_uuids_only_returns_400(self, logged_in_client) -> None:
+    def test_invalid_uuids_only_returns_400(self, logged_in_client):
         """If all id values are invalid UUIDs, return 400."""
         resp = logged_in_client.get(reverse("session_stream"), {"ids": "not-a-uuid"})
         assert resp.status_code == 400
 
-    def test_valid_ids_returns_sse_stream(self, logged_in_client, user, db) -> None:
+    def test_valid_ids_returns_sse_stream(self, logged_in_client, user, db):
         """Valid UUIDs produce a streaming SSE response (200, text/event-stream)."""
         session = _create_session(user=user)
         run = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
@@ -72,7 +72,7 @@ class TestSessionStreamView:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.get("Content-Type", "")
 
-    def test_stream_route_precedes_slug_catchall(self) -> None:
+    def test_stream_route_precedes_slug_catchall(self):
         """session_stream URL resolves to SessionStreamView, not SessionDetailView."""
         from django.urls import resolve
 

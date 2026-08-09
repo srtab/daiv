@@ -62,7 +62,7 @@ def _mk_user(username):
     # Use the LIVE User model: only ``agent_sessions`` was migrated down, so the
     # accounts_user table is still at head schema (columns the historical User
     # model wouldn't know about, e.g. ``role NOT NULL``). We only need the pk.
-    return User.objects.create_user(username=username, email=f"{username}@t.co", password="x")  # ruff: ignore[hardcoded-password-func-arg]
+    return User.objects.create_user(username=username, email=f"{username}@t.co", password="x")  # noqa: S106
 
 
 def _mk_activity(model, *, created_at, **kwargs):
@@ -77,7 +77,7 @@ def _mk_activity(model, *, created_at, **kwargs):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_backfill_activities_merge_preserve_uuid_and_mint_null_threads(h) -> None:
+def test_backfill_activities_merge_preserve_uuid_and_mint_null_threads(h):
     user = _mk_user("owner")
 
     # Two activities sharing one thread: oldest first (issue_webhook, no user),
@@ -126,7 +126,7 @@ def test_backfill_activities_merge_preserve_uuid_and_mint_null_threads(h) -> Non
 
 
 @pytest.mark.django_db(transaction=True)
-def test_backfill_chat_merges_into_activity_session_user_is_first_wins(h) -> None:
+def test_backfill_chat_merges_into_activity_session_user_is_first_wins(h):
     activity_user = _mk_user("activity-owner")
     chat_user = _mk_user("chat-owner")
 
@@ -165,7 +165,7 @@ def test_backfill_chat_merges_into_activity_session_user_is_first_wins(h) -> Non
 
 
 @pytest.mark.django_db(transaction=True)
-def test_backfill_is_idempotent(h) -> None:
+def test_backfill_is_idempotent(h):
     _mk_activity(h.activity, thread_id="T1", created_at=datetime(2026, 3, 1, tzinfo=UTC))
     h.chat.objects.create(thread_id="T2", user_id=_mk_user("u").pk, repo_id="group/project")
 
@@ -180,7 +180,7 @@ def test_backfill_is_idempotent(h) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_backfill_coalesces_null_text_columns_from_activity(h, monkeypatch) -> None:
+def test_backfill_coalesces_null_text_columns_from_activity(h, monkeypatch):
     """Legacy Activity rows with NULLs on NOT NULL text columns must not abort the migration.
 
     Those columns pre-date their NOT NULL tightening on some deployments, so production rows can
@@ -214,7 +214,7 @@ def test_backfill_coalesces_null_text_columns_from_activity(h, monkeypatch) -> N
 
 
 @pytest.mark.django_db(transaction=True)
-def test_backfill_coalesces_null_text_columns_from_chat(h, monkeypatch) -> None:
+def test_backfill_coalesces_null_text_columns_from_chat(h, monkeypatch):
     """Same guard for the chat pass: a ChatThread with NULL ref/title/etc. must backfill cleanly."""
     user = _mk_user("owner")
     at = datetime(2026, 1, 1, tzinfo=UTC)
