@@ -1,10 +1,14 @@
 import uuid
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from notifications.choices import DeliveryStatus
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
-from notifications.tasks import _deliver_notification
+from notifications.models import Notification
+from notifications.tasks import _deliver_notification, redrive_missing_notifications_cron_task
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 
 @pytest.mark.django_db
@@ -89,3 +93,48 @@ class TestDeliverNotification:
         d.refresh_from_db()
         assert d.status == DeliveryStatus.FAILED
         assert "Re-enqueue failed" in d.error_message
+
+
+def _classified_finished_run(user, *, status=EnvelopeStatus.FAILED):
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=user
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id="x/y",
+        status=RunStatus.FAILED if status == EnvelopeStatus.FAILED else RunStatus.SUCCESSFUL,
+        user=user,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=status, summary="s")
+    return run
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_missing_notification(member_user, email_binding):
+    run = _classified_finished_run(member_user)  # envelope exists, but no Notification (crash-window sim)
+    assert Notification.objects.filter(source_id=str(run.pk)).count() == 0
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_second_pass_does_not_duplicate(member_user, email_binding):
+    run = _classified_finished_run(member_user)
+    redrive_missing_notifications_cron_task.func()
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_skips_all_clear_and_out_of_window(member_user, email_binding):
+    from datetime import timedelta
+
+    from sessions.tasks import RECLASSIFY_MAX_AGE
+
+    _classified_finished_run(member_user, status=EnvelopeStatus.ALL_CLEAR)  # not notify-worthy
+    stale = _classified_finished_run(member_user)
+    Run.objects.filter(pk=stale.pk).update(finished_at=timezone.now() - RECLASSIFY_MAX_AGE - timedelta(hours=2))
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.count() == 0
