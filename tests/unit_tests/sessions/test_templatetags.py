@@ -41,7 +41,7 @@ from sessions.templatetags.session_tags import (
         (90.9, "1m 30s"),  # floats are truncated to whole seconds
     ],
 )
-def test_duration(value, expected):
+def test_duration(value, expected) -> None:
     assert duration(value) == expected
 
 
@@ -56,7 +56,7 @@ def test_duration(value, expected):
         ("0.5", "$0.50"),  # string coercion
     ],
 )
-def test_format_cost(value, expected):
+def test_format_cost(value, expected) -> None:
     assert format_cost(value) == expected
 
 
@@ -64,7 +64,7 @@ def test_format_cost(value, expected):
     ("value", "expected"),
     [(None, ""), (999, "999"), (1000, "1.0k"), (45300, "45.3k"), (1_000_000, "1.0M"), (2_500_000, "2.5M")],
 )
-def test_format_tokens(value, expected):
+def test_format_tokens(value, expected) -> None:
     assert format_tokens(value) == expected
 
 
@@ -79,16 +79,16 @@ def test_format_tokens(value, expected):
         ("anything-else", "pending"),
     ],
 )
-def test_status_variant(status, expected):
+def test_status_variant(status, expected) -> None:
     assert status_variant(status) == expected
 
 
-def test_session_title_prefers_stored_title():
+def test_session_title_prefers_stored_title() -> None:
     session = types.SimpleNamespace(title="  Fix the bug  ", thread_id="abcdef123456")
     assert session_title(session) == "Fix the bug"
 
 
-def test_session_title_falls_back_to_thread_prefix():
+def test_session_title_falls_back_to_thread_prefix() -> None:
     session = types.SimpleNamespace(title="", thread_id="abcdef123456")
     assert session_title(session) == "abcdef12"
 
@@ -96,7 +96,7 @@ def test_session_title_falls_back_to_thread_prefix():
 class _Runs:
     """Minimal stand-in for session.runs.all() over a fixed list."""
 
-    def __init__(self, runs):
+    def __init__(self, runs) -> None:
         self._runs = runs
 
     def all(self):
@@ -107,29 +107,29 @@ def _session_at(dt):
     return types.SimpleNamespace(last_active_at=dt)
 
 
-def test_day_bucket_today_and_yesterday():
+def test_day_bucket_today_and_yesterday() -> None:
     now = timezone.localtime(timezone.now())
     assert day_bucket(_session_at(now)) == "Today"
     assert day_bucket(_session_at(now - timedelta(days=1))) == "Yesterday"
 
 
-def test_day_bucket_week_and_month_windows():
+def test_day_bucket_week_and_month_windows() -> None:
     now = timezone.localtime(timezone.now())
     assert day_bucket(_session_at(now - timedelta(days=4))) == "Previous 7 days"
     assert day_bucket(_session_at(now - timedelta(days=15))) == "Previous 30 days"
 
 
-def test_day_bucket_older_returns_month_year():
+def test_day_bucket_older_returns_month_year() -> None:
     dt = timezone.make_aware(datetime(2024, 3, 9, 12, 0))
     assert day_bucket(_session_at(dt)) == "March 2024"
 
 
-def test_day_bucket_none_or_missing_returns_earlier():
+def test_day_bucket_none_or_missing_returns_earlier() -> None:
     assert day_bucket(_session_at(None)) == "Earlier"
     assert day_bucket(types.SimpleNamespace()) == "Earlier"  # attribute absent entirely
 
 
-def test_day_bucket_exact_window_edges(monkeypatch):
+def test_day_bucket_exact_window_edges(monkeypatch) -> None:
     # Pin the <= 7 / <= 30 cutoffs at their exact edge (interior points are covered above).
     # Freeze "now" so days lands on exactly 7 / 30 with no midnight-crossing race.
     from sessions.templatetags import session_tags
@@ -153,22 +153,22 @@ def test_day_bucket_exact_window_edges(monkeypatch):
         ("unknown", "jobs"),
     ],
 )
-def test_origin_icon(origin, expected):
+def test_origin_icon(origin, expected) -> None:
     assert origin_icon(origin) == expected
 
 
-def test_session_cost_sums_runs():
+def test_session_cost_sums_runs() -> None:
     runs = [types.SimpleNamespace(cost_usd=Decimal("0.30")), types.SimpleNamespace(cost_usd=Decimal("0.08"))]
     session = types.SimpleNamespace(runs=_Runs(runs))
     assert session_cost(session) == "$0.38"
 
 
-def test_session_cost_empty_when_zero():
+def test_session_cost_empty_when_zero() -> None:
     session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
     assert session_cost(session) == ""
 
 
-def test_session_cost_skips_null_costs():
+def test_session_cost_skips_null_costs() -> None:
     # A run with cost_usd=None must be skipped (the `is not None` guard), not coerce a TypeError.
     runs = [types.SimpleNamespace(cost_usd=None), types.SimpleNamespace(cost_usd=Decimal("0.30"))]
     session = types.SimpleNamespace(runs=_Runs(runs))

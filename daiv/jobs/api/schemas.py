@@ -1,12 +1,13 @@
-from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
+from datetime import datetime  # ruff: ignore[typing-only-standard-library-import] - required at runtime by Pydantic
 from typing import Literal
-from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
+from uuid import UUID  # ruff: ignore[typing-only-standard-library-import] - required at runtime by Pydantic
 
 from ninja import Field, Schema
-from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
 from pydantic import ConfigDict
 
-from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
+from core.models import (
+    ThinkingLevelChoices,  # ruff: ignore[typing-only-first-party-import] - required at runtime by Ninja
+)
 
 
 class RepoSubmitItem(Schema):
@@ -24,9 +25,6 @@ class JobSubmitRequest(Schema):
     prompt: str = Field(min_length=1)
     agent_model: str | None = None
     agent_thinking_level: ThinkingLevelChoices | None = None
-    notify_on: NotifyOn | None = Field(
-        default=None, deprecated=True, description="Deprecated and ignored. Use `muted`."
-    )
     muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None

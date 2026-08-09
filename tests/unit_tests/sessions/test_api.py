@@ -24,7 +24,7 @@ async def authed(db):
     user = await User.objects.acreate_user(
         username="sessuser",
         email="sessuser@example.com",
-        password="testpass123",  # noqa: S106
+        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
     )
     key_obj, raw = await APIKey.objects.create_key(user=user, name="Test")
     return key_obj, raw, user
@@ -59,11 +59,12 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 
 @pytest.mark.django_db
-def test_session_turns_rejects_anonymous_and_bad_token(db):
+def test_session_turns_rejects_anonymous_and_bad_token(db) -> None:
     """``session_turns`` sits behind AuthBearer/django_auth — anonymous or bad-token callers
     get 401 and never reach the session lookup (no transcript leak). Exercised through the
     real Django client so the SessionMiddleware ``django_auth`` needs is present (the ninja
-    TestAsyncClient's mock request has no session)."""
+    TestAsyncClient's mock request has no session).
+    """
     from django.test import Client
     from django.urls import reverse
 
@@ -79,9 +80,10 @@ def test_session_turns_rejects_anonymous_and_bad_token(db):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_returns_built_turns(client, authed):
+async def test_session_turns_returns_built_turns(client, authed) -> None:
     """Patch ahydrate_thread to return two fake messages; response contains build_turns
-    output and expired=False."""
+    output and expired=False.
+    """
     from langchain_core.messages import AIMessage, HumanMessage
 
     _key_obj, raw, user = authed
@@ -111,9 +113,10 @@ async def test_session_turns_returns_built_turns(client, authed):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_includes_run_status_marker_for_failed_run(client, authed):
+async def test_session_turns_includes_run_status_marker_for_failed_run(client, authed) -> None:
     """The JSON poller endpoint runs annotate_transcript, not bare build_turns: a FAILED chat
-    run whose message_id matches a hydrated human turn yields a run_status marker in the payload."""
+    run whose message_id matches a hydrated human turn yields a run_status marker in the payload.
+    """
     from langchain_core.messages import AIMessage, HumanMessage
 
     _key_obj, raw, user = authed
@@ -148,7 +151,7 @@ async def test_session_turns_includes_run_status_marker_for_failed_run(client, a
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_expired(client, authed):
+async def test_session_turns_expired(client, authed) -> None:
     """ahydrate_thread returns (.., True, ..) -> {"turns": [], "expired": true, "active": false}."""
     _key_obj, raw, user = authed
 
@@ -172,14 +175,15 @@ async def test_session_turns_expired(client, authed):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_turns_404_for_other_users_session(client, authed):
-    """turns goes through the same by_owner scoping as status — a stranger's thread_id
-    must 404 (no re-hydrated transcript leak), and ahydrate_thread is never reached."""
+async def test_session_turns_404_for_other_users_session(client, authed) -> None:
+    """Turns goes through the same by_owner scoping as status — a stranger's thread_id
+    must 404 (no re-hydrated transcript leak), and ahydrate_thread is never reached.
+    """
     _key_obj, raw, _user = authed
     other = await User.objects.acreate_user(
         username="other-turns",
         email="other-turns@example.com",
-        password="x",  # noqa: S106
+        password="x",  # ruff: ignore[hardcoded-password-func-arg]
     )
     session_other = await Session.objects.acreate(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=other

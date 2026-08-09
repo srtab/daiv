@@ -1,7 +1,7 @@
 from django.utils import timezone
 
 import pytest
-from notifications.choices import ChannelType, NotifyOn
+from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
 
@@ -22,7 +22,6 @@ def run_schedule(member_user, email_binding):
         repos=[{"repo_id": "x/y", "ref": ""}],
         frequency=Frequency.DAILY,
         time="12:00",
-        notify_on=NotifyOn.ALWAYS,
     )
 
 

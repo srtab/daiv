@@ -43,7 +43,7 @@ def admin_user(db):
     return User.objects.create_user(
         username="admin",
         email="admin@test.com",
-        password="testpass123",  # noqa: S106
+        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
         role="admin",
     )
 
@@ -70,6 +70,6 @@ def other_user(db):
     return User.objects.create_user(
         username="other",
         email="other@test.com",
-        password="testpass123",  # noqa: S106
+        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
         role="member",
     )

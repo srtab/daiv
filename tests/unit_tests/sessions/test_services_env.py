@@ -17,7 +17,7 @@ from sessions.services import RepoTarget, submit_batch_runs
 pytestmark = pytest.mark.django_db
 
 
-def test_per_target_sandbox_env_reaches_task_and_run(member_user, create_db_task_result):
+def test_per_target_sandbox_env_reaches_task_and_run(member_user, create_db_task_result) -> None:
     env = SandboxEnvironment.objects.filter(scope="global").first()
     assert env is not None, "the global default sandbox env is seeded by migration"
 
@@ -27,7 +27,6 @@ def test_per_target_sandbox_env_reaches_task_and_run(member_user, create_db_task
             user=member_user,
             prompt="do it",
             repos=[RepoTarget(repo_id="a/b", ref="", sandbox_environment_id=str(env.id))],
-            notify_on=None,
             trigger_type=SessionOrigin.UI_JOB,
         )
 

@@ -34,7 +34,7 @@ def _advance_or_disable(schedule: ScheduledJob, now: datetime) -> None:
 
 @cron("* * * * *")
 @task
-def dispatch_scheduled_jobs_cron_task():
+def dispatch_scheduled_jobs_cron_task() -> None:
     """Check for scheduled jobs that are due and enqueue them.
 
     Uses ``select_for_update(skip_locked=True)`` so that if the dispatcher
@@ -84,7 +84,6 @@ def dispatch_scheduled_jobs_cron_task():
                         repos=repos,
                         agent_model=schedule.agent_model,
                         agent_thinking_level=schedule.agent_thinking_level,
-                        notify_on=None,
                         trigger_type=SessionOrigin.SCHEDULE,
                         scheduled_job=schedule,
                     )

@@ -11,8 +11,6 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from notifications.choices import NotifyOn
-
 from automation.agent.results import parse_agent_result
 from core.models import ThinkingLevelChoices
 from sessions.envelopes import validate_actionable
@@ -143,7 +141,7 @@ class Session(models.Model):
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
     # Same semantics as the old ChatThread.active_run_id.
-    active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
+    active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # ruff: ignore[django-nullable-model-string-field]
 
     # default (not auto_now_add) so the data migration can backfill historical values.
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
@@ -247,10 +245,7 @@ class Run(models.Model):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
-        _("notify on"), max_length=16, choices=NotifyOn.choices, null=True, blank=True
-    )
-    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # noqa: DJ001 — null = inherit
+    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
@@ -315,26 +310,10 @@ class Run(models.Model):
                 | models.Q(agent_thinking_level__in=ThinkingLevelChoices.values),
                 name="run_agent_thinking_level_valid",
             ),
-            # NULL ("no override", distinct from explicit "never") or a valid NotifyOn value.
-            models.CheckConstraint(
-                condition=models.Q(notify_on__isnull=True) | models.Q(notify_on__in=NotifyOn.values),
-                name="run_notify_on_valid",
-            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
-
-    @property
-    def effective_notify_on(self) -> NotifyOn:
-        if self.notify_on:
-            return NotifyOn(self.notify_on)
-        schedule = self.session.scheduled_job if self.session_id else None
-        if schedule is not None:
-            return NotifyOn(schedule.notify_on)
-        if self.user_id is not None and self.user is not None:
-            return NotifyOn(self.user.notify_on_jobs)
-        return NotifyOn.NEVER
 
     @property
     def effective_muted(self) -> bool:
@@ -407,6 +386,7 @@ class Run(models.Model):
 
         Returns:
             List of field names that were updated (empty if nothing changed).
+
         """
         if self.task_result is None:
             return []
@@ -493,7 +473,7 @@ class RunEnvelope(models.Model):
     def __str__(self) -> str:
         return f"Envelope({self.status}) for run {self.run_id}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Keep ``count`` a derived mirror of ``len(actionable)``.
 
         ``count`` is a queryable column (the Feed badge) but never an independently-authored value:

@@ -236,7 +236,6 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 repos=repos,
                 agent_model=schedule.agent_model,
                 agent_thinking_level=schedule.agent_thinking_level,
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )

@@ -16,7 +16,6 @@ from django.utils.dateparse import parse_datetime
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -30,9 +29,11 @@ from codebase.authorization import (
     asearch_viewable_repositories,
 )
 from core.conf import settings as core_settings
-from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
+from core.models import (
+    ThinkingLevelChoices,  # ruff: ignore[typing-only-first-party-import] - runtime literal for FastMCP
+)
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
-from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
+from schedules.models import Frequency, Intent, ScheduledJob
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:
@@ -138,14 +139,6 @@ async def submit_job(
         ThinkingLevelChoices | None,
         Field(
             description="Optional thinking effort: minimal/low/medium/high. Omit to inherit from the system default."
-        ),
-    ] = None,
-    notify_on: Annotated[
-        NotifyOn | None,
-        Field(
-            description=(
-                "Deprecated and ignored — notifications are now driven by run classification. Use `muted` to silence."
-            )
         ),
     ] = None,
     muted: Annotated[bool, Field(description="Mute notifications for every job in this batch.")] = False,
@@ -478,7 +471,8 @@ LimitParam = Annotated[int, Field(ge=1, le=MAX_LIST_LIMIT, description="Max rows
 
 def _cap_limit(limit: int) -> int:
     """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]``. FastMCP validates ``ge``/``le`` at the
-    protocol layer, but direct (in-process/test) callers bypass it, so re-clamp here."""
+    protocol layer, but direct (in-process/test) callers bypass it, so re-clamp here.
+    """
     return max(1, min(limit, MAX_LIST_LIMIT))
 
 
@@ -517,9 +511,11 @@ def _decode_created_id_cursor(raw: str, id_type: type) -> tuple[datetime, Any]:
     payload = _decode_cursor(raw)
     parsed = parse_datetime(payload["c"])
     if parsed is None:
-        raise ValueError("invalid cursor timestamp")
+        msg = "invalid cursor timestamp"
+        raise ValueError(msg)
     if not isinstance(payload["id"], str):
-        raise TypeError("cursor id must be a string")
+        msg = "cursor id must be a string"
+        raise TypeError(msg)
     return parsed, id_type(payload["id"])
 
 
@@ -666,7 +662,8 @@ def _decode_env_cursor(raw: str) -> tuple[str, str, UUID]:
     """
     payload = _decode_cursor(raw)
     if not isinstance(payload["id"], str):
-        raise TypeError("cursor id must be a string")
+        msg = "cursor id must be a string"
+        raise TypeError(msg)
     return payload["s"], payload["n"], UUID(payload["id"])
 
 
@@ -730,7 +727,7 @@ async def get_environment(
     try:
         env_vars_rows = env.env_vars or []
     except DecryptionError:
-        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
+        logger.exception("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
         env_vars_rows = []
     return {
         **_serialize_environment_summary(env),
@@ -789,7 +786,6 @@ async def schedule_job(
     environment: Annotated[
         str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
     ] = None,
-    notify_on: Annotated[NotifyOn | None, Field(description="Deprecated and ignored. Use `muted`.")] = None,
     muted: Annotated[bool, Field(description="Mute notifications for this schedule's runs.")] = False,
     intent: Annotated[
         Intent | None, Field(description="watch-find | do-change | report. Omit for the default (watch-find).")

@@ -17,7 +17,7 @@ def user(db):
     return User.objects.create_user(
         username="alice",
         email="alice@test.com",
-        password="testpass123",  # noqa: S106
+        password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
     )
 
 
@@ -52,22 +52,22 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 @pytest.mark.django_db
 class TestSessionListView:
-    def test_unauthenticated_redirects_to_login(self):
+    def test_unauthenticated_redirects_to_login(self) -> None:
         response = Client().get(reverse("session_list"))
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
 
-    def test_authenticated_user_can_access(self, logged_in_client, user):
+    def test_authenticated_user_can_access(self, logged_in_client, user) -> None:
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
 
-    def test_owner_scoping_excludes_other_users_sessions(self, logged_in_client, user):
+    def test_owner_scoping_excludes_other_users_sessions(self, logged_in_client, user) -> None:
         """Owner scoping is applied before filters — another user's sessions are invisible."""
         mine = _create_session(user=user, repo_id="mine/repo")
         other_user = User.objects.create_user(
             username="bob",
             email="bob@test.com",
-            password="testpass123",  # noqa: S106
+            password="testpass123",  # ruff: ignore[hardcoded-password-func-arg]
         )
         theirs = _create_session(user=other_user, repo_id="mine/repo")
 
@@ -79,7 +79,7 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
-    def test_filter_by_status_on_latest_run(self, logged_in_client, user):
+    def test_filter_by_status_on_latest_run(self, logged_in_client, user) -> None:
         """?status=SUCCESSFUL only returns sessions whose latest run is SUCCESSFUL."""
         success_session = _create_session(user=user)
         _create_run(success_session, status=RunStatus.SUCCESSFUL)
@@ -95,7 +95,7 @@ class TestSessionListView:
         assert success_session.pk in session_pks
         assert failed_session.pk not in session_pks
 
-    def test_invalid_filter_drops_silently(self, logged_in_client, user):
+    def test_invalid_filter_drops_silently(self, logged_in_client, user) -> None:
         """?status=bogus shows full list (strict=False) and current_status is empty."""
         session = _create_session(user=user)
 
@@ -106,7 +106,7 @@ class TestSessionListView:
         assert session.pk in session_pks
         assert response.context["current_status"] == ""
 
-    def test_context_includes_origins_and_statuses(self, logged_in_client, user):
+    def test_context_includes_origins_and_statuses(self, logged_in_client, user) -> None:
         """Context must include origins and statuses choice lists."""
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
@@ -115,7 +115,7 @@ class TestSessionListView:
         assert len(response.context["origins"]) > 0
         assert len(response.context["statuses"]) > 0
 
-    def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
+    def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user) -> None:
         """Lock in the URL param names; values round-trip to template context."""
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"), {"date_from": "2020-01-01", "date_to": "2100-01-01"})
@@ -123,20 +123,20 @@ class TestSessionListView:
         assert response.context["current_from"] == "2020-01-01"
         assert response.context["current_to"] == "2100-01-01"
 
-    def test_has_active_filters_false_with_no_params(self, logged_in_client, user):
+    def test_has_active_filters_false_with_no_params(self, logged_in_client, user) -> None:
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"))
         assert response.context["has_active_filters"] is False
         assert response.context["current_batch_short"] == ""
 
-    def test_has_active_filters_true_when_batch_is_set(self, logged_in_client, user):
+    def test_has_active_filters_true_when_batch_is_set(self, logged_in_client, user) -> None:
         batch_id = uuid.uuid4()
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"), {"batch": str(batch_id)})
         assert response.context["has_active_filters"] is True
         assert response.context["current_batch_short"] == str(batch_id)[:8]
 
-    def test_in_flight_ids_contains_non_terminal_run_ids(self, logged_in_client, user):
+    def test_in_flight_ids_contains_non_terminal_run_ids(self, logged_in_client, user) -> None:
         """in_flight_ids is a comma-joined string of non-terminal run PKs from page sessions."""
         session = _create_session(user=user)
         running_run = _create_run(session, status=RunStatus.RUNNING)
@@ -149,7 +149,7 @@ class TestSessionListView:
         # The running run should be in the comma-joined string.
         assert str(running_run.pk) in in_flight_ids
 
-    def test_in_flight_ids_excludes_terminal_runs(self, logged_in_client, user):
+    def test_in_flight_ids_excludes_terminal_runs(self, logged_in_client, user) -> None:
         """Terminal runs (SUCCESSFUL, FAILED) must not appear in in_flight_ids."""
         session = _create_session(user=user)
         successful_run = _create_run(session, status=RunStatus.SUCCESSFUL)
@@ -161,7 +161,7 @@ class TestSessionListView:
         assert str(successful_run.pk) not in in_flight_ids
         assert str(failed_run.pk) not in in_flight_ids
 
-    def test_session_row_links_to_detail(self, logged_in_client, user):
+    def test_session_row_links_to_detail(self, logged_in_client, user) -> None:
         """Each row renders a stretched anchor to session_detail so the whole row is clickable."""
         session = _create_session(user=user)
 
@@ -171,7 +171,7 @@ class TestSessionListView:
         expected_href = reverse("session_detail", kwargs={"thread_id": session.thread_id})
         assert f'href="{expected_href}"' in response.content.decode()
 
-    def test_pagination_uses_paginate_by(self, logged_in_client, user):
+    def test_pagination_uses_paginate_by(self, logged_in_client, user) -> None:
         """Check that paginated results are returned when there are more than paginate_by sessions."""
         # Create 30 sessions to exceed typical paginate_by=25.
         for _ in range(30):
@@ -187,7 +187,7 @@ class TestSessionListView:
         assert response_p2.status_code == 200
         assert len(response_p2.context["sessions"]) > 0
 
-    def test_context_has_search_and_range(self, logged_in_client, user):
+    def test_context_has_search_and_range(self, logged_in_client, user) -> None:
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"), {"q": "hello", "range": "7d"})
         assert response.status_code == 200
@@ -196,22 +196,22 @@ class TestSessionListView:
         assert response.context["current_range_label"] == "Last 7 days"
         assert response.context["has_active_filters"] is True
 
-    def test_has_active_filters_true_when_q_set(self, logged_in_client, user):
+    def test_has_active_filters_true_when_q_set(self, logged_in_client, user) -> None:
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"), {"q": "abc"})
         assert response.context["has_active_filters"] is True
 
-    def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
+    def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries) -> None:
         session = _create_session(user=user)
         _create_run(session, status=RunStatus.SUCCESSFUL)
         newest = _create_run(session, status=RunStatus.RUNNING)
         response = logged_in_client.get(reverse("session_list"))
         row = next(s for s in response.context["sessions"] if s.pk == session.pk)
         with django_assert_num_queries(0):
-            latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
+            latest = next(iter(row.runs.all()))  # served from the prefetch cache — no query
         assert latest.pk == newest.pk
 
-    def test_header_has_new_cta(self, logged_in_client, user):
+    def test_header_has_new_cta(self, logged_in_client, user) -> None:
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
         # Anchor to the page's primary CTA button, not a bare `"New" in html` (which
@@ -224,11 +224,11 @@ class TestSessionListView:
         assert ctas, "no btn-primary CTA pointing at session_new"
         assert any("New" in a for a in ctas)
 
-    def test_filter_bar_has_search_input(self, logged_in_client, user):
+    def test_filter_bar_has_search_input(self, logged_in_client, user) -> None:
         response = logged_in_client.get(reverse("session_list"))
         assert 'x-model="q"' in response.content.decode()
 
-    def test_row_shows_branch_and_day_group(self, logged_in_client, user):
+    def test_row_shows_branch_and_day_group(self, logged_in_client, user) -> None:
         session = _create_session(user=user, ref="feat/x", title="Do the thing")
         _create_run(session, status=RunStatus.SUCCESSFUL)
         response = logged_in_client.get(reverse("session_list"))
@@ -240,7 +240,7 @@ class TestSessionListView:
         assert "session-group-header" in html
         assert "<span>Today</span>" in html  # day-group header for a just-created session
 
-    def test_row_shows_repository(self, logged_in_client, user):
+    def test_row_shows_repository(self, logged_in_client, user) -> None:
         session = _create_session(user=user, repo_id="group/project", title="Do the thing")
         _create_run(session, status=RunStatus.SUCCESSFUL)
         response = logged_in_client.get(reverse("session_list"))
@@ -250,8 +250,8 @@ class TestSessionListView:
         assert "session-repo" in html
         assert "group/project" in html
 
-    def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user):
-        """XSS: date params must be JS-escaped in the Alpine x-data attribute.
+    def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user) -> None:
+        r"""XSS: date params must be JS-escaped in the Alpine x-data attribute.
 
         Django's HTML autoescape converts ' → &#x27;, which looks safe in HTML but is
         NOT safe in a JS-eval context: the browser HTML-decodes the attribute value
@@ -274,7 +274,7 @@ class TestSessionListView:
         # The JS-safe unicode escape must be present inside the x-data attribute (confirms |escapejs fired).
         assert "x-data=\"{ from: '\\u0027" in html
 
-    def test_htmx_request_renders_results_fragment_only(self, logged_in_client, user):
+    def test_htmx_request_renders_results_fragment_only(self, logged_in_client, user) -> None:
         """An HX-Request GET renders the results fragment, not the full page chrome."""
         _create_session(user=user)
         response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
@@ -285,7 +285,7 @@ class TestSessionListView:
         # The <h1> page header lives only in the full page, never in the fragment.
         assert "Agent sessions" not in response.content.decode()
 
-    def test_normal_request_renders_full_page(self, logged_in_client, user):
+    def test_normal_request_renders_full_page(self, logged_in_client, user) -> None:
         """A normal GET renders the full page, which inlines the results fragment on first paint.
 
         The fragment (with paginate_swap on) must be present before any HTMX swap, so
@@ -303,7 +303,7 @@ class TestSessionListView:
         assert 'id="session-in-flight"' in html
         assert "data-page-swap" in html  # swap-marked from first paint, not only after a swap
 
-    def test_htmx_fragment_carries_in_flight_ids(self, logged_in_client, user):
+    def test_htmx_fragment_carries_in_flight_ids(self, logged_in_client, user) -> None:
         """The fragment exposes in-flight run ids for the SSE re-arm to read after a swap."""
         session = _create_session(user=user)
         running = _create_run(session, status=RunStatus.RUNNING)
@@ -312,7 +312,7 @@ class TestSessionListView:
         assert 'id="session-in-flight"' in html
         assert str(running.pk) in html
 
-    def test_htmx_pagination_links_are_swap_marked(self, logged_in_client, user):
+    def test_htmx_pagination_links_are_swap_marked(self, logged_in_client, user) -> None:
         """With >paginate_by sessions, the fragment's pagination <a> links carry data-page-swap."""
         for _ in range(30):
             _create_session(user=user)
@@ -322,7 +322,7 @@ class TestSessionListView:
         # some unrelated element (a bare substring check would miss that regression).
         assert re.search(r'href="[^"]*page=\d+[^"]*"[^>]*data-page-swap', html)
 
-    def test_htmx_no_match_fragment_uses_filtered_empty_state(self, logged_in_client, user):
+    def test_htmx_no_match_fragment_uses_filtered_empty_state(self, logged_in_client, user) -> None:
         """An HX-Request whose filters exclude everything renders the no-match state.
 
         The user has data, just none matching — so the fragment must render the
@@ -336,7 +336,7 @@ class TestSessionListView:
         assert "No sessions match these filters." in html
         assert "Start your first run" not in html
 
-    def test_htmx_empty_account_fragment_shows_first_run_cta(self, logged_in_client, user):
+    def test_htmx_empty_account_fragment_shows_first_run_cta(self, logged_in_client, user) -> None:
         """With no sessions and no filters, the HX-Request fragment shows the true-empty CTA."""
         response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
         assert response.status_code == 200
@@ -344,7 +344,7 @@ class TestSessionListView:
         assert "Start your first run" in html
         assert "No sessions match these filters." not in html
 
-    def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
+    def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user) -> None:
         """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
 
         When two runs share the same created_at timestamp (e.g. batch runs created in
@@ -374,14 +374,14 @@ class TestSessionListView:
 
         row = next(s for s in response.context["sessions"] if s.pk == session.pk)
         # DISPLAY: first run from the prefetch must be the higher-id run (matching -id tiebreaker).
-        display_first = list(row.runs.all())[0]
+        display_first = next(iter(row.runs.all()))
         assert display_first.pk == run_winner.pk, (
             f"Prefetch tiebreaker mismatch: display first run pk={display_first.pk} "
             f"but expected pk={run_winner.pk} (higher id, matching managers.py -id tiebreaker)"
         )
 
 
-def test_pagination_partial_swap_marker_is_opt_in(rf):
+def test_pagination_partial_swap_marker_is_opt_in(rf) -> None:
     """The shared pagination partial emits data-page-swap only when paginate_swap is passed."""
     from django.template.loader import render_to_string
 
@@ -393,10 +393,10 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
         paginator = _Paginator()
         next_page_number = 2
 
-        def has_previous(self):
+        def has_previous(self) -> bool:
             return False
 
-        def has_next(self):
+        def has_next(self) -> bool:
             return True
 
     def _render(**extra):

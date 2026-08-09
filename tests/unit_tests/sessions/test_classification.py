@@ -15,15 +15,16 @@ from sessions.models import EnvelopeStatus
 from schedules.models import Intent
 
 
-def test_status_literal_matches_envelope_status_minus_failed():
+def test_status_literal_matches_envelope_status_minus_failed() -> None:
     """``RunClassification.status`` must stay a subset of ``EnvelopeStatus`` (minus ``FAILED``, which
     the model never authors) so ``EnvelopeStatus(draft.status)`` in the task can never raise. Mirrors
-    the enum/literal parity guards elsewhere in the codebase (e.g. the RunEnvelope status constraint)."""
+    the enum/literal parity guards elsewhere in the codebase (e.g. the RunEnvelope status constraint).
+    """
     literal_values = set(get_args(RunClassification.model_fields["status"].annotation))
     assert literal_values == set(EnvelopeStatus.values) - {EnvelopeStatus.FAILED}
 
 
-def test_build_structured_llm_single_model_skips_fallbacks():
+def test_build_structured_llm_single_model_skips_fallbacks() -> None:
     model = MagicMock()
     chain = model.with_structured_output.return_value.with_retry.return_value
 
@@ -37,7 +38,7 @@ def test_build_structured_llm_single_model_skips_fallbacks():
     assert result is chain
 
 
-def test_build_structured_llm_multi_model_wraps_primary_in_fallbacks():
+def test_build_structured_llm_multi_model_wraps_primary_in_fallbacks() -> None:
     model = MagicMock()
     chain = model.with_structured_output.return_value.with_retry.return_value
 
@@ -52,7 +53,7 @@ def test_build_structured_llm_multi_model_wraps_primary_in_fallbacks():
     assert result is chain.with_fallbacks.return_value
 
 
-async def test_classify_response_text_assembles_messages_and_trace_metadata():
+async def test_classify_response_text_assembles_messages_and_trace_metadata() -> None:
     classification = RunClassification(status="all-clear", summary="ok", actionable=[])
     llm = MagicMock()
     configured = llm.with_config.return_value

@@ -43,7 +43,7 @@ def _usage(**over):
     return usage
 
 
-def test_usage_parsed_into_run(create_db_task_result):
+def test_usage_parsed_into_run(create_db_task_result) -> None:
     tr = create_db_task_result(
         status="SUCCESSFUL",
         return_value={"response": "Done.", "usage": _usage()},
@@ -59,7 +59,7 @@ def test_usage_parsed_into_run(create_db_task_result):
     assert run.usage_by_model == {"m": 1}
 
 
-def test_invalid_cost_usd_dropped_but_tokens_synced(create_db_task_result):
+def test_invalid_cost_usd_dropped_but_tokens_synced(create_db_task_result) -> None:
     tr = create_db_task_result(
         status="SUCCESSFUL", return_value={"response": "x", "usage": _usage(cost_usd="not-a-number")}
     )
@@ -71,14 +71,14 @@ def test_invalid_cost_usd_dropped_but_tokens_synced(create_db_task_result):
     m_log.warning.assert_called_once()
 
 
-def test_usage_not_resynced_when_input_tokens_already_set(create_db_task_result):
+def test_usage_not_resynced_when_input_tokens_already_set(create_db_task_result) -> None:
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x", "usage": _usage(input_tokens=999)})
     run = _run(tr, input_tokens=7)
     run.sync_from_task_result()
     assert run.input_tokens == 7  # the `input_tokens is None` guard prevents overwrite
 
 
-def test_no_usage_leaves_token_fields_null(create_db_task_result):
+def test_no_usage_leaves_token_fields_null(create_db_task_result) -> None:
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x"})
     run = _run(tr)
     run.sync_from_task_result()
@@ -87,7 +87,7 @@ def test_no_usage_leaves_token_fields_null(create_db_task_result):
     assert run.cost_usd is None
 
 
-def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result):
+def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result) -> None:
     tr = create_db_task_result(
         status="SUCCESSFUL", return_value={"response": "Done."}, started_at=_STARTED, finished_at=_FINISHED
     )
@@ -102,7 +102,7 @@ def test_sync_and_save_returns_false_when_nothing_changed(create_db_task_result)
     assert run.sync_and_save() is False
 
 
-def test_sync_and_save_emits_run_finished_on_terminal_transition(create_db_task_result):
+def test_sync_and_save_emits_run_finished_on_terminal_transition(create_db_task_result) -> None:
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done."})
     run = _run(tr, status=RunStatus.RUNNING)
     with patch("sessions.signals.emit_run_finished_if_terminal") as m_emit:

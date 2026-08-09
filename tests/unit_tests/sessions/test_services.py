@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from typing import Never
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from notifications.choices import NotifyOn
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
@@ -83,7 +83,7 @@ def _patch_run_job_task(side_effect=None):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aget_or_create_session_creates_with_origin():
+async def test_aget_or_create_session_creates_with_origin() -> None:
     tid = str(uuid.uuid4())
     session = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.API_JOB, repo_id="g/r", ref="main")
     assert session.thread_id == tid
@@ -91,7 +91,7 @@ async def test_aget_or_create_session_creates_with_origin():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aget_or_create_session_existing_keeps_origin_and_touches():
+async def test_aget_or_create_session_existing_keeps_origin_and_touches() -> None:
     tid = str(uuid.uuid4())
     first = await aget_or_create_session(thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="g/r")
     before = first.last_active_at
@@ -103,7 +103,7 @@ async def test_aget_or_create_session_existing_keeps_origin_and_touches():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_acreate_run_creates_session_and_run():
+async def test_acreate_run_creates_session_and_run() -> None:
     tid = str(uuid.uuid4())
     run = await acreate_run(
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
@@ -120,7 +120,7 @@ async def test_acreate_run_creates_session_and_run():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_batch_creates_session_and_ready_run():
+async def test_submit_batch_creates_session_and_ready_run() -> None:
     task_id = uuid.uuid4()
     fake = await _atask_result_row(task_id)
     with patch("sessions.services.run_job_task") as mock_task:
@@ -135,7 +135,7 @@ async def test_submit_batch_creates_session_and_ready_run():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_continuation_queues_when_thread_busy():
+async def test_submit_continuation_queues_when_thread_busy() -> None:
     tid = str(uuid.uuid4())
     task_id = uuid.uuid4()
     fake = await _atask_result_row(task_id)
@@ -158,7 +158,7 @@ async def test_submit_continuation_queues_when_thread_busy():
 
 
 class TestValidateRepoListDuplicates:
-    def test_duplicate_with_ref_mentions_both_repo_and_ref(self):
+    def test_duplicate_with_ref_mentions_both_repo_and_ref(self) -> None:
         raw = [{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/api", "ref": "main"}]
         with pytest.raises(ValueError) as exc:
             validate_repo_list(raw)
@@ -166,7 +166,7 @@ class TestValidateRepoListDuplicates:
         assert "acme/api" in msg
         assert "main" in msg
 
-    def test_duplicate_without_ref_omits_on_clause(self):
+    def test_duplicate_without_ref_omits_on_clause(self) -> None:
         raw = [{"repo_id": "acme/api", "ref": ""}, {"repo_id": "acme/api", "ref": ""}]
         with pytest.raises(ValueError) as exc:
             validate_repo_list(raw)
@@ -182,7 +182,7 @@ class TestValidateRepoListDuplicates:
 
 @pytest.mark.django_db(transaction=True)
 class TestSubmitBatchRunsSync:
-    def test_single_repo_creates_one_run_with_batch_id(self, member_user):
+    def test_single_repo_creates_one_run_with_batch_id(self, member_user) -> None:
         task_id = uuid.uuid4()
         fake = _task_result_row(task_id)
         with mock.patch("sessions.services.run_job_task") as m_task:
@@ -191,7 +191,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="do it",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -210,7 +209,7 @@ class TestSubmitBatchRunsSync:
         assert "use_max" not in enqueue_kwargs
         assert enqueue_kwargs["thread_id"] == str(result.runs[0].session_id)
 
-    def test_five_repos_creates_five_runs_sharing_batch_id(self, member_user):
+    def test_five_repos_creates_five_runs_sharing_batch_id(self, member_user) -> None:
         tasks_seen = []
 
         async def _aenqueue(**kwargs):
@@ -220,9 +219,7 @@ class TestSubmitBatchRunsSync:
         with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="dev" if i % 2 else "") for i in range(5)]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 5
         assert {r.batch_id for r in result.runs} == {result.batch_id}
@@ -236,20 +233,19 @@ class TestSubmitBatchRunsSync:
         task_thread_ids = [t["thread_id"] for t in tasks_seen]
         assert set(task_thread_ids) == set(run_session_ids)
 
-    def test_oversized_repos_raises_value_error(self, member_user):
+    def test_oversized_repos_raises_value_error(self, member_user) -> None:
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):
-            submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
-    def test_partial_enqueue_failure_is_best_effort(self, member_user):
+    def test_partial_enqueue_failure_is_best_effort(self, member_user) -> None:
         call_count = {"n": 0}
 
         async def _flaky(**kwargs):
             call_count["n"] += 1
             if call_count["n"] == 2:
-                raise RuntimeError("DB hiccup")
+                msg = "DB hiccup"
+                raise RuntimeError(msg)
             return await _atask_result_row(uuid.uuid4())
 
         with mock.patch("sessions.services.run_job_task") as m_task:
@@ -259,9 +255,7 @@ class TestSubmitBatchRunsSync:
                 RepoTarget(repo_id="o/b", ref=""),
                 RepoTarget(repo_id="o/c", ref=""),
             ]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 2
         assert len(result.failed) == 1
@@ -270,14 +264,15 @@ class TestSubmitBatchRunsSync:
         assert failure.repo_id == "o/b"
         assert "DB hiccup" in failure.error
 
-    def test_run_creation_failure_uses_run_creation_failed_prefix(self, member_user):
+    def test_run_creation_failure_uses_run_creation_failed_prefix(self, member_user) -> None:
         """RunCreationFailed: prefix is used when acreate_run itself raises."""
         call_count = {"n": 0}
 
         async def _flaky_create(**kwargs):
             call_count["n"] += 1
             if call_count["n"] == 2:
-                raise RuntimeError("constraint violation")
+                msg = "constraint violation"
+                raise RuntimeError(msg)
             # Delegate to real acreate_run for other calls.
             return await acreate_run(**kwargs)
 
@@ -289,9 +284,7 @@ class TestSubmitBatchRunsSync:
         m_task.aenqueue = _aenqueue
         with patch_create, patch_task:
             repos = [RepoTarget(repo_id="o/a", ref=""), RepoTarget(repo_id="o/b", ref="")]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 1
         assert len(result.failed) == 1
@@ -300,7 +293,7 @@ class TestSubmitBatchRunsSync:
         assert failure.error.startswith("RunCreationFailed:")
         assert "constraint violation" in failure.error
 
-    def test_run_persists_scheduled_job_link(self, member_user):
+    def test_run_persists_scheduled_job_link(self, member_user) -> None:
         from schedules.models import Frequency, ScheduledJob
 
         schedule = ScheduledJob.objects.create(
@@ -318,7 +311,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
@@ -334,7 +326,7 @@ class TestSubmitBatchRunsSync:
 
 @pytest.mark.django_db(transaction=True)
 class TestAsubmitBatchRuns:
-    async def test_async_variant_returns_same_shape(self, member_user):
+    async def test_async_variant_returns_same_shape(self, member_user) -> None:
         task_id = uuid.uuid4()
 
         async def _aenqueue(**kwargs):
@@ -346,7 +338,6 @@ class TestAsubmitBatchRuns:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.API_JOB,
             )
 
@@ -363,7 +354,7 @@ class TestAsubmitBatchRuns:
 class TestBatchTitleEnqueue:
     """One title task per batch — not one per run."""
 
-    def test_single_batch_title_task_enqueued_for_n_repos(self, member_user, mock_generate_title_task):
+    def test_single_batch_title_task_enqueued_for_n_repos(self, member_user, mock_generate_title_task) -> None:
         async def _aenqueue(**kwargs):
             return await _atask_result_row(uuid.uuid4())
 
@@ -371,7 +362,7 @@ class TestBatchTitleEnqueue:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(4)]
             result = submit_batch_runs(
-                user=member_user, prompt="add login", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
+                user=member_user, prompt="add login", repos=repos, trigger_type=SessionOrigin.UI_JOB
             )
 
         assert len(result.runs) == 4
@@ -380,7 +371,7 @@ class TestBatchTitleEnqueue:
         assert call_kwargs["batch_id"] == str(result.batch_id)
         assert call_kwargs["prompt"] == "add login"
 
-    def test_no_title_task_for_schedule_trigger(self, member_user, mock_generate_title_task):
+    def test_no_title_task_for_schedule_trigger(self, member_user, mock_generate_title_task) -> None:
         from schedules.models import Frequency, ScheduledJob
 
         schedule = ScheduledJob.objects.create(
@@ -398,15 +389,15 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
         mock_generate_title_task.aenqueue.assert_not_called()
 
-    def test_no_title_task_when_no_runs_created(self, member_user, mock_generate_title_task):
-        async def _aenqueue_fails(**kwargs):
-            raise RuntimeError("queue down")
+    def test_no_title_task_when_no_runs_created(self, member_user, mock_generate_title_task) -> None:
+        async def _aenqueue_fails(**kwargs) -> Never:
+            msg = "queue down"
+            raise RuntimeError(msg)
 
         with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = _aenqueue_fails
@@ -414,14 +405,13 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="o/r", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
         assert result.runs == []
         mock_generate_title_task.aenqueue.assert_not_called()
 
-    def test_title_enqueue_failure_does_not_abort_batch(self, member_user, mock_generate_title_task):
+    def test_title_enqueue_failure_does_not_abort_batch(self, member_user, mock_generate_title_task) -> None:
         """Enqueue failures for the (best-effort) title task must not raise to the caller."""
         mock_generate_title_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("title queue down"))
 
@@ -434,7 +424,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="add login",
                 repos=[RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(3)],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -450,7 +439,7 @@ class TestBatchTitleEnqueue:
 
 @pytest.mark.django_db(transaction=True)
 class TestSessionContinuation:
-    async def test_reuses_supplied_thread_id(self, member_user):
+    async def test_reuses_supplied_thread_id(self, member_user) -> None:
         thread = str(uuid.uuid4())
         fake_task = await _make_db_task_result()
         patcher, mock_task = _patch_run_job_task()
@@ -466,7 +455,7 @@ class TestSessionContinuation:
         run = result.runs[0]
         assert str(run.session_id) == thread
 
-    async def test_multi_repo_with_thread_id_raises(self, member_user):
+    async def test_multi_repo_with_thread_id_raises(self, member_user) -> None:
         thread = str(uuid.uuid4())
         with pytest.raises(ValueError, match="exactly one repo"):
             await asubmit_batch_runs(
@@ -477,7 +466,7 @@ class TestSessionContinuation:
                 thread_id=thread,
             )
 
-    async def test_prior_terminal_creates_ready_and_enqueues(self, member_user):
+    async def test_prior_terminal_creates_ready_and_enqueues(self, member_user) -> None:
         thread = str(uuid.uuid4())
         # Create the session and a prior terminal Run
         session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
@@ -503,7 +492,7 @@ class TestSessionContinuation:
         assert run.status == RunStatus.READY
         mock_task.aenqueue.assert_called_once()
 
-    async def test_prior_non_terminal_creates_queued_and_skips_enqueue(self, member_user):
+    async def test_prior_non_terminal_creates_queued_and_skips_enqueue(self, member_user) -> None:
         thread = str(uuid.uuid4())
         session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
         await Run.objects.acreate(
@@ -527,7 +516,7 @@ class TestSessionContinuation:
         assert run.task_result_id is None
         mock_task.aenqueue.assert_not_called()
 
-    async def test_asubmit_batch_runs_stores_and_forwards_overrides(self, member_user):
+    async def test_asubmit_batch_runs_stores_and_forwards_overrides(self, member_user) -> None:
         fake_task = await _make_db_task_result()
         patcher, mock_task = _patch_run_job_task()
         mock_task.aenqueue.return_value = fake_task
@@ -548,7 +537,7 @@ class TestSessionContinuation:
         assert enqueue_kwargs["agent_thinking_level"] == "low"
         assert "use_max" not in enqueue_kwargs
 
-    async def test_asubmit_batch_runs_empty_overrides_pass_none_to_aenqueue(self, member_user):
+    async def test_asubmit_batch_runs_empty_overrides_pass_none_to_aenqueue(self, member_user) -> None:
         fake_task = await _make_db_task_result()
         patcher, mock_task = _patch_run_job_task()
         mock_task.aenqueue.return_value = fake_task
@@ -565,7 +554,7 @@ class TestSessionContinuation:
         assert enqueue_kwargs["agent_thinking_level"] is None
         assert "use_max" not in enqueue_kwargs
 
-    async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
+    async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user) -> None:
         """When enqueue raises, run transitions to FAILED and queued sibling is released."""
         thread = str(uuid.uuid4())
         # A prior QUEUED sibling waiting for the active slot to open up.
@@ -591,7 +580,8 @@ class TestSessionContinuation:
                 thread_id=thread,
             )
 
-        assert result.runs == [] and len(result.failed) == 1
+        assert result.runs == []
+        assert len(result.failed) == 1
         assert "RuntimeError" in result.failed[0].error
         services_mock.aenqueue.assert_awaited_once()
 
@@ -602,28 +592,3 @@ class TestSessionContinuation:
         await queued.arefresh_from_db()
         assert queued.status == RunStatus.READY
         assert queued.task_result_id == good_task.id
-
-
-# ---------------------------------------------------------------------------
-# notify_on tests (ported from TestCreateActivityNotifyOn / TestEffectiveNotifyOn)
-# ---------------------------------------------------------------------------
-
-
-class TestCreateRunNotifyOn:
-    def test_explicit_notify_on_is_persisted(self, member_user):
-
-        # Need a session first
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(
-            session=session,
-            trigger_type=SessionOrigin.UI_JOB,
-            repo_id="x/y",
-            user=member_user,
-            notify_on=NotifyOn.NEVER,
-        )
-        assert run.notify_on == NotifyOn.NEVER
-
-    def test_no_notify_on_leaves_null(self, member_user):
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="x/y", user=member_user)
-        assert run.notify_on is None

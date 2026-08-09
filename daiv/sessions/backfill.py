@@ -56,7 +56,6 @@ RUN_COPY_FIELDS = [
     "prompt",
     "agent_model",
     "agent_thinking_level",
-    "notify_on",
     "mention_comment_id",
     "merge_request_iid",
     "merge_request_web_url",
@@ -145,10 +144,11 @@ def run_backfill(apps, schema_editor=None) -> None:
         Session.objects.bulk_create(sessions_to_create.values(), batch_size=500)
         Run.objects.bulk_create(runs_to_create, batch_size=500)
     except Exception as err:
-        raise RuntimeError(
+        msg = (
             f"backfill: bulk_create failed while copying {len(sessions_to_create)} sessions / "
             f"{len(runs_to_create)} runs from Activity ({type(err).__name__}: {err})"
-        ) from err
+        )
+        raise RuntimeError(msg) from err
 
     logger.info(
         "backfill pass 1 (activity): created %d sessions, %d runs", len(sessions_to_create), len(runs_to_create)

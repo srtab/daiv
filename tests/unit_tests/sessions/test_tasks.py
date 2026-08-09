@@ -14,7 +14,7 @@ from sessions.tasks import (
 )
 
 
-def test_sync_stuck_runs_cron_task_dispatches_command():
+def test_sync_stuck_runs_cron_task_dispatches_command() -> None:
     """The cron task dispatches the sync_stuck_runs management command.
 
     Guards the wiring (command name + the ``@locked_task`` decorator that ``.func()``
@@ -40,7 +40,7 @@ def _stranded_run(*, status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.SCH
 
 
 @pytest.mark.django_db
-def test_reclassify_reenqueues_stranded_terminal_runs_across_origins():
+def test_reclassify_reenqueues_stranded_terminal_runs_across_origins() -> None:
     stranded = [
         _stranded_run(status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.SCHEDULE),
         _stranded_run(status=RunStatus.FAILED, trigger_type=SessionOrigin.MR_WEBHOOK),
@@ -53,7 +53,7 @@ def test_reclassify_reenqueues_stranded_terminal_runs_across_origins():
 
 
 @pytest.mark.django_db
-def test_reclassify_skips_chat_classified_nonterminal_and_out_of_window():
+def test_reclassify_skips_chat_classified_nonterminal_and_out_of_window() -> None:
     classified = _stranded_run()
     RunEnvelope.objects.create(run=classified, status=EnvelopeStatus.ALL_CLEAR)  # already has an envelope
     _stranded_run(status=RunStatus.RUNNING)  # non-terminal
@@ -66,7 +66,7 @@ def test_reclassify_skips_chat_classified_nonterminal_and_out_of_window():
 
 
 @pytest.mark.django_db
-def test_reclassify_keys_on_finished_at_not_created_at():
+def test_reclassify_keys_on_finished_at_not_created_at() -> None:
     # created_at old but finished_at recent → still re-targeted (batch siblings can finish long after creation).
     session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="group/repo")
     run = Run.objects.create(

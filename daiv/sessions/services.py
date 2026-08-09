@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
+from itertools import starmap
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError
@@ -20,8 +21,6 @@ from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-    from notifications.choices import NotifyOn
 
     from accounts.models import User
     from schedules.models import ScheduledJob
@@ -52,9 +51,11 @@ class BatchSubmitResult:
 
 def _validate(repos: list[RepoTarget]) -> None:
     if not repos:
-        raise ValueError("repos must contain at least one entry")
+        msg = "repos must contain at least one entry"
+        raise ValueError(msg)
     if len(repos) > MAX_REPOS_PER_BATCH:
-        raise ValueError(f"repos exceeds the maximum of {MAX_REPOS_PER_BATCH}")
+        msg = f"repos exceeds the maximum of {MAX_REPOS_PER_BATCH}"
+        raise ValueError(msg)
 
 
 async def aget_or_create_session(
@@ -115,7 +116,6 @@ async def acreate_run(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: NotifyOn | None = None,
     muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
@@ -161,7 +161,6 @@ async def acreate_run(
         prompt=prompt,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
-        notify_on=notify_on,
         muted=muted,
         batch_id=batch_id,
         title=title[: Run._meta.get_field("title").max_length],
@@ -206,7 +205,6 @@ async def asubmit_batch_runs(
     repos: list[RepoTarget],
     agent_model: str = "",
     agent_thinking_level: str = "",
-    notify_on: NotifyOn | None = None,
     muted: bool | None = None,
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
@@ -228,13 +226,16 @@ async def asubmit_batch_runs(
         await aassert_can_run(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
-            raise ValueError("thread_id must be a non-empty UUID string")
+            msg = "thread_id must be a non-empty UUID string"
+            raise ValueError(msg)
         try:
             uuid.UUID(thread_id)
         except (ValueError, TypeError) as err:
-            raise ValueError("thread_id must be a UUID string") from err
+            msg = "thread_id must be a UUID string"
+            raise ValueError(msg) from err
         if len(repos) != 1:
-            raise ValueError("thread_id continuation requires exactly one repo")
+            msg = "thread_id continuation requires exactly one repo"
+            raise ValueError(msg)
     batch_id = uuid.uuid4()
 
     schedule_run_base = 0
@@ -258,7 +259,6 @@ async def asubmit_batch_runs(
             "scheduled_job": scheduled_job,
             "user": user,
             "external_username": external_username,
-            "notify_on": notify_on,
             "muted": muted,
             "batch_id": batch_id,
             "thread_id": effective_thread_id,
@@ -300,7 +300,7 @@ async def asubmit_batch_runs(
                 run_id=str(run.pk),
                 user_id=user.id if user is not None else None,
             )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
             await _mark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
@@ -329,7 +329,7 @@ async def asubmit_batch_runs(
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    outcomes = await asyncio.gather(*list(starmap(_submit_one, enumerate(repos))), return_exceptions=True)
 
     runs: list[Run] = []
     failed: list[BatchSubmitFailure] = []
@@ -347,7 +347,7 @@ async def asubmit_batch_runs(
     if runs and trigger_type in SessionOrigin.prompt_driven() and prompt:
         try:
             await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception(
                 "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s runs=%d",
                 batch_id,
