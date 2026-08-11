@@ -4,9 +4,18 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-import anyio
 import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# anyio arrives only transitively (via langchain-mcp-adapters/mcp/httpx); guard the import so a
+# resolver/lockfile change that drops it degrades the transient-error classifier to "no match"
+# rather than crashing at startup.
+try:
+    import anyio
+
+    _BrokenResourceError: type[BaseException] | None = anyio.BrokenResourceError
+except ImportError:  # pragma: no cover - anyio is present in the pinned lockfile
+    _BrokenResourceError = None
 
 from automation.agent.toolkits import BaseToolkit
 
@@ -31,9 +40,9 @@ def _is_transient_mcp_error(exc: BaseException) -> bool:
     Sentry error event on every agent run. Covers:
 
     * ``httpx.HTTPStatusError`` with a 5xx response — an upstream server error, not a config bug.
-    * ``anyio.BrokenResourceError`` — the in-memory stream broke, typically the downstream symptom of
-      that same upstream failure (the MCP client's writer task died and the reader's ``send()`` finds
-      the stream closed).
+    * ``anyio.BrokenResourceError`` (matched only when anyio is importable — it's a transitive
+      dependency) — the in-memory stream broke, typically the downstream symptom of that same upstream
+      failure (the MCP client's writer task died and the reader's ``send()`` finds the stream closed).
     * ``BaseExceptionGroup`` whose leaves are *all* transient — anyio surfaces TaskGroup failures this
       way, so the real exception arrives wrapped. A group mixing in anything non-transient (notably
       ``CancelledError``, a ``BaseException`` that forces a ``BaseExceptionGroup`` ``except Exception``
@@ -41,7 +50,7 @@ def _is_transient_mcp_error(exc: BaseException) -> bool:
     """
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code >= 500
-    if isinstance(exc, anyio.BrokenResourceError):
+    if _BrokenResourceError is not None and isinstance(exc, _BrokenResourceError):
         return True
     if isinstance(exc, BaseExceptionGroup):
         return bool(exc.exceptions) and all(_is_transient_mcp_error(sub) for sub in exc.exceptions)
