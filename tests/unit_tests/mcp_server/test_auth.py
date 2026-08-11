@@ -279,6 +279,22 @@ async def test_get_current_user_returns_user_for_api_key(api_key, user):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_get_current_user_api_key_client_id_skips_oauth_probe(api_key, user):
+    """An ``api-key:`` client_id dispatches straight to the key resolver, no OAuth lookup."""
+    mcp_token = MCPAccessToken(token=api_key, client_id=f"{API_KEY_CLIENT_ID_PREFIX}x", scopes=["mcp"])
+
+    with (
+        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_server.auth._user_from_oauth_token") as oauth_resolver,
+    ):
+        result = await get_current_user()
+
+    oauth_resolver.assert_not_called()
+    assert result is not None
+    assert result.pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_current_user_returns_none_when_api_key_revoked(api_key, user):
     """Key was valid at auth time but revoked before get_current_user runs (TOCTOU)."""
     mcp_token = MCPAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])

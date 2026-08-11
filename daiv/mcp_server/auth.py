@@ -62,12 +62,16 @@ async def get_current_user() -> User | None:
 
     Accepts OAuth2 access tokens and ``accounts.APIKey`` keys, re-resolving the user on every
     call so a token revoked — or a user deactivated — between verification and execution is
-    rejected.
+    rejected. Dispatches on the verified token's ``client_id`` (set by the verifier) so an
+    API-key request doesn't pay a guaranteed-miss OAuth lookup; OAuth client ids never contain
+    ``:``, so they can't collide with the ``api-key:`` prefix.
     """
     access_token = get_access_token()
     if access_token is None:
         return None
-    return await _user_from_oauth_token(access_token.token) or await _user_from_api_key(access_token.token)
+    if access_token.client_id.startswith(API_KEY_CLIENT_ID_PREFIX):
+        return await _user_from_api_key(access_token.token)
+    return await _user_from_oauth_token(access_token.token)
 
 
 class DjangoTokenVerifier:
