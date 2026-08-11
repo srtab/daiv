@@ -25,6 +25,9 @@ async def _user_from_oauth_token(token: str) -> User | None:
         oauth_token = await OAuthAccessToken.objects.select_related("user").aget(token_checksum=token_checksum)
     except OAuthAccessToken.DoesNotExist:
         return None
+    except Exception:
+        logger.exception("Failed to resolve user from OAuth token")
+        raise
 
     if not oauth_token.user.is_active:
         logger.warning("OAuth token used by an inactive user during user resolution")
@@ -38,6 +41,9 @@ async def _user_from_api_key(token: str) -> User | None:
         api_key = await APIKey.objects.get_from_key(token)
     except APIKey.DoesNotExist:
         return None
+    except Exception:
+        logger.exception("Failed to resolve user from API key")
+        raise
 
     if not api_key.user.is_active:
         logger.warning("API key used by an inactive user during user resolution")
@@ -49,20 +55,17 @@ async def get_current_user() -> User | None:
     """Get the Django user associated with the current MCP request.
 
     Derives the user from the SDK-managed access token contextvar, so it is only available
-    during MCP tool/resource execution after successful authentication. Handles both OAuth2
-    access tokens and ``accounts.APIKey`` keys; the re-lookup (rather than trusting the
-    verifier's result) re-validates revocation/expiry at execution time for both.
+    during MCP tool/resource execution after successful authentication. Accepts both OAuth2
+    access tokens and ``accounts.APIKey`` keys, re-resolving the user on each call so a token
+    deleted/revoked — or a user deactivated — between verification and execution is rejected.
+    (The API-key branch additionally drops expired keys via ``get_usable_keys``; the OAuth
+    branch re-checks existence and active status, not expiry.) Each branch logs the actionable
+    rejection reason; a benign not-found race resolves to None without a log.
     """
     access_token = get_access_token()
     if access_token is None:
         return None
-
-    user = await _user_from_oauth_token(access_token.token)
-    if user is None:
-        user = await _user_from_api_key(access_token.token)
-    if user is None:
-        logger.warning("Token not found during user resolution (may have been revoked)")
-    return user
+    return await _user_from_oauth_token(access_token.token) or await _user_from_api_key(access_token.token)
 
 
 class DjangoOAuthTokenVerifier:

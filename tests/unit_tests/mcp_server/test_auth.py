@@ -176,6 +176,24 @@ async def test_get_current_user_returns_none_without_token():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_get_current_user_db_error_propagates():
+    """An unexpected DB error during execution-time resolution propagates (and is logged)."""
+    from django.db import OperationalError
+
+    mcp_token = MCPAccessToken(token="any-token", client_id="test", scopes=["mcp"])  # noqa: S106
+    mock_qs = AsyncMock()
+    mock_qs.aget.side_effect = OperationalError("connection refused")
+
+    with (
+        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_server.auth.OAuthAccessToken.objects") as mock_objects,
+        pytest.raises(OperationalError),
+    ):
+        mock_objects.select_related.return_value = mock_qs
+        await get_current_user()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_current_user_returns_none_when_token_deleted(access_token):
     """Token was valid at auth time but deleted before get_current_user runs (TOCTOU)."""
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
