@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from mcp.server.auth.provider import AccessToken as MCPAccessToken
-from mcp_server.auth import API_KEY_CLIENT_ID_PREFIX, DjangoOAuthTokenVerifier, get_current_user
+from mcp_server.auth import API_KEY_CLIENT_ID_PREFIX, DjangoTokenVerifier, get_current_user
 
 from accounts.models import APIKey, User
 
@@ -103,7 +103,7 @@ async def revoked_api_key(user):
 
 @pytest.fixture
 def verifier():
-    return DjangoOAuthTokenVerifier()
+    return DjangoTokenVerifier()
 
 
 @pytest.mark.django_db(transaction=True)

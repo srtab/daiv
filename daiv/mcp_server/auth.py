@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.mcp_server")
 
-# client_id prefix used for MCP access tokens minted from an API key, so the SDK's
-# AuthenticatedUser carries a stable, non-OAuth identity distinguishable in logs.
 API_KEY_CLIENT_ID_PREFIX = "api-key:"
 
 
@@ -35,32 +33,36 @@ async def _user_from_oauth_token(token: str) -> User | None:
     return oauth_token.user
 
 
-async def _user_from_api_key(token: str) -> User | None:
-    """Resolve the active user for an API key, or None if the key is unusable/inactive."""
+async def _active_api_key(token: str) -> APIKey | None:
+    """Resolve a usable API key whose user is active, or None. Shared by the verifier and
+    execution-time resolution so the lookup + active-user gate lives in one place."""
     try:
         api_key = await APIKey.objects.get_from_key(token)
     except APIKey.DoesNotExist:
         return None
     except Exception:
-        logger.exception("Failed to resolve user from API key")
+        logger.exception("Failed to resolve API key")
         raise
 
     if not api_key.user.is_active:
-        logger.warning("API key used by an inactive user during user resolution")
+        logger.warning("API key used by an inactive user")
         return None
-    return api_key.user
+    return api_key
+
+
+async def _user_from_api_key(token: str) -> User | None:
+    """Resolve the active user for an API key, or None if the key is unusable/inactive."""
+    api_key = await _active_api_key(token)
+    return api_key.user if api_key else None
 
 
 async def get_current_user() -> User | None:
-    """Get the Django user associated with the current MCP request.
+    """Get the Django user for the current MCP request from the SDK-managed access-token
+    contextvar (only populated during tool/resource execution, after authentication).
 
-    Derives the user from the SDK-managed access token contextvar, so it is only available
-    during MCP tool/resource execution after successful authentication. Accepts both OAuth2
-    access tokens and ``accounts.APIKey`` keys, re-resolving the user on each call so a token
-    deleted/revoked — or a user deactivated — between verification and execution is rejected.
-    (The API-key branch additionally drops expired keys via ``get_usable_keys``; the OAuth
-    branch re-checks existence and active status, not expiry.) Each branch logs the actionable
-    rejection reason; a benign not-found race resolves to None without a log.
+    Accepts OAuth2 access tokens and ``accounts.APIKey`` keys, re-resolving the user on every
+    call so a token revoked — or a user deactivated — between verification and execution is
+    rejected.
     """
     access_token = get_access_token()
     if access_token is None:
@@ -68,7 +70,7 @@ async def get_current_user() -> User | None:
     return await _user_from_oauth_token(access_token.token) or await _user_from_api_key(access_token.token)
 
 
-class DjangoOAuthTokenVerifier:
+class DjangoTokenVerifier:
     """MCP TokenVerifier backed by django-oauth-toolkit's AccessToken and ``accounts.APIKey``.
 
     Bearer tokens are verified first as OAuth2 access tokens, then as API keys. Both grant the
@@ -116,18 +118,9 @@ class DjangoOAuthTokenVerifier:
         )
 
     async def _verify_api_key(self, token: str) -> MCPAccessToken | None:
-        try:
-            api_key = await APIKey.objects.get_from_key(token)
-        except APIKey.DoesNotExist:
+        api_key = await _active_api_key(token)
+        if api_key is None:
             return None
-        except Exception:
-            logger.exception("Failed to validate API key against database")
-            raise
-
-        if not api_key.user.is_active:
-            logger.warning("API key used for MCP access belongs to an inactive user")
-            return None
-
         return MCPAccessToken(
             token=token,
             client_id=f"{API_KEY_CLIENT_ID_PREFIX}{api_key.prefix}",
