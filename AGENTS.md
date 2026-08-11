@@ -86,6 +86,8 @@ dead model rather than adding an exemption to that test. Note the comparison nor
 `title`/`description` away — field docstrings are *not* pinned and can silently drift from the
 sandbox's own wording.
 
+**MCP tool-load degradation** — `_load_server_tools` (`daiv/automation/agent/mcp/toolkits.py`) degrades to `[]` and never raises. Anticipated/transient failures — `TimeoutError`, upstream 5xx (`httpx.HTTPStatusError`), a broken MCP stream (`anyio.BrokenResourceError`), or an `ExceptionGroup` whose leaves are *all* transient (how anyio surfaces TaskGroup teardown) — log at **WARNING** (no traceback) so an external outage doesn't mint a Sentry error event per agent run. Only genuinely unexpected errors fall through to `logger.exception` (ERROR + traceback). `CancelledError` is a `BaseException` → a group containing it is a `BaseExceptionGroup` that `except Exception` never catches, so outer cancellation keeps propagating; don't "fix" this.
+
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
 **Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
