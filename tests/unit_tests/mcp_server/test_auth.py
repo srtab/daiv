@@ -5,9 +5,9 @@ from django.utils import timezone
 
 import pytest
 from mcp.server.auth.provider import AccessToken as MCPAccessToken
-from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
+from mcp_server.auth import API_KEY_CLIENT_ID_PREFIX, DjangoTokenVerifier, get_current_user
 
-from accounts.models import User
+from accounts.models import APIKey, User
 
 
 @pytest.fixture
@@ -80,8 +80,30 @@ def no_app_token(user):
 
 
 @pytest.fixture
+async def api_key(user):
+    _, raw_key = await APIKey.objects.create_key(user, name="test-key")
+    return raw_key
+
+
+@pytest.fixture
+async def expired_api_key(user):
+    _, raw_key = await APIKey.objects.create_key(
+        user, name="expired-key", expires_at=timezone.now() - timedelta(hours=1)
+    )
+    return raw_key
+
+
+@pytest.fixture
+async def revoked_api_key(user):
+    obj, raw_key = await APIKey.objects.create_key(user, name="revoked-key")
+    obj.revoked = True
+    await obj.asave(update_fields=["revoked"])
+    return raw_key
+
+
+@pytest.fixture
 def verifier():
-    return DjangoOAuthTokenVerifier()
+    return DjangoTokenVerifier()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -154,6 +176,24 @@ async def test_get_current_user_returns_none_without_token():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_get_current_user_db_error_propagates():
+    """An unexpected DB error during execution-time resolution propagates (and is logged)."""
+    from django.db import OperationalError
+
+    mcp_token = MCPAccessToken(token="any-token", client_id="test", scopes=["mcp"])  # noqa: S106
+    mock_qs = AsyncMock()
+    mock_qs.aget.side_effect = OperationalError("connection refused")
+
+    with (
+        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_server.auth.OAuthAccessToken.objects") as mock_objects,
+        pytest.raises(OperationalError),
+    ):
+        mock_objects.select_related.return_value = mock_qs
+        await get_current_user()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_current_user_returns_none_when_token_deleted(access_token):
     """Token was valid at auth time but deleted before get_current_user runs (TOCTOU)."""
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
@@ -180,6 +220,95 @@ async def test_get_current_user_inactive_user_rejected(access_token, user):
     user.is_active = False
     await user.asave(update_fields=["is_active"])
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        assert await get_current_user() is None
+
+
+# --- API key authentication -------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_api_key_returns_access_token(verifier, api_key):
+    result = await verifier.verify_token(api_key)
+
+    assert result is not None
+    assert result.token == api_key
+    assert result.scopes == ["mcp"]
+    assert result.client_id.startswith(API_KEY_CLIENT_ID_PREFIX)
+    assert result.expires_at is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_api_key_with_expiry_sets_expires_at(verifier, user):
+    _, raw_key = await APIKey.objects.create_key(user, name="dated-key", expires_at=timezone.now() + timedelta(hours=1))
+
+    result = await verifier.verify_token(raw_key)
+
+    assert result is not None
+    assert result.expires_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_expired_api_key_returns_none(verifier, expired_api_key):
+    assert await verifier.verify_token(expired_api_key) is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_revoked_api_key_returns_none(verifier, revoked_api_key):
+    assert await verifier.verify_token(revoked_api_key) is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_api_key_inactive_user_rejected(verifier, api_key, user):
+    user.is_active = False
+    await user.asave(update_fields=["is_active"])
+
+    assert await verifier.verify_token(api_key) is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_returns_user_for_api_key(api_key, user):
+    mcp_token = MCPAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        result = await get_current_user()
+
+    assert result is not None
+    assert result.pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_api_key_client_id_skips_oauth_probe(api_key, user):
+    """An ``api-key:`` client_id dispatches straight to the key resolver, no OAuth lookup."""
+    mcp_token = MCPAccessToken(token=api_key, client_id=f"{API_KEY_CLIENT_ID_PREFIX}x", scopes=["mcp"])
+
+    with (
+        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_server.auth._user_from_oauth_token") as oauth_resolver,
+    ):
+        result = await get_current_user()
+
+    oauth_resolver.assert_not_called()
+    assert result is not None
+    assert result.pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_returns_none_when_api_key_revoked(api_key, user):
+    """Key was valid at auth time but revoked before get_current_user runs (TOCTOU)."""
+    mcp_token = MCPAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
+    await APIKey.objects.filter(user=user).aupdate(revoked=True)
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        assert await get_current_user() is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_inactive_user_rejected_for_api_key(api_key, user):
+    user.is_active = False
+    await user.asave(update_fields=["is_active"])
+    mcp_token = MCPAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
 
     with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
         assert await get_current_user() is None

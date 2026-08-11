@@ -31,7 +31,7 @@ from codebase.authorization import (
 )
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
-from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
+from mcp_server.auth import DjangoTokenVerifier, get_current_user
 from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
@@ -75,7 +75,7 @@ continue polling with `get_job_status` if the result is not yet available.\
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     auth=AuthSettings(issuer_url=_external_url, resource_server_url=f"{_external_url}/mcp", required_scopes=["mcp"]),
-    token_verifier=DjangoOAuthTokenVerifier(),
+    token_verifier=DjangoTokenVerifier(),
 )
 
 _THREAD_NOT_FOUND = "thread_id not found"
