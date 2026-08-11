@@ -1,10 +1,12 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anyio
+import httpx
 import pytest
 
 from automation.agent.mcp.schemas import ToolFilter
-from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters
+from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters, _load_server_tools
 
 
 def _make_tool(name: str) -> MagicMock:
@@ -303,6 +305,81 @@ class TestMCPToolkitGetTools:
             result = await MCPToolkit.get_tools()
 
         assert result == []
+
+
+class TestLoadServerToolsTransientErrors:
+    """Transient upstream MCP failures (5xx / broken stream, possibly wrapped in an ExceptionGroup by
+    anyio's TaskGroup teardown) degrade to an empty tool list at WARNING level — like a timeout —
+    instead of minting a Sentry error event via ``logger.exception``. Pinned because the broad
+    ``except Exception`` used to log these at error level (see Sentry DAIV-22/23)."""
+
+    @staticmethod
+    def _httpx_status_error(status_code: int) -> httpx.HTTPStatusError:
+        request = httpx.Request("POST", "https://mcp.context7.com/mcp")
+        response = httpx.Response(status_code, request=request)
+        return httpx.HTTPStatusError(f"{status_code}", request=request, response=response)
+
+    async def _run(self, exc):
+        client = MagicMock()
+        client.get_tools = AsyncMock(side_effect=exc)
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=client):
+            return await _load_server_tools("context7", {"url": "http://context7/mcp"}, 30.0)
+
+    async def test_5xx_logs_warning_not_error(self, caplog):
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(self._httpx_status_error(503))
+
+        assert result == []
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+        assert "context7" in caplog.text
+
+    async def test_broken_resource_error_logs_warning_not_error(self, caplog):
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(anyio.BrokenResourceError())
+
+        assert result == []
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
+    async def test_exceptiongroup_of_broken_resource_logs_warning_not_error(self, caplog):
+        # Real shape from DAIV-22: anyio surfaces the BrokenResourceError (downstream symptom of the
+        # upstream 503) wrapped in an ExceptionGroup from the MCP client's TaskGroup teardown.
+        exc = ExceptionGroup("unhandled errors in a TaskGroup", [anyio.BrokenResourceError()])
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(exc)
+
+        assert result == []
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
+    async def test_non_transient_error_still_logs_at_error(self, caplog):
+        # A genuinely unexpected failure must keep the loud error + traceback path.
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(RuntimeError("boom"))
+
+        assert result == []
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        assert not any(r.levelname == "WARNING" for r in caplog.records)
+
+    async def test_4xx_http_error_still_logs_at_error(self, caplog):
+        # 4xx is a config/contract bug, not a transient outage — keep it loud.
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(self._httpx_status_error(401))
+
+        assert result == []
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    async def test_exceptiongroup_with_non_transient_leaf_logs_at_error(self, caplog):
+        # A group mixing a transient + a non-transient leaf must NOT be downgraded — the non-transient
+        # part is the real signal and belongs on Sentry.
+        exc = ExceptionGroup("taskgroup", [anyio.BrokenResourceError(), RuntimeError("boom")])
+        with caplog.at_level("DEBUG", logger="daiv.tools"):
+            result = await self._run(exc)
+
+        assert result == []
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        assert not any(r.levelname == "WARNING" for r in caplog.records)
 
 
 @pytest.mark.django_db(transaction=True)
