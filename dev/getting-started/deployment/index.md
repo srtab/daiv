@@ -157,7 +157,7 @@ services:
       <<: *deploy_defaults
 
   app:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -179,7 +179,7 @@ services:
       <<: *deploy_defaults
 
   worker:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     command: sh /home/daiv/start-worker
     environment:
       <<: *app_environment_defaults
@@ -206,7 +206,7 @@ services:
       replicas: 1 (9)
 
   scheduler:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     command: sh /home/daiv/start-crontask
     environment:
       <<: *app_environment_defaults
@@ -279,7 +279,7 @@ secrets:
 1. Replace with your full domain URL including schema (e.g., `https://your-hostname.com`)
 1. Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
 1. Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
-1. **Recommended**: Replace `latest` with a specific version tag for production deployments
+1. Continuous deploys track the `main` tag; keep the `${DAIV_IMAGE_TAG:-main}` form on every service so the Deploy workflow can roll back to a pinned per-commit tag (e.g. `DAIV_IMAGE_TAG=sha-XXXXXXX`)
 1. See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 1. **Required**: Sandbox needs Docker socket access to create isolated containers
 1. **Optional**: Remove this volume if you don't need private registry access
@@ -335,7 +335,7 @@ Environment Variable Configuration
 
 ```
 x-app-defaults: &x_app_default
-  image: ghcr.io/srtab/daiv:latest
+  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
   restart: unless-stopped
   ulimits: # (18)!
     nofile:

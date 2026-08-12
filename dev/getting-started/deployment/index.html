@@ -2096,7 +2096,7 @@
 <a id="__codelineno-2-76" name="__codelineno-2-76"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
 <a id="__codelineno-2-77" name="__codelineno-2-77"></a>
 <a id="__codelineno-2-78" name="__codelineno-2-78"></a><span class="w">  </span><span class="nt">app</span><span class="p">:</span>
-<a id="__codelineno-2-79" name="__codelineno-2-79"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest (5)</span>
+<a id="__codelineno-2-79" name="__codelineno-2-79"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)</span>
 <a id="__codelineno-2-80" name="__codelineno-2-80"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
 <a id="__codelineno-2-81" name="__codelineno-2-81"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*app_environment_defaults</span>
 <a id="__codelineno-2-82" name="__codelineno-2-82"></a><span class="w">    </span><span class="nt">secrets</span><span class="p">:</span>
@@ -2118,7 +2118,7 @@
 <a id="__codelineno-2-98" name="__codelineno-2-98"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*deploy_defaults</span>
 <a id="__codelineno-2-99" name="__codelineno-2-99"></a>
 <a id="__codelineno-2-100" name="__codelineno-2-100"></a><span class="w">  </span><span class="nt">worker</span><span class="p">:</span>
-<a id="__codelineno-2-101" name="__codelineno-2-101"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest (5)</span>
+<a id="__codelineno-2-101" name="__codelineno-2-101"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)</span>
 <a id="__codelineno-2-102" name="__codelineno-2-102"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/daiv/start-worker</span>
 <a id="__codelineno-2-103" name="__codelineno-2-103"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
 <a id="__codelineno-2-104" name="__codelineno-2-104"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*app_environment_defaults</span>
@@ -2145,7 +2145,7 @@
 <a id="__codelineno-2-125" name="__codelineno-2-125"></a><span class="w">      </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1 (9)</span>
 <a id="__codelineno-2-126" name="__codelineno-2-126"></a>
 <a id="__codelineno-2-127" name="__codelineno-2-127"></a><span class="w">  </span><span class="nt">scheduler</span><span class="p">:</span>
-<a id="__codelineno-2-128" name="__codelineno-2-128"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest (5)</span>
+<a id="__codelineno-2-128" name="__codelineno-2-128"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)</span>
 <a id="__codelineno-2-129" name="__codelineno-2-129"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sh /home/daiv/start-crontask</span>
 <a id="__codelineno-2-130" name="__codelineno-2-130"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
 <a id="__codelineno-2-131" name="__codelineno-2-131"></a><span class="w">      </span><span class="nt">&lt;&lt;</span><span class="p">:</span><span class="w"> </span><span class="nv">*app_environment_defaults</span>
@@ -2219,7 +2219,7 @@
 <li>Replace with your full domain URL including schema (e.g., <code>https://your-hostname.com</code>)</li>
 <li>Set to your GitLab instance URL (e.g., <code>https://gitlab.com</code> for GitLab.com)</li>
 <li>Points to the Sandbox service. Use <code>http://sandbox:8000</code> when deploying Sandbox in the same stack</li>
-<li><strong>Recommended</strong>: Replace <code>latest</code> with a specific version tag for production deployments</li>
+<li>Continuous deploys track the <code>main</code> tag; keep the <code>${DAIV_IMAGE_TAG:-main}</code> form on every service so the Deploy workflow can roll back to a pinned per-commit tag (e.g. <code>DAIV_IMAGE_TAG=sha-XXXXXXX</code>)</li>
 <li>See <a href="https://github.com/srtab/daiv-sandbox">DAIV Sandbox documentation</a> for configuration details</li>
 <li><strong>Required</strong>: Sandbox needs Docker socket access to create isolated containers</li>
 <li><strong>Optional</strong>: Remove this volume if you don't need private registry access</li>
@@ -2397,7 +2397,7 @@
 <span class="normal"><a href="#__codelineno-5-132">132</a></span>
 <span class="normal"><a href="#__codelineno-5-133">133</a></span>
 <span class="normal"><a href="#__codelineno-5-134">134</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:latest</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">ulimits</span><span class="p">:</span><span class="w"> </span><span class="c1"># (18)!</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">    </span><span class="nt">nofile</span><span class="p">:</span>
@@ -2717,7 +2717,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 11, 2026 22:28:53 UTC">August 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 22:29:37 UTC">August 12, 2026</span>
   </span>
 
     
@@ -2727,7 +2727,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 11, 2026 22:28:53 UTC">August 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 22:29:37 UTC">August 12, 2026</span>
   </span>
 
     
