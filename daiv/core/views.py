@@ -3,7 +3,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 from django.views import View
@@ -18,6 +18,7 @@ from core.forms import (
 )
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import site_settings
+from daiv import BUILD_DATE, GIT_SHA, __version__
 
 logger = logging.getLogger("daiv.core")
 
@@ -29,6 +30,16 @@ class HealthCheckView(View):
 
     async def get(self, request, *args, **kwargs):
         return HttpResponse("OK", content_type="text/plain")
+
+
+class VersionView(View):
+    """
+    Report the running build: package version plus the git SHA and build date stamped
+    into the image at build time (empty when running from source).
+    """
+
+    async def get(self, request, *args, **kwargs):
+        return JsonResponse({"version": __version__, "sha": GIT_SHA or None, "build_date": BUILD_DATE or None})
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):

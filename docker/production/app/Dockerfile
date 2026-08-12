@@ -103,6 +103,12 @@ RUN chmod +x entrypoint start-app start-worker start-crontask \
   && ./"tailwindcss-linux-${ARCH}" -i app/static_src/css/input.css -o app/static/css/styles.css --minify \
   && rm "tailwindcss-linux-${ARCH}"
 
+# Declared last so the per-commit values only invalidate this final layer.
+ARG GIT_SHA
+ARG BUILD_DATE
+ENV DAIV_GIT_SHA=${GIT_SHA} \
+    DAIV_BUILD_DATE=${BUILD_DATE}
+
 HEALTHCHECK --interval=10s --start-period=120s --start-interval=5s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
 

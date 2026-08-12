@@ -3,7 +3,7 @@ from django.core.exceptions import DisallowedHost
 from decouple import config
 from get_docker_secret import get_docker_secret
 
-from daiv import __version__
+from daiv import RELEASE
 from daiv.settings.components import ENVIRONMENT
 
 SENTRY_DSN = get_docker_secret("SENTRY_DSN")
@@ -43,7 +43,7 @@ if SENTRY_DSN:
             OpenAIIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
         ],
         dsn=SENTRY_DSN,
-        release=__version__,
+        release=RELEASE,
         environment=ENVIRONMENT,
         debug=SENTRY_DEBUG,
         enable_logs=SENTRY_ENABLE_LOGS,
