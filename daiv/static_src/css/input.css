@@ -23,6 +23,21 @@ a, button, [role="button"] {
   cursor: pointer;
 }
 
+/* Suppresses double-tap-to-zoom; pinch-zoom must stay available (WCAG 1.4.4). */
+html {
+  touch-action: manipulation;
+}
+
+/* iOS Safari auto-zooms into focused controls with font-size below 16px; force it on
+   touch devices so the trigger disappears without locking page zoom. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 [x-cloak] {
   display: none !important;
 }

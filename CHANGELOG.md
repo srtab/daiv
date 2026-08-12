@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Restored pinch-to-zoom on mobile: the viewport no longer sets `maximum-scale=1, user-scalable=no` (a WCAG 1.4.4 accessibility regression on Android Chrome). The mobile session-list overflow it papered over was already fixed separately.
+- Restored pinch-to-zoom on mobile: the viewport no longer sets `maximum-scale=1, user-scalable=no` (a WCAG 1.4.4 accessibility regression on Android Chrome). The two annoyances the lock addressed are now handled without blocking zoom: `touch-action: manipulation` suppresses double-tap-to-zoom, and form controls render at 16px on touch devices so iOS Safari no longer auto-zooms on input focus.
 - Fixed MCP `get_environment` resolving GLOBAL sandbox environments for a credential revoked between authentication and execution; it now rejects the request like every other tool. `get_job_status` no longer leaks the raw exception text to the client when user resolution hits a transient DB error.
 - Fixed MCP bearer-token handling: API-key requests are routed by token shape/type instead of always probing the OAuth table first and overloading `client_id` (an OAuth application whose `client_id` starts with `api-key:` no longer breaks its own tokens), a warning is logged again when an OAuth token disappears between verification and execution, and unexpected resolution errors are logged once instead of twice.
 - Fixed MCP `test_connection` hiding genuinely unexpected errors: connection-level failures still log as warnings without a traceback, but anything else (a bug in our own code) logs with a traceback again.
