@@ -1,12 +1,13 @@
 from datetime import UTC, datetime
 
-from core.context_processors import _BUILD_INFO, _compute_build_info, build_info
+from core.context_processors import _compute_build_info, build_info
+from daiv import __version__
 
 FULL_SHA = "5e4f0d09441f31cf8fc6e59b3cc316ecad1205b5"
 
 
-def test_build_info_returns_precomputed_constant():
-    assert build_info(None) == {"build_info": _BUILD_INFO}
+def test_build_info_exposes_version_under_context_key():
+    assert build_info(None)["build_info"]["version"] == __version__
 
 
 def test_compute_without_stamp(monkeypatch):

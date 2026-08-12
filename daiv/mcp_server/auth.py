@@ -22,17 +22,17 @@ class APIKeyAccessToken(MCPAccessToken):
     (which is a free-form field an OAuth application could legitimately collide with)."""
 
 
-async def _oauth_token_by_checksum(token: str, *select_related: str) -> OAuthAccessToken | None:
+async def _oauth_token_by_checksum(token: str) -> OAuthAccessToken | None:
     token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
     try:
-        return await OAuthAccessToken.objects.select_related(*select_related).aget(token_checksum=token_checksum)
+        return await OAuthAccessToken.objects.select_related("application", "user").aget(token_checksum=token_checksum)
     except OAuthAccessToken.DoesNotExist:
         return None
 
 
 async def _user_from_oauth_token(token: str) -> User | None:
     """Resolve the active user for an OAuth access token, or None if it can't be resolved."""
-    oauth_token = await _oauth_token_by_checksum(token, "user")
+    oauth_token = await _oauth_token_by_checksum(token)
     if oauth_token is None:
         logger.warning("OAuth token not found during user resolution (token may have been revoked)")
         return None
@@ -90,7 +90,7 @@ class DjangoTokenVerifier:
             raise
 
     async def _verify_oauth_token(self, token: str) -> MCPAccessToken | None:
-        access_token = await _oauth_token_by_checksum(token, "application", "user")
+        access_token = await _oauth_token_by_checksum(token)
         if access_token is None:
             return None
 

@@ -417,13 +417,9 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
     """
-    try:
-        mcp_user = await get_current_user()
-    except Exception:
-        logger.exception("Failed to resolve current user for MCP get_job_status")
-        mcp_user = None
-    if mcp_user is None:
-        return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return json.dumps(auth_error)
 
     try:
         run_uuid = uuid_mod.UUID(job_id)
@@ -447,11 +443,11 @@ async def get_job_status(
 
 
 async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
-    """Resolve the authenticated user for the dict-returning tools.
+    """Resolve the authenticated user for a tool call.
 
     Returns ``(user, None)`` on success, or ``(None, error_dict)`` when the user can't be
-    resolved. Mirrors ``submit_job``'s auth handling (log + friendly message) but returns a
-    dict, since these tools return dicts rather than JSON strings.
+    resolved. Mirrors ``submit_job``'s auth handling (log + friendly message); dict-returning
+    tools return the error dict as-is, JSON-string tools ``json.dumps`` it.
     """
     try:
         mcp_user = await get_current_user()

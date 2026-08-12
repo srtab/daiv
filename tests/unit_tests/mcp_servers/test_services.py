@@ -276,7 +276,7 @@ def test_format_error_trims_httpx_noise_line():
     """httpx exceptions append a "For more information check: <url>" line that is
     noise in the UI — only the first line of the underlying cause is kept."""
     import httpx
-    from mcp_servers.services import _format_error
+    from mcp_servers.services import _flatten_exception, _format_error
 
     real = httpx.HTTPStatusError(
         "Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'\n"
@@ -284,7 +284,7 @@ def test_format_error_trims_httpx_noise_line():
         request=httpx.Request("POST", "https://mcp.sentry.dev/mcp"),
         response=httpx.Response(401),
     )
-    message = _format_error(ExceptionGroup("unhandled errors in a TaskGroup", [real]))
+    message = _format_error(_flatten_exception(ExceptionGroup("unhandled errors in a TaskGroup", [real])))
     assert message == "HTTPStatusError: Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'"
     assert "For more information check" not in message
 
