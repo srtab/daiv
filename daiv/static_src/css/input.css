@@ -2064,9 +2064,14 @@ main:has(.chat-shell) {
     @apply h-9 w-full rounded-xl border border-white/[0.06] bg-[#0b1018]
       pl-9 pr-3 text-sm text-gray-300 placeholder:text-gray-500;
   }
-  .filter-seg { @apply inline-flex items-center gap-0.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1; }
+  .filter-seg {
+    @apply inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl
+      border border-white/[0.06] bg-white/[0.02] p-1;
+    scrollbar-width: none;
+  }
+  .filter-seg::-webkit-scrollbar { display: none; }
   .filter-seg-item {
-    @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
       text-gray-400 transition-colors hover:text-gray-200;
   }
   .filter-seg-item--active { @apply bg-white/[0.1] text-white; }
