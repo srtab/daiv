@@ -13,7 +13,7 @@ from django.views.generic import ListView, TemplateView
 
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
-from notifications.choices import ChannelType
+from notifications.choices import ChannelType, EventType
 from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
 
@@ -50,7 +50,14 @@ class NotificationListView(LoginRequiredMixin, ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
+        # The full notifications list shows bell events only; RUN_FEED rows live in the console
+        # Feed and are carved out here (Story 2.3, AC8).
+        qs = (
+            Notification.objects
+            .filter(recipient=self.request.user)
+            .exclude(event_type=EventType.RUN_FEED)
+            .prefetch_related("deliveries")
+        )
         status = self.request.GET.get("status")
         if status == "unread":
             qs = qs.filter(read_at__isnull=True)
@@ -69,10 +76,18 @@ class BellDropdownView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
+        # RUN_FEED rows are the console Feed's slice — exclude them from the dropdown AND from the
+        # on-open mark-all-read, so opening the bell never clears the Feed's seen-state (Story 2.3,
+        # AC8; load-bearing for Story 2.4's unread delta).
+        qs = (
+            Notification.objects
+            .filter(recipient=self.request.user)
+            .exclude(event_type=EventType.RUN_FEED)
+            .prefetch_related("deliveries")
+        )
         # Fetch before the bulk-update below so unread cues still render on first open.
         ctx["notifications"] = list(qs[:10])
-        Notification.mark_all_read_for(self.request.user)
+        Notification.mark_all_read_for(self.request.user, exclude_event_types=(EventType.RUN_FEED,))
         return ctx
 
 
@@ -93,7 +108,8 @@ class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
 @method_decorator(require_POST, name="dispatch")
 class MarkAllReadView(LoginRequiredMixin, View):
     def post(self, request):
-        Notification.mark_all_read_for(request.user)
+        # Mirror the bell carve-out: mark-all-read never touches RUN_FEED rows (Story 2.3, AC8).
+        Notification.mark_all_read_for(request.user, exclude_event_types=(EventType.RUN_FEED,))
         return HttpResponseRedirect(reverse("notifications:list"))
 
 

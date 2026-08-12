@@ -27,3 +27,7 @@ class EventType(models.TextChoices):
     JOB_FINISHED = "job.finished", _("Job finished")
     SCHEDULE_FINISHED = "schedule.finished", _("Schedule finished")
     JOB_BATCH_FINISHED = "job_batch.finished", _("Job batch finished")
+    # Per-Run Feed row (Story 2.3): the Review Console's per-user "what happened" slice.
+    # Written at Run granularity by ``emit_feed_on_run_finished`` and carved out of the bell
+    # (unread count / dropdown / list / mark-all-read) so Feed and bell keep independent seen-state.
+    RUN_FEED = "run.feed", _("Run feed")

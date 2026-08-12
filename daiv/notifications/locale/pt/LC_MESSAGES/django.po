@@ -72,6 +72,9 @@ msgstr "Agendamento terminado"
 msgid "Job batch finished"
 msgstr "Lote de tarefas terminado"
 
+msgid "Run feed"
+msgstr "Feed de execução"
+
 msgid "Username is required."
 msgstr "O nome de utilizador é obrigatório."
 

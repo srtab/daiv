@@ -17,7 +17,7 @@ from sessions.signals import run_finished
 from notifications.channels.registry import enabled_channels
 from notifications.choices import ChannelType, EventType, NotifyOn
 from notifications.models import UserChannelBinding
-from notifications.services import notify
+from notifications.services import create_notification, notify
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -321,6 +321,87 @@ def on_run_finished(sender, run, **kwargs) -> None:
                 )
     except Exception:
         logger.exception("on_run_finished: unexpected error for run=%s", getattr(run, "pk", run))
+
+
+def _feed_row_exists_run(recipient, run) -> bool:
+    from notifications.models import Notification
+
+    return Notification.objects.filter(
+        recipient=recipient, source_type="sessions.Run", source_id=str(run.pk), event_type=EventType.RUN_FEED
+    ).exists()
+
+
+def _feed_subject_run(run) -> str:
+    """Terse, machine-recognizable gloss for the Feed row's subject.
+
+    The Feed renders from the Run + its RunEnvelope, never from ``subject``/``body`` — so this
+    is only the seen-state anchor's label. Prefer the schedule name, then the run title, then repo.
+    """
+    schedule = run.session.scheduled_job if (run.session_id and run.session.scheduled_job_id) else None
+    subject = (schedule.name if schedule else "") or run.title or run.repo_id or ""
+    return subject[:255]
+
+
+@receiver(run_finished, dispatch_uid="notifications.emit_feed_on_run_finished")
+def emit_feed_on_run_finished(sender, run, **kwargs) -> None:
+    """Write one per-Run ``RUN_FEED`` Notification per recipient for terminal SCHEDULE runs.
+
+    A dedicated single receiver (mirrors ``sessions.classify_on_run_finished``'s gate order),
+    separate from the bell emitter (``on_run_finished``): the Feed unit is the **Run**, so it
+    writes one row per Run even when the run is part of a batch (contrast ``JOB_BATCH_FINISHED``'s
+    rollup). ``channels=[]`` → row only, no external delivery (the Feed is in-console). The rows
+    reuse the ``read_at`` pattern and are carved out of the bell (Story 2.3, AC8).
+
+    Idempotent (AC1 "exactly one"): the widened partial ``UniqueConstraint`` lets the DB elect a
+    single winner; the losing ``IntegrityError`` is swallowed after an existence re-check (mirrors
+    the batch path). Wrapped in try/except so a Feed failure never affects the run lifecycle.
+    """
+    from sessions.models import RunStatus, SessionOrigin
+
+    try:
+        if kwargs.get("skip_dispatch"):
+            return
+        if run.trigger_type != SessionOrigin.SCHEDULE:
+            return
+        if run.status not in RunStatus.terminal():
+            return
+
+        recipients = _resolve_recipients_run(run)
+        if not recipients:
+            return
+
+        subject = _feed_subject_run(run)
+        link_url = reverse("session_detail", kwargs={"thread_id": run.session_id})
+
+        for recipient in recipients.values():
+            try:
+                create_notification(
+                    recipient=recipient,
+                    event_type=EventType.RUN_FEED,
+                    source_type="sessions.Run",
+                    source_id=str(run.pk),
+                    subject=subject,
+                    body="",
+                    link_url=link_url,
+                    channels=[],
+                )
+            except IntegrityError:
+                if _feed_row_exists_run(recipient, run):
+                    logger.debug(
+                        "RUN_FEED row already exists for run=%s recipient_pk=%s", run.pk, getattr(recipient, "pk", None)
+                    )
+                else:
+                    logger.exception(
+                        "Unexpected IntegrityError creating RUN_FEED row for run=%s recipient pk=%s",
+                        run.pk,
+                        getattr(recipient, "pk", None),
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to create RUN_FEED row for run=%s recipient pk=%s", run.pk, getattr(recipient, "pk", None)
+                )
+    except Exception:
+        logger.exception("emit_feed_on_run_finished: unexpected error for run=%s", getattr(run, "pk", run))
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid="notifications.sync_email_binding")

@@ -1,143 +1,145 @@
 {% load i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
-       class="shrink-0 overflow-y-auto bg-[#030712] {{ sidebar_root_class|default:'hidden w-60 border-r border-white/[0.06] sm:flex sm:flex-col' }}"
+       class="shrink-0 overflow-y-auto bg-surface-1 {{ sidebar_root_class|default:'sidebar sidebar--rail hidden w-60 border-r border-border md:flex md:flex-col' }}"
        x-cloak>
-  <div class="flex items-center gap-2.5 px-5 pt-5 pb-5">
-    <span class="inline-block h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-500"></span>
-    <a href="{% url 'dashboard' %}" class="text-[17px] font-bold tracking-tight text-white">DAIV</a>
+  <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
+    <span class="inline-block h-6 w-6 shrink-0 rounded-md bg-brand"></span>
+    <a href="{% url 'dashboard' %}" class="sidebar__brand-text text-[17px] font-bold tracking-tight text-text-strong">DAIV</a>
   </div>
 
-  {# Primary action — promoted out of the nav list #}
+  {# Primary action — promoted out of the nav list (shared chrome, D2). Teal = DO/action. #}
   <a href="{% url 'session_new' %}"
      data-testid="nav-new-cta"
-     class="group relative mx-3 mb-5 flex items-center gap-2.5 overflow-hidden rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 px-3 py-2.5 text-sm font-semibold tracking-tight text-white shadow-lg shadow-violet-500/20 ring-1 ring-inset ring-white/15 transition-all duration-200 hover:shadow-violet-500/40 hover:ring-white/25">
-    <span aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent"></span>
-    <span class="relative flex h-6 w-6 items-center justify-center rounded-md bg-white/15 ring-1 ring-inset ring-white/20">
+     class="sidebar__cta group mx-3 mb-5 flex items-center gap-2.5 rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold tracking-tight text-accent-ink transition-colors hover:bg-accent-bright">
+    <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-ink/15">
       {% icon "squares-plus" "h-3.5 w-3.5" %}
     </span>
-    <span class="relative flex-1">{% translate "New" %}</span>
-    <span aria-hidden="true" class="relative text-white/70 transition-transform duration-200 group-hover:translate-x-0.5">&rarr;</span>
+    <span class="sidebar__cta-label flex-1">{% translate "New" %}</span>
+    <span aria-hidden="true" class="sidebar__cta-label text-accent-ink/70 transition-transform duration-200 group-hover:translate-x-0.5">&rarr;</span>
   </a>
 
   <nav class="flex flex-1 flex-col px-3 pb-4">
     {# Daily work — no group label #}
     <a href="{% url 'dashboard' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'dashboard' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'dashboard' %}opacity-0{% endif %}"></span>
-      {% icon "squares-2x2" "h-4 w-4" %}
-      <span>{% translate "Dashboard" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'dashboard' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'dashboard' %}opacity-0{% endif %}"></span>
+      {% icon "squares-2x2" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Dashboard" %}</span>
     </a>
 
     <a href="{% url 'session_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'sessions' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'sessions' %}opacity-0{% endif %}"></span>
-      {% icon "chat-bubble" "h-4 w-4" %}
-      <span class="flex-1">{% translate "Sessions" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'sessions' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'sessions' %}opacity-0{% endif %}"></span>
+      {% icon "chat-bubble" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label flex-1">{% translate "Sessions" %}</span>
       {% if nav_running_jobs %}
       <span data-testid="nav-running-badge"
-            class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+            class="sidebar__badge inline-flex items-center rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium tabular-nums text-text-muted">
         {% blocktranslate count counter=nav_running_jobs %}{{ counter }} running{% plural %}{{ counter }} running{% endblocktranslate %}
       </span>
       {% endif %}
     </a>
 
     <a href="{% url 'schedule_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'schedules' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'schedules' %}opacity-0{% endif %}"></span>
-      {% icon "clock" "h-4 w-4" %}
-      <span>{% translate "Schedules" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'schedules' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'schedules' %}opacity-0{% endif %}"></span>
+      {% icon "clock" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Schedules" %}</span>
     </a>
 
     <a href="{% url 'sandbox_envs:list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'sandbox_envs' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'sandbox_envs' %}opacity-0{% endif %}"></span>
-      {% icon "sandbox" "h-4 w-4" %}
-      <span>{% translate "Sandbox environments" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'sandbox_envs' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'sandbox_envs' %}opacity-0{% endif %}"></span>
+      {% icon "sandbox" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Sandbox environments" %}</span>
     </a>
 
     <a href="{% url 'mcp_servers:list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'mcp_servers' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'mcp_servers' %}opacity-0{% endif %}"></span>
-      {% icon "puzzle-piece" "h-4 w-4" %}
-      <span>{% translate "MCP servers" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'mcp_servers' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'mcp_servers' %}opacity-0{% endif %}"></span>
+      {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "MCP servers" %}</span>
     </a>
 
     <a href="{% url 'memory:list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'memory' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'memory' %}opacity-0{% endif %}"></span>
-      {% icon "cpu-chip" "h-4 w-4" %}
-      <span>{% translate "Memory" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'memory' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'memory' %}opacity-0{% endif %}"></span>
+      {% icon "cpu-chip" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Memory" %}</span>
     </a>
 
     {# Account group #}
-    <div class="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-      {% translate "Account" %}
+    <div class="sidebar__group-heading mt-5 mb-1 px-3">
+      <span class="sidebar__group-label text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+        {% translate "Account" %}
+      </span>
     </div>
 
     <a href="{% url 'user_channels' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'channels' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'channels' %}opacity-0{% endif %}"></span>
-      {% icon "envelope" "h-4 w-4" %}
-      <span>{% translate "Notification channels" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'channels' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'channels' %}opacity-0{% endif %}"></span>
+      {% icon "envelope" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Notification channels" %}</span>
     </a>
 
     <a href="{% url 'api_keys' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'api_keys' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'api_keys' %}opacity-0{% endif %}"></span>
-      {% icon "key" "h-4 w-4" %}
-      <span>{% translate "API keys" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'api_keys' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'api_keys' %}opacity-0{% endif %}"></span>
+      {% icon "key" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "API keys" %}</span>
     </a>
 
     {% if user.is_admin %}
-    <div data-testid="nav-admin-group"
-         class="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-      {% translate "Admin" %}
+    <div data-testid="nav-admin-group" class="sidebar__group-heading mt-5 mb-1 px-3">
+      <span class="sidebar__group-label text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+        {% translate "Admin" %}
+      </span>
     </div>
 
     <a href="{% url 'user_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'users' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'users' %}opacity-0{% endif %}"></span>
-      {% icon "users" "h-4 w-4" %}
-      <span>{% translate "Users" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'users' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'users' %}opacity-0{% endif %}"></span>
+      {% icon "users" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Users" %}</span>
     </a>
 
     <a href="{% url 'site_configuration_index' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'configuration' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'configuration' %}opacity-0{% endif %}"></span>
-      {% icon "cog-6-tooth" "h-4 w-4" %}
-      <span>{% translate "Configuration" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'configuration' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'configuration' %}opacity-0{% endif %}"></span>
+      {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Configuration" %}</span>
     </a>
 
     <a href="{% url 'schedule_template_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'schedule_templates' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'schedule_templates' %}opacity-0{% endif %}"></span>
-      {% icon "clock" "h-4 w-4" %}
-      <span>{% translate "Schedule templates" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'schedule_templates' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'schedule_templates' %}opacity-0{% endif %}"></span>
+      {% icon "clock" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Schedule templates" %}</span>
     </a>
 
     <a href="{% url 'skills:list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'skills' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'skills' %}opacity-0{% endif %}"></span>
-      {% icon "beaker" "h-4 w-4" %}
-      <span>{% translate "Skills" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'skills' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'skills' %}opacity-0{% endif %}"></span>
+      {% icon "beaker" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Skills" %}</span>
     </a>
 
     <a href="{% url 'mcp_servers:global_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'mcp_servers_global' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'mcp_servers_global' %}opacity-0{% endif %}"></span>
-      {% icon "puzzle-piece" "h-4 w-4" %}
-      <span>{% translate "Global MCP servers" %}</span>
+       class="sidebar__nav-item group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:text-text {% nav_active 'mcp_servers_global' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-brand {% if nav_active_section != 'mcp_servers_global' %}opacity-0{% endif %}"></span>
+      {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__label">{% translate "Global MCP servers" %}</span>
     </a>
 
     {% endif %}
 
     {# Footer — API docs pinned to the bottom #}
-    <div class="mt-auto border-t border-white/[0.05] pt-3">
+    <div class="mt-auto border-t border-border pt-3">
       <a href="{% url 'api:openapi-view' %}"
-         class="flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:text-gray-300">
-        {% icon "code-bracket" "h-3.5 w-3.5" %}
-        <span>{% translate "API documentation" %}</span>
+         class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
+        {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
+        <span class="sidebar__label">{% translate "API documentation" %}</span>
       </a>
     </div>
   </nav>

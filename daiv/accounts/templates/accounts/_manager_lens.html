@@ -1,0 +1,130 @@
+{% load i18n icon_tags %}
+{% comment %}
+Manager Lens body fragment (Story 2.2) — the RELOCATED org Code-Velocity + DAIV-attribution
+content that no longer appears on the personal default console (AC1/AC3). Restyled onto the
+2.1 dark token system: surface-2 cards on ground, hairline border, FLAT (no shadow), every
+figure in font-mono + tabular-nums, glyphs via the icon tag. Reused verbatim as the HTMX swap
+fragment (get_template_names) and as the full-page include.
+
+Facts (counts / percentages) render solid + mono — never dressed up, never inflated. When
+velocity is None (zero MergeMetric rows / not-yet-computed) we render a shimmer SKELETON matching
+this exact layout — NEVER a literal 0 reading as "DAIV did nothing", never hidden (AC5).
+{% endcomment %}
+<div class="flex flex-col gap-5">
+  <section data-testid="manager-lens" aria-labelledby="manager-lens-heading"
+           class="rounded-xl border border-border bg-surface-2 p-[22px]">
+    <header class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <span class="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-surface-3">
+          {% icon "chart-bar" "h-3.5 w-3.5 text-text-muted" %}
+        </span>
+        <div>
+          <p class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+            {% translate "Org impact" %}
+          </p>
+          <h2 id="manager-lens-heading" class="text-[15px] font-semibold tracking-tight text-text">
+            {% translate "Code Velocity" %}
+          </h2>
+        </div>
+      </div>
+      {# total_users is a real org count — safe to surface whether or not velocity has computed. #}
+      <p class="font-mono text-[12px] tabular-nums text-text-muted">
+        <span class="text-text-strong">{{ total_users }}</span> {% translate "team members" %}
+      </p>
+    </header>
+
+    {% if velocity %}
+    {# ── Merges + lines changed ─────────────────────────────────────────── #}
+    <div class="grid grid-cols-1 gap-6 sm:grid-cols-5">
+      <div class="sm:col-span-2">
+        <p data-testid="lens-total-merges"
+           class="font-mono text-[44px] font-semibold leading-none tracking-tight tabular-nums text-text-strong">
+          {{ velocity.total_merges }}
+        </p>
+        <p class="mt-2 text-sm text-text-muted">{% translate "merges into default branches" %}</p>
+      </div>
+      <div class="sm:col-span-3">
+        <p class="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+          {% translate "Lines changed" %}
+        </p>
+        <div class="flex items-center gap-3">
+          <span class="w-16 text-right font-mono text-sm font-semibold tabular-nums text-status-clear">+{{ velocity.lines_added }}</span>
+          <div class="h-5 flex-1 overflow-hidden rounded-md bg-surface-3">
+            <div class="h-full rounded-md bg-status-clear/30" style="width: {{ velocity.lines_added_pct }}%"></div>
+          </div>
+        </div>
+        <div class="h-2"></div>
+        <div class="flex items-center gap-3">
+          <span class="w-16 text-right font-mono text-sm font-semibold tabular-nums text-status-fail">-{{ velocity.lines_removed }}</span>
+          <div class="h-5 flex-1 overflow-hidden rounded-md bg-surface-3">
+            <div class="h-full rounded-md bg-status-fail/40" style="width: {{ velocity.lines_removed_pct }}%"></div>
+          </div>
+        </div>
+        <p class="mt-2 font-mono text-xs tabular-nums text-text-faint">
+          {% blocktranslate with net=velocity.net_lines %}Net change: {{ net }} lines{% endblocktranslate %}
+        </p>
+      </div>
+    </div>
+
+    {# ── DAIV attribution ───────────────────────────────────────────────── #}
+    <div class="mt-6 border-t border-border pt-6">
+      <p class="mb-4 flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+        {% icon "beaker" "h-3.5 w-3.5 text-text-faint" %}
+        {% translate "DAIV attribution" %}
+      </p>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="rounded-xl border border-border bg-surface-3 px-5 py-4">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-sm text-text-muted">{% translate "MRs involving DAIV" %}</span>
+            <span class="font-mono text-[20px] font-bold tabular-nums text-text-strong">{{ velocity.daiv_merges_pct }}</span>
+          </div>
+          <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-ground">
+            <div class="h-full rounded-full bg-accent/40" style="width: {{ velocity.daiv_merges_pct_raw }}%"></div>
+          </div>
+          <div class="mt-2 flex justify-between font-mono text-xs tabular-nums text-text-faint">
+            <span>{% blocktranslate with n=velocity.daiv_merges %}DAIV: {{ n }} MRs{% endblocktranslate %}</span>
+            <span>{% blocktranslate with n=velocity.human_merges %}Human: {{ n }} MRs{% endblocktranslate %}</span>
+          </div>
+        </div>
+        <div class="rounded-xl border border-border bg-surface-3 px-5 py-4">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-sm text-text-muted">{% translate "Commits authored by DAIV" %}</span>
+            <span class="font-mono text-[20px] font-bold tabular-nums text-text-strong">{{ velocity.daiv_commits_pct }}</span>
+          </div>
+          <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-ground">
+            <div class="h-full rounded-full bg-accent/40" style="width: {{ velocity.daiv_commits_pct_raw }}%"></div>
+          </div>
+          <div class="mt-2 flex justify-between font-mono text-xs tabular-nums text-text-faint">
+            <span>{% blocktranslate with n=velocity.daiv_commits %}DAIV: {{ n }} commits{% endblocktranslate %}</span>
+            <span>{% blocktranslate with n=velocity.human_commits %}Human: {{ n }} commits{% endblocktranslate %}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    {# Cold-load skeleton (AC5): shimmer rows mirror the velocity/attribution layout, no zeros, not hidden. #}
+    <div data-testid="manager-lens-skeleton" aria-busy="true" aria-label="{% translate 'Computing org impact…' %}">
+      <div class="space-y-6" aria-hidden="true">
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-5">
+          <div class="space-y-3 sm:col-span-2">
+            <div class="skeleton h-11 w-2/3 rounded-md"></div>
+            <div class="skeleton h-4 w-1/2 rounded-md"></div>
+          </div>
+          <div class="space-y-3 sm:col-span-3">
+            <div class="skeleton h-3 w-1/4 rounded-md"></div>
+            <div class="skeleton h-5 w-full rounded-md"></div>
+            <div class="skeleton h-5 w-full rounded-md"></div>
+          </div>
+        </div>
+        <div class="border-t border-border pt-6">
+          <div class="skeleton mb-4 h-3 w-1/4 rounded-md"></div>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="skeleton h-[104px] rounded-xl"></div>
+            <div class="skeleton h-[104px] rounded-xl"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+</div>
