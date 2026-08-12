@@ -214,8 +214,12 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         logger.warning("MCP test_connection timed out for url=%s", payload.get("url"))
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as err:  # noqa: BLE001 — surface any failure to the UI
-        logger.exception("MCP test_connection failed for url=%s", payload.get("url"))
-        return {"ok": False, "error": _format_error(err)}
+        error = _format_error(err)
+        # A failed connection test is an expected, user-facing result (already returned as
+        # {ok: False, error: ...}), not an application error — warn without a traceback so a
+        # routine 403/401/network failure doesn't mint a Sentry error event (see DAIV-1R).
+        logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
+        return {"ok": False, "error": error}
     return {
         "ok": True,
         "tools": [
