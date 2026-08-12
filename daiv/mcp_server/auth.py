@@ -16,43 +16,35 @@ logger = logging.getLogger("daiv.mcp_server")
 API_KEY_CLIENT_ID_PREFIX = "api-key:"
 
 
-async def _user_from_oauth_token(token: str) -> User | None:
-    """Resolve the active user for an OAuth access token, or None if it can't be resolved."""
+class APIKeyAccessToken(MCPAccessToken):
+    """Marker subclass identifying tokens verified as ``accounts.APIKey`` keys, so
+    execution-time resolution can dispatch on type instead of overloading ``client_id``
+    (which is a free-form field an OAuth application could legitimately collide with)."""
+
+
+async def _oauth_token_by_checksum(token: str, *select_related: str) -> OAuthAccessToken | None:
     token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
     try:
-        oauth_token = await OAuthAccessToken.objects.select_related("user").aget(token_checksum=token_checksum)
+        return await OAuthAccessToken.objects.select_related(*select_related).aget(token_checksum=token_checksum)
     except OAuthAccessToken.DoesNotExist:
         return None
-    except Exception:
-        logger.exception("Failed to resolve user from OAuth token")
-        raise
 
+
+async def _user_from_oauth_token(token: str) -> User | None:
+    """Resolve the active user for an OAuth access token, or None if it can't be resolved."""
+    oauth_token = await _oauth_token_by_checksum(token, "user")
+    if oauth_token is None:
+        logger.warning("OAuth token not found during user resolution (token may have been revoked)")
+        return None
     if not oauth_token.user.is_active:
         logger.warning("OAuth token used by an inactive user during user resolution")
         return None
     return oauth_token.user
 
 
-async def _active_api_key(token: str) -> APIKey | None:
-    """Resolve a usable API key whose user is active, or None. Shared by the verifier and
-    execution-time resolution so the lookup + active-user gate lives in one place."""
-    try:
-        api_key = await APIKey.objects.get_from_key(token)
-    except APIKey.DoesNotExist:
-        return None
-    except Exception:
-        logger.exception("Failed to resolve API key")
-        raise
-
-    if not api_key.user.is_active:
-        logger.warning("API key used by an inactive user")
-        return None
-    return api_key
-
-
 async def _user_from_api_key(token: str) -> User | None:
     """Resolve the active user for an API key, or None if the key is unusable/inactive."""
-    api_key = await _active_api_key(token)
+    api_key = await APIKey.objects.get_active_key(token)
     return api_key.user if api_key else None
 
 
@@ -62,14 +54,16 @@ async def get_current_user() -> User | None:
 
     Accepts OAuth2 access tokens and ``accounts.APIKey`` keys, re-resolving the user on every
     call so a token revoked — or a user deactivated — between verification and execution is
-    rejected. Dispatches on the verified token's ``client_id`` (set by the verifier) so an
-    API-key request doesn't pay a guaranteed-miss OAuth lookup; OAuth client ids never contain
-    ``:``, so they can't collide with the ``api-key:`` prefix.
+    rejected. Dispatches on the verified token's type (``APIKeyAccessToken`` marker set by the
+    verifier) so an API-key request doesn't pay a guaranteed-miss OAuth lookup.
+
+    Unexpected resolution errors (e.g. a DB outage) propagate — callers log and translate
+    them into their tool's error contract.
     """
     access_token = get_access_token()
     if access_token is None:
         return None
-    if access_token.client_id.startswith(API_KEY_CLIENT_ID_PREFIX):
+    if isinstance(access_token, APIKeyAccessToken):
         return await _user_from_api_key(access_token.token)
     return await _user_from_oauth_token(access_token.token)
 
@@ -77,26 +71,28 @@ async def get_current_user() -> User | None:
 class DjangoTokenVerifier:
     """MCP TokenVerifier backed by django-oauth-toolkit's AccessToken and ``accounts.APIKey``.
 
-    Bearer tokens are verified first as OAuth2 access tokens, then as API keys. Both grant the
-    ``mcp`` scope so the SDK's ``required_scopes`` gate passes; API keys are per-user and carry
-    no scopes of their own, so any usable key authenticates against MCP (same blanket access it
-    already has on the REST Jobs/Chat endpoints).
+    Bearer tokens route by shape: API keys always contain ``.`` (``prefix.secret``) while
+    django-oauth-toolkit's default generator never emits one, so each request pays exactly one
+    lookup. A custom ``ACCESS_TOKEN_GENERATOR`` emitting dots would break this routing.
+
+    Both token kinds grant the ``mcp`` scope so the SDK's ``required_scopes`` gate passes; API
+    keys are per-user and carry no scopes of their own, so any usable key authenticates against
+    MCP (same blanket access it already has on the REST Jobs/Chat endpoints).
     """
 
     async def verify_token(self, token: str) -> MCPAccessToken | None:
-        return await self._verify_oauth_token(token) or await self._verify_api_key(token)
+        try:
+            if "." in token:
+                return await self._verify_api_key(token)
+            return await self._verify_oauth_token(token)
+        except Exception:
+            logger.exception("Failed to verify MCP bearer token")
+            raise
 
     async def _verify_oauth_token(self, token: str) -> MCPAccessToken | None:
-        token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        try:
-            access_token = await OAuthAccessToken.objects.select_related("application", "user").aget(
-                token_checksum=token_checksum
-            )
-        except OAuthAccessToken.DoesNotExist:
+        access_token = await _oauth_token_by_checksum(token, "application", "user")
+        if access_token is None:
             return None
-        except Exception:
-            logger.exception("Failed to validate OAuth token against database")
-            raise
 
         if access_token.is_expired():
             logger.debug("Expired OAuth2 token used for MCP access")
@@ -121,11 +117,11 @@ class DjangoTokenVerifier:
             expires_at=int(access_token.expires.timestamp()) if access_token.expires else None,
         )
 
-    async def _verify_api_key(self, token: str) -> MCPAccessToken | None:
-        api_key = await _active_api_key(token)
+    async def _verify_api_key(self, token: str) -> APIKeyAccessToken | None:
+        api_key = await APIKey.objects.get_active_key(token)
         if api_key is None:
             return None
-        return MCPAccessToken(
+        return APIKeyAccessToken(
             token=token,
             client_id=f"{API_KEY_CLIENT_ID_PREFIX}{api_key.prefix}",
             scopes=["mcp"],

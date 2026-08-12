@@ -417,7 +417,11 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
     """
-    mcp_user = await get_current_user()
+    try:
+        mcp_user = await get_current_user()
+    except Exception:
+        logger.exception("Failed to resolve current user for MCP get_job_status")
+        mcp_user = None
     if mcp_user is None:
         return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
 
@@ -716,7 +720,9 @@ async def get_environment(
     """
     from core.encryption import DecryptionError
 
-    user = await get_current_user()
+    user, auth_error = await _resolve_mcp_user()
+    if auth_error:
+        return auth_error
     try:
         env = await resolve_env_for_user(user, name_or_id)
     except LookupError as err:

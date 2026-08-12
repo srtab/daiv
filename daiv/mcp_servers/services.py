@@ -7,8 +7,10 @@ from typing import Any, Literal, TypedDict
 
 from django.utils import timezone
 
+import httpx
 from asgiref.sync import async_to_sync
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from mcp.shared.exceptions import McpError
 
 from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
@@ -188,6 +190,23 @@ def _flatten_exception(err: BaseException) -> list[BaseException]:
     return [err]
 
 
+try:
+    import anyio
+
+    _ANYIO_ERRORS: tuple[type[BaseException], ...] = (anyio.BrokenResourceError, anyio.ClosedResourceError)
+except ImportError:  # pragma: no cover
+    _ANYIO_ERRORS = ()
+
+_EXPECTED_CONNECTION_ERRORS = (TimeoutError, OSError, httpx.HTTPError, httpx.InvalidURL, McpError, *_ANYIO_ERRORS)
+
+
+def _is_connection_failure(err: BaseException) -> bool:
+    """True when every leaf is an anticipated connection-level failure (unreachable host,
+    auth rejection, protocol error) rather than a bug in our own code."""
+    leaves = _flatten_exception(err)
+    return bool(leaves) and all(isinstance(leaf, _EXPECTED_CONNECTION_ERRORS) for leaf in leaves)
+
+
 def _format_error(err: BaseException) -> str:
     """Build a human-readable one-liner for a test-connection failure, unwrapping
     any anyio ``ExceptionGroup`` to the underlying cause(s).
@@ -215,10 +234,12 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as err:  # noqa: BLE001 — surface any failure to the UI
         error = _format_error(err)
-        # A failed connection test is an expected, user-facing result (already returned as
-        # {ok: False, error: ...}), not an application error — warn without a traceback so a
-        # routine 403/401/network failure doesn't mint a Sentry error event (see DAIV-1R).
-        logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
+        # Connection-level failures are expected, user-facing results — warn without a
+        # traceback so a routine 401/403/network error doesn't mint a Sentry error event.
+        if _is_connection_failure(err):
+            logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
+        else:
+            logger.exception("MCP test_connection failed unexpectedly for url=%s", payload.get("url"))
         return {"ok": False, "error": error}
     return {
         "ok": True,

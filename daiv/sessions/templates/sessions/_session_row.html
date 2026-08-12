@@ -20,7 +20,7 @@
             {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
         </span>
         {% if session.repo_id %}
-        <span class="session-repo min-w-0 shrink-0" title="{{ session.repo_id }}">
+        <span class="session-repo shrink-0" title="{{ session.repo_id }}">
             {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
         </span>
         {% endif %}
