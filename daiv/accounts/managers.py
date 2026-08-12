@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 from django.db import models
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from accounts.models import APIKey, User
+
+logger = logging.getLogger("daiv.accounts")
 
 T = TypeVar("T", bound="APIKey")
 
@@ -34,6 +37,17 @@ class APIKeyManager(models.Manager, Generic[T]):  # noqa: UP046
 
         if not self.key_generator.verify(key, api_key.hashed_key):
             raise self.model.DoesNotExist("Key is not valid.")
+        return api_key
+
+    async def get_active_key(self, key: str) -> T | None:
+        """Return the usable key whose user is active, or None if the key can't be used."""
+        try:
+            api_key = await self.get_from_key(key)
+        except self.model.DoesNotExist:
+            return None
+        if not api_key.user.is_active:
+            logger.warning("API key used by an inactive user")
+            return None
         return api_key
 
     def get_usable_keys(self) -> models.QuerySet:

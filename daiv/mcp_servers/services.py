@@ -7,8 +7,11 @@ from typing import Any, Literal, TypedDict
 
 from django.utils import timezone
 
+import anyio
+import httpx
 from asgiref.sync import async_to_sync
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from mcp.shared.exceptions import McpError
 
 from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
@@ -188,9 +191,26 @@ def _flatten_exception(err: BaseException) -> list[BaseException]:
     return [err]
 
 
-def _format_error(err: BaseException) -> str:
-    """Build a human-readable one-liner for a test-connection failure, unwrapping
-    any anyio ``ExceptionGroup`` to the underlying cause(s).
+_EXPECTED_CONNECTION_ERRORS = (
+    TimeoutError,
+    OSError,
+    httpx.HTTPError,
+    httpx.InvalidURL,
+    McpError,
+    anyio.BrokenResourceError,
+    anyio.ClosedResourceError,
+)
+
+
+def _is_connection_failure(leaves: list[BaseException]) -> bool:
+    """True when every leaf is an anticipated connection-level failure (unreachable host,
+    auth rejection, protocol error) rather than a bug in our own code."""
+    return bool(leaves) and all(isinstance(leaf, _EXPECTED_CONNECTION_ERRORS) for leaf in leaves)
+
+
+def _format_error(leaves: list[BaseException]) -> str:
+    """Build a human-readable one-liner for a test-connection failure from the
+    ``_flatten_exception`` leaves of the raised error.
 
     ``str(err)`` is empty for many httpx/asyncio exceptions, so the class name is
     always included to keep the message greppable. Only the first non-blank line
@@ -198,7 +218,7 @@ def _format_error(err: BaseException) -> str:
     URL that is noise in the UI. Duplicate leaves (a group can carry repeats) are
     collapsed while preserving order."""
     parts: list[str] = []
-    for leaf in _flatten_exception(err):
+    for leaf in leaves:
         first_line = next((line for line in str(leaf).splitlines() if line.strip()), "")
         parts.append(f"{type(leaf).__name__}: {first_line}" if first_line else type(leaf).__name__)
     return "; ".join(dict.fromkeys(parts))
@@ -214,11 +234,14 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         logger.warning("MCP test_connection timed out for url=%s", payload.get("url"))
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as err:  # noqa: BLE001 — surface any failure to the UI
-        error = _format_error(err)
-        # A failed connection test is an expected, user-facing result (already returned as
-        # {ok: False, error: ...}), not an application error — warn without a traceback so a
-        # routine 403/401/network failure doesn't mint a Sentry error event (see DAIV-1R).
-        logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
+        leaves = _flatten_exception(err)
+        error = _format_error(leaves)
+        # Connection-level failures are expected, user-facing results — warn without a
+        # traceback so a routine 401/403/network error doesn't mint a Sentry error event.
+        if _is_connection_failure(leaves):
+            logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
+        else:
+            logger.exception("MCP test_connection failed unexpectedly for url=%s", payload.get("url"))
         return {"ok": False, "error": error}
     return {
         "ok": True,
