@@ -106,8 +106,10 @@ RUN chmod +x entrypoint start-app start-worker start-crontask \
 # Declared last so the per-commit values only invalidate this final layer.
 ARG GIT_SHA
 ARG BUILD_DATE
+ARG REPO_URL
 ENV DAIV_GIT_SHA=${GIT_SHA} \
-    DAIV_BUILD_DATE=${BUILD_DATE}
+    DAIV_BUILD_DATE=${BUILD_DATE} \
+    DAIV_REPO_URL=${REPO_URL}
 
 HEALTHCHECK --interval=10s --start-period=120s --start-interval=5s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1

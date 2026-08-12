@@ -63,3 +63,4 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            REPO_URL=${{ github.server_url }}/${{ github.repository }}

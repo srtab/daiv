@@ -13,7 +13,7 @@ SENTRY_TRACES_SAMPLE_RATE = config("SENTRY_TRACES_SAMPLE_RATE", cast=float, defa
 SENTRY_PROFILES_SAMPLE_RATE = config("SENTRY_PROFILES_SAMPLE_RATE", cast=float, default=0.0)
 SENTRY_SEND_DEFAULT_PII = config("SENTRY_SEND_DEFAULT_PII", cast=bool, default=False)
 
-_HEALTH_CHECK_PATHS = ("/-/alive/",)
+_HEALTH_CHECK_PATHS = ("/-/alive/", "/-/version/")
 
 
 def _traces_sampler(sampling_context: dict) -> float:
