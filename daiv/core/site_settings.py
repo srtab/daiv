@@ -68,7 +68,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
         "agent_explore_fallback_model_name": ModelName.GPT_5_4_MINI,
         "agent_recursion_limit": 500,
-        "model_request_timeout_seconds": 120,
+        # Matches the OpenAI/Anthropic SDK default; anything shorter cuts off long non-streaming
+        # generations (the agent invokes models without streaming).
+        "model_request_timeout_seconds": 600,
         "model_max_retries": 1,
         "suggest_context_file_enabled": True,
         # Diff to Metadata

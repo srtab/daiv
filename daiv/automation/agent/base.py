@@ -298,15 +298,16 @@ def _resolve_request_timeout(provider_type: ProviderType, timeout_seconds: float
 def _apply_request_timeout_and_retries(kw: dict, provider_type: ProviderType) -> None:
     """Bound how long a model call can hang and how many times it retries.
 
-    Without this, every provider is effectively unbounded: langchain passes ``timeout=None``
-    straight through to each SDK client, so a stalled provider blocks a run indefinitely (and the
-    default retry counts — 2 for OpenAI/OpenRouter and Anthropic, 6 for Google — only multiply the
-    wait). Caller-supplied ``timeout`` / ``max_retries`` (e.g. the tighter web_fetch budget) take
-    precedence, but an explicit ``None`` is treated as unset so a caller cannot silently
-    reintroduce the unbounded default.
+    Replaces the SDKs' own defaults (600s timeouts for OpenAI/Anthropic, unbounded for Google)
+    with the site-configured budget. Caller-supplied ``timeout`` / ``max_retries`` (e.g. the
+    tighter web_fetch budget) take precedence, but an explicit ``None`` is treated as unset so a
+    caller cannot silently reintroduce an unbounded default.
     """
     if kw.get("max_retries") is None:
-        kw["max_retries"] = site_settings.model_max_retries
+        retries = site_settings.model_max_retries
+        # langchain-google-genai's max_retries counts total *attempts* (0 and 1 both mean "no
+        # retries"), so translate to keep "N retries" meaning uniform across providers.
+        kw["max_retries"] = retries + 1 if provider_type == ProviderType.GOOGLE_GENAI else retries
     if kw.get("timeout") is None:
         kw["timeout"] = _resolve_request_timeout(provider_type, site_settings.model_request_timeout_seconds)
 

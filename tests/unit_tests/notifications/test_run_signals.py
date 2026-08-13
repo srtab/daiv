@@ -222,6 +222,30 @@ class TestRunBatchRollup:
 
         assert Notification.objects.count() == 0
 
+    def test_delegated_continuation_run_is_silent(self, member_user):
+        """The coordinator continuation (DELEGATED_JOB, no batch_id) is plumbing — no bell/email."""
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        session = _session(origin=SessionOrigin.MCP_JOB, thread_id=str(uuid.uuid4()), user=member_user)
+        cont = _run(
+            session, trigger_type=SessionOrigin.DELEGATED_JOB, user=member_user, continuation_of_batch_id=uuid.uuid4()
+        )
+        run_finished.send(sender=Run, run=cont)
+
+        assert Notification.objects.count() == 0
+
+    def test_delegated_leg_still_notifies(self, member_user):
+        """Delegated legs keep their user-facing signal: per-run for a single-leg batch."""
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        session = _session(origin=SessionOrigin.DELEGATED_JOB, thread_id=str(uuid.uuid4()), user=member_user)
+        leg = _run(session, trigger_type=SessionOrigin.DELEGATED_JOB, user=member_user, batch_id=uuid.uuid4())
+        run_finished.send(sender=Run, run=leg)
+
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+
     def test_webhook_trigger_skipped_before_batch_branch(self, member_user):
         member_user.notify_on_jobs = NotifyOn.ALWAYS
         member_user.save(update_fields=["notify_on_jobs"])

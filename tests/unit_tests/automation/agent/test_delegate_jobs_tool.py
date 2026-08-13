@@ -21,6 +21,17 @@ def _fake_result(repo_id="g/a", session_id="leg-1", batch_id="batch-1"):
     return type("B", (), {"batch_id": batch_id, "runs": [run], "failed": []})()
 
 
+async def _catalog(repo_id, default_branch):
+    from django.utils import timezone
+
+    from codebase.conf import settings as codebase_settings
+    from codebase.models import RepositoryCatalog
+
+    await RepositoryCatalog.objects.acreate(
+        provider=codebase_settings.CLIENT.value, slug=repo_id, default_branch=default_branch, synced_at=timezone.now()
+    )
+
+
 @contextmanager
 def _patched_delegate(submit):
     """Patch the tool's auth + env-resolution + batch-submit collaborators.
@@ -67,6 +78,8 @@ async def test_denied_targets_reported_inline(django_user_model):
         out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "p"}, {"repo_id": "g/b", "prompt": "q"}])
     assert out["batch_id"] is None
     assert {f["repo_id"] for f in out["failed"]} == {"g/a", "g/b"}
+    # Nothing was started, so the model must be told not to wait for a resume.
+    assert "handle the failures now" in out["note"]
 
 
 async def test_success_path_submits_allowed_targets(django_user_model):
@@ -84,6 +97,7 @@ async def test_success_path_submits_allowed_targets(django_user_model):
     assert kwargs["parent_thread_id"] == "coord-thread"
     assert kwargs["spawn_depth"] == 1
     assert kwargs["trigger_type"] == SessionOrigin.DELEGATED_JOB
+    assert "note" not in out
 
 
 async def test_refuses_empty_targets(django_user_model):
@@ -134,6 +148,26 @@ async def test_self_delegation_fails_whole_call_without_submitting(django_user_m
         )
     assert "task" in out["error"].lower()
     m_submit.assert_not_called()
+
+
+async def test_refuses_self_delegation_when_target_names_default_branch(django_user_model):
+    """An omitted coordinator ref and the default branch's explicit name are the same checkout."""
+    user = await django_user_model.objects.acreate(username="u-self-alias")
+    await Session.objects.acreate(
+        thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", ref="", user=user
+    )
+    await _catalog("g/coord", "main")
+    out = await _invoke("goal", [{"repo_id": "g/coord", "ref": "main", "prompt": "p"}])
+    assert "task" in out["error"].lower()
+
+
+async def test_refuses_duplicate_target_via_default_branch_alias(django_user_model):
+    """(repo, omitted ref) and (repo, explicit default-branch name) are one checkout, not two targets."""
+    user = await django_user_model.objects.acreate(username="u-dup-alias")
+    await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
+    await _catalog("g/a", "main")
+    out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "p"}, {"repo_id": "g/a", "ref": "main", "prompt": "q"}])
+    assert "duplicate target" in out["error"].lower()
 
 
 async def test_allows_same_repo_different_ref(django_user_model):

@@ -107,9 +107,10 @@ Use a [Scheduled Job](scheduled-jobs.md) on the coordination repository to poll 
 ```
 Scheduled prompt:
 Fetch all open tickets from the RT queue that have not yet been dispatched.
-For each ticket, follow the routing rules in AGENTS.md to pick the target repository,
-then delegate_jobs with one target per ticket. Add a comment to each ticket with the
-resulting merge request URL.
+Follow the routing rules in AGENTS.md to pick each ticket's target repository, then
+delegate_jobs with one target per repository — when several tickets route to the same
+repository, combine them into that target's prompt (duplicate targets are rejected).
+Add a comment to each ticket with the resulting merge request URL.
 ```
 
 Combine this with the [Jobs API](jobs-api.md) to trigger an immediate dispatch from a webhook (e.g., on ticket-create) instead of — or alongside — the scheduled poller.

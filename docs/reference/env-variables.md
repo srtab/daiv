@@ -351,7 +351,7 @@ These bound every LLM API call — the main agent, subagents, and the model-back
 
 | Variable | Description | Default |
 |-------------------------------------|--------------------------------------------------------------------------|---------|
-| `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` | Per-request timeout for LLM API calls, in seconds. Minimum `1`. | `120` |
+| `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` | Per-request timeout for LLM API calls, in seconds. Minimum `1`. | `600` |
 | `DAIV_MODEL_MAX_RETRIES` | Retries for a failed LLM API call before the error propagates (`0` disables retries) | `1` |
 
 ### Jobs API

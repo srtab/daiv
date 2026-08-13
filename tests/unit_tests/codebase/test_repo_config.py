@@ -67,8 +67,8 @@ def test_orchestration_defaults_on():
     assert cfg.orchestration.enabled is True
 
 
-def test_orchestration_can_be_enabled_via_yaml():
+def test_orchestration_can_be_disabled_via_yaml():
     from codebase.repo_config import RepositoryConfig
 
-    cfg = RepositoryConfig.model_validate({"orchestration": {"enabled": True}})
-    assert cfg.orchestration.enabled is True
+    cfg = RepositoryConfig.model_validate({"orchestration": {"enabled": False}})
+    assert cfg.orchestration.enabled is False

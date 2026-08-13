@@ -235,6 +235,8 @@ def _enqueue_queued_run(run: Any) -> bool:
 
 def render_batch_summary(batch_id: Any, siblings: list) -> str:
     """Build the coordinator continuation prompt from denormalized Run fields."""
+    from django.urls import reverse
+
     from sessions.models import RunStatus
 
     n_ok = sum(1 for r in siblings if r.status == RunStatus.SUCCESSFUL)
@@ -242,16 +244,20 @@ def render_batch_summary(batch_id: Any, siblings: list) -> str:
     lines = [f"The delegated batch {batch_id} has finished ({n_ok} succeeded, {n_failed} failed).", ""]
     for r in siblings:
         state = "successful" if r.status == RunStatus.SUCCESSFUL else "failed"
-        lines.append(f"## {r.repo_id} ({state})")
+        checkout = f"{r.repo_id}@{r.ref}" if r.ref else r.repo_id
+        lines.append(f"## {checkout} ({state})")
+        lines.append(f"- Session: {reverse('session_detail', kwargs={'thread_id': r.session_id})}")
         if r.merge_request_web_url:
             lines.append(f"- Merge request: {r.merge_request_web_url}")
         summary = (r.result_summary or r.error_message or "").strip()
         if summary:
-            lines.append(f"- Reply: {summary[:500]}")
+            # Quote-indent every reply line so a leg's output cannot float to top level or spoof
+            # a sibling's section header.
+            lines.append("- Reply:")
+            lines.extend(f"  > {reply_line}" for reply_line in summary[:500].splitlines())
         elif r.status == RunStatus.FAILED:
-            # A FAILED leg can reach here with an empty error_message (e.g. the best-effort terminal
-            # save in _mark_failed_and_advance). Make the gap explicit so the coordinator doesn't
-            # read a blank block as a clean no-op.
+            # A FAILED leg can arrive with an empty error_message (best-effort terminal save);
+            # make the gap explicit so the coordinator doesn't read a blank block as a clean no-op.
             lines.append("- Reply: (failed with no captured error message; check the leg session)")
         lines.append("")
     lines.append(
@@ -279,31 +285,34 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
     from sessions.models import Run, RunStatus, Session, SessionOrigin
     from sessions.services import acreate_run
 
-    batch_id = getattr(run, "batch_id", None)
+    if run.trigger_type != SessionOrigin.DELEGATED_JOB:
+        return  # free in-memory guard: only delegated legs can complete a delegated batch
+    batch_id = run.batch_id
     if not batch_id:
-        return
+        return  # continuation runs carry continuation_of_batch_id, not batch_id
 
     leg_session = Session.objects.filter(pk=run.session_id).only("parent_thread_id").first()
     if leg_session is None or not leg_session.parent_thread_id:
         return  # not a delegated leg (broadcast batch, or session gone)
     parent_thread_id = leg_session.parent_thread_id
 
-    siblings = list(Run.objects.by_batch(batch_id))
-    if any(r.status not in RunStatus.terminal() for r in siblings):
+    if Run.objects.by_batch(batch_id).exclude(status__in=RunStatus.terminal()).exists():
         return  # legs still pending
 
     if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
         return  # already resumed (winner election)
 
-    coordinator = Session.objects.filter(thread_id=parent_thread_id).first()
+    coordinator = Session.objects.select_related("user").filter(thread_id=parent_thread_id).first()
     if coordinator is None:
         logger.warning(
-            "resume_coordinator: parent thread %s not found for batch %s; rollup notification is the fallback signal",
+            "resume_coordinator: parent thread %s not found for batch %s; the batch notification is the fallback"
+            " signal",
             parent_thread_id,
             batch_id,
         )
         return
 
+    siblings = list(Run.objects.by_batch(batch_id))
     prompt = render_batch_summary(batch_id, siblings)
     env_id = str(coordinator.sandbox_environment_id) if coordinator.sandbox_environment_id else None
     create_kwargs = {
@@ -316,6 +325,8 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
         "thread_id": parent_thread_id,
         "sandbox_environment_id": env_id,
         "continuation_of_batch_id": batch_id,
+        "agent_model": coordinator.agent_model,
+        "agent_thinking_level": coordinator.agent_thinking_level,
     }
 
     try:
@@ -337,7 +348,7 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
     if not _enqueue_queued_run(continuation):
         logger.error(
             "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
-            "coordinator will NOT auto-resume — the batch rollup notification is the only signal",
+            "coordinator will NOT auto-resume — the batch notification is the only signal",
             batch_id,
             parent_thread_id,
         )

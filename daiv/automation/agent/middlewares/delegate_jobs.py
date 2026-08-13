@@ -13,6 +13,8 @@ from sessions.models import MAX_SPAWN_DEPTH, Session, SessionOrigin
 from sessions.services import MAX_DELEGATED_TARGETS, RepoTarget, asubmit_batch_runs
 
 from codebase.authorization import RepositoryAccessDenied, aassert_can_run
+from codebase.conf import settings
+from codebase.models import RepositoryCatalog
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -54,8 +56,10 @@ When a task spans other repositories, use `{DELEGATE_JOBS_NAME}` to fan tailored
 each target runs as an independent job. This is only for work in *other* repositories; for parallel
 work inside this one, use the `task` tool (subagents) instead. If the task is contained to this
 repository, ignore this tool.
-After you call it, state your plan and end your turn — do NOT poll or wait. You will be resumed with
-the consolidated results when every delegated leg finishes.
+After a call whose `delegated` list is non-empty, state your plan and end your turn — do NOT poll
+or wait. You will be resumed with the consolidated results when every delegated leg finishes.
+If `delegated` comes back empty, nothing was started and no resume will come — handle the failures
+in this same turn instead of waiting.
 Each leg runs in isolation and sees only the prompt you give it, so make every target's prompt
 self-contained — include the context it needs and the no-change convention.
 """
@@ -80,12 +84,23 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
         return json.dumps({"error": f"At most {MAX_DELEGATED_TARGETS} targets per delegate_jobs call."})
     if session.spawn_depth + 1 > MAX_SPAWN_DEPTH:
         return json.dumps({"error": f"Delegation depth limit reached (MAX_SPAWN_DEPTH={MAX_SPAWN_DEPTH})."})
-    coordinator_checkout = (session.repo_id, session.ref or "")
-    if any((t.repo_id, t.ref or "") == coordinator_checkout for t in targets):
-        # delegate_jobs fans out to independent jobs on *other* checkouts; delegating to the
-        # coordinator's own repo+ref would spawn a redundant run on this very checkout. In-repo
-        # parallelism belongs to subagents. A different ref on the same repo is a distinct checkout,
-        # so it is allowed to delegate normally.
+    # An omitted ref and the default branch's explicit name are the same physical checkout, so
+    # resolve both through the synced catalog before comparing.
+    slugs = {session.repo_id} | {t.repo_id for t in targets}
+    default_branches: dict[str, str] = {
+        slug: branch
+        async for slug, branch in RepositoryCatalog.objects.filter(
+            provider=settings.CLIENT.value, slug__in=slugs
+        ).values_list("slug", "default_branch")
+    }
+
+    def checkout(repo_id: str, ref: str | None) -> tuple[str, str]:
+        return (repo_id, ref or default_branches.get(repo_id, ""))
+
+    coordinator_checkout = checkout(session.repo_id, session.ref)
+    if any(checkout(t.repo_id, t.ref) == coordinator_checkout for t in targets):
+        # In-repo parallelism belongs to subagents; a different ref on the same repo is a distinct
+        # checkout and may delegate.
         return json.dumps({
             "error": (
                 f"Cannot delegate to the coordinator's own checkout ({session.repo_id!r} on "
@@ -97,7 +112,7 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
 
     seen: set[tuple[str, str]] = set()
     for t in targets:
-        key = (t.repo_id, t.ref or "")
+        key = checkout(t.repo_id, t.ref)
         if key in seen:
             return json.dumps({"error": f"Duplicate target: {t.repo_id} on {t.ref or 'default branch'}."})
         seen.add(key)
@@ -147,7 +162,13 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
         ]
         failed.extend({"repo_id": f.repo_id, "error": f.error} for f in result.failed)
 
-    return json.dumps({"batch_id": batch_id, "delegated": delegated, "failed": failed}, ensure_ascii=False)
+    payload: dict = {"batch_id": batch_id, "delegated": delegated, "failed": failed}
+    if not delegated:
+        payload["note"] = (
+            "No sub-jobs are running. Do not end your turn to wait for a resume — none will come; "
+            "handle the failures now."
+        )
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class DelegateJobsMiddleware(AgentMiddleware):
