@@ -118,10 +118,7 @@ def test_resume_enqueue_failure_is_surfaced():
     leg = _session("leg-fail", repo_id="g/a", parent_thread_id="coord-fail")
     run = _run(leg, batch_id=batch, status=RunStatus.SUCCESSFUL)
 
-    with (
-        patch("sessions.signals.run_job_task") as m_task,
-        patch("sessions.signals.logger") as m_logger,
-    ):
+    with patch("sessions.signals.run_job_task") as m_task, patch("sessions.signals.logger") as m_logger:
         m_task.aenqueue = AsyncMock(side_effect=RuntimeError("broker down"))
         resume_coordinator_on_batch_complete(sender=Run, run=run)
 

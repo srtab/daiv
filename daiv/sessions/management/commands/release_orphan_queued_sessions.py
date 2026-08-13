@@ -16,10 +16,23 @@ class Command(BaseCommand):
     help = (
         "Release QUEUED Runs whose session has no active (READY/RUNNING) sibling. "
         "Mitigates a rare TOCTOU loss where the dispatcher missed a terminal transition "
-        "or the row was created QUEUED but never picked up."
+        "or the row was created QUEUED but never picked up. Delegated-batch continuation "
+        "runs that FAILED before ever starting (dispatch failure, no linked task) are "
+        "re-queued first so the same pass can release them."
     )
 
     def handle(self, *args, **options):
+        # A continuation is a batch's one shot at resuming its coordinator
+        # (run_one_continuation_per_batch), so a never-started FAILED row must be retried,
+        # not abandoned. Rows that actually ran (task_result_id set) or whose task exists
+        # but couldn't be linked (link_failed prefix) are not retried — the work happened.
+        requeued = Run.objects.filter(
+            continuation_of_batch_id__isnull=False,
+            status=RunStatus.FAILED,
+            task_result_id__isnull=True,
+            error_message__startswith="dispatch_failed",
+        ).update(status=RunStatus.QUEUED, error_message="", finished_at=None, started_at=None)
+
         active_sessions = set(
             Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)
         )
@@ -60,7 +73,7 @@ class Command(BaseCommand):
             else:
                 errored += 1
 
-        summary = f"Released: {released}, skipped: {skipped}, errored: {errored}"
+        summary = f"Released: {released}, requeued continuations: {requeued}, skipped: {skipped}, errored: {errored}"
         if errored:
             self.stdout.write(self.style.WARNING(f"{summary} — see logs; broker may be unavailable."))
         else:

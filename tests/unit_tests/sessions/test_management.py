@@ -195,6 +195,78 @@ class TestReleaseOrphanQueuedSessionsCommand:
         assert orphan.task_result_id == fake_task.id
         assert "Released: 1" in out.getvalue()
 
+    def test_requeues_and_releases_never_started_failed_continuation(self, create_db_task_result):
+        """A continuation that FAILED before ever starting (dispatch failure, no linked task)
+        is the batch's only shot at resuming its coordinator — re-queue and release it."""
+        coord = _make_session()
+        cont = Run.objects.create(
+            session=coord,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            repo_id="a/b",
+            status=RunStatus.FAILED,
+            continuation_of_batch_id=uuid.uuid4(),
+            error_message="dispatch_failed: RuntimeError: broker down",
+            prompt="p",
+        )
+        fake_task = MagicMock(id=create_db_task_result().id)
+        out = StringIO()
+        with patch("sessions.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            call_command("release_orphan_queued_sessions", stdout=out)
+
+        cont.refresh_from_db()
+        assert cont.status == RunStatus.READY
+        assert cont.error_message == ""
+        assert cont.task_result_id == fake_task.id
+        assert "requeued continuations: 1" in out.getvalue()
+
+    def test_does_not_requeue_continuation_that_ran(self, create_db_task_result):
+        """A continuation that actually executed and FAILED must not loop forever."""
+        coord = _make_session()
+        cont = Run.objects.create(
+            session=coord,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            repo_id="a/b",
+            status=RunStatus.FAILED,
+            continuation_of_batch_id=uuid.uuid4(),
+            task_result_id=create_db_task_result().id,
+            error_message="dispatch_failed: TimeoutError: session lock",
+            prompt="p",
+        )
+        out = StringIO()
+        with patch("sessions.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            call_command("release_orphan_queued_sessions", stdout=out)
+            mock_task.aenqueue.assert_not_called()
+
+        cont.refresh_from_db()
+        assert cont.status == RunStatus.FAILED
+        assert "requeued continuations: 0" in out.getvalue()
+
+    def test_does_not_requeue_link_failed_continuation(self):
+        """link_failed means the agent task exists and will run — re-queuing would double-run it."""
+        from sessions.signals import LINK_FAILED_PREFIX
+
+        coord = _make_session()
+        cont = Run.objects.create(
+            session=coord,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            repo_id="a/b",
+            status=RunStatus.FAILED,
+            continuation_of_batch_id=uuid.uuid4(),
+            error_message=f"{LINK_FAILED_PREFIX}: RuntimeError: db blip",
+            prompt="p",
+        )
+        out = StringIO()
+        with patch("sessions.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            call_command("release_orphan_queued_sessions", stdout=out)
+            mock_task.aenqueue.assert_not_called()
+
+        cont.refresh_from_db()
+        assert cont.status == RunStatus.FAILED
+        assert "requeued continuations: 0" in out.getvalue()
+
     def test_skips_queued_when_active_sibling_exists(self):
         """A QUEUED run whose session already has a READY/RUNNING sibling is left alone."""
         session = _make_session()

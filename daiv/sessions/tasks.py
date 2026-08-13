@@ -183,6 +183,8 @@ def release_orphan_queued_sessions_cron_task():
     The normal release paths are the ``run_finished`` dispatcher and the chat streamer's
     turn-end pass; this sweep covers what they can miss: dispatcher bail-outs after
     consecutive enqueue failures (broker outage) and rows whose release signal was lost.
+    The wrapped command also re-queues delegated-batch continuations that FAILED before
+    ever starting, so a transient dispatch failure cannot permanently strand a coordinator.
 
     ``locked_task`` (non-blocking) skips this tick if a prior run still holds the lock, so a
     pass that overruns the interval is never double-dispatched.
