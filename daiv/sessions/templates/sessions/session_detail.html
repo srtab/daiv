@@ -152,21 +152,8 @@
                   <p class="mt-1 text-sm text-gray-400">{% translate "This page refreshes automatically when the run finishes." %}</p>
                   {% if latest_run.started_at %}
                     <p class="mt-3 font-mono text-sm text-blue-300"
-                       x-data="{
-                           elapsed: 0,
-                           tickId: null,
-                           fmt(s) { const m = Math.floor(s/60); const r = s%60; return m ? `${m}m ${r}s` : `${r}s`; },
-                           init() {
-                               const startedMs = new Date('{{ latest_run.started_at|date:"c" }}').getTime();
-                               if (!Number.isFinite(startedMs)) return;
-                               this.elapsed = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-                               this.tickId = setInterval(() => this.elapsed++, 1000);
-                           },
-                           destroy() {
-                               if (this.tickId) clearInterval(this.tickId);
-                           }
-                       }"
-                       x-text="'⏱ ' + fmt(elapsed) + ' elapsed'">⏱ elapsed</p>
+                       x-data="elapsed('{{ latest_run.started_at|date:"c" }}')"
+                       x-text="'⏱ ' + label + ' elapsed'">⏱ elapsed</p>
                   {% endif %}
                 </div>
               </div>
@@ -296,7 +283,11 @@
         <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
           <span class="chat-thinking__dot"></span>
           {# aria-hidden: the region is live, and a per-second timer would make it announce nonstop. #}
-          <span class="chat-thinking__timer" x-text="runElapsedLabel" aria-hidden="true"></span>
+          <span class="chat-thinking__timer"
+                x-data="elapsed"
+                x-effect="track(runStartedAt)"
+                x-text="label"
+                aria-hidden="true"></span>
           <span x-text="runStatus.label"></span>
         </div>
       </div>

@@ -102,6 +102,15 @@
     "Running tools…",
   ];
 
+  // Tiers mirror the ``duration`` template filter (sessions/templatetags/session_tags.py)
+  // so a run reads the same live as it does once it lands in the sessions list.
+  const formatElapsed = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  };
+
   const pickPath = (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
@@ -165,11 +174,9 @@
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
-    // Wall-clock origin of the run the loader is currently reporting on, and the
-    // seconds derived from it (see _startElapsed).
-    _runStartedAt: 0,
-    _elapsedTimer: null,
-    runElapsed: 0,
+    // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
+    // `elapsed` clock; set where a run actually starts, never inferred.
+    runStartedAt: 0,
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -284,27 +291,19 @@
             i = (i + 1) % THINKING_LABELS.length;
             this._thinkingPhrase = THINKING_LABELS[i];
           }, 1800);
-          this._startElapsed();
         } else {
-          if (this._thinkingTimer) {
-            clearInterval(this._thinkingTimer);
-            this._thinkingTimer = null;
-          }
-          this._stopElapsed();
+          clearInterval(this._thinkingTimer);
+          this._thinkingTimer = null;
+          this.runStartedAt = 0;
         }
       });
-
-      // The loader is already on screen while resuming, before `streaming` flips
-      // and fires the watcher above — start its timer from the server-reported
-      // start so a rejoined run doesn't restart the count at 0.
-      if (this.resuming) {
-        this._startElapsed(Date.parse(config.activeRunStartedAt || ""));
-      }
 
       if (this.resuming && this.thread && config.activeRunId) {
         // Page loaded while a run is executing server-side: rejoin its event
         // stream with a full replay, deduping anything already rendered from
-        // the checkpoint hydration.
+        // the checkpoint hydration. The clock counts from the server-reported
+        // start so a rejoined run doesn't restart at 0.
+        this.runStartedAt = Date.parse(config.activeRunStartedAt || "") || Date.now();
         this._resumeRun(config.activeRunId);
       } else {
         this.resuming = false;
@@ -323,29 +322,8 @@
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
-      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
-    },
-
-    // Idempotent: the resume path seeds the origin before `streaming` flips, and the
-    // watcher must not reset it to now. Each tick re-derives from the origin instead
-    // of incrementing, so a throttled background tab still reads the true elapsed time.
-    _startElapsed(startedAtMs) {
-      if (this._elapsedTimer) return;
-      this._runStartedAt = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
-      const tick = () => {
-        this.runElapsed = Math.max(0, Math.floor((Date.now() - this._runStartedAt) / 1000));
-      };
-      tick();
-      this._elapsedTimer = setInterval(tick, 1000);
-    },
-
-    _stopElapsed() {
-      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
-      this._elapsedTimer = null;
-      this._runStartedAt = 0;
-      this.runElapsed = 0;
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
@@ -480,16 +458,6 @@
       );
       if (activeTool) return { tone: "running", label: `running ${activeTool.name}…` };
       return { tone: "thinking", label: this._thinkingPhrase };
-    },
-
-    // Seconds padded inside the minute/hour forms so the ticking label keeps a
-    // stable width. Untranslated, like the rest of the JS-rendered status text.
-    get runElapsedLabel() {
-      const sec = this.runElapsed;
-      if (sec < 60) return `${sec}s`;
-      const min = Math.floor(sec / 60);
-      if (min < 60) return `${min}m ${String(sec % 60).padStart(2, "0")}s`;
-      return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
     },
 
     get latestTodos() {
@@ -670,7 +638,7 @@
       if (seg.status === "running") return "Thinking…";
       if (!seg.startedAt || !seg.endedAt) return "Reasoning";
       const s = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-      return s < 60 ? `Thought for ${s}s` : `Thought for ${Math.floor(s / 60)}m ${s % 60}s`;
+      return `Thought for ${formatElapsed(s)}`;
     },
 
     fileOpMark(op) {
@@ -780,6 +748,7 @@
       this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
+      this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
       // Forward the picker's selection so the API resolves the requested env per-request;
@@ -1153,8 +1122,46 @@
     },
   });
 
+  // Ticking "how long has this run been going" clock, shared by the working loader
+  // and the queued/running card. `track()` takes an ISO string or epoch ms and 0 to
+  // stop; each tick re-derives from the origin rather than incrementing, so interval
+  // clamping in a background tab costs accuracy nothing. Origin and handle stay
+  // closure-local: only `seconds` needs to be reactive.
+  const elapsed = (startedAt = 0) => {
+    let origin = 0;
+    let timer = null;
+    return {
+      seconds: 0,
+      init() {
+        this.track(startedAt);
+      },
+      get label() {
+        return formatElapsed(this.seconds);
+      },
+      track(next) {
+        const parsed = typeof next === "string" ? Date.parse(next) : next;
+        const at = Number.isFinite(parsed) ? parsed : 0;
+        if (at === origin) return;
+        origin = at;
+        clearInterval(timer);
+        timer = null;
+        this.seconds = 0;
+        if (!at) return;
+        const tick = () => {
+          this.seconds = Math.max(0, Math.floor((Date.now() - origin) / 1000));
+        };
+        tick();
+        timer = setInterval(tick, 1000);
+      },
+      destroy() {
+        clearInterval(timer);
+      },
+    };
+  };
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
     window.Alpine.data("userClamp", userClamp);
+    window.Alpine.data("elapsed", elapsed);
   });
 })();

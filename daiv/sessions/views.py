@@ -319,10 +319,12 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             else ""
         )
         # Seeds the working timer on resume so it counts from when the run actually
-        # started server-side, not from when this page loaded.
-        active_run = non_terminal[-1] if non_terminal else None
-        started_at = (active_run.started_at or active_run.created_at) if active_run else None
-        ctx["chat_active_run_started_at"] = started_at.isoformat() if ctx["chat_active_run_id"] and started_at else ""
+        # started server-side, not from when this page loaded. ``created_at`` covers a
+        # run still queued, which has no ``started_at`` yet.
+        active_run = non_terminal[-1] if ctx["chat_active_run_id"] else None
+        ctx["chat_active_run_started_at"] = (
+            (active_run.started_at or active_run.created_at).isoformat() if active_run else ""
+        )
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         # Engage transcript polling when a background run holds the slot and there is

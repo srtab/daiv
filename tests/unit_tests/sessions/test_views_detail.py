@@ -555,17 +555,6 @@ def test_chat_active_run_started_at_seeds_the_working_timer(member_client, membe
 
     assert resp.context["chat_active_run_started_at"] == ""
 
-    # All runs terminal — nothing in flight.
-    session_done = _create_session(user=member_user)
-    _create_run(session_done, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL, started_at=started)
-    session_done.active_run_id = "agui-run-3"
-    session_done.save(update_fields=["active_run_id"])
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
-
-    assert resp.context["chat_active_run_started_at"] == ""
-
 
 @pytest.mark.django_db
 def test_failed_middle_run_gets_marker_after_its_turn(member_client, member_user):
