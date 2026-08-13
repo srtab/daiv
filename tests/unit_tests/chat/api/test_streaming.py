@@ -112,6 +112,26 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_events_releases_queued_runs_at_turn_end():
+    """Chat runs emit no run_finished, so the turn-end pass must release QUEUED rows
+    (e.g. a delegated-batch continuation parked while this turn held the session lock)."""
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        patch("sessions.signals._release_next_queued") as m_release,
+    ):
+        streamer = _streamer()
+        async for _ in streamer.events():
+            pass
+
+    m_release.assert_called_once_with("t-stream")
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_events_captures_latest_merge_request_when_multiple_snapshots():
     """Multiple snapshots arrive — last one wins. Regression for
     accidentally rewriting capture as ``last_mr or ...``.

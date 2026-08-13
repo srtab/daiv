@@ -174,6 +174,22 @@ def sync_stuck_runs_cron_task():
     call_command("sync_stuck_runs")
 
 
+@cron("*/5 * * * *")
+@task
+@locked_task(key="release-orphan-queued-sessions")
+def release_orphan_queued_sessions_cron_task():
+    """Release QUEUED Runs stranded on idle sessions (crash/race-recovery backstop).
+
+    The normal release paths are the ``run_finished`` dispatcher and the chat streamer's
+    turn-end pass; this sweep covers what they can miss: dispatcher bail-outs after
+    consecutive enqueue failures (broker outage) and rows whose release signal was lost.
+
+    ``locked_task`` (non-blocking) skips this tick if a prior run still holds the lock, so a
+    pass that overruns the interval is never double-dispatched.
+    """
+    call_command("release_orphan_queued_sessions")
+
+
 @cron("*/15 * * * *")
 @task
 @locked_task(key="reclassify-missing-envelopes")

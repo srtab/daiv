@@ -403,3 +403,11 @@ class ChatRunStreamer:
                 await SessionLock.release(self.thread_id, self.run_id)
             except Exception:
                 logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
+            # Chat runs emit no run_finished, so a delegated-batch continuation that completed
+            # during this turn parks QUEUED; release it now that the slot is free.
+            try:
+                from sessions.signals import _release_next_queued
+
+                await asyncio.to_thread(_release_next_queued, self.thread_id)
+            except Exception:
+                logger.exception("chat: failed to release queued runs for thread_id=%s", self.thread_id)
