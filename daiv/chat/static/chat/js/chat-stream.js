@@ -165,6 +165,11 @@
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    // Wall-clock origin of the run the loader is currently reporting on, and the
+    // seconds derived from it (see _startElapsed).
+    _runStartedAt: 0,
+    _elapsedTimer: null,
+    runElapsed: 0,
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -279,11 +284,22 @@
             i = (i + 1) % THINKING_LABELS.length;
             this._thinkingPhrase = THINKING_LABELS[i];
           }, 1800);
-        } else if (this._thinkingTimer) {
-          clearInterval(this._thinkingTimer);
-          this._thinkingTimer = null;
+          this._startElapsed();
+        } else {
+          if (this._thinkingTimer) {
+            clearInterval(this._thinkingTimer);
+            this._thinkingTimer = null;
+          }
+          this._stopElapsed();
         }
       });
+
+      // The loader is already on screen while resuming, before `streaming` flips
+      // and fires the watcher above — start its timer from the server-reported
+      // start so a rejoined run doesn't restart the count at 0.
+      if (this.resuming) {
+        this._startElapsed(Date.parse(config.activeRunStartedAt || ""));
+      }
 
       if (this.resuming && this.thread && config.activeRunId) {
         // Page loaded while a run is executing server-side: rejoin its event
@@ -307,8 +323,29 @@
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
+      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
+    },
+
+    // Idempotent: the resume path seeds the origin before `streaming` flips, and the
+    // watcher must not reset it to now. Each tick re-derives from the origin instead
+    // of incrementing, so a throttled background tab still reads the true elapsed time.
+    _startElapsed(startedAtMs) {
+      if (this._elapsedTimer) return;
+      this._runStartedAt = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
+      const tick = () => {
+        this.runElapsed = Math.max(0, Math.floor((Date.now() - this._runStartedAt) / 1000));
+      };
+      tick();
+      this._elapsedTimer = setInterval(tick, 1000);
+    },
+
+    _stopElapsed() {
+      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+      this._elapsedTimer = null;
+      this._runStartedAt = 0;
+      this.runElapsed = 0;
     },
 
     // ---------- Run stream (EventSource against the relay) -------------
@@ -443,6 +480,16 @@
       );
       if (activeTool) return { tone: "running", label: `running ${activeTool.name}…` };
       return { tone: "thinking", label: this._thinkingPhrase };
+    },
+
+    // Seconds padded inside the minute/hour forms so the ticking label keeps a
+    // stable width. Untranslated, like the rest of the JS-rendered status text.
+    get runElapsedLabel() {
+      const sec = this.runElapsed;
+      if (sec < 60) return `${sec}s`;
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min}m ${String(sec % 60).padStart(2, "0")}s`;
+      return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
     },
 
     get latestTodos() {

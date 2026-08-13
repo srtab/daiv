@@ -57,6 +57,7 @@
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
          activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
+         activeRunStartedAt: "{{ chat_active_run_started_at|default:''|escapejs }}",
          {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
          {# background run the transcript poller follows — so the load-time scroll can #}
          {# tell "still working" from "finished" without duplicating that logic in JS. #}
@@ -295,6 +296,8 @@
         <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
           <span class="chat-thinking__dot"></span>
           <span x-text="runStatus.label"></span>
+          {# aria-hidden: the region is live, and a per-second timer would make it announce nonstop. #}
+          <span class="chat-thinking__timer" x-text="runElapsedLabel" aria-hidden="true"></span>
         </div>
       </div>
 
