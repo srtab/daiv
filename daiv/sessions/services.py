@@ -232,6 +232,10 @@ async def asubmit_batch_runs(
 
     Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
     failure) lands in ``result.failed`` while siblings continue.
+
+    All Run rows are created before any task is enqueued, so ``run_finished`` receivers
+    that scan the batch (coordinator resume, rollup notification) never observe a
+    partially-created sibling set.
     """
     _validate(repos)
     if user is not None:
@@ -253,7 +257,7 @@ async def asubmit_batch_runs(
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
         schedule_run_base = await Run.objects.filter(session__scheduled_job=scheduled_job).acount()
 
-    async def _submit_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
+    async def _create_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
         effective_prompt = target.prompt or prompt
 
@@ -285,7 +289,7 @@ async def asubmit_batch_runs(
         # when a sibling (READY/RUNNING) is already active on this session — in that
         # case we fall back to QUEUED, no task enqueue.
         try:
-            run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
+            return await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
         except IntegrityError:
             try:
                 return await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
@@ -302,14 +306,15 @@ async def asubmit_batch_runs(
                 repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
             )
 
+    async def _enqueue_one(run: Run, target: RepoTarget) -> Run | BatchSubmitFailure:
         try:
             task = await run_job_task.aenqueue(
                 repo_id=target.repo_id,
-                prompt=effective_prompt,
+                prompt=target.prompt or prompt,
                 ref=target.ref or None,
                 agent_model=agent_model or None,
                 agent_thinking_level=agent_thinking_level or None,
-                thread_id=effective_thread_id,
+                thread_id=str(run.session_id),
                 sandbox_environment_id=target.sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=user.id if user is not None else None,
@@ -341,9 +346,24 @@ async def asubmit_batch_runs(
             )
         return run
 
+    # Phase 1 — create every Run row before anything is enqueued. A leg can turn terminal
+    # (and emit ``run_finished``) the moment it is enqueued, and batch-completion receivers
+    # must never observe a partially-created batch.
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
-    # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    # whole batch; the helpers already catch Exception themselves.
+    created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+
+    # Phase 2 — enqueue the READY rows; QUEUED fallbacks are released later by the dispatcher.
+    to_enqueue = [
+        (i, outcome, target)
+        for i, (target, outcome) in enumerate(zip(repos, created, strict=True))
+        if not isinstance(outcome, BatchSubmitFailure | BaseException) and outcome.status == RunStatus.READY
+    ]
+    enqueued = await asyncio.gather(*[_enqueue_one(r, t) for _, r, t in to_enqueue], return_exceptions=True)
+
+    outcomes: list = list(created)
+    for (i, _, _), outcome in zip(to_enqueue, enqueued, strict=True):
+        outcomes[i] = outcome
 
     runs: list[Run] = []
     failed: list[BatchSubmitFailure] = []
