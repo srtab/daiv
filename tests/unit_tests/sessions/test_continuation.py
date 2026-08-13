@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -112,22 +112,57 @@ def test_receiver_lands_queued_when_coordinator_is_busy():
 
 
 def test_resume_enqueue_failure_is_surfaced():
-    """If enqueuing the READY continuation fails, the coordinator won't auto-resume — log it loudly."""
+    """If enqueuing the continuation fails, the coordinator won't auto-resume — log it loudly."""
     batch = uuid.uuid4()
     Session.objects.create(thread_id="coord-fail", origin=SessionOrigin.MCP_JOB, repo_id="g/coord")
     leg = _session("leg-fail", repo_id="g/a", parent_thread_id="coord-fail")
     run = _run(leg, batch_id=batch, status=RunStatus.SUCCESSFUL)
 
     with (
-        patch("sessions.signals._enqueue_queued_run", return_value=False),
+        patch("sessions.signals.run_job_task") as m_task,
         patch("sessions.signals.logger") as m_logger,
     ):
+        m_task.aenqueue = AsyncMock(side_effect=RuntimeError("broker down"))
         resume_coordinator_on_batch_complete(sender=Run, run=run)
 
-    # The continuation row still exists (READY), but the enqueue failure is not silent.
-    assert Run.objects.filter(continuation_of_batch_id=batch).exists()
+    # The continuation row exists (FAILED, awaiting the retry sweep) and the failure is not silent.
+    cont = Run.objects.get(continuation_of_batch_id=batch)
+    assert cont.status == RunStatus.FAILED
     assert m_logger.error.called
     assert "auto-resume" in m_logger.error.call_args[0][0].lower()
+
+
+def test_continuation_is_created_queued_before_promotion():
+    """QUEUED is the crash-safe resting state: a crash after the insert leaves a row the
+    orphan-release cron can recover, never a stuck READY row nothing owns."""
+    batch = uuid.uuid4()
+    Session.objects.create(thread_id="coord-rest", origin=SessionOrigin.MCP_JOB, repo_id="g/coord")
+    leg = _session("leg-rest", repo_id="g/a", parent_thread_id="coord-rest")
+    run = _run(leg, batch_id=batch, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.signals._release_next_queued") as m_release:
+        resume_coordinator_on_batch_complete(sender=Run, run=run)
+
+    cont = Run.objects.get(continuation_of_batch_id=batch)
+    assert cont.status == RunStatus.QUEUED
+    m_release.assert_called_once_with("coord-rest")
+
+
+def test_receiver_leaves_continuation_queued_behind_active_chat_run():
+    """An active chat run is invisible to run_one_active_per_session; the any-active guard
+    must still keep the continuation QUEUED instead of enqueuing it into the held session lock."""
+    batch = uuid.uuid4()
+    coord = Session.objects.create(thread_id="coord-chat", origin=SessionOrigin.CHAT, repo_id="g/coord")
+    _run(coord, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
+    leg = _session("leg-chat", repo_id="g/a", parent_thread_id="coord-chat")
+    run = _run(leg, batch_id=batch, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.signals._enqueue_queued_run", return_value=True) as m_enqueue:
+        resume_coordinator_on_batch_complete(sender=Run, run=run)
+
+    cont = Run.objects.get(continuation_of_batch_id=batch)
+    assert cont.status == RunStatus.QUEUED
+    m_enqueue.assert_not_called()
 
 
 def test_receiver_ignores_non_delegated_batch_runs():

@@ -128,7 +128,23 @@ MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
 @receiver(run_finished)
 def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
-    """Release queued continuations on this session, one at a time, until one succeeds.
+    """Release queued continuations on this session via ``_release_next_queued``.
+
+    ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
+    re-entry while still letting notification receivers fire.
+    """
+    if kwargs.get("skip_dispatch"):
+        return
+
+    session_id = getattr(run, "session_id", None)
+    if not session_id:
+        return
+
+    _release_next_queued(session_id)
+
+
+def _release_next_queued(session_id: Any) -> None:
+    """Promote QUEUED Runs on this session to READY and enqueue, one at a time, until one succeeds.
 
     Atomic compare-and-swap (``filter(pk=, status=QUEUED).update(status=READY)``) wins
     the race against concurrent dispatchers reading the same row. A losing race or a
@@ -138,17 +154,11 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
     by ``MAX_CONSECUTIVE_DISPATCH_FAILURES`` so a broker outage doesn't mass-fail the
     whole backlog.
 
-    ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
-    re-entry while still letting notification receivers fire.
+    Nothing is promoted while ANY sibling is READY/RUNNING: ``run_one_active_per_session``
+    only covers the job-pipeline trigger types, so e.g. an active chat run is invisible to
+    the constraint and a promoted row would just block on the session lock.
     """
     from sessions.models import Run, RunStatus
-
-    if kwargs.get("skip_dispatch"):
-        return
-
-    session_id = getattr(run, "session_id", None)
-    if not session_id:
-        return
 
     consecutive_failures = 0
     while True:
@@ -156,12 +166,15 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         if next_q is None:
             return
 
+        if Run.objects.filter(session_id=session_id, status__in=[RunStatus.READY, RunStatus.RUNNING]).exists():
+            return  # active sibling; a later release (run_finished, chat turn end, cron) picks this up
+
         try:
             claimed = Run.objects.filter(pk=next_q.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY)
         except IntegrityError:
             # A concurrent insert (e.g. a fresh _submit_one) already created a
             # READY row on this session; the partial unique constraint blocks us.
-            logger.debug("dispatch_next_in_session: peer claim on session=%s, backing off", session_id)
+            logger.debug("release_next_queued: peer claim on session=%s, backing off", session_id)
             return
 
         if claimed != 1:
@@ -175,7 +188,7 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         consecutive_failures += 1
         if consecutive_failures >= MAX_CONSECUTIVE_DISPATCH_FAILURES:
             logger.warning(
-                "dispatch_next_in_session: bailing on session=%s after %d consecutive dispatch failures; "
+                "release_next_queued: bailing on session=%s after %d consecutive dispatch failures; "
                 "remaining QUEUED siblings left for release_orphan_queued_sessions",
                 session_id,
                 consecutive_failures,
@@ -274,9 +287,11 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
 
     Deliberately ignores ``skip_dispatch`` (unlike ``dispatch_next_in_session``): a last
     leg that turns terminal via the dispatch-failure re-emit must still resume the
-    coordinator. Winner election is the ``run_one_continuation_per_batch`` unique
-    constraint; a busy coordinator session (``run_one_active_per_session``) makes the
-    continuation land QUEUED, released FIFO by ``dispatch_next_in_session``.
+    coordinator. The continuation is always created QUEUED — the insert itself is the
+    winner election (``run_one_continuation_per_batch``) — then released through the
+    dispatcher's single promotion path; a busy coordinator (any active run, including
+    trigger types outside ``run_one_active_per_session``) leaves it QUEUED for a later
+    release (``run_finished``, chat turn end, or the orphan-release cron).
     """
     from django.db import IntegrityError
 
@@ -330,25 +345,20 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
     }
 
     try:
-        continuation = async_to_sync(acreate_run)(status=RunStatus.READY, **create_kwargs)
+        async_to_sync(acreate_run)(status=RunStatus.QUEUED, **create_kwargs)
     except IntegrityError:
-        if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
-            return  # another worker won the election
-        # Coordinator session busy: land QUEUED; dispatch_next_in_session releases it FIFO.
-        try:
-            async_to_sync(acreate_run)(status=RunStatus.QUEUED, **create_kwargs)
-        except IntegrityError:
-            return  # another worker won in the meantime
-        return
+        return  # another worker won run_one_continuation_per_batch
 
-    # Free coordinator session: enqueue the READY continuation now, reusing the dispatcher helper.
-    # _enqueue_queued_run marks the row FAILED on failure; unlike the dispatcher there is no QUEUED
-    # sibling to fall through to, so a failure here means the coordinator never auto-resumes. Do not
-    # swallow it — the dispatcher's own log names itself, not this resume path or the batch.
-    if not _enqueue_queued_run(continuation):
+    # QUEUED is the only crash-safe resting state (recoverable by the orphan-release cron);
+    # promotion + enqueue go through the dispatcher's single release path.
+    _release_next_queued(parent_thread_id)
+
+    continuation = Run.objects.filter(continuation_of_batch_id=batch_id).only("status").first()
+    if continuation is not None and continuation.status == RunStatus.FAILED:
         logger.error(
             "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
-            "coordinator will NOT auto-resume — the batch notification is the only signal",
+            "coordinator will NOT auto-resume until the retry sweep re-queues it — the batch "
+            "notification is the interim signal",
             batch_id,
             parent_thread_id,
         )
