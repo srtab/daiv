@@ -295,9 +295,9 @@
 
         <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
           <span class="chat-thinking__dot"></span>
-          <span x-text="runStatus.label"></span>
           {# aria-hidden: the region is live, and a per-second timer would make it announce nonstop. #}
           <span class="chat-thinking__timer" x-text="runElapsedLabel" aria-hidden="true"></span>
+          <span x-text="runStatus.label"></span>
         </div>
       </div>
 
