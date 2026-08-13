@@ -137,7 +137,7 @@ def test_continuation_is_created_queued_before_promotion():
     leg = _session("leg-rest", repo_id="g/a", parent_thread_id="coord-rest")
     run = _run(leg, batch_id=batch, status=RunStatus.SUCCESSFUL)
 
-    with patch("sessions.signals._release_next_queued") as m_release:
+    with patch("sessions.signals.release_next_queued") as m_release:
         resume_coordinator_on_batch_complete(sender=Run, run=run)
 
     cont = Run.objects.get(continuation_of_batch_id=batch)

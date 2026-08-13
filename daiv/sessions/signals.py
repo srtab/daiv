@@ -27,6 +27,10 @@ run_finished = Signal()
 # operator greps for stays identical across them.
 LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
+# ``error_message`` prefix for a run that never reached the broker. Shared with
+# ``release_orphan_queued_sessions``, which re-queues continuations matching it.
+DISPATCH_FAILED_PREFIX = "dispatch_failed"
+
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def backfill_session_user(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -128,7 +132,7 @@ MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
 @receiver(run_finished)
 def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
-    """Release queued continuations on this session via ``_release_next_queued``.
+    """Release queued continuations on this session via ``release_next_queued``.
 
     ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
     re-entry while still letting notification receivers fire.
@@ -140,10 +144,10 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
     if not session_id:
         return
 
-    _release_next_queued(session_id)
+    release_next_queued(session_id)
 
 
-def _release_next_queued(session_id: Any) -> None:
+def release_next_queued(session_id: Any) -> None:
     """Promote QUEUED Runs on this session to READY and enqueue, one at a time, until one succeeds.
 
     Atomic compare-and-swap (``filter(pk=, status=QUEUED).update(status=READY)``) wins
@@ -223,7 +227,7 @@ def _enqueue_queued_run(run: Any) -> bool:
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)
-        run.save(update_fields=run.mark_failed("dispatch_failed", err))
+        run.save(update_fields=run.mark_failed(DISPATCH_FAILED_PREFIX, err))
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
 
@@ -293,10 +297,6 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
     trigger types outside ``run_one_active_per_session``) leaves it QUEUED for a later
     release (``run_finished``, chat turn end, or the orphan-release cron).
     """
-    from django.db import IntegrityError
-
-    from asgiref.sync import async_to_sync
-
     from sessions.models import Run, RunStatus, Session, SessionOrigin
     from sessions.services import acreate_run
 
@@ -306,16 +306,16 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
     if not batch_id:
         return  # continuation runs carry continuation_of_batch_id, not batch_id
 
-    leg_session = Session.objects.filter(pk=run.session_id).only("parent_thread_id").first()
-    if leg_session is None or not leg_session.parent_thread_id:
-        return  # not a delegated leg (broadcast batch, or session gone)
-    parent_thread_id = leg_session.parent_thread_id
-
     if Run.objects.by_batch(batch_id).exclude(status__in=RunStatus.terminal()).exists():
         return  # legs still pending
 
     if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
         return  # already resumed (winner election)
+
+    leg_session = Session.objects.filter(pk=run.session_id).only("parent_thread_id").first()
+    if leg_session is None or not leg_session.parent_thread_id:
+        return  # not a delegated leg (broadcast batch, or session gone)
+    parent_thread_id = leg_session.parent_thread_id
 
     coordinator = Session.objects.select_related("user").filter(thread_id=parent_thread_id).first()
     if coordinator is None:
@@ -327,34 +327,37 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
         )
         return
 
-    siblings = list(Run.objects.by_batch(batch_id))
-    prompt = render_batch_summary(batch_id, siblings)
-    env_id = str(coordinator.sandbox_environment_id) if coordinator.sandbox_environment_id else None
-    create_kwargs = {
-        "trigger_type": SessionOrigin.DELEGATED_JOB,
-        "task_result_id": None,
-        "repo_id": coordinator.repo_id,
-        "ref": coordinator.ref,
-        "user": coordinator.user,
-        "prompt": prompt,
-        "thread_id": parent_thread_id,
-        "sandbox_environment_id": env_id,
-        "continuation_of_batch_id": batch_id,
-        "agent_model": coordinator.agent_model,
-        "agent_thinking_level": coordinator.agent_thinking_level,
-    }
-
+    siblings = list(
+        Run.objects.by_batch(batch_id).only(
+            "status", "repo_id", "ref", "session", "merge_request_web_url", "result_summary", "error_message"
+        )
+    )
     try:
-        async_to_sync(acreate_run)(status=RunStatus.QUEUED, **create_kwargs)
+        continuation = async_to_sync(acreate_run)(
+            status=RunStatus.QUEUED,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            task_result_id=None,
+            repo_id=coordinator.repo_id,
+            ref=coordinator.ref,
+            user=coordinator.user,
+            prompt=render_batch_summary(batch_id, siblings),
+            thread_id=parent_thread_id,
+            sandbox_environment_id=str(coordinator.sandbox_environment_id)
+            if coordinator.sandbox_environment_id
+            else None,
+            continuation_of_batch_id=batch_id,
+            agent_model=coordinator.agent_model,
+            agent_thinking_level=coordinator.agent_thinking_level,
+        )
     except IntegrityError:
         return  # another worker won run_one_continuation_per_batch
 
     # QUEUED is the only crash-safe resting state (recoverable by the orphan-release cron);
     # promotion + enqueue go through the dispatcher's single release path.
-    _release_next_queued(parent_thread_id)
+    release_next_queued(parent_thread_id)
 
-    continuation = Run.objects.filter(continuation_of_batch_id=batch_id).only("status").first()
-    if continuation is not None and continuation.status == RunStatus.FAILED:
+    continuation.refresh_from_db(fields=["status"])
+    if continuation.status == RunStatus.FAILED:
         logger.error(
             "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
             "coordinator will NOT auto-resume until the retry sweep re-queues it — the batch "

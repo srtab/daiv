@@ -122,7 +122,7 @@ async def test_events_releases_queued_runs_at_turn_end():
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
-        patch("sessions.signals._release_next_queued") as m_release,
+        patch("sessions.signals.release_next_queued") as m_release,
     ):
         streamer = _streamer()
         async for _ in streamer.events():
