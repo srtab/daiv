@@ -272,6 +272,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "expired": False,
                 "active_run_id": "",
                 "chat_active_run_id": "",
+                "chat_active_run_started_at": "",
                 "merge_request": None,
                 "runs": [],
                 "is_in_flight": False,
@@ -316,6 +317,13 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             and session.active_run_id
             and all(r.trigger_type == SessionOrigin.CHAT for r in non_terminal)
             else ""
+        )
+        # Seeds the working timer on resume so it counts from when the run actually
+        # started server-side, not from when this page loaded. ``created_at`` covers a
+        # run still queued, which has no ``started_at`` yet.
+        active_run = non_terminal[-1] if ctx["chat_active_run_id"] else None
+        ctx["chat_active_run_started_at"] = (
+            (active_run.started_at or active_run.created_at).isoformat() if active_run else ""
         )
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 

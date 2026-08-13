@@ -1508,6 +1508,16 @@ main:has(.chat-shell) {
     animation: pulse-dot 1.4s ease-in-out infinite;
   }
 
+  .chat-thinking__timer {
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chat-thinking__timer::after {
+    content: "·";
+    margin-left: 8px;
+  }
+
   /* Per-turn reasoning disclosure */
 
   .chat-thinking-seg {

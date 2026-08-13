@@ -102,6 +102,15 @@
     "Running tools…",
   ];
 
+  // Tiers mirror the ``duration`` template filter (sessions/templatetags/session_tags.py)
+  // so a run reads the same live as it does once it lands in the sessions list.
+  const formatElapsed = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  };
+
   const pickPath = (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
@@ -165,6 +174,9 @@
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
+    // `elapsed` clock; set where a run actually starts, never inferred.
+    runStartedAt: 0,
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -279,16 +291,19 @@
             i = (i + 1) % THINKING_LABELS.length;
             this._thinkingPhrase = THINKING_LABELS[i];
           }, 1800);
-        } else if (this._thinkingTimer) {
+        } else {
           clearInterval(this._thinkingTimer);
           this._thinkingTimer = null;
+          this.runStartedAt = 0;
         }
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
         // Page loaded while a run is executing server-side: rejoin its event
         // stream with a full replay, deduping anything already rendered from
-        // the checkpoint hydration.
+        // the checkpoint hydration. The clock counts from the server-reported
+        // start so a rejoined run doesn't restart at 0.
+        this.runStartedAt = Date.parse(config.activeRunStartedAt || "") || Date.now();
         this._resumeRun(config.activeRunId);
       } else {
         this.resuming = false;
@@ -623,7 +638,7 @@
       if (seg.status === "running") return "Thinking…";
       if (!seg.startedAt || !seg.endedAt) return "Reasoning";
       const s = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-      return s < 60 ? `Thought for ${s}s` : `Thought for ${Math.floor(s / 60)}m ${s % 60}s`;
+      return `Thought for ${formatElapsed(s)}`;
     },
 
     fileOpMark(op) {
@@ -733,6 +748,7 @@
       this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
+      this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
       // Forward the picker's selection so the API resolves the requested env per-request;
@@ -1106,8 +1122,46 @@
     },
   });
 
+  // Ticking "how long has this run been going" clock, shared by the working loader
+  // and the queued/running card. `track()` takes an ISO string or epoch ms and 0 to
+  // stop; each tick re-derives from the origin rather than incrementing, so interval
+  // clamping in a background tab costs accuracy nothing. Origin and handle stay
+  // closure-local: only `seconds` needs to be reactive.
+  const elapsed = (startedAt = 0) => {
+    let origin = 0;
+    let timer = null;
+    return {
+      seconds: 0,
+      init() {
+        this.track(startedAt);
+      },
+      get label() {
+        return formatElapsed(this.seconds);
+      },
+      track(next) {
+        const parsed = typeof next === "string" ? Date.parse(next) : next;
+        const at = Number.isFinite(parsed) ? parsed : 0;
+        if (at === origin) return;
+        origin = at;
+        clearInterval(timer);
+        timer = null;
+        this.seconds = 0;
+        if (!at) return;
+        const tick = () => {
+          this.seconds = Math.max(0, Math.floor((Date.now() - origin) / 1000));
+        };
+        tick();
+        timer = setInterval(tick, 1000);
+      },
+      destroy() {
+        clearInterval(timer);
+      },
+    };
+  };
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
     window.Alpine.data("userClamp", userClamp);
+    window.Alpine.data("elapsed", elapsed);
   });
 })();

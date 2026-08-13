@@ -517,6 +517,46 @@ def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_chat_active_run_started_at_seeds_the_working_timer(member_client, member_user):
+    """The loader's elapsed timer counts from the run's server-side start, so the
+    resume path needs that timestamp; without a resumable chat holder there is
+    nothing to seed and the context value stays empty."""
+    started = timezone.now() - timedelta(minutes=3)
+
+    session_chat = _create_session(user=member_user)
+    _create_run(session_chat, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING, started_at=started)
+    session_chat.active_run_id = "agui-run-1"
+    session_chat.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
+
+    assert resp.context["chat_active_run_started_at"] == started.isoformat()
+
+    # A queued run has no started_at yet — created_at keeps the timer anchored.
+    session_queued = _create_session(user=member_user)
+    queued_run = _create_run(session_queued, trigger_type=SessionOrigin.CHAT, status=RunStatus.QUEUED)
+    session_queued.active_run_id = "agui-run-2"
+    session_queued.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_queued.thread_id}))
+
+    assert resp.context["chat_active_run_started_at"] == queued_run.created_at.isoformat()
+
+    # Background holder: no relay stream to rejoin, so no timer to seed either.
+    session_bg = _create_session(user=member_user)
+    bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, started_at=started)
+    session_bg.active_run_id = bg_run.id
+    session_bg.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
+
+    assert resp.context["chat_active_run_started_at"] == ""
+
+
+@pytest.mark.django_db
 def test_failed_middle_run_gets_marker_after_its_turn(member_client, member_user):
     """A CHAT run that FAILED mid-session: its run_status marker must sit immediately
     after the last assistant turn belonging to that run, before the next user turn."""
