@@ -3,6 +3,7 @@ import hashlib
 import logging
 import mimetypes
 from functools import wraps
+from inspect import Signature, signature
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
@@ -10,7 +11,7 @@ from django.contrib.sites.models import Site
 from django.core.cache import cache
 
 import httpx
-from redis.exceptions import LockError
+from redis.exceptions import LockError, LockNotOwnedError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -45,6 +46,17 @@ def is_git_auth_error_text(text: str) -> bool:
             "not authorized",
         )
     )
+
+
+def is_git_ref_not_found_text(text: str) -> bool:
+    """True when git clone output indicates the requested branch/ref does not exist on the remote.
+
+    Distinct from an auth or network failure: retrying is pointless — a deleted branch will not
+    reappear — so callers fall back or skip instead of surfacing an opaque GitCommandError. Git's
+    wording for ``git clone --branch <x>`` against a missing ref is ``Remote branch <x> not found
+    in upstream origin``.
+    """
+    return "not found in upstream" in text.lower()
 
 
 def build_absolute_url(path: str) -> str:
@@ -162,7 +174,25 @@ async def batch_async_download_url(urls: Iterable[str], headers: dict[str, str] 
     return result
 
 
-def locked_task(key: str = "", blocking: bool = False):
+# Locks must expire: a holder killed mid-run strands the key in Redis forever, and every later
+# run is then skipped as "already processing" while still reporting success.
+DEFAULT_LOCK_TIMEOUT = 3600
+
+
+def _format_lock_key(func, sig: Signature | None, key: str, args: tuple, kwargs: dict) -> str:
+    """Render ``key`` against the call, so ``{repo_id}`` resolves however the caller passed it.
+
+    Binding to the signature is what makes a named field work for a positional call — tasks are
+    enqueued both ways. ``sig`` is ``None`` for an empty key, which formats to no suffix.
+    """
+    if sig is None:
+        return f"{func.__name__}:"
+    bound = sig.bind_partial(*args, **kwargs)
+    bound.apply_defaults()
+    return f"{func.__name__}:{key.format(*args, **bound.arguments)}"
+
+
+def locked_task(key: str = "", blocking: bool = False, timeout: float = DEFAULT_LOCK_TIMEOUT):
     """
     A decorator that ensures a task is executed with a distributed lock to prevent concurrent execution.
 
@@ -171,6 +201,8 @@ def locked_task(key: str = "", blocking: bool = False):
                   positional and keyword arguments passed to the decorated function. Default is empty string.
         blocking (bool): If True, wait for the lock to be released. If False, raise LockError if lock is held.
                         Default is False.
+        timeout (float): Seconds after which the lock expires on its own; must be positive. Size it above
+                        the task's worst-case runtime, since expiring mid-run allows a concurrent run.
 
     Example:
         @task
@@ -181,16 +213,24 @@ def locked_task(key: str = "", blocking: bool = False):
     The lock is implemented using Django's cache backend, making it work in a distributed environment.
     If blocking=False and the lock is held, the task will be skipped with a warning message.
     """
+    if timeout is None or timeout <= 0:
+        raise ValueError(f"locked_task timeout must be a positive number of seconds, got {timeout!r}")
 
     def decorator(func):
+        sig = signature(func) if key else None
+
         if asyncio.iscoroutinefunction(func):
 
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
-                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                lock_key = _format_lock_key(func, sig, key, args, kwargs)
                 try:
-                    with cache.lock(lock_key, blocking=blocking):
+                    with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return await func(*args, **kwargs)
+                # Raised on release, and must precede its LockError superclass to not read as a skip.
+                except LockNotOwnedError:
+                    logger.error("Task outran its %ss lock, concurrent runs were possible: %s", timeout, lock_key)
+                    return
                 except LockError:
                     logger.warning("Ignored task, already processing: %s", lock_key)
                     return
@@ -200,10 +240,14 @@ def locked_task(key: str = "", blocking: bool = False):
 
             @wraps(func)
             def wrapper(*args, **kwargs):
-                lock_key = f"{func.__name__}:{key.format(*args, **kwargs)}"
+                lock_key = _format_lock_key(func, sig, key, args, kwargs)
                 try:
-                    with cache.lock(lock_key, blocking=blocking):
+                    with cache.lock(lock_key, timeout=timeout, blocking=blocking):
                         return func(*args, **kwargs)
+                # Raised on release, and must precede its LockError superclass to not read as a skip.
+                except LockNotOwnedError:
+                    logger.error("Task outran its %ss lock, concurrent runs were possible: %s", timeout, lock_key)
+                    return
                 except LockError:
                     logger.warning("Ignored task, already processing: %s", lock_key)
                     return

@@ -166,6 +166,10 @@
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
     filesTouchedLimit: 20,
+    // Reactive clock backing relative timestamps: a single interval bumps it
+    // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
+    now: 0,
+    _nowTimer: null,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -232,6 +236,10 @@
     },
 
     init() {
+      // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
+      this.now = Date.now();
+      this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
+
       // Seed _filesSeen with any paths already present in hydrated history so
       // the "new row pulse" animation does not fire on initial load.
       for (const t of this.turns) {
@@ -286,10 +294,11 @@
         this.resuming = false;
       }
 
-      // Park the viewport at the latest turn on page load. $nextTick waits for
-      // Alpine to materialize x-for'd turns into DOM so scrollHeight is final.
+      // Park the viewport on page load. $nextTick waits for Alpine to
+      // materialize x-for'd turns into DOM; parkViewport() then settles the
+      // height shifts that land after that first render.
       if (this.turns.length) {
-        this.$nextTick(() => this.scrollToBottom({ force: true }));
+        this.$nextTick(() => this.parkViewport());
       }
     },
 
@@ -298,6 +307,7 @@
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
+      if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
     },
 
@@ -525,6 +535,80 @@
       return turn.role === "assistant" && isLast && turn.streaming;
     },
 
+    // ---------- Per-turn action row (copy + timestamps) ---------------
+
+    // The copy payload and the gate for whether the copy button renders: the raw
+    // source the bubble rendered (markdown on assistant turns, plain text on user
+    // ones), or null for a tool-only turn.
+    finalTextSegment(turn) {
+      for (let i = turn.segments.length - 1; i >= 0; i--) {
+        if (turn.segments[i].type === "text") return turn.segments[i];
+      }
+      return null;
+    },
+
+    // Only a run's closing text turn is copyable; earlier ones are narration. Runs are serial
+    // and run_status markers terminal, so the next non-assistant turn is always the boundary.
+    isClosingTextTurn(ti) {
+      for (let i = ti + 1; i < this.turns.length; i++) {
+        const later = this.turns[i];
+        if (later.role !== "assistant") return true;
+        if (later.streaming || this.finalTextSegment(later)) return false;
+      }
+      return true;
+    },
+
+    // On a user turn this copies the whole message, including the part the
+    // "Show more" clamp is hiding.
+    canCopyTurn(turn, ti) {
+      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
+      return turn.role === "user" || this.isClosingTextTurn(ti);
+    },
+
+    // Resolves true only once the write actually lands. The clipboard API is
+    // absent in insecure contexts (plain-HTTP LAN) and writeText() can reject
+    // (permission / unfocused doc) — the caller drives its confirmation off this
+    // so the UI never claims a copy it didn't make.
+    async copyFinalText(turn) {
+      const seg = this.finalTextSegment(turn);
+      if (!seg || !navigator.clipboard) return false;
+      try {
+        await navigator.clipboard.writeText(seg.content);
+        return true;
+      } catch (e) {
+        console.warn("chat: clipboard write failed", e);
+        return false;
+      }
+    },
+
+    // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
+    turnHasActions(turn, ti) {
+      return turn.role !== "run_status" && (!!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti));
+    },
+
+    // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
+    // Untranslated, matching the existing client-side elapsed timer.
+    relativeTime(iso) {
+      if (!iso) return "";
+      const then = new Date(iso).getTime();
+      if (!Number.isFinite(then)) return "";
+      const sec = Math.floor(Math.max(0, this.now - then) / 1000);
+      if (sec < 60) return "just now";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+      const day = Math.floor(hr / 24);
+      if (day < 30) return `${day} day${day === 1 ? "" : "s"} ago`;
+      return new Date(iso).toLocaleDateString();
+    },
+
+    absoluteTime(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
+    },
+
     toolSignature(seg) {
       if (!window.toolSignature) return { label: seg.name, path: "", badges: [] };
       return window.toolSignature(seg.name, seg.args, seg.result, seg.status);
@@ -586,6 +670,9 @@
         id: uuid(),
         role: "user",
         segments: [{ type: "text", content: this.draftMessage }],
+        // Optimistic stamp; a reload reconciles it to the server's Run.created_at and
+        // relative granularity hides the difference. `received_at` is server-owned.
+        sent_at: new Date().toISOString(),
       });
       this.turns.push({
         id: uuid(),
@@ -843,6 +930,12 @@
         } else {
           this._pushRunStatus("failed", evt.message || "Run failed.");
         }
+      } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
+        // The pinned branch was merged/deleted; the server fell back to the default branch
+        // and re-pinned the session. Move the composer ref pill so the UI matches reality.
+        const v = evt.value || {};
+        if (v.using) this._applyRepoState({ ref: v.using });
+        console.debug("chat: ref_fallback %o → %o", v.requested, v.using);
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -921,6 +1014,46 @@
       return turn.segments[turn.segments.length - 1];
     },
 
+    // Where the viewport lands on page load. A live session belongs at the
+    // bottom, so streamed output arrives in view. A finished one opens at the
+    // *top of the last assistant message* instead: that final answer is what
+    // the reader came for, and anchoring to the bottom buries its opening
+    // lines above the fold whenever it is taller than the viewport.
+    parkViewport() {
+      if (config.sessionLive) {
+        this.scrollToBottom({ force: true });
+        return;
+      }
+      // Two frames deep, because anything that changes height *above* the
+      // target after we measure drags it back off the top edge. One rAF clears
+      // the userClamp children, which queue their collapse on $nextTick; their
+      // "Show more" toggles then reveal a frame later, growing each collapsed
+      // bubble again. Chrome and Firefox would absorb that second shift with
+      // scroll anchoring, but Safari has none — so settle it here instead of
+      // depending on the browser to paper over it.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const el = this._scrollEl;
+        if (!el) return;
+        // Last rendered assistant turn — querying the DOM rather than `turns`
+        // keeps this in step with isTurnVisible(), which drops empty turns.
+        // `data-role` is the handle, not the `chat-turn--${role}` class: that
+        // one is composed at render time and no stylesheet declares the
+        // assistant variant, so keying on it would break silently.
+        const rendered = el.querySelectorAll('.chat-turn[data-role="assistant"]');
+        const target = rendered[rendered.length - 1];
+        if (!target) {
+          // A run that failed before answering: the tail is still the most
+          // useful place to be.
+          el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+          return;
+        }
+        // Breathing room above it comes from .chat-turn's scroll-margin-top,
+        // and the browser clamps at the end of the scroll range — so a short
+        // final answer degrades to the old bottom-anchored position for free.
+        target.scrollIntoView({ block: "start", behavior: "auto" });
+      }));
+    },
+
     scrollToBottom({ force = false } = {}) {
       if (!force && !this._autoFollow) return;
       if (this._scrollQueued) return;
@@ -938,7 +1071,43 @@
     },
   });
 
+  // Collapse tall user-message bubbles. Measures the rendered height once on
+  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
+  // the DOM node across the wholesale `turns` reassignment that polling performs,
+  // so a single measurement is stable. Both inputs to the overflow test are read
+  // from CSS so the JS decision can't drift from the visible clamp: the line
+  // budget from the --chat-user-clamp-lines custom property, and the per-line
+  // height from the element's computed line-height (CSS clamps to the same
+  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
+  // text region exposes and the toggle points its aria-controls at.
+  const userClamp = (id) => ({
+    id,
+    collapsed: false,
+    overflowing: false,
+    init() {
+      this.$nextTick(() => {
+        const el = this.$el.querySelector(".chat-text");
+        if (!el) return;
+        const styles = getComputedStyle(el);
+        // Guard against a falsy 0 slipping through `||`: a 0-line budget is
+        // nonsensical but would read back as the fallback 7 while the CSS clamp
+        // honours 0, diverging the two. Number.isFinite rejects NaN (unreadable
+        // property) too.
+        const parsedLines = parseInt(styles.getPropertyValue("--chat-user-clamp-lines"), 10);
+        const maxLines = Number.isFinite(parsedLines) && parsedLines > 0 ? parsedLines : 7;
+        const lineHeight = parseFloat(styles.lineHeight) || 26;
+        // +1 absorbs sub-pixel rounding so a bubble exactly maxLines tall is
+        // left alone rather than clamped.
+        if (el.scrollHeight > lineHeight * maxLines + 1) {
+          this.overflowing = true;
+          this.collapsed = true;
+        }
+      });
+    },
+  });
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
+    window.Alpine.data("userClamp", userClamp);
   });
 })();

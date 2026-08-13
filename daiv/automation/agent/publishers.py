@@ -15,6 +15,7 @@ from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -81,20 +82,32 @@ class GitChangePublisher(ChangePublisher):
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
+        # The diff base is the MR's real target — for a branch stacked off a release branch that is
+        # the release branch, not the default. status_snapshot then diffs against the merge-base of
+        # this branch and HEAD. Falls back to the default branch when there is no MR (or a blank target).
+        base_branch = (
+            merge_request.target_branch if merge_request is not None and merge_request.target_branch else default_branch
+        )
 
         # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
         # .git/config deliberately holds no credential — overlay the per-run credential on its git
-        # subprocesses. Sandbox runs skip the lookup: in-sandbox git authenticates via the egress
-        # proxy, and (on GitHub) the lookup mints a token via a platform API call.
+        # subprocesses. Sandbox runs skip the lookup — in-sandbox git authenticates via the egress
+        # proxy's platform token, minted at turn start with a platform-specific TTL (GitHub
+        # installation tokens live 1h). A turn that outlives it would fail this publish's network git ops
+        # (ls-remote/push) and lose the run's work, so re-mint and deliver a fresh token onto the
+        # live session first. Best-effort: a failed refresh degrades to publishing with the
+        # turn-start token, i.e. the pre-existing behavior.
         auth_env: GitAuthEnv | None = None
         if self.sandbox_backend is None:
             auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
+        else:
+            await self._refresh_sandbox_egress()
 
         async with open_git_manager(
             sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
             snapshot = await git_manager.status_snapshot(
-                base_branch=default_branch,
+                base_branch=base_branch,
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
@@ -137,21 +150,56 @@ class GitChangePublisher(ChangePublisher):
             else:
                 branch_name = merge_request.source_branch
 
+            # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
+            # private cross-project CI includes; skip that push's CI and re-trigger as the service
+            # account below. The client capability answers False for platforms without ephemeral
+            # tokens, so no platform check is needed here; an explicit skip_ci ("no CI at all") also
+            # leaves nothing to heal.
+            heal_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
+                self.ctx.repository
+            )
+
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
             # A fresh, unique branch can't, so leave integration off for new MRs.
-            await git_manager.push_head_to(branch_name, integrate_on_reject=merge_request is not None)
+            # skip_ci here suppresses only the ephemeral bot's doomed pipeline (not the caller's
+            # skip_ci intent); _trigger_service_account_pipeline recreates it below.
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=heal_pipeline
+            )
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
-            merge_request = await self._create_merge_request(
-                branch_name,
-                changes_metadata["pr_metadata"].title,
-                changes_metadata["pr_metadata"].description,
-                as_draft=as_draft,
-                fallback_from_mr=fallback_from_mr,
-            )
+            try:
+                merge_request = await self._create_merge_request(
+                    branch_name,
+                    changes_metadata["pr_metadata"].title,
+                    changes_metadata["pr_metadata"].description,
+                    as_draft=as_draft,
+                    fallback_from_mr=fallback_from_mr,
+                )
+            except MergeRequestBranchNotVisibleError:
+                # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
+                # and discard the agent's reply, so report a partial publish (MR pending) and log loudly.
+                # On the heal path the push was skip-ci'd with no MR yet to trigger against, so name the
+                # suppressed pipeline in the log — the branch has no CI until the MR is created.
+                pipeline_note = (
+                    " The push skipped CI and no pipeline was triggered; CI will not run until the MR exists."
+                    if heal_pipeline
+                    else ""
+                )
+                logger.error(
+                    "Pushed branch '%s' but GitLab did not make it visible for MR creation within the retry "
+                    "budget; reporting a partial publish (MR pending).%s",
+                    branch_name,
+                    pipeline_note,
+                )
+                return PublishOutcome(
+                    merge_request=None,
+                    published=True,
+                    protected_branch_fallback_source=protected_branch_fallback_source,
+                )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
                 merge_request.web_url,
@@ -170,11 +218,87 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.draft,
             )
 
+        if heal_pipeline and merge_request is not None:
+            await self._trigger_service_account_pipeline(merge_request)
+
         return PublishOutcome(
             merge_request=merge_request,
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
         )
+
+    async def _refresh_sandbox_egress(self) -> None:
+        """Re-mint the git-platform token and deliver it onto the live sandbox session, so the
+        publish's in-sandbox network git ops (ls-remote/push) run with a fresh credential even when
+        the turn outlived the token minted at turn start.
+
+        Refreshing unconditionally before the first network op — rather than reacting to a failed
+        one — keeps the recovery independent of git's auth-error wording, which varies by version and
+        transport. Delivery is skipped when there is nothing to refresh (no egress proxy, a
+        token-less/eval platform, or a re-mint that returned the same token — e.g. GitLab's
+        day-cached clone token).
+
+        Only called in sandbox mode. Best-effort by design — the broad ``except`` is deliberate: the
+        platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors the
+        (platform-agnostic) publisher shouldn't enumerate, and any failure degrades cleanly to
+        publishing with the turn-start token (the pre-existing behavior). The stack trace is logged
+        so a persistent refresh failure stays diagnosable.
+        """
+        from sandbox_envs.services import refresh_platform_egress
+
+        backend = self.sandbox_backend
+        sandbox = self.ctx.sandbox
+        if backend is None or sandbox is None:  # pragma: no cover - only called in sandbox mode
+            return
+        try:
+            egress = await sync_to_async(refresh_platform_egress)(sandbox.egress, self.client, self.ctx.repository)
+            # refresh_platform_egress returns the *input* object when there was nothing to swap in
+            # (no proxy, token-less platform, or an unchanged token) — so identity means "nothing to
+            # deliver". The explicit `is None` also narrows the `EgressConfigRequest | None` return for
+            # the type checker before the non-null refresh_egress call below.
+            if egress is None or egress is sandbox.egress:
+                return
+            await backend.refresh_egress(egress)
+            logger.info("Refreshed the sandbox egress token for %s before publish", self.ctx.repository.slug)
+        except Exception:
+            logger.exception(
+                "Could not refresh the sandbox egress token for %s before publish; proceeding with the "
+                "turn-start token",
+                self.ctx.repository.slug,
+            )
+
+    async def _trigger_service_account_pipeline(self, merge_request: MergeRequest) -> None:
+        """Create the MR's CI pipeline as the service account (which can read private cross-project
+        CI includes), used after a ``-o ci.skip`` push suppressed the ephemeral bot's pipeline.
+
+        Best-effort and never raises: this runs at turn-end publish, so a failure here must not sink
+        the whole publish. Because the push was skip-ci'd, a failed trigger leaves the MR with no
+        pipeline — surface that loudly (error log for Sentry) and visibly (an MR note), never
+        silently. A single attempt only: ``mr.pipelines.create()`` is a non-idempotent POST and
+        python-gitlab may already retry transient errors, so we add no retry multiplier of our own.
+        """
+        try:
+            pipeline = await sync_to_async(self.client.trigger_merge_request_pipeline)(
+                merge_request.repo_id, merge_request.merge_request_id
+            )
+            logger.info(
+                "Triggered CI pipeline %s for MR !%s as the service account",
+                pipeline.id,
+                merge_request.merge_request_id,
+            )
+        except Exception:
+            logger.exception(
+                "Could not trigger the CI pipeline for MR !%s as the service account; posting a note",
+                merge_request.merge_request_id,
+            )
+            try:
+                await sync_to_async(self.client.create_merge_request_comment)(
+                    merge_request.repo_id,
+                    merge_request.merge_request_id,
+                    "⚠️ DAIV could not start the CI pipeline automatically. Please run it manually.",
+                )
+            except Exception:
+                logger.exception("Could not post the pipeline-failure note on MR !%s", merge_request.merge_request_id)
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """
@@ -242,18 +366,20 @@ class GitChangePublisher(ChangePublisher):
             The merge request.
         """
         assignee_id = None
+        if self.ctx.issue:
+            assignee = self.ctx.issue.assignee or self.ctx.issue.author
+            assignee_id = assignee.id if self.ctx.git_platform == GitPlatform.GITLAB else assignee.username
 
-        if self.ctx.issue and self.ctx.issue.assignee:
-            assignee_id = (
-                self.ctx.issue.assignee.id
-                if self.ctx.git_platform == GitPlatform.GITLAB
-                else self.ctx.issue.assignee.username
-            )
+        target_branch = (
+            fallback_from_mr.target_branch
+            if fallback_from_mr is not None
+            else cast("str", self.ctx.config.default_branch)
+        )
 
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
-            target_branch=cast("str", self.ctx.config.default_branch),
+            target_branch=target_branch,
             labels=[BOT_LABEL],
             title=title,
             assignee_id=assignee_id,

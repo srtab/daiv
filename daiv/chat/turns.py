@@ -13,7 +13,10 @@ from typing import Any
 
 logger = logging.getLogger("daiv.chat")
 
-_TOOL_USE_BLOCK_TYPES = frozenset({"tool_use", "tool_call"})
+# Tool-call content-block types across providers: Anthropic emits ``tool_use``, the
+# LangChain standard ``tool_call``, and the OpenAI Responses API (gpt-5.x / codex via
+# langchain-openai) ``function_call``.
+_TOOL_CALL_BLOCK_TYPES = frozenset({"tool_use", "tool_call", "function_call"})
 _THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning"})
 _SKILL_TOOL_NAME = "skill"
 
@@ -87,6 +90,15 @@ def _fold_skill_body(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, 
     turns[t_idx]["segments"][s_idx]["result"] = str(content or "")
 
 
+def _join_text_items(items: Any) -> str:
+    """Join the ``text`` fields of an OpenAI ``[{"text": ...}, ...]`` reasoning list (the
+    ``summary`` / ``content`` shape) with blank lines, dropping empty/blank entries."""
+    if not isinstance(items, list):
+        return ""
+    joined = "\n\n".join(str(it.get("text", "")) for it in items if isinstance(it, dict) and it.get("text"))
+    return joined if joined.strip() else ""
+
+
 def _reasoning_from_additional_kwargs(additional_kwargs: Any) -> str:
     """Extract reasoning text from an AIMessage's ``additional_kwargs``.
 
@@ -100,14 +112,25 @@ def _reasoning_from_additional_kwargs(additional_kwargs: Any) -> str:
     if isinstance(rc, str) and rc.strip():
         return rc
     reasoning = additional_kwargs.get("reasoning")
-    if isinstance(reasoning, dict):
-        summary = reasoning.get("summary") or []
-        if isinstance(summary, list):
-            joined = "\n\n".join(
-                str(item.get("text", "")) for item in summary if isinstance(item, dict) and item.get("text")
-            )
-            if joined.strip():
-                return joined
+    if isinstance(reasoning, dict) and (joined := _join_text_items(reasoning.get("summary"))):
+        return joined
+    return ""
+
+
+def _thinking_from_block(block: dict) -> str:
+    """Extract reasoning text from a thinking/reasoning content block across shapes.
+
+    Anthropic ``thinking`` / the LangChain standard ``reasoning`` / a generic ``text``
+    are plain strings. The OpenAI Responses API ``reasoning`` block instead nests text in
+    ``summary`` / ``content`` lists of ``{"text": ...}`` items and keeps the raw trace only
+    in ``encrypted_content`` (not renderable) — so an empty summary yields no segment.
+    """
+    direct = block.get("thinking") or block.get("reasoning") or block.get("text")
+    if isinstance(direct, str) and direct.strip():
+        return direct
+    for key in ("summary", "content"):
+        if joined := _join_text_items(block.get(key)):
+            return joined
     return ""
 
 
@@ -122,13 +145,21 @@ def _build_user_turn(m: Any) -> dict[str, Any]:
     return {"id": getattr(m, "id", "") or "", "role": "user", "segments": [{"type": "text", "content": text}]}
 
 
+def _tc_id(obj: Any) -> str | None:
+    """Canonical tool-call id. OpenAI ``function_call`` blocks key the call on ``call_id``
+    (their ``id`` is an unrelated ``fc_...`` handle); normalized ``tool_calls`` entries and
+    Anthropic ``tool_use`` blocks carry only ``id``. ToolMessage.tool_call_id matches this."""
+    if isinstance(obj, dict):
+        return obj.get("call_id") or obj.get("id")
+    return getattr(obj, "call_id", None) or getattr(obj, "id", None)
+
+
 def _build_assistant_turn(m: Any) -> dict[str, Any]:
     content = getattr(m, "content", "")
     tool_calls = getattr(m, "tool_calls", None) or []
     tc_by_id: dict[str, Any] = {}
     for tc in tool_calls:
-        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-        if tc_id:
+        if tc_id := _tc_id(tc):
             tc_by_id[tc_id] = tc
 
     segments: list[dict[str, Any]] = []
@@ -142,6 +173,7 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
         segments.append({"type": "thinking", "content": extra_thought})
 
     if isinstance(content, list):
+        emitted_tc_ids: set[str] = set()
         for block in content:
             btype = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
             if btype == "text":
@@ -149,18 +181,25 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
                 if text:
                     segments.append({"type": "text", "content": text})
             elif btype in _THINKING_BLOCK_TYPES:
-                # Anthropic uses ``thinking``; the newer LangChain standard uses ``reasoning``.
-                thought = (
-                    (block.get("thinking") or block.get("reasoning") or block.get("text") or "")
-                    if isinstance(block, dict)
-                    else ""
-                )
+                thought = _thinking_from_block(block) if isinstance(block, dict) else ""
                 if thought:
                     segments.append({"type": "thinking", "content": thought})
-            elif btype in _TOOL_USE_BLOCK_TYPES:
-                tc_id = block.get("id") if isinstance(block, dict) else getattr(block, "id", None)
-                canonical = tc_by_id.get(tc_id, block)
-                segments.append(_tool_call_segment(canonical))
+            elif btype in _TOOL_CALL_BLOCK_TYPES:
+                # Blocks carry the ordering; the normalized ``tool_calls`` entry (looked up
+                # by canonical id) carries clean id/name/args. Fall back to the raw block
+                # only if the call is absent from ``tool_calls`` (shouldn't happen).
+                seg = _tool_call_segment(tc_by_id.get(_tc_id(block), block))
+                segments.append(seg)
+                if seg["id"]:
+                    emitted_tc_ids.add(seg["id"])
+        # Defensive: a provider may populate ``tool_calls`` without emitting a block shape
+        # we recognise. Surface any such call so it is never silently dropped — a dropped
+        # tool call would also orphan its ToolMessage and vanish from the transcript.
+        for tc in tool_calls:
+            tc_id = _tc_id(tc)
+            if tc_id and tc_id not in emitted_tc_ids:
+                segments.append(_tool_call_segment(tc))
+                emitted_tc_ids.add(tc_id)
     else:
         if isinstance(content, str) and content.strip():
             segments.append({"type": "text", "content": content})
@@ -171,12 +210,11 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
 
 
 def _tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
+    tc_id = _tc_id(tc) or ""
     if isinstance(tc, dict):
-        tc_id = tc.get("id") or ""
         tc_name = tc.get("name") or ""
         args = tc.get("args", tc.get("input", tc.get("arguments", "")))
     else:
-        tc_id = getattr(tc, "id", "") or ""
         tc_name = getattr(tc, "name", "") or ""
         args = getattr(tc, "args", None) or getattr(tc, "input", None) or ""
 

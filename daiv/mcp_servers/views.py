@@ -3,56 +3,159 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
 from asgiref.sync import async_to_sync
+from django_filters.views import FilterView
 
+from accounts.context_processors import NAV_SECTION_MCP_GLOBAL
 from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
+from mcp_servers.filters import MCPServerFilter
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_servers.models import MCPServer
 
 logger = logging.getLogger("daiv.mcp_servers")
 
 
-class MCPServerListView(AdminRequiredMixin, TemplateView):
+def _decorate(servers, *, global_names=frozenset()):
+    """Attach display-only health/exposed/filtered_out/shadowed attributes to each row.
+
+    ``shadowed`` marks a personal server whose name collides with a global one:
+    ``build_runtime_servers`` skips it at runtime (global wins), so the badge tells
+    the owner it does not load — a condition the create-time guard can't catch when
+    the global is added *after* the personal server."""
+    for s in servers:
+        s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
+        s.exposed = services.exposed_tools(s)
+        s.filtered_out = (
+            len(s.discovered_tools) - len(s.exposed) if s.tool_filter_mode != MCPServer.FilterMode.NONE else 0
+        )
+        s.shadowed = s.is_shadowed_by(global_names)
+    return servers
+
+
+def _pin_nav_section(request, obj: MCPServer) -> None:
+    """Pin the sidebar to the global section for a global row. The edit/delete URLs
+    are shared with the personal page and resolve to the personal section by default,
+    so global rows need the explicit override; no-op for user-scoped rows."""
+    if obj.scope == MCPServer.Scope.GLOBAL:
+        request.nav_section_override = NAV_SECTION_MCP_GLOBAL
+
+
+def _list_url_for_scope(scope) -> str:
+    """The list page for a scope — the single source of the scope→list-URL mapping,
+    shared by redirects-after-save and the form's Cancel link so they never diverge."""
+    if scope == MCPServer.Scope.GLOBAL:
+        return reverse("mcp_servers:global_list")
+    return reverse("mcp_servers:list")
+
+
+def _list_url_for(obj: MCPServer) -> str:
+    """List page matching the row's scope, so success/error flashes land on the
+    page the user acted from."""
+    return _list_url_for_scope(obj.scope)
+
+
+def _tool_filter_visible(form, obj: MCPServer | None = None) -> bool:
+    """Whether the Tool filter section starts visible.
+
+    Visible only when actionable: an already-synced server (edit), or — as
+    fail-safes that must never hide live data — a bound POST carrying a
+    non-default filter (a validation re-render must keep the user's selection
+    on screen) or a persisted active filter on a never-synced row (possible via
+    the API; the DB constraint requires items whenever a mode is set)."""
+    if obj is not None and (obj.tools_synced_at or obj.tool_filter_mode != MCPServer.FilterMode.NONE):
+        return True
+    if form.is_bound:
+        mode = form.data.get("tool_filter_mode") or MCPServer.FilterMode.NONE
+        items = [v for v in form.data.getlist("tool_filter_items") if str(v).strip()]
+        return mode != MCPServer.FilterMode.NONE or bool(items)
+    return False
+
+
+class MCPServerListView(LoginRequiredMixin, FilterView):
+    """Personal servers page: the requesting user's rows (admins may pick
+    another member via the owner dropdown) plus a read-only view of the
+    global rows so everyone can see what already loads in every run."""
+
+    filterset_class = MCPServerFilter
     template_name = "mcp_servers/list.html"
+    context_object_name = "your_servers"
+    paginate_by = 20
+    # Invalid URL params (e.g. ?owner=bogus) drop silently instead of blanking the list.
+    strict = False
+
+    def get_queryset(self):
+        return MCPServer.objects.filter(scope=MCPServer.Scope.USER).select_related("user").order_by("name")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        custom = list(MCPServer.objects.filter(source=MCPServer.Source.CUSTOM).select_related("created_by"))
-        builtin = list(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN))
-        for s in [*custom, *builtin]:
-            s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
-            s.exposed = services.exposed_tools(s)
-            s.filtered_out = (
-                len(s.discovered_tools) - len(s.exposed) if s.tool_filter_mode != MCPServer.FilterMode.NONE else 0
-            )
-        ctx["custom_servers"] = custom
-        ctx["builtin_servers"] = builtin
+        ctx["is_admin"] = self.request.user.is_admin
+        # Fetch every global row once; the read-only section shows them all and
+        # the name set drives shadow detection on the personal rows.
+        global_rows = list(MCPServer.objects.global_servers())
+        _decorate(ctx["your_servers"], global_names={s.name for s in global_rows})
+        ctx["global_servers"] = _decorate(global_rows)
+        form = ctx["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        ctx["selected_owner"] = cleaned.get("owner")
         return ctx
 
 
-class MCPServerCreateView(AdminRequiredMixin, View):
+class MCPServerGlobalListView(AdminRequiredMixin, TemplateView):
+    """Admin-only management page for GLOBAL rows. A TemplateView, not a
+    FilterView: the page is a union of two sections (custom + built-in), not a
+    single filterable queryset."""
+
+    template_name = "mcp_servers/global_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        global_rows = list(MCPServer.objects.global_servers())
+        ctx["global_custom_servers"] = _decorate([s for s in global_rows if not s.is_builtin()])
+        ctx["global_builtin_servers"] = _decorate([s for s in global_rows if s.is_builtin()])
+        return ctx
+
+
+class MCPServerCreateView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
     template_name = "mcp_servers/form.html"
+    # Which scope this entry point creates. The personal route uses the default;
+    # the global route is the AdminRequiredMixin subclass below.
+    scope = MCPServer.Scope.USER
+
+    def _form_kwargs(self):
+        return {"user": self.request.user, "scope": self.scope}
+
+    def _formset_kwargs(self):
+        # Personal servers accept literal headers only (the runtime never
+        # resolves env_ref for user-scoped rows) — keyed on scope, not on the
+        # acting user's role, so admin personal servers behave like members'.
+        return {"form_kwargs": {"literal_only": self.scope == MCPServer.Scope.USER}}
 
     def get(self, request):
-        return self._render(request, MCPServerForm(), MCPServerHeaderFormSet(prefix="headers"))
+        return self._render(
+            request,
+            MCPServerForm(**self._form_kwargs()),
+            MCPServerHeaderFormSet(prefix="headers", **self._formset_kwargs()),
+        )
 
     def post(self, request):
-        form = MCPServerForm(request.POST)
-        formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
+        form = MCPServerForm(request.POST, **self._form_kwargs())
+        formset = MCPServerHeaderFormSet(request.POST, prefix="headers", **self._formset_kwargs())
         if not (form.is_valid() and formset.is_valid()):
             return self._render(request, form, formset, status=400)
         obj = form.save(commit=False)
         obj.created_by = request.user
+        # The owner (obj.user) is bound by MCPServerForm.save() for USER-scoped rows.
         obj.headers = build_headers_from_formset(formset, existing=None)
         obj.save()
         result = services.sync_discovered_tools(obj)
@@ -63,7 +166,7 @@ class MCPServerCreateView(AdminRequiredMixin, View):
                 _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
                 % {"name": obj.name, "error": result.get("error") or _("unknown error")},
             )
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(obj))
 
     def _render(self, request, form, formset, *, status=200):
         # Create never has a saved server to discover against, so there are no
@@ -71,17 +174,33 @@ class MCPServerCreateView(AdminRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"form": form, "formset": formset, "mode": "create", "tool_choices": []},
+            {
+                "form": form,
+                "formset": formset,
+                "mode": "create",
+                "scope": self.scope,
+                "cancel_url": _list_url_for_scope(self.scope),
+                "tool_choices": [],
+                "tool_filter_visible": _tool_filter_visible(form),
+            },
             status=status,
         )
 
 
-class MCPServerEditView(AdminRequiredMixin, View):
+class MCPServerGlobalCreateView(AdminRequiredMixin, MCPServerCreateView):
+    scope = MCPServer.Scope.GLOBAL
+
+
+class MCPServerEditView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
     template_name = "mcp_servers/form.html"
 
-    def get(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
+    def _formset_kwargs(self, obj):
+        return {"form_kwargs": {"literal_only": obj.is_user_scoped}}
+
+    def get(self, request, pk):
+        obj = MCPServer.objects.scoped_get(request.user, pk)
+        _pin_nav_section(request, obj)
         initial, headers_locked = _existing_headers_for_formset(obj)
         if headers_locked:
             messages.error(
@@ -92,12 +211,13 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 )
                 % {"name": obj.name},
             )
-        form = MCPServerForm(instance=obj)
-        formset = MCPServerHeaderFormSet(initial=initial, prefix="headers")
+        form = MCPServerForm(instance=obj, user=request.user)
+        formset = MCPServerHeaderFormSet(initial=initial, prefix="headers", **self._formset_kwargs(obj))
         return self._render(request, obj, form, formset, selected=obj.tool_filter_items, headers_locked=headers_locked)
 
-    def post(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
+    def post(self, request, pk):
+        obj = MCPServer.objects.scoped_get(request.user, pk)
+        _pin_nav_section(request, obj)
         try:
             existing_headers = obj.headers or []
         except DecryptionError:
@@ -110,10 +230,10 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 )
                 % {"name": obj.name},
             )
-            return redirect(reverse("mcp_servers:edit", args=[obj.name]))
+            return redirect(reverse("mcp_servers:edit", args=[obj.pk]))
 
-        form = MCPServerForm(request.POST, instance=obj)
-        formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
+        form = MCPServerForm(request.POST, instance=obj, user=request.user)
+        formset = MCPServerHeaderFormSet(request.POST, prefix="headers", **self._formset_kwargs(obj))
         if not (form.is_valid() and formset.is_valid()):
             return self._render(
                 request, obj, form, formset, selected=request.POST.getlist("tool_filter_items"), status=400
@@ -129,7 +249,7 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
                 % {"name": obj.name, "error": result.get("error") or _("unknown error")},
             )
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(saved))
 
     def _render(self, request, obj, form, formset, *, selected, headers_locked=False, status=200):
         # Choices come from the persisted snapshot — no network on render.
@@ -142,43 +262,60 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 "formset": formset,
                 "mode": "edit",
                 "object": obj,
+                "cancel_url": _list_url_for(obj),
                 "builtin": obj.is_builtin(),
                 "headers_locked": headers_locked,
                 "tool_choices": build_tool_choices(discovered, selected),
+                "tool_filter_visible": _tool_filter_visible(form, obj),
             },
             status=status,
         )
 
 
-class MCPServerDeleteView(AdminRequiredMixin, View):
+class MCPServerDeleteView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
 
-    def get(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name, source=MCPServer.Source.CUSTOM)
+    def _reject_builtin(self, request, obj):
+        """Built-ins cannot be deleted (the model's ``delete()`` would raise);
+        flash + redirect instead. Returns a response to short-circuit, else None."""
+        if obj.is_builtin():
+            messages.error(request, _("Built-in MCP servers cannot be deleted."))
+            return redirect(reverse("mcp_servers:global_list"))
+        return None
+
+    def get(self, request, pk):
+        obj = MCPServer.objects.manageable_get(request.user, pk)
+        if reject := self._reject_builtin(request, obj):
+            return reject
+        _pin_nav_section(request, obj)
         return render(request, "mcp_servers/confirm_delete.html", {"object": obj})
 
-    def post(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name, source=MCPServer.Source.CUSTOM)
+    def post(self, request, pk):
+        obj = MCPServer.objects.manageable_get(request.user, pk)
+        if reject := self._reject_builtin(request, obj):
+            return reject
+        name = obj.name
+        url = _list_url_for(obj)
         obj.delete()
         messages.success(request, _("MCP server '%(name)s' deleted.") % {"name": name})
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(url)
 
 
-class MCPServerToggleView(AdminRequiredMixin, View):
+class MCPServerToggleView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
-    def post(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
+    def post(self, request, pk):
+        obj = MCPServer.objects.manageable_get(request.user, pk)
         obj.enabled = not obj.enabled
         obj.save(update_fields=["enabled", "modified"])
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(obj))
 
 
-class MCPServerRefreshToolsView(AdminRequiredMixin, View):
+class MCPServerRefreshToolsView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
-    def post(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
+    def post(self, request, pk):
+        obj = MCPServer.objects.manageable_get(request.user, pk)
         result = services.sync_discovered_tools(obj)
         if result.get("ok"):
             messages.success(
@@ -192,28 +329,26 @@ class MCPServerRefreshToolsView(AdminRequiredMixin, View):
                 % {"name": obj.name, "error": result.get("error") or _("unknown error")},
             )
         if request.POST.get("next") == "edit":
-            return redirect(reverse("mcp_servers:edit", args=[obj.name]))
-        return redirect(reverse("mcp_servers:list"))
+            return redirect(reverse("mcp_servers:edit", args=[obj.pk]))
+        return redirect(_list_url_for(obj))
 
 
-class MCPServerTestView(AdminRequiredMixin, View):
-    """Probe an MCP endpoint from the form's "Test connection" button, returning discovered tools as JSON.
+class MCPServerTestView(LoginRequiredMixin, View):
+    """Probe an MCP endpoint from the form's "Test connection" button.
 
-    Kept as a CBV JSON endpoint rather than a django-ninja router (cf. the "views split by content
-    type" convention) on purpose: it re-parses a live ``MCPServerHeaderFormSet`` and reuses
-    ``build_headers_from_formset`` for secret-preservation, which ninja's schema-based body parsing
-    handles poorly — and there is no other formset-POST action modeled as a router.
-
-    Admin-only. ``url``/``transport``/``headers`` come from the POST as-is, so an admin can probe an
-    arbitrary URL while borrowing a saved server's stored secret (matched by ``name``). This grants
-    no capability an admin lacks already (admins can read/use any stored secret at runtime), but note
-    the probed URL is client-supplied and not bound to the named row.
-    """
+    Login-required. The stored-secret borrow (matched by the ``name`` POST param
+    against a saved row) is SCOPED: a member resolves secrets only from their own
+    ``scope=user`` rows; an admin from a GLOBAL row or their OWN personal row —
+    never from another member's personal server (see ``_resolve_borrowable``). A
+    ``mode=env_ref`` header in the probe payload is rejected for non-admins so an
+    unsaved probe cannot read host env vars either."""
 
     http_method_names = ["post"]
 
     def post(self, request):
-        formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
+        formset = MCPServerHeaderFormSet(
+            request.POST, prefix="headers", form_kwargs={"literal_only": not request.user.is_admin}
+        )
         if not formset.is_valid():
             return JsonResponse({"ok": False, "error": "invalid headers"}, status=400)
         # Re-testing a saved server: the form blanks preserved literal values (see
@@ -222,16 +357,46 @@ class MCPServerTestView(AdminRequiredMixin, View):
         existing_headers = None
         name = request.POST.get("name")
         if name:
-            obj = MCPServer.objects.filter(name=name).first()
+            obj = self._resolve_borrowable(request.user, name)
             if obj is not None:
                 try:
                     existing_headers = obj.headers or []
                 except DecryptionError:
-                    existing_headers = None
+                    # Refuse rather than probe without the secret: proceeding would
+                    # send an unauthenticated request and misattribute the resulting
+                    # failure to the remote server instead of the local key problem.
+                    logger.warning(
+                        "MCP test-connection: cannot borrow headers for '%s' (pk=%s); decryption failed",
+                        obj.name,
+                        obj.pk,
+                    )
+                    return JsonResponse(
+                        {"ok": False, "error": "stored headers could not be decrypted; reset them before testing"},
+                        status=400,
+                    )
         headers = build_headers_from_formset(formset, existing=existing_headers)
+        if not request.user.is_admin and any(h.get("mode") == MCPServer.HeaderMode.ENV_REF for h in headers):
+            return JsonResponse({"ok": False, "error": "env_ref headers are not allowed"}, status=400)
         payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
-        return JsonResponse(result, status=200 if result.get("ok") else 502)
+        # Always 200: the probe ran and produced a structured answer. A failed probe
+        # is a negative *result*, not a server error — returning 5xx would log as a
+        # Django "Bad Gateway" (Sentry noise) and can be swallowed by a reverse proxy
+        # before the JSON body reaches the browser. The client keys off ``result.ok``.
+        return JsonResponse(result, status=200)
+
+    @staticmethod
+    def _resolve_borrowable(user, name):
+        """The saved row whose stored secret this user may borrow when probing.
+        Admins: a GLOBAL row named ``name`` (which wins the ambiguity), else their
+        OWN user-scoped row. Members: only their own user-scoped row named ``name``.
+        Neither may borrow another member's personal secret — that stays private to
+        its owner, matching the per-user isolation the runtime enforces (an admin's
+        own run never loads another member's rows)."""
+        own = MCPServer.objects.filter(name=name, scope=MCPServer.Scope.USER, user=user)
+        if user.is_admin:
+            return MCPServer.objects.filter(name=name, scope=MCPServer.Scope.GLOBAL).first() or own.first()
+        return own.first()
 
 
 def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:

@@ -142,3 +142,131 @@ class TestToolSearch:
         assert isinstance(result, Command)
         assert "loaded_tool_names" not in result.update
         assert "42" in result.update["messages"][0].content
+
+
+class TestToolSearchSchemaDelivery:
+    def _index_with_typed_tool(self):
+        from pydantic import BaseModel, Field
+
+        class _Args(BaseModel):
+            ticket: str = Field(description="Ticket identifier.")
+            max_notes: int = Field(default=5, description="Max correspondence notes.")
+
+        def _run(ticket: str, max_notes: int = 5) -> str:
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            func=_run, name="rt_fetch_ticket_digest", description="Fetch a ticket digest.", args_schema=_Args
+        )
+        return DeferredToolsIndex([tool])
+
+    async def test_result_embeds_full_schema_in_functions_block(self):
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": _runtime()})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" in content and "</functions>" in content
+        assert "rt_fetch_ticket_digest" in content
+        # The schema's real parameter names ride in the result — this is what a frozen-array model reads.
+        assert "max_notes" in content
+        assert "ticket" in content
+
+    async def test_reselecting_loaded_name_resends_schema(self):
+        # Idempotent re-delivery: a summarization-evicted (or migration-inherited) schema is
+        # recoverable by re-searching. No short-circuit on already-loaded names.
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+        runtime = _runtime({"loaded_tool_names": {"rt_fetch_ticket_digest"}})
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": runtime})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" in content
+        assert "max_notes" in content
+        assert result.update["loaded_tool_names"] == {"rt_fetch_ticket_digest"}
+
+    async def test_valve_off_returns_summaries_only(self, monkeypatch):
+        from automation.agent.deferred import search_tool as search_tool_module
+
+        monkeypatch.setattr(search_tool_module.deferred_settings, "EMBED_SCHEMAS_IN_RESULTS", False)
+        tool_search = make_tool_search(lambda: self._index_with_typed_tool(), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": ["rt_fetch_ticket_digest"], "runtime": _runtime()})
+
+        content = result.update["messages"][0].content
+        assert "<functions>" not in content
+        assert "rt_fetch_ticket_digest" in content
+        assert "Fetch a ticket digest." in content
+
+    def _index_with_unconvertible_tool(self):
+        from pydantic import BaseModel, ConfigDict, Field
+
+        class _Unserializable:
+            pass
+
+        class _Args(BaseModel):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            repo: _Unserializable = Field(description="Non-serializable handle.")
+
+        def _run(repo) -> str:
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            func=_run, name="bad_tool", description="Tool with a non-serializable arg.", args_schema=_Args
+        )
+        return DeferredToolsIndex([tool])
+
+    async def test_unconvertible_tool_degrades_to_summary_and_warns(self, caplog):
+        # A tool whose args reference a non-serializable type (mirrors index.py's git.Repo case)
+        # can't emit a JSON schema: the result degrades to a <function-summary> rather than aborting,
+        # and warns (not debug) because on a frozen model that tool is then uncallable.
+        import logging
+
+        tool_search = make_tool_search(lambda: self._index_with_unconvertible_tool(), top_k_default=5, top_k_max=10)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await tool_search.ainvoke({"query": "", "select": ["bad_tool"], "runtime": _runtime()})
+
+        content = result.update["messages"][0].content
+        assert "<function-summary>" in content
+        assert "bad_tool" in content
+        assert "<function>" not in content
+        assert result.update["loaded_tool_names"] == {"bad_tool"}
+        assert any(r.levelname == "WARNING" and "bad_tool" in r.getMessage() for r in caplog.records)
+
+    async def test_unexpected_conversion_error_is_contained_per_tool(self, monkeypatch, caplog):
+        # A non-Pydantic conversion fault (ValueError/TypeError from convert_to_openai_tool) must not
+        # abort the whole batch: the offending tool degrades to a summary, siblings still load, and it
+        # logs at error level (unlike the known git.Repo case, which warns).
+        import logging
+
+        from automation.agent.deferred import search_tool as search_tool_module
+
+        good = StructuredTool.from_function(func=lambda ticket: "ok", name="good_tool", description="Converts fine.")
+        bad = StructuredTool.from_function(
+            func=lambda ticket: "ok", name="explodes", description="Trips an unexpected fault."
+        )
+        index = DeferredToolsIndex([good, bad])
+
+        real = search_tool_module.convert_to_openai_tool
+
+        def _flaky(tool):
+            if tool.name == "explodes":
+                raise ValueError("simulated non-pydantic conversion fault")
+            return real(tool)
+
+        monkeypatch.setattr(search_tool_module, "convert_to_openai_tool", _flaky)
+        tool_search = make_tool_search(lambda: index, top_k_default=5, top_k_max=10)
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await tool_search.ainvoke({
+                "query": "",
+                "select": ["good_tool", "explodes"],
+                "runtime": _runtime(),
+            })
+
+        content = result.update["messages"][0].content
+        assert "<function>" in content  # the good tool still loaded despite the sibling's failure
+        assert "<function-summary>explodes:" in content
+        assert result.update["loaded_tool_names"] == {"good_tool", "explodes"}
+        assert any(r.levelname == "ERROR" and "explodes" in r.getMessage() for r in caplog.records)

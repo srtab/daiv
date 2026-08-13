@@ -13,9 +13,8 @@ import re
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 
-# Matches a constructor call to the *bare* upstream ``TodoListMiddleware(`` while excluding the
-# ``DAIVTodoListMiddleware(`` subclass (the negative lookbehind rejects the ``…V`` prefix). Catches
-# both kwarg and positional reverts, unlike a ``"TodoListMiddleware(system_prompt="`` substring check.
+# Matches a ``TodoListMiddleware(`` constructor call, rejecting any prefixed subclass. Catches both
+# kwarg and positional forms, unlike a ``"TodoListMiddleware(system_prompt="`` substring check.
 _BARE_TODO_CTOR = re.compile(r"(?<![A-Za-z0-9_])TodoListMiddleware\(")
 
 
@@ -117,24 +116,20 @@ def test_git_middleware_receives_capture_patch_flag():
     )
 
 
-def _assert_uses_daiv_todo_subclass(module):
-    # DAIV's todo middleware must be the DAIVTodoListMiddleware subclass, never the bare upstream
-    # class: the harness profile excludes the base by exact type, so a bare instance would be dropped
-    # (alongside the one create_deep_agent auto-adds), leaving the agent with no write_todos.
+def _assert_builds_todo_middleware(module):
+    # DAIV supplies its own todo middleware with custom guidance. deepagents 0.7 stopped
+    # auto-adding TodoListMiddleware, so this instance is the only source of write_todos —
+    # dropping the call leaves the agent with no todo tool at all.
     src = inspect.getsource(module)
-    assert "DAIVTodoListMiddleware(" in src, f"{module.__name__} must build todo middleware as DAIVTodoListMiddleware"
-    assert not _BARE_TODO_CTOR.search(src), f"{module.__name__} must NOT construct the bare upstream TodoListMiddleware"
+    assert _BARE_TODO_CTOR.search(src), f"{module.__name__} must build a TodoListMiddleware instance"
 
 
-def test_graph_uses_daiv_todo_subclass_not_upstream_base():
-    # The main agent runs through create_deep_agent, where a bare TodoListMiddleware would be excluded.
-    _assert_uses_daiv_todo_subclass(graph_module)
+def test_graph_builds_todo_middleware():
+    _assert_builds_todo_middleware(graph_module)
 
 
-def test_subagents_use_daiv_todo_subclass_not_upstream_base():
-    # Subagents don't hit the profile filter, but use the same subclass uniformly (mirrors how DAIV's
-    # AnthropicPromptCachingMiddleware subclass is used in both the main agent and subagents).
-    _assert_uses_daiv_todo_subclass(subagents_module)
+def test_subagents_build_todo_middleware():
+    _assert_builds_todo_middleware(subagents_module)
 
 
 def test_slash_command_middleware_registered_only_when_enabled():
@@ -172,3 +167,13 @@ def test_repository_memory_middleware_registered_after_dynamic_prompt():
     prompt = src.rindex("dynamic_daiv_system_prompt")
     memory_mw = src.index("RepositoryMemoryMiddleware(")
     assert prompt < memory_mw, "RepositoryMemoryMiddleware must be registered after dynamic_daiv_system_prompt"
+
+
+def test_graph_uses_daiv_filesystem_middleware():
+    """The main agent greps too and shares the paths-only default with the detectors, so it must
+    get DAIV's filesystem subclass (which carries the output-mode label), not plain upstream.
+    """
+    src = inspect.getsource(graph_module)
+
+    assert "DAIVFilesystemMiddleware(" in src
+    assert not re.search(r"(?<![A-Za-z0-9_])FilesystemMiddleware\(", src), "graph must not wire upstream"

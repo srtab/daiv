@@ -28,6 +28,7 @@ from codebase.base import (
     NotePosition,
     NotePositionLineRange,
     NoteType,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -35,40 +36,55 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
 from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri, is_git_auth_error_text
+from core.utils import async_download_url, build_uri, is_git_auth_error_text, is_git_ref_not_found_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
-    from gitlab.v4.objects import ProjectHook, ProjectMergeRequest
+    from gitlab.v4.objects import (
+        ProjectHook,
+        ProjectIssue,
+        ProjectIssueNote,
+        ProjectMergeRequest,
+        ProjectMergeRequestNote,
+    )
 
     from codebase.clients.base import Emoji, WebhookSetupResult
 
+    AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
+
 logger = logging.getLogger("daiv.clients")
 
-# GitLab does not guarantee a just-pushed branch is immediately visible to the merge-request-create
-# validation: the ref lands in Gitaly synchronously with the push HTTP response, but the branch view
-# that `POST /merge_requests` checks is refreshed by the (asynchronous) post-receive processing. A
-# sandbox-authoritative run pushes from inside the sandbox and creates the MR from the app in the same
-# instant, landing squarely in that window, so the create can fail with
-# `400 {'source_branch': ['does not exist']}` for a branch that was *just* pushed successfully. Retry
-# the create until the branch becomes visible (a successful create is the signal), sleeping these many
-# seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
-# surfaces to the caller.
-MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+# A just-pushed branch may not be visible to `POST /merge_requests` immediately (async post-receive lag,
+# observed ~37s on GitLab 19.x); the budget must cover that tail, and exhaustion while the branch is
+# confirmed pushed degrades to "branch pushed, MR pending" (see _create_merge_request_awaiting_branch).
+MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
+
+# A freshly minted project access token (see :func:`get_ephemeral_clone_token`) is not always
+# immediately accepted for git-over-HTTPS: GitLab appears to propagate the token's project
+# authorization asynchronously after the create call returns (observed on git.eurotux.com /
+# GitLab 19.x), so a clone issued microseconds later can be rejected with `could not read Username`
+# (prompts are disabled). This is the same class of async-propagation race the MR-create retry above
+# handles. Retry the *same* token on this backoff schedule (~15s over four retries, before one final
+# attempt) until the authorization lands — re-minting instead would just produce another brand-new
+# token that hits the same window.
+CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
     """True when a clone failed because the remote rejected the credential (HTTP auth), as opposed
     to a missing branch, a bad URL, or a network error.
 
-    Only auth rejections are worth retrying with a freshly minted token; everything else would fail
-    identically the second time. A clone that under-matches would silently keep serving the dead
-    cached token — the exact wedge this self-heal exists to break — so it reuses the shared marker set
-    (:func:`core.utils.is_git_auth_error_text`) the push side uses; over-matching costs at most one
-    extra (still-failing) clone attempt.
+    Only auth rejections are worth retrying (with propagation backoff, then one re-mint); everything
+    else would fail identically on a retry and so propagates immediately. A clone that under-matches
+    would silently keep serving the dead cached token — the exact wedge this self-heal exists to
+    break — so it reuses the shared marker set (:func:`core.utils.is_git_auth_error_text`) the push
+    side uses. Keep the markers tight, though: with the retry loop, over-matching a non-credential
+    failure (e.g. a proxy or WAF 403) now costs the full propagation-and-re-mint budget (~30s / up to
+    ten attempts) before the real error surfaces.
     """
     return is_git_auth_error_text(f"{error.stderr or ''} {error}")
 
@@ -84,6 +100,24 @@ def _is_source_branch_missing_error(error: GitlabCreateError) -> bool:
         return False
     body = str(error.error_message).lower()
     return "source_branch" in body and "does not exist" in body
+
+
+def _is_award_emoji_taken_error(error: GitlabCreateError) -> bool:
+    """True when GitLab rejected the award because this user already made it.
+
+    Reported as `404 Award Emoji Name has already been taken`. Stringifies the body so it matches
+    whether python-gitlab surfaced ``error_message`` as the parsed dict or as a str.
+    """
+    return error.response_code == 404 and "Award Emoji Name has already been taken" in str(error.error_message)
+
+
+def _create_award_emoji(target: AwardEmojiTarget, emoji: Emoji):
+    """Award `emoji` on an issue, MR or note, idempotently — an award already made is a success."""
+    try:
+        target.awardemojis.create({"name": emoji})
+    except GitlabCreateError as e:
+        if not _is_award_emoji_taken_error(e):
+            raise
 
 
 class GitLabClient(RepoClient):
@@ -174,7 +208,12 @@ class GitLabClient(RepoClient):
         if limit is not None:
             optional_kwargs["per_page"] = min(limit, 100)
 
+        # The listing is ordered by a mutable key (last_activity_at), so a paginated iterator can
+        # surface the same project on two pages when its activity shifts mid-iteration. Dedupe by
+        # slug as we go — in-loop rather than a post-hoc pass so `limit` bounds unique repos and the
+        # early break is preserved. Callers rely on one entry per slug (see abstract list_repositories).
         repos: list[Repository] = []
+        seen: set[str] = set()
         for project in self.client.projects.list(
             iterator=True,
             archived=False,
@@ -185,12 +224,16 @@ class GitLabClient(RepoClient):
             sort="desc",
             **optional_kwargs,
         ):
+            slug = project.path_with_namespace
+            if slug in seen:
+                continue
+            seen.add(slug)
             repos.append(
                 Repository(
                     pk=cast("int", project.get_id()),
-                    slug=project.path_with_namespace,
+                    slug=slug,
                     name=project.name,
-                    clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
+                    clone_url=f"{self.client.url}/{slug}.git",
                     html_url=project.web_url,
                     default_branch=project.default_branch,
                     git_platform=self.git_platform,
@@ -380,26 +423,41 @@ class GitLabClient(RepoClient):
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             clone_dir = Path(tmpdir) / "repo"
-            repo = self._clone(repository, sha, clone_dir)
+            try:
+                repo = self._clone(repository, sha, clone_dir)
+            except GitCommandError as e:
+                if is_git_ref_not_found_text(f"{e.stderr or ''} {e}"):
+                    raise CloneRefNotFoundError(sha, repository.slug) from e
+                raise
             self._configure_commit_identity(repo)
             yield repo
 
     def _clone(self, repository: Repository, sha: str, clone_dir: Path) -> Repo:
         """
-        Clone ``repository`` at ``sha`` into ``clone_dir``, healing a stale cached clone token.
+        Clone ``repository`` at ``sha`` into ``clone_dir``, tolerating clone-token propagation lag
+        and healing a genuinely stale cached token.
 
-        The credential rides a command-scoped env header (:func:`git_auth_env`) instead of the
+        The credential rides a command-scoped env header (:class:`GitAuthEnv`) instead of the
         clone URL, so it never persists in ``.git/config`` — which is seeded into the sandbox —
         or appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
         local-mode (sandbox-disabled) git gets the same env per invocation via
         :meth:`RepoClient.get_git_auth_env`.
 
-        A clone token is cached for a day but the project access token behind it can die sooner
-        (revoked, project/instance reset). Because the cache is consulted before any API call, a
-        dead token would otherwise be served to — and fail — every clone of the project until the
-        cache window closes. So when a clone is rejected for auth *and* it used the ephemeral token,
-        drop that token and retry once with a freshly minted one. The PAT fallback is not retried:
-        re-minting can't produce a different credential when the ephemeral token was unavailable.
+        Two distinct auth-failure modes are handled, in order:
+
+        1. **Propagation lag.** A just-minted project access token can be briefly rejected while
+           GitLab propagates its authorization (see
+           :const:`CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`). Retry the *same* token on the
+           backoff schedule — re-minting here would only produce another token in the same window.
+        2. **Genuinely dead cached token.** A clone token is cached for a day but the token behind
+           it can die sooner (revoked, project/instance reset). Because the cache is consulted
+           before any API call, a dead token would otherwise be served to — and fail — every clone
+           of the project until the cache window closes. So once the propagation retries are
+           exhausted and the token still fails auth, drop it and re-mint once (the fresh token then
+           gets the same propagation tolerance).
+
+        The PAT fallback gets neither: it is long-lived, so an auth rejection is a real
+        misconfiguration rather than a propagation blip, and there is no ephemeral token to evict.
         """
         from codebase.clients.base import GitAuthEnv
 
@@ -412,20 +470,62 @@ class GitLabClient(RepoClient):
                 env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
             )
 
+        def attempt(clone_token: str) -> Repo:
+            # The PAT is long-lived, so a rejection is a real misconfiguration, not a mint-propagation
+            # blip: give it a single fail-fast attempt. A freshly minted ephemeral token may just be
+            # lagging propagation, so it gets the backoff window instead. Applied to both the initial
+            # token and the re-minted one (which resolves to the PAT if provisioning has since broken).
+            if clone_token == self.client.private_token:
+                return clone_with(clone_token)
+            return self._clone_awaiting_token_propagation(clone_with, clone_token, repository, clone_dir)
+
         token = self._get_clone_token(repository)
         try:
-            return clone_with(token)
+            return attempt(token)
         except GitCommandError as e:
             if token == self.client.private_token or not _is_clone_auth_error(e):
                 raise
             logger.warning(
-                "Clone of %s was rejected for authentication; dropping the cached ephemeral token "
-                "and retrying once with a freshly minted one.",
+                "Clone of %s kept being rejected for authentication after the propagation window; "
+                "dropping the cached ephemeral token and retrying with a freshly minted one.",
                 repository.slug,
             )
             invalidate_clone_token(repository.pk)
             shutil.rmtree(clone_dir, ignore_errors=True)
-            return clone_with(self._get_clone_token(repository))
+            return attempt(self._get_clone_token(repository))
+
+    def _clone_awaiting_token_propagation(
+        self, clone_with: Callable[[str], Repo], token: str, repository: Repository, clone_dir: Path
+    ) -> Repo:
+        """Clone with ``token``, retrying past GitLab's clone-credential propagation lag.
+
+        A freshly minted project access token is not always immediately accepted for
+        git-over-HTTPS (see :const:`CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`); retry the same
+        token on the backoff schedule until the authorization lands. The partial clone directory
+        left by a rejected attempt is removed before the next one, since git refuses to clone into
+        a non-empty directory. A non-auth failure (missing branch, bad URL, network) propagates
+        immediately — waiting won't fix it.
+        """
+        retries = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        for attempt, delay in enumerate(retries, start=1):
+            try:
+                return clone_with(token)
+            except GitCommandError as e:
+                if not _is_clone_auth_error(e):
+                    raise
+                logger.warning(
+                    "Clone of %s was rejected for authentication (retry %d/%d in %.1fs); a freshly "
+                    "minted clone token may not have propagated yet.",
+                    repository.slug,
+                    attempt,
+                    len(retries),
+                    delay,
+                )
+                shutil.rmtree(clone_dir, ignore_errors=True)
+                time.sleep(delay)
+        # Retries exhausted: this final attempt's result — or its error, if the token never became
+        # valid — is the caller's to handle.
+        return clone_with(token)
 
     def _get_clone_token(self, repository: Repository) -> str:
         """
@@ -457,6 +557,11 @@ class GitLabClient(RepoClient):
         """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback; see
         :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
         return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
+
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints
+        # another ephemeral token, so this boolean stays stable even when the value differs.
+        return get_ephemeral_clone_token(self.client, repository.pk) is not None
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
@@ -561,11 +666,8 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        if note_id is not None:
-            note = issue.notes.get(note_id, lazy=True)
-            note.awardemojis.create({"name": emoji})
-        else:
-            issue.awardemojis.create({"name": emoji})
+        target = issue.notes.get(note_id, lazy=True) if note_id is not None else issue
+        _create_award_emoji(target, emoji)
 
     def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
         """
@@ -673,31 +775,66 @@ class GitLabClient(RepoClient):
                     delay,
                 )
                 time.sleep(delay)
-        # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
-        # error, if the branch genuinely never appeared — is the caller's to handle.
-        return project.mergerequests.create(payload)
+        # Retries exhausted: if the branch still isn't visible but is confirmed pushed, degrade to a
+        # recoverable error (see MergeRequestBranchNotVisibleError); anything else surfaces unchanged.
+        try:
+            return project.mergerequests.create(payload)
+        except GitlabCreateError as e:
+            if _is_source_branch_missing_error(e) and self._branch_exists(project, source_branch):
+                logger.error(
+                    "MR create for '%s' still reports the branch missing after the full retry budget, but the "
+                    "branch exists on the remote — GitLab's branch view is lagging the push. Degrading to "
+                    "'branch pushed, MR pending'.",
+                    source_branch,
+                )
+                raise MergeRequestBranchNotVisibleError(source_branch) from e
+            raise
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    @staticmethod
+    def _branch_exists(project: Any, source_branch: str) -> bool:
+        """True when ``source_branch`` is confirmed present on the remote (the push landed in Gitaly).
+
+        Distinguishes GitLab's post-push branch-visibility lag (branch exists; MR-create just can't see
+        it yet) from a branch that never made it. Any lookup failure — SDK error or unwrapped transport
+        error (TLS/DNS/reset) — is treated as "not confirmed", so the caller re-raises the original
+        create error instead of this incidental one; the probe failure is logged for diagnosis. Mirrors
+        :meth:`is_branch_protected`'s fail-safe on the same call.
         """
-        Return the open merge request for this source/target branch pair, or ``None``.
+        try:
+            project.branches.get(source_branch)
+        except Exception:  # noqa: BLE001 — SDK + transport failures both mean "not confirmed"; see is_branch_protected
+            logger.warning("Could not confirm branch '%s' exists after MR-create retries", source_branch, exc_info=True)
+            return False
+        return True
+
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
+        """
+        Return the open merge request whose source branch is ``source_branch`` (any target), or ``None``.
+
+        A source branch can feed several open MRs (to different targets); ``order_by``/``sort`` pin the
+        pick to the oldest so the choice is deterministic rather than API-default ordering.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
 
         Returns:
-            The merge request if one open MR matches, otherwise ``None``.
+            The oldest open MR with this source branch, otherwise ``None``.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_requests = project.mergerequests.list(
-            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
+            source_branch=source_branch, state="opened", order_by="created_at", sort="asc", iterator=True
         )
         merge_request = next(merge_requests, None)
         if merge_request is None:
             return None
+        if next(merge_requests, None) is not None:
+            logger.warning(
+                "Multiple open MRs for source branch %s in %s; using the oldest (!%s).",
+                source_branch,
+                repo_id,
+                merge_request.iid,
+            )
         return self._serialize_merge_request(repo_id, merge_request)
 
     def update_merge_request(
@@ -787,6 +924,20 @@ class GitLabClient(RepoClient):
             to_return = merge_request.notes.create({"body": body}).id
 
         return to_return
+
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+        """Create an MR pipeline (``POST .../merge_requests/:iid/pipelines``). Runs as the PAT user
+        (the DAIV service account), so cross-project CI includes resolve with its permissions."""
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        pipeline = merge_request.pipelines.create()
+        return Pipeline(
+            id=pipeline.id,
+            iid=getattr(pipeline, "iid", None),
+            sha=pipeline.sha,
+            status=pipeline.status,
+            web_url=pipeline.web_url,
+        )
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
@@ -879,18 +1030,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         mr = project.mergerequests.get(merge_request_id)
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=cast("int", mr.get_id()),
-            source_branch=mr.source_branch,
-            target_branch=mr.target_branch,
-            title=mr.title,
-            description=mr.description,
-            labels=mr.labels,
-            web_url=mr.web_url,
-            sha=mr.sha,
-            author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
-        )
+        return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged")
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """
@@ -923,14 +1063,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        note = merge_request.notes.get(note_id, lazy=True)
-        try:
-            note.awardemojis.create({"name": emoji})
-        except GitlabCreateError as e:
-            if e.response_code == 404 and "Award Emoji Name has already been taken" in e.error_message:
-                pass
-            else:
-                raise e
+        _create_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji)
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """
@@ -1067,7 +1200,9 @@ class GitLabClient(RepoClient):
             and (note_types is None or note["type"] in note_types)
         ]
 
-    def _serialize_merge_request(self, repo_id: str, merge_request: ProjectMergeRequest) -> MergeRequest:
+    def _serialize_merge_request(
+        self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False
+    ) -> MergeRequest:
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=cast("int", merge_request.get_id()),
@@ -1084,4 +1219,5 @@ class GitLabClient(RepoClient):
                 name=merge_request.author.get("name"),
             ),
             draft=merge_request.work_in_progress,
+            merged=merged,
         )

@@ -23,6 +23,21 @@ a, button, [role="button"] {
   cursor: pointer;
 }
 
+/* Suppresses double-tap-to-zoom; pinch-zoom must stay available (WCAG 1.4.4). */
+html {
+  touch-action: manipulation;
+}
+
+/* iOS Safari auto-zooms into focused controls with font-size below 16px; force it on
+   touch devices so the trigger disappears without locking page zoom. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 [x-cloak] {
   display: none !important;
 }
@@ -96,6 +111,17 @@ main:has(.chat-shell) {
     @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-red-800/30 bg-red-950/20 text-red-400 transition-all duration-200
            hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
+  }
+
+  .btn-ghost-dashed {
+    @apply inline-flex items-center gap-1.5 rounded-xl border border-dashed border-white/[0.12]
+           bg-transparent px-4 py-2 font-medium text-gray-500 transition-all duration-200
+           hover:border-white/[0.25] hover:text-gray-300;
+  }
+
+  .btn-icon {
+    @apply rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200
+           hover:border-white/[0.12] hover:text-white;
   }
 
   .mcp-tool-list__scroll {
@@ -793,6 +819,10 @@ main:has(.chat-shell) {
   .chat-turn {
     padding: 0.5rem 0;
     animation: fade-up 0.45s ease-out both;
+    /* Breathing room left above a turn the page scrolls to, so it reads as the
+       top of a block rather than as content clipped by the viewport edge.
+       Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
+    scroll-margin-top: 1rem;
   }
 
   .chat-turn__body {
@@ -808,10 +838,14 @@ main:has(.chat-shell) {
   /* Text segments breathe: more above than below, same whether alone in a
      turn or followed by tool-call segments. */
   .chat-segment--text {
+    /* Single source of truth for the text line-height: the collapsible clamp
+       (.chat-text--clamped) multiplies it by the line budget, and
+       chat-stream.js reads it back via computed style. */
+    --chat-text-line-height: 1.7;
     margin-top: 0.5rem;
     margin-bottom: 0.25rem;
     font-size: 15.5px;
-    line-height: 1.7;
+    line-height: var(--chat-text-line-height);
   }
 
   /* User turn: no thread line, bubble hugs the right edge */
@@ -836,7 +870,101 @@ main:has(.chat-shell) {
     overflow-wrap: break-word;
   }
 
+  /* Collapsible tall user messages: clamp to a line budget with a bottom fade
+     and a Show more/less toggle. The clamp height is derived from two custom
+     properties so JS and CSS never drift: --chat-user-clamp-lines (the budget,
+     read back by chat-stream.js) and --chat-text-line-height (set on
+     .chat-segment--text, the source of truth for the rendered line height). The
+     fade uses a mask (not a colour overlay) so it is independent of the
+     semi-transparent bubble background. */
+  .chat-user-msg {
+    --chat-user-clamp-lines: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .chat-text--clamped {
+    display: block;
+    max-height: calc(var(--chat-user-clamp-lines) * var(--chat-text-line-height) * 1em);
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent);
+            mask-image: linear-gradient(to bottom, #000 68%, transparent);
+  }
+
+  .chat-user-msg__toggle {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 12px;
+    color: #93c5fd;
+    cursor: pointer;
+  }
+
+  .chat-user-msg__toggle:hover {
+    text-decoration: underline;
+  }
+
+  .chat-user-msg__toggle:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
   .chat-turn-wrap { display: contents; }
+
+  /* Muted per-turn action row (copy + relative timestamp). Base opacity keeps it
+     tappable on touch (no hover to reveal); it only brightens on hover/focus. */
+  .chat-turn__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+    font-size: 12px;
+    color: #64748b;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+  }
+  .chat-turn:hover .chat-turn__actions,
+  .chat-turn__actions:focus-within {
+    opacity: 1;
+  }
+  /* Mirrors the assistant row: reversing packs the items against the right edge
+     and keeps the copy button on the outer side, nearest the bubble's corner. */
+  .chat-turn--user .chat-turn__actions {
+    flex-direction: row-reverse;
+  }
+  .chat-turn__action-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .chat-turn__action-btn:hover {
+    background: rgba(148, 163, 184, 0.12);
+    color: #e2e8f0;
+  }
+  .chat-turn__action-btn:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+  }
+  /* Load-bearing despite wrapping a single icon: the flex context blockifies it and
+     drops the inline strut, without which the button grows 24px -> 29px tall. */
+  .chat-turn__action-inner {
+    display: inline-flex;
+    align-items: center;
+  }
+  .chat-turn__action-icon {
+    @apply h-4 w-4;
+  }
+  .chat-turn__time {
+    white-space: nowrap;
+  }
 
   .chat-run-status {
     @apply mx-auto my-2 flex max-w-2xl items-center gap-2 rounded-lg border px-3 py-2 text-sm;
@@ -1951,9 +2079,14 @@ main:has(.chat-shell) {
     @apply h-9 w-full rounded-xl border border-white/[0.06] bg-[#0b1018]
       pl-9 pr-3 text-sm text-gray-300 placeholder:text-gray-500;
   }
-  .filter-seg { @apply inline-flex items-center gap-0.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1; }
+  .filter-seg {
+    @apply inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl
+      border border-white/[0.06] bg-white/[0.02] p-1;
+    scrollbar-width: none;
+  }
+  .filter-seg::-webkit-scrollbar { display: none; }
   .filter-seg-item {
-    @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
       text-gray-400 transition-colors hover:text-gray-200;
   }
   .filter-seg-item--active { @apply bg-white/[0.1] text-white; }
@@ -1997,7 +2130,23 @@ main:has(.chat-shell) {
       px-2 py-0.5 text-[11px] font-medium text-emerald-300;
   }
   .session-num { @apply font-mono text-[12px] tabular-nums text-gray-400; }
-  .session-results--loading {
+  .results--loading {
     @apply pointer-events-none opacity-50 transition-opacity duration-150;
+  }
+}
+
+/* -- Public landing page feature cards -----------------------------------
+   Templates must also carry `animate-fade-up group`: the first is a plain
+   class (not a utility) and the second is a variant marker, so neither can
+   be @applied. */
+
+@layer components {
+  .landing-card {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02]
+      p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04];
+  }
+  .landing-card__icon {
+    @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl
+      border border-white/[0.08] bg-white/[0.03];
   }
 }

@@ -17,7 +17,7 @@
         {% csrf_token %}
         <div class="flex items-center gap-3">
             <button type="submit" class="btn-danger">{% translate "Delete" %}</button>
-            <a href="{% url 'mcp_servers:edit' object.name %}" class="btn-secondary">{% translate "Cancel" %}</a>
+            <a href="{% url 'mcp_servers:edit' object.pk %}" class="btn-secondary">{% translate "Cancel" %}</a>
         </div>
     </form>
 </div>

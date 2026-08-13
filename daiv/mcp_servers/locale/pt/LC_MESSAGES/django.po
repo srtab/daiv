@@ -53,6 +53,9 @@ msgstr "Nome de cabeçalho inválido (apenas caracteres de token RFC 7230)."
 msgid "Environment variable name is required."
 msgstr "O nome da variável de ambiente é obrigatório."
 
+msgid "Enter a valid http(s) URL, e.g. http://mcp-server:8000/mcp."
+msgstr "Introduza um URL http(s) válido, por exemplo http://mcp-server:8000/mcp."
+
 msgid "Built-in"
 msgstr "Incorporado"
 

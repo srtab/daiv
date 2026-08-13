@@ -1,11 +1,12 @@
 from datetime import time
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 
 import pytest
 from notifications.choices import NotifyOn
 
-from schedules.models import Frequency, ScheduleTemplate
+from schedules.models import Frequency, Intent, ScheduleTemplate
 
 
 @pytest.mark.django_db
@@ -195,3 +196,32 @@ class TestScheduleTemplateToPickerDict:
         tpl = self._make_tpl(agent_model="openrouter:vendor/" + "x" * 50, agent_thinking_level="")
         row = tpl.to_picker_dict()
         assert row["agent_model_display"] == "x" * MODEL_NAME_MAX_LEN
+
+
+@pytest.mark.django_db
+class TestScheduleTemplateIntent:
+    def _make(self, **overrides):
+        defaults = {
+            "name": "Nightly scan",
+            "prompt": "Scan the repo for issues.",
+            "repos": [{"repo_id": "owner/repo", "ref": ""}],
+            "frequency": Frequency.DAILY,
+            "time": time(2, 0),
+        }
+        defaults.update(overrides)
+        return ScheduleTemplate.objects.create(**defaults)
+
+    def test_defaults_to_watch_find(self):
+        tpl = self._make()
+        tpl.refresh_from_db()
+        assert tpl.intent == Intent.WATCH_FIND
+
+    def test_check_constraint_rejects_unknown_value(self):
+        # ``create()`` bypasses ``full_clean``/``choices=`` validation; the DB constraint catches it.
+        with pytest.raises(IntegrityError):
+            self._make(intent="bogus")
+
+    def test_to_schedule_kwargs_carries_intent(self):
+        """template→job copy: the intent flows through the shared copy idiom."""
+        tpl = self._make(intent=Intent.REPORT)
+        assert tpl.to_schedule_kwargs()["intent"] == Intent.REPORT

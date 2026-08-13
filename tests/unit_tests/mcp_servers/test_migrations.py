@@ -11,7 +11,7 @@ import pytest
 def _populate_config_file(tmp_path, monkeypatch, payload: dict) -> str:
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps(payload))
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(path))
+    monkeypatch.setenv("MCP_SERVERS_CONFIG_FILE", str(path))
     return str(path)
 
 
@@ -189,7 +189,7 @@ def test_env_ref_only_for_exact_dollar_brace_match(tmp_path, monkeypatch, caplog
 
 @pytest.mark.django_db(transaction=True)
 def test_missing_file_is_silent(tmp_path, monkeypatch):
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(tmp_path / "missing.json"))
+    monkeypatch.setenv("MCP_SERVERS_CONFIG_FILE", str(tmp_path / "missing.json"))
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0001_initial")])
     executor.loader.build_graph()
@@ -210,7 +210,7 @@ def test_malformed_json_aborts_migration(tmp_path, monkeypatch, caplog):
     non-reversible import — nothing else ever re-reads the file)."""
     path = tmp_path / "mcp.json"
     path.write_text("{not valid json")
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(path))
+    monkeypatch.setenv("MCP_SERVERS_CONFIG_FILE", str(path))
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0001_initial")])
     executor.loader.build_graph()
@@ -226,7 +226,7 @@ def test_malformed_json_aborts_migration(tmp_path, monkeypatch, caplog):
     # CURRENT model regardless of test outcome — repoint the config to a not-found path so a
     # retry of 0002 is the same silent no-op as test_missing_file_is_silent, then migrate to
     # head so that upsert has every column it expects.
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
+    monkeypatch.setenv("MCP_SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
     _migrate_to_head()
 
 
@@ -250,7 +250,7 @@ def test_unexpected_parse_error_propagates(tmp_path, monkeypatch):
     # head before teardown's post_migrate-driven builtin-row upsert runs. Repointing to a
     # not-found path also sidesteps the monkeypatched model_validate (never reached once
     # import_legacy_json's path.exists() check short-circuits), so the retry doesn't re-raise.
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
+    monkeypatch.setenv("MCP_SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
     _migrate_to_head()
 
 
@@ -356,7 +356,7 @@ def _apply_0004():
 @pytest.mark.django_db(transaction=True)
 def test_0004_placeholder_gets_effective_env_url_and_legacy_filter(monkeypatch):
     _rollback_and_seed_placeholder("sentry", enabled=True)
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", "http://mcp-sentry:8000/mcp")
+    monkeypatch.setenv("MCP_SENTRY_URL", "http://mcp-sentry:8000/mcp")
     _apply_0004()
 
     from mcp_servers.models import MCPServer
@@ -374,7 +374,8 @@ def test_0004_placeholder_gets_effective_env_url_and_legacy_filter(monkeypatch):
 @pytest.mark.django_db(transaction=True)
 def test_0004_none_kill_switch_maps_to_remote_default_disabled(monkeypatch):
     _rollback_and_seed_placeholder("sentry", enabled=True)
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", None)
+    # The literal string "None" is the old kill switch (pydantic env_parse_none_str).
+    monkeypatch.setenv("MCP_SENTRY_URL", "None")
     _apply_0004()
 
     from mcp_servers.models import MCPServer
@@ -389,7 +390,7 @@ def test_0004_none_kill_switch_maps_to_remote_default_disabled(monkeypatch):
 @pytest.mark.django_db(transaction=True)
 def test_0004_preserves_disabled_flag(monkeypatch):
     _rollback_and_seed_placeholder("context7", enabled=False)
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.CONTEXT7_URL", "http://mcp_context7:8000/mcp")
+    monkeypatch.setenv("MCP_CONTEXT7_URL", "http://mcp_context7:8000/mcp")
     _apply_0004()
 
     from mcp_servers.models import MCPServer
@@ -409,7 +410,7 @@ def test_0004_skips_already_materialized_rows(monkeypatch):
     Historical.objects.create(
         name="sentry", source="builtin", transport="http", url="https://my-bridge.internal/mcp", enabled=True
     )
-    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", "http://mcp_sentry:8000/mcp")
+    monkeypatch.setenv("MCP_SENTRY_URL", "http://mcp_sentry:8000/mcp")
     _apply_0004()
 
     from mcp_servers.models import MCPServer

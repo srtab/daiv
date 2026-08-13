@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 _INSTRUCTIONS = """\
 ## `tool_search` (deferred tools)
 
-Some tools are deferred — only their names and summaries are loaded into your context. Their full schemas are not loaded until you call `tool_search` to load them. Once loaded, the tool stays available for the rest of the session and appears in your loaded tools.
+Some tools are deferred — only their names and summaries are loaded into your context. Their full schemas are not loaded until you call `tool_search` to load them. Once loaded, the tool is callable for the rest of the session. If you can no longer see a loaded tool's schema, call `tool_search` again.
 
 How to use:
 - Prefer `select` (a JSON array of exact tool names from `<available-deferred-tools>` below) — fastest and most precise.
@@ -17,7 +17,7 @@ How to use:
 - `select` must be an array, not a string. `["gitlab"]` is correct; `"[\"gitlab\"]"` or `"gitlab"` is not.
 
 Notes:
-- The list below is exhaustive and stable across the conversation. Use your loaded-tools view (not this list) to tell what is currently available.
+- The list below is exhaustive and stable across the conversation. It shows what *can* be loaded, not what you have already loaded this session.
 - When the user asks what tools or capabilities you have, include the deferred tools alongside your loaded tools, marked as deferred.
 
 <example>
@@ -29,10 +29,10 @@ Notes:
 def build_deferred_tools_block(index: DeferredToolsIndex) -> str:
     """Render the deferred-tools advertisement appended to the system prompt.
 
-    The output is intentionally independent of which tools have already been loaded:
-    any per-call variation in the system prompt invalidates Anthropic's prompt cache
-    from byte 0 (system message is hashed before tools/messages), which in observed
-    traces cost ~22k tokens of fresh cache creation per deferred-tool load.
+    The output is intentionally independent of which tools have already been loaded.
+    Anthropic hashes the cached prefix in tools → system → messages order, so a per-call
+    change to the system block invalidates the cache from the system block onward — in
+    observed traces ~22k tokens of fresh cache creation per deferred-tool load.
     """
     lines = [f"{entry.name}: {entry.summary}" for entry in index.deferred_entries()]
     if not lines:

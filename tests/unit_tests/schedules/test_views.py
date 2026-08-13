@@ -11,7 +11,7 @@ from notifications.choices import NotifyOn
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
+from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture
@@ -360,6 +360,7 @@ class TestScheduleCreateViewSubscribers:
             "time": "09:00",
             "use_max": "false",
             "notify_on": "never",
+            "intent": "watch-find",
             "subscribers": [str(alice.pk)],
         }
         response = member_client.post(reverse("schedule_create"), data=payload)
@@ -380,6 +381,7 @@ class TestScheduleCreateViewSubscribers:
             "time": "09:00",
             "use_max": "false",
             "notify_on": "never",
+            "intent": "watch-find",
             "subscribers": [str(member_user.pk)],
         }
         response = member_client.post(reverse("schedule_create"), data=payload)
@@ -437,6 +439,7 @@ class TestScheduleUpdateViewSubscribers:
             "time": "09:00",
             "use_max": "false",
             "notify_on": "never",
+            "intent": "watch-find",
             "is_enabled": "true",
             "subscribers": [str(alice.pk)],
         }
@@ -611,6 +614,7 @@ class TestScheduleCreateViewSourceTemplate:
             "time": "09:00",
             "use_max": "false",
             "notify_on": "never",
+            "intent": "watch-find",
         }
         base.update(overrides)
         return base
@@ -637,6 +641,20 @@ class TestScheduleCreateViewSourceTemplate:
         assert response.status_code == 302, response.content.decode()[:400]
         schedule = ScheduledJob.objects.get(name="From tpl")
         assert schedule.source_template_id is None
+
+    def test_template_intent_prefills_create_form(self, member_client, admin_user):
+        """AC2: the ``?template=<id>`` GET prefill carries the template's intent into the form."""
+        tpl = ScheduleTemplate.objects.create(
+            name="T",
+            prompt="p",
+            frequency=Frequency.DAILY,
+            time=time(9, 0),
+            intent=Intent.REPORT,
+            created_by=admin_user,
+        )
+        response = member_client.get(f"{reverse('schedule_create')}?template={tpl.pk}")
+        assert response.status_code == 200
+        assert response.context["form"].initial["intent"] == Intent.REPORT
 
 
 @pytest.mark.django_db
@@ -711,6 +729,21 @@ class TestScheduleDuplicateFlow:
         content = response.content.decode()
         assert "source" in content
         assert "hello" in content
+
+    def test_create_view_from_param_prefills_intent(self, member_client, member_user):
+        """AC2: job→job duplicate (``?from=<pk>``) carries the source schedule's intent."""
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            intent=Intent.DO_CHANGE,
+        )
+        response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
+        assert response.status_code == 200
+        assert response.context["form"].initial["intent"] == Intent.DO_CHANGE
 
     def test_create_view_with_unknown_from_pk_falls_back_to_blank(self, member_client):
         response = member_client.get(reverse("schedule_create") + "?from=999999")
@@ -809,6 +842,7 @@ class TestScheduleDuplicateFlow:
                 "run_at": past.strftime("%Y-%m-%dT%H:%M"),
                 "use_max": False,
                 "notify_on": NotifyOn.NEVER,
+                "intent": Intent.WATCH_FIND,
             },
         )
         assert response.status_code == 200

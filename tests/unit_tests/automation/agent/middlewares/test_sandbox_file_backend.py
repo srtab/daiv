@@ -201,24 +201,24 @@ async def test_aedit_success_and_error_passthrough(backend, client):
     assert bad.error is not None and "trailing newline" in bad.error
 
 
-async def test_delete_removed_returns_true(backend, client):
+async def test_unlink_removed_returns_true(backend, client):
     client.fs_delete.return_value = FsDeleteResponse(removed=True)
-    assert await backend.delete("/workspace/repo/a.py") is True
+    assert await backend.unlink("/workspace/repo/a.py") is True
     assert client.fs_delete.call_args.args[1].path == "/workspace/repo/a.py"
     assert await backend.stat_mode("/workspace/repo/a.py") == 0o644
 
 
-async def test_delete_already_absent_is_idempotent(backend, client):
+async def test_unlink_already_absent_is_idempotent(backend, client):
     """Deleting a path that was never there is success (ok=True) with removed=False — the protocol
     contract is "the file is gone", and it is."""
     client.fs_delete.return_value = FsDeleteResponse(removed=False)
-    assert await backend.delete("/workspace/repo/gone.py") is True
+    assert await backend.unlink("/workspace/repo/gone.py") is True
 
 
-async def test_delete_failure_logs_reason(backend, client, caplog):
+async def test_unlink_failure_logs_reason(backend, client, caplog):
     client.fs_delete.return_value = FsDeleteResponse(error=_err(FsErrorCode.PERMISSION_DENIED, "permission denied"))
     with caplog.at_level("WARNING"):
-        assert await backend.delete("/workspace/repo/a.py") is False
+        assert await backend.unlink("/workspace/repo/a.py") is False
     assert "permission denied" in caplog.text
 
 
@@ -431,13 +431,31 @@ async def test_edit_busy_409_degrades_to_retry_hint(backend, client):
     assert result.error is not None and result.error.startswith("Error editing file") and "retry" in result.error
 
 
-async def test_delete_transport_error_returns_false_and_logs(backend, client, caplog):
-    """``delete`` has no error channel (bare bool), so a transport fault is a failed delete — logged
+async def test_unlink_transport_error_returns_false_and_logs(backend, client, caplog):
+    """``unlink`` has no error channel (bare bool), so a transport fault is a failed unlink — logged
     so it is diagnosable rather than a silent False."""
     client.fs_delete.side_effect = _http_status_error(409, "Session is busy")
     with caplog.at_level("WARNING", logger="daiv.tools"):
-        assert await backend.delete("/workspace/repo/a.py") is False
+        assert await backend.unlink("/workspace/repo/a.py") is False
     assert "transport failure" in caplog.text
+
+
+async def test_refresh_egress_forwards_to_client(backend, client):
+    from core.sandbox.schemas import EgressConfigRequest
+
+    egress = EgressConfigRequest()
+    await backend.refresh_egress(egress)
+
+    # Forwarded to update_egress under the bound session id with the given config.
+    client.update_egress.assert_awaited_once_with("sid", egress)
+
+
+async def test_refresh_egress_before_bind_raises(client):
+    from core.sandbox.schemas import EgressConfigRequest
+
+    unbound = SandboxFileBackend(client=client)
+    with pytest.raises(RuntimeError, match="not bound"):
+        await unbound.refresh_egress(EgressConfigRequest())
 
 
 async def test_run_commands_forwards_to_client(backend, client):

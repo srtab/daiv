@@ -4,10 +4,38 @@ DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 
 
 The DAIV agent can read and modify code, run commands in a sandbox, create commits and branches, open merge requests or pull requests, and debug CI/CD pipelines. Through the MCP endpoint, your local assistant can offload these tasks to DAIV and get the results back.
 
-Authentication is handled via OAuth 2.0 — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically.
+## Authentication
 
-!!! tip
-    Prefer the HTTP [Jobs API](jobs-api.md) instead? It uses API key authentication, and you can create a key self-service in the dashboard at `/accounts/api-keys/` (see [Creating an API key](jobs-api.md#creating-an-api-key)).
+The endpoint accepts two authentication methods:
+
+- **OAuth 2.0** (default for interactive clients) — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically. This is what the editor integrations below use out of the box.
+- **API key** — pass an `Authorization: Bearer <api-key>` header. This is aimed at headless or non-interactive clients (CI jobs, scripts) that can't complete the browser flow. Create a key self-service in the dashboard at `/accounts/api-keys/` (see [Creating an API key](jobs-api.md#creating-an-api-key)); the same key also works against the HTTP [Jobs API](jobs-api.md).
+
+!!! note
+    API keys are scoped to your user, not to a specific surface — a key that authenticates against the MCP endpoint has the same access as it does on the REST Jobs/Chat API. Revoke a key from the dashboard to cut off both at once.
+
+### Authenticating with an API key
+
+Any MCP client that lets you set request headers can pass the key. For example, with Claude Code:
+
+```bash
+claude mcp add daiv --transport http https://daiv.example.com/mcp/ \
+  --header "Authorization: Bearer <prefix.secret>"
+```
+
+Or in Cursor's `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "daiv": {
+      "type": "streamable-http",
+      "url": "https://daiv.example.com/mcp/",
+      "headers": { "Authorization": "Bearer <prefix.secret>" }
+    }
+  }
+}
+```
 
 ## Getting started
 

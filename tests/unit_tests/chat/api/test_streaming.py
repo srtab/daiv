@@ -15,7 +15,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
+from langchain_core.messages import AIMessageChunk
 
+from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 
 
@@ -41,10 +43,13 @@ def _patch_run_lifecycle():
 
 def _mock_ctx(*_args, **_kwargs):
     """Async context manager yielding a MagicMock — stands in for ``open_checkpointer``
-    / ``set_runtime_ctx`` so we don't touch Redis or clone a repo.
+    / ``set_runtime_ctx`` so we don't touch Redis or clone a repo. ``repo.ref`` matches
+    ``_streamer``'s ref so the ref-fallback branch stays dormant here.
     """
     ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=MagicMock())
+    entered = MagicMock()
+    entered.repo.ref = "main"
+    ctx.__aenter__ = AsyncMock(return_value=entered)
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
 
@@ -606,3 +611,192 @@ async def test_events_buffers_text_deltas_into_result_summary():
     assert captured["success"] is True
     assert captured["response_text"].startswith("Hello ")
     assert len(captured["response_text"]) == 2000  # truncated at the cap
+
+
+class TestReasoningProvenance:
+    """``ag_ui_langgraph`` builds every event type with ``raw_event=event`` except
+    the ``REASONING_*`` family, which it emits bare. ``SubagentEventFilter``
+    identifies subagent frames solely from ``raw_event.metadata.langgraph_checkpoint_ns``,
+    so untagged reasoning reads back as top-level and a subagent's thinking bleeds
+    into the parent turn. The agent stamps the source event's metadata onto any
+    untagged event so the filter can see where it came from.
+    """
+
+    NESTED_NS = "tools:11111111-1111|model:22222222-2222"
+    TOP_NS = "model:33333333-3333"
+
+    @staticmethod
+    def _agent():
+        agent = RuntimeContextLangGraphAGUIAgent(
+            name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=object()
+        )
+        # Mirrors upstream's INITIAL_ACTIVE_RUN (ag_ui_langgraph agent.py), which is a
+        # function-local in ``run()`` and so cannot be imported. Only ``id`` is read on
+        # these paths today; the rest documents the real runtime shape so a future
+        # upstream ``.get()``-to-``[]`` change surfaces as a KeyError, not a silent skip.
+        agent.active_run = {
+            "id": "run-1",
+            "thread_id": "thread-1",
+            "mode": "continue",
+            "reasoning_process": None,
+            "node_name": "model",
+            "has_function_streaming": False,
+            "streamed_tool_call_ids": set(),
+            "model_made_tool_call": False,
+            "state_reliable": True,
+            "manually_emitted_state": None,
+        }
+        return agent
+
+    @staticmethod
+    def _chunk_event(ns: str, chunk: AIMessageChunk, *, emit_messages: bool | None = None) -> dict:
+        """A LangGraph ``on_chat_model_stream`` envelope around ``chunk``."""
+        metadata: dict = {"langgraph_checkpoint_ns": ns}
+        if emit_messages is not None:
+            metadata["emit-messages"] = emit_messages
+        return {"event": "on_chat_model_stream", "run_id": "r1", "metadata": metadata, "data": {"chunk": chunk}}
+
+    @classmethod
+    def _thinking_event(cls, ns: str, text: str, **kwargs) -> dict:
+        """A chunk event carrying an Anthropic extended-thinking block."""
+        chunk = AIMessageChunk(content=[{"type": "thinking", "thinking": text, "index": 0}])
+        return cls._chunk_event(ns, chunk, **kwargs)
+
+    async def _emit(self, agent, event: dict) -> list:
+        return [ev async for ev in agent._handle_single_event(event, {})]
+
+    @staticmethod
+    async def _survivors(produced: list) -> list:
+        """What the client would actually receive for ``produced``."""
+
+        async def _aiter():
+            for ev in produced:
+                yield ev
+
+        return [ev async for ev in SubagentEventFilter().apply(_aiter())]
+
+    async def test_reasoning_events_are_stamped_with_source_namespace(self):
+        agent = self._agent()
+        out = await self._emit(agent, self._thinking_event(self.NESTED_NS, "subagent thought"))
+
+        assert out, "expected the thinking chunk to produce REASONING_* events"
+        # Asserting against the production frozenset (not a "REASONING" name prefix)
+        # also pins it against the real event stream: a reasoning type upstream adds
+        # and REASONING_EVENT_TYPES misses fails here instead of silently un-gating.
+        assert all(e.type in REASONING_EVENT_TYPES for e in out)
+        for ev in out:
+            ns = (ev.raw_event or {}).get("metadata", {}).get("langgraph_checkpoint_ns")
+            assert ns == self.NESTED_NS, f"{ev.type.value} lost its namespace: raw_event={ev.raw_event!r}"
+
+    async def test_nested_subagent_thinking_never_reaches_the_client(self):
+        """Over the real upstream handler and the real filter, not a mock of the seam.
+
+        Still one layer short of production: ``_handle_stream_events`` (which drives
+        this handler) is not exercised, so an upstream change that stops routing
+        reasoning through ``_handle_single_event`` would leave this green.
+        """
+        agent = self._agent()
+        produced = []
+        for text in ("subagent secret ", "thought"):
+            produced += await self._emit(agent, self._thinking_event(self.NESTED_NS, text))
+
+        survivors = await self._survivors(produced)
+        leaked = "".join(getattr(ev, "delta", "") for ev in survivors)
+        assert survivors == [], f"subagent thinking leaked: {leaked!r}"
+
+    async def test_top_level_thinking_still_reaches_the_client(self):
+        """The guard must not silence the main agent's own reasoning."""
+        agent = self._agent()
+        produced = await self._emit(agent, self._thinking_event(self.TOP_NS, "my own thought"))
+
+        survivors = await self._survivors(produced)
+        assert "my own thought" in "".join(getattr(ev, "delta", "") for ev in survivors)
+
+    async def test_stamping_preserves_existing_raw_event(self):
+        """Events upstream already tagged (text, tool calls) must pass through untouched."""
+        agent = self._agent()
+        chunk = AIMessageChunk(content="hello", id="msg-1")
+        out = await self._emit(agent, self._chunk_event(self.TOP_NS, chunk))
+
+        assert out, "expected a text chunk to produce events"
+        # Upstream sets raw_event to the whole LangGraph event, not just its metadata.
+        assert all(ev.raw_event.get("event") == "on_chat_model_stream" for ev in out)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
+    """When set_runtime_ctx checked out a different ref than requested (fallback), the streamer
+    self-heals Session.ref and emits a ref_fallback event before agent output."""
+
+    def _fallback_ctx(*_args, **_kwargs):
+        ctx = MagicMock()
+        entered = MagicMock()
+        entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
+        ctx.__aenter__ = AsyncMock(return_value=entered)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    reset_calls = []
+
+    async def _capture_reset(thread_id, new_ref):
+        reset_calls.append((thread_id, new_ref))
+
+    emitted = []
+
+    start_chat_run = AsyncMock(return_value=SimpleNamespace(pk="run-pk"))
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.start_chat_run", new=start_chat_run),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=_capture_reset),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamer = _streamer()  # ref="main"
+        async for ev in streamer.events():
+            emitted.append(ev)
+
+    assert reset_calls == [("t-stream", "dev")]
+    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
+    assert len(fallback_events) == 1
+    assert fallback_events[0].value == {"requested": "main", "using": "dev"}
+    # The Run row must record the effective (fallen-back) ref, not the requested one.
+    assert start_chat_run.call_args.kwargs["ref"] == "dev"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_ref_fallback_survives_reset_ref_failure():
+    """The fallback clone already succeeded, so a failed session re-pin must not abort the run:
+    the ref_fallback event still fires and no RUN_ERROR is emitted."""
+
+    def _fallback_ctx(*_args, **_kwargs):
+        ctx = MagicMock()
+        entered = MagicMock()
+        entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
+        ctx.__aenter__ = AsyncMock(return_value=entered)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    emitted = []
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=RuntimeError("db down")),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamer = _streamer()  # ref="main"
+        async for ev in streamer.events():
+            emitted.append(ev)
+
+    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
+    assert len(fallback_events) == 1
+    assert [e for e in emitted if e.type == EventType.RUN_ERROR] == []

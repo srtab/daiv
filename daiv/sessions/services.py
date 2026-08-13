@@ -16,6 +16,7 @@ from automation.titling.tasks import generate_batch_title_task
 from codebase.authorization import aassert_can_run
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
+from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
-MAX_REPOS_PER_BATCH = 20
 MAX_DELEGATED_TARGETS = 10
 
 
@@ -51,37 +51,6 @@ class BatchSubmitResult:
     batch_id: uuid.UUID
     runs: list[Run] = field(default_factory=list)
     failed: list[BatchSubmitFailure] = field(default_factory=list)
-
-
-def validate_repo_list(raw) -> list[dict]:
-    """Validate and normalize a list of ``{repo_id, ref}`` entries.
-
-    Raises ``ValueError`` on any violation. Returns a fresh list of normalized dicts
-    (guaranteed string keys/values, no duplicates, 1-20 entries).
-    """
-    if not isinstance(raw, list) or not raw:
-        raise ValueError("At least one repository is required.")
-    if len(raw) > MAX_REPOS_PER_BATCH:
-        raise ValueError(f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission.")
-
-    seen: set[tuple[str, str]] = set()
-    out: list[dict] = []
-    for entry in raw:
-        if not isinstance(entry, dict) or set(entry.keys()) != {"repo_id", "ref"}:
-            raise ValueError("Each entry must be an object with keys 'repo_id' and 'ref'.")
-        repo_id = entry["repo_id"]
-        ref = entry["ref"] or ""
-        if not isinstance(repo_id, str) or not repo_id.strip():
-            raise ValueError("repo_id must be a non-empty string.")
-        if not isinstance(ref, str):
-            raise ValueError("ref must be a string (empty for default branch).")
-        key = (repo_id, ref)
-        if key in seen:
-            label = f"{repo_id} on {ref}" if ref else repo_id
-            raise ValueError(f"Repository already in the list: {label}.")
-        seen.add(key)
-        out.append({"repo_id": repo_id, "ref": ref})
-    return out
 
 
 def _validate(repos: list[RepoTarget]) -> None:
@@ -343,6 +312,7 @@ async def asubmit_batch_runs(
                 thread_id=effective_thread_id,
                 sandbox_environment_id=target.sandbox_environment_id,
                 run_id=str(run.pk),
+                user_id=user.id if user is not None else None,
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)

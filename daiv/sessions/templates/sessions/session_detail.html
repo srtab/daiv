@@ -47,11 +47,20 @@
   {% translate "Auto" as locked_agent_fallback %}
   {% translate "Auto" as locked_env_fallback %}
 
+  {# Labels for the collapsible user-message toggle. Piped through ``escapejs`` #}
+  {# below so a translation containing a quote can't break the JS string literal. #}
+  {% translate "Show more" as show_more_label %}
+  {% translate "Show less" as show_less_label %}
+
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
          activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
+         {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
+         {# background run the transcript poller follows — so the load-time scroll can #}
+         {# tell "still working" from "finished" without duplicating that logic in JS. #}
+         sessionLive: {{ is_in_flight|yesno:"true,false" }},
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",
@@ -178,7 +187,7 @@
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }">
+                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }" :data-role="turn.role">
                   <div class="chat-turn__body">
                     <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                       <div class="chat-segment" :class="`chat-segment--${seg.type}`">
@@ -188,7 +197,18 @@
                           </template>
                         </template>
                         <template x-if="seg.type === 'text' && turn.role === 'user'">
-                          <span class="chat-text" x-text="seg.content"></span>
+                          <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${turn.id}-${si}`)">
+                            <span class="chat-text"
+                                  :id="id"
+                                  :class="{ 'chat-text--clamped': collapsed }"
+                                  x-text="seg.content"></span>
+                            <button type="button" class="chat-user-msg__toggle" x-cloak
+                                    x-show="overflowing"
+                                    :aria-controls="id"
+                                    :aria-expanded="(!collapsed).toString()"
+                                    @click="collapsed = !collapsed"
+                                    x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
+                          </div>
                         </template>
 
                         <template x-if="seg.type === 'thinking'">
@@ -235,6 +255,37 @@
                       </div>
                     </template>
                   </div>
+
+                  <template x-if="turnHasActions(turn, ti)">
+                    <div class="chat-turn__actions">
+                      {# Icon-only: the labels stay as sr-only text so the shown span still names #}
+                      {# the button (x-show=display:none drops the hidden ones from the a11y #}
+                      {# tree), which also announces the outcome without a live region. #}
+                      <button type="button" class="chat-turn__action-btn" x-show="canCopyTurn(turn, ti)"
+                              title="{% translate 'Copy' %}"
+                              x-data="{ state: '', _t: null, async copy() { this.state = await copyFinalText(turn) ? 'copied' : 'failed'; clearTimeout(this._t); this._t = setTimeout(() => { this.state = ''; }, 1500); } }"
+                              @click="copy()">
+                        <span x-show="!state" class="chat-turn__action-inner">
+                          {% icon "clipboard-document" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copy" %}</span>
+                        </span>
+                        <span x-show="state === 'copied'" x-cloak class="chat-turn__action-inner">
+                          {% icon "check" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copied" %}</span>
+                        </span>
+                        <span x-show="state === 'failed'" x-cloak class="chat-turn__action-inner">
+                          {% icon "x-mark" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copy failed" %}</span>
+                        </span>
+                      </button>
+                      <template x-if="turn.sent_at || turn.received_at">
+                        <time class="chat-turn__time"
+                              :datetime="turn.sent_at || turn.received_at"
+                              :title="absoluteTime(turn.sent_at || turn.received_at)"
+                              x-text="relativeTime(turn.sent_at || turn.received_at)"></time>
+                      </template>
+                    </div>
+                  </template>
                 </article>
               </template>
             </div>

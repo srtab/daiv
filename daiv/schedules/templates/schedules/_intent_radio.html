@@ -1,0 +1,16 @@
+<div class="mt-6"
+     x-data="{ intent: '{{ form.intent.value|default:'watch-find' }}' }">
+    <label class="block text-[15px] font-medium text-gray-400">{{ form.intent.label }}</label>
+    <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+        {% for value, label in form.intent.field.choices %}
+        <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+               :class="intent === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+            <input type="radio" name="{{ form.intent.html_name }}" value="{{ value }}" x-model="intent" class="sr-only">
+            {{ label }}
+        </label>
+        {% endfor %}
+    </div>
+    {% if form.intent.errors %}
+    <p class="mt-1.5 text-sm text-red-400">{{ form.intent.errors.0 }}</p>
+    {% endif %}
+</div>

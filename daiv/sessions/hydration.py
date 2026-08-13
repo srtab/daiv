@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from chat.repo_state import mr_to_payload
-from core.checkpointer import open_checkpointer
+from core.checkpointer import aresolve_thread_messages, open_checkpointer
 
 
 class HydratedThread(NamedTuple):
@@ -22,10 +22,13 @@ class HydratedThread(NamedTuple):
 
 async def ahydrate_thread(thread_id: str) -> HydratedThread:
     """Return the hydrated messages, expiry flag, and MR payload for a thread."""
+    config = {"configurable": {"thread_id": thread_id}}
     async with open_checkpointer() as cp:
-        tup = await cp.aget_tuple({"configurable": {"thread_id": thread_id}})
-    if tup is None:
-        return HydratedThread([], True, None)
-    channel_values = (tup.checkpoint or {}).get("channel_values", {})
-    messages = channel_values.get("messages", [])
+        tup = await cp.aget_tuple(config)
+        if tup is None:
+            return HydratedThread([], True, None)
+        channel_values = (tup.checkpoint or {}).get("channel_values", {})
+        # ``messages`` lives in a deepagents ``DeltaChannel`` and is usually absent from
+        # ``channel_values``; resolve it via the delta-history contract (see the helper).
+        messages = await aresolve_thread_messages(cp, config, channel_values)
     return HydratedThread(messages, False, mr_to_payload(channel_values.get("merge_request")))

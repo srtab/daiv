@@ -20,6 +20,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -152,7 +153,13 @@ class RepoClient(abc.ABC):
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
     ) -> list[Repository]:
-        pass
+        """List repositories the bot can access, at most one entry per slug.
+
+        Callers treat the result as a set keyed on ``slug`` — the access-sync task upserts it in a
+        single ``ON CONFLICT`` statement (which rejects a duplicate conflict target) and other
+        callers act once per repo. A listing that can surface the same repo twice (e.g. GitLab's
+        iterator ordered by the mutable ``last_activity_at``) must dedupe before returning.
+        """
 
     @abc.abstractmethod
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
@@ -255,6 +262,19 @@ class RepoClient(abc.ABC):
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        """True when the git push authenticates with a short-lived, project-scoped token whose bot
+        user cannot read other projects — so the resulting pipeline cannot resolve cross-project CI
+        includes and must be re-triggered as the service account. Base default: ``False``."""
+        return False
+
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+        """Create a CI pipeline for the merge request as the service account, so it runs with the
+        service account's permissions (e.g. reading private cross-project CI includes). GitLab-only
+        capability: the publish path calls this only when :meth:`push_uses_ephemeral_token` is true,
+        so reaching the base implementation means a mis-wired caller, not a supported no-op."""
+        raise NotImplementedError
+
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
@@ -308,7 +328,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        pass
+        """React on an issue, or on one of its notes when `note_id` is given.
+
+        Idempotent: a reaction this user already made is not an error.
+        """
 
     @abc.abstractmethod
     def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
@@ -338,7 +361,12 @@ class RepoClient(abc.ABC):
         assignee_id: str | int | None = None,
         as_draft: bool = False,
     ) -> MergeRequest:
-        pass
+        """Create the merge request for ``source_branch`` or update the existing one.
+
+        May raise :class:`~codebase.exceptions.MergeRequestBranchNotVisibleError` when the branch is
+        confirmed pushed but the platform will not open the MR within the retry budget (a transient
+        post-push visibility lag); callers degrade to "branch pushed, MR pending" rather than failing.
+        """
 
     @abc.abstractmethod
     def update_merge_request(
@@ -414,19 +442,18 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
-    ) -> MergeRequest | None:
+    def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """
-        Return the first open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch`` (regardless of its
+        target branch), or ``None``. When several open MRs share the source branch, the oldest is
+        returned so the choice is deterministic.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
 
         Returns:
-            The first open MR matching the branch pair, or ``None`` if none exist.
+            The oldest open MR with this source branch, or ``None`` if none exist.
         """
         pass
 
@@ -436,7 +463,11 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
-        pass
+        """React on a merge request note. Idempotent, as for `create_issue_emoji`.
+
+        `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
+        here, since DAIV receives none.
+        """
 
     @abc.abstractmethod
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):

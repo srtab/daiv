@@ -99,12 +99,15 @@ def build_tool_choices(discovered_tools, selected):
 
 
 class MCPServerForm(forms.ModelForm):
-    """Create/edit a custom MCP server.
+    """Create/edit an MCP server (global or user-scoped).
 
-    Tool-filter items always use a getlist-aware textarea widget for data
-    handling; the discovered-tool checkbox list is rendered by the template
-    from ``build_tool_choices`` context, not by swapping this field's widget.
-    On edit, ``name`` is immutable (read-only + ``clean_name`` guard).
+    ``scope`` is not a form field: it is fixed by the entry point — the create
+    view's URL route supplies it as a kwarg, and on edit it is derived from the
+    immutable instance value. Tool-filter items always use a getlist-aware
+    textarea widget for data handling; the discovered-tool checkbox list is
+    rendered by the template from ``build_tool_choices`` context, not by
+    swapping this field's widget. On edit, ``name`` is immutable
+    (read-only + ``clean_name`` guard).
     """
 
     tool_filter_items = ToolFilterItemsField(
@@ -118,14 +121,18 @@ class MCPServerForm(forms.ModelForm):
         fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, scope=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
         if self.instance.pk is not None:
+            self.scope = self.instance.scope
             self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
-            # Name is immutable after creation (enforced by clean_name). Make the
-            # field visibly inert; readonly (not disabled) keeps it in the POST so
-            # clean_name still rejects a crafted rename.
+            # Name is immutable after creation.
             self.fields["name"].widget.attrs["readonly"] = True
+        else:
+            if scope not in (MCPServer.Scope.USER, MCPServer.Scope.GLOBAL):
+                raise ValueError("MCPServerForm requires an explicit scope for creates.")
+            self.scope = scope
 
     def clean_name(self):
         name = self.cleaned_data["name"]
@@ -139,6 +146,27 @@ class MCPServerForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        name = cleaned.get("name")
+        # Name uniqueness lives in the model's *conditional* UniqueConstraints
+        # (``mcp_global_name_unique`` / ``mcp_user_name_unique``). ModelForm
+        # validation can't see them: their condition references ``scope``/``user``,
+        # which are not form fields and so are excluded from constraint validation —
+        # a duplicate would otherwise pass ``clean()`` and 500 with an IntegrityError
+        # at ``save()``. Re-check the collision here on create so it surfaces as a
+        # friendly field error instead.
+        if self.instance.pk is None and name:
+            if self.scope == MCPServer.Scope.USER and MCPServer.objects.global_servers().filter(name=name).exists():
+                # A user-scoped create must not reuse a global server's name (global
+                # wins at runtime; block it up front to avoid a silently-shadowed row).
+                self.add_error(
+                    "name",
+                    _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name},
+                )
+            elif self._duplicate_in_scope(name):
+                self.add_error(
+                    "name",
+                    _("An MCP server named '%(name)s' already exists. Choose a different name.") % {"name": name},
+                )
         if (
             cleaned.get("tool_filter_mode")
             and cleaned["tool_filter_mode"] != MCPServer.FilterMode.NONE
@@ -149,8 +177,20 @@ class MCPServerForm(forms.ModelForm):
             )
         return cleaned
 
+    def _duplicate_in_scope(self, name: str) -> bool:
+        """Whether ``name`` already exists within the create's target scope — mirrors
+        the DB's conditional UniqueConstraints (global: name; user: user+name), which
+        ModelForm validation skips because ``scope``/``user`` aren't form fields."""
+        if self.scope == MCPServer.Scope.GLOBAL:
+            return MCPServer.objects.global_servers().filter(name=name).exists()
+        return MCPServer.objects.filter(scope=MCPServer.Scope.USER, user=self.user, name=name).exists()
+
     def save(self, commit: bool = True) -> MCPServer:
         self.instance.tool_filter_items = self.cleaned_data.get("tool_filter_items", [])
+        if self.instance.pk is None:
+            self.instance.scope = self.scope
+        if self.scope == MCPServer.Scope.USER and self.user is not None:
+            self.instance.user = self.user
         return super().save(commit=commit)
 
 
@@ -161,8 +201,11 @@ class MCPServerHeaderForm(forms.Form):
     # to save it (applies to every rendered row and the client-added template).
     value = forms.CharField(required=False, max_length=4096, widget=forms.TextInput(attrs={"autocomplete": "off"}))
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, literal_only=False, **kwargs):
         super().__init__(*args, **kwargs)
+        if literal_only:
+            self.fields["mode"].choices = [(MCPServer.HeaderMode.LITERAL.value, MCPServer.HeaderMode.LITERAL.label)]
+            self.fields["mode"].initial = MCPServer.HeaderMode.LITERAL
         # A stored literal value is blanked on edit (see _existing_headers_for_formset),
         # so an empty box would read as "unset". The per-row ``value_stored`` initial flag
         # advertises that a value is kept — leave blank to preserve it.

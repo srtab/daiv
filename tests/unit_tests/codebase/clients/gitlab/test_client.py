@@ -10,10 +10,12 @@ from gitlab.exceptions import GitlabCreateError, GitlabGetError
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.gitlab.client import (
+    CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS,
     MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -21,6 +23,25 @@ _CLONE_URL = "https://gitlab.com/group/repo.git"
 def _expected_clone_env(token: str) -> dict[str, str]:
     """The git env the clone/publish is expected to run with for ``token`` (fixture's clone_url)."""
     return GitAuthEnv.for_token(_CLONE_URL, token).as_env()
+
+
+def _clone_dir_removals(mock_rmtree: Mock) -> int:
+    """Count `shutil.rmtree` calls that target the clone dir (the ``repo`` subdir), i.e. the
+    self-heal's partial-clone cleanup — excluding the `TemporaryDirectory` teardown that the
+    patched-module-level rmtree also intercepts (it targets the parent temp dir)."""
+    return sum(1 for c in mock_rmtree.call_args_list if c.args and getattr(c.args[0], "name", None) == "repo")
+
+
+def _gl_project(slug: str) -> Mock:
+    """A mock GitLab project shaped like what ``projects.list`` yields."""
+    project = Mock()
+    project.get_id.return_value = 1
+    project.path_with_namespace = slug
+    project.name = slug.split("/")[-1]
+    project.web_url = f"https://gitlab.com/{slug}"
+    project.default_branch = "main"
+    project.topics = []
+    return project
 
 
 def test_git_egress_credential_for_token_builds_basic_oauth2_header():
@@ -187,55 +208,136 @@ class TestGitLabClient:
 
         clone_from.assert_not_called()
 
-    def test_load_repo_retries_with_fresh_token_when_cached_ephemeral_is_rejected(self, gitlab_client, clone_setup):
-        """A cached ephemeral token GitLab now rejects must be dropped and re-minted, not left to
-        wedge every clone of this project for the rest of the cache window."""
+    @pytest.mark.parametrize(
+        "n_failures",
+        [
+            pytest.param(2, id="mid-window"),
+            pytest.param(len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS), id="on-final-post-loop-attempt"),
+        ],
+    )
+    def test_load_repo_retries_same_token_through_propagation_lag(self, gitlab_client, clone_setup, n_failures):
+        """A freshly minted clone token can be briefly rejected while GitLab propagates its
+        authorization; the clone retries the SAME token on the backoff schedule until it lands,
+        never re-minting (a new token would hit the same window). Covers success both mid-window and
+        on the final post-loop attempt — the loop/final-attempt boundary. Pins the fix for the
+        `could not read Username` clone failures (Sentry DAIV-A6 / DAIV-9B)."""
+        repository, clone_from, _ = clone_setup
+        mock_repo = clone_from.return_value
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        auth_error = GitCommandError(
+            "git clone", 128, "fatal: could not read Username for 'https://...': terminal prompts disabled"
+        )
+        # Rejected on the first n_failures attempts, then the authorization propagates.
+        clone_from.side_effect = [*(auth_error for _ in range(n_failures)), mock_repo]
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph") as get_token,
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree") as mock_rmtree,
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
+            gitlab_client.load_repo(repository, "main") as loaded_repo,
+        ):
+            assert loaded_repo == mock_repo
+
+        # Same token throughout, minted once, never invalidated/re-minted.
+        invalidate.assert_not_called()
+        get_token.assert_called_once()
+        assert clone_from.call_count == n_failures + 1
+        assert all(c.kwargs["env"] == _expected_clone_env("glpat-eph") for c in clone_from.call_args_list)
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff[:n_failures]]
+        # The partial clone dir is cleared before each re-attempt (git refuses a non-empty target).
+        assert _clone_dir_removals(mock_rmtree) == n_failures
+
+    def test_load_repo_remints_after_propagation_window_when_cached_ephemeral_stays_rejected(
+        self, gitlab_client, clone_setup
+    ):
+        """Once the propagation retries are exhausted and the cached ephemeral token still fails
+        auth, it is genuinely dead (revoked, project/instance reset) — drop it and re-mint, so it
+        can't wedge every clone of this project for the rest of the cache window."""
         repository, clone_from, _ = clone_setup
         mock_repo = clone_from.return_value
         auth_error = GitCommandError(
             "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
         )
-        clone_from.side_effect = [auth_error, mock_repo]
+        # The stale token fails every propagation attempt (len(backoff) retries + one final);
+        # the freshly minted token then clones on its first attempt.
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        stale_attempts = len(backoff) + 1
+        clone_from.side_effect = [*(auth_error for _ in range(stale_attempts)), mock_repo]
 
         with (
             patch(
                 "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
             ),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
             gitlab_client.load_repo(repository, "main") as loaded_repo,
         ):
             assert loaded_repo == mock_repo
 
         invalidate.assert_called_once_with(1)
-        assert clone_from.call_count == 2
-        first_env = clone_from.call_args_list[0].kwargs["env"]
-        second_env = clone_from.call_args_list[1].kwargs["env"]
-        assert first_env == _expected_clone_env("glpat-stale")
-        assert second_env == _expected_clone_env("glpat-fresh")
+        assert clone_from.call_count == stale_attempts + 1
+        assert clone_from.call_args_list[0].kwargs["env"] == _expected_clone_env("glpat-stale")
+        assert clone_from.call_args_list[-1].kwargs["env"] == _expected_clone_env("glpat-fresh")
+        # The stale token sleeps the exact documented schedule before the window is declared exhausted;
+        # the fresh token then clones on its first attempt, so no further sleeps.
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
-    def test_load_repo_retries_exactly_once_then_propagates_when_fresh_token_also_rejected(
-        self, gitlab_client, clone_setup
-    ):
-        """The self-heal retries at most once: if the freshly minted token is also rejected, the
-        second failure propagates rather than looping. Pins 'retry once, then give up'."""
+    def test_load_repo_propagates_when_both_cached_and_fresh_tokens_stay_rejected(self, gitlab_client, clone_setup):
+        """The self-heal re-mints at most once: if the fresh token also fails auth through its own
+        propagation window, the error propagates rather than looping forever."""
         repository, clone_from, _ = clone_setup
         auth_error = GitCommandError(
             "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
         )
-        clone_from.side_effect = [auth_error, auth_error]
+        clone_from.side_effect = auth_error  # every attempt fails
 
         with (
             patch(
                 "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
             ),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.time.sleep"),
             pytest.raises(GitCommandError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
 
         invalidate.assert_called_once_with(1)
-        assert clone_from.call_count == 2
+        # (len(backoff) retries + one final) attempts per token, for the stale and the fresh token.
+        assert clone_from.call_count == 2 * (len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS) + 1)
+
+    def test_load_repo_remint_falls_back_to_pat_with_single_attempt(self, gitlab_client, clone_setup):
+        """If ephemeral provisioning breaks between the two mints, the re-mint resolves to the PAT.
+        The PAT is long-lived (an auth rejection is a real misconfiguration, not a propagation blip),
+        so it must get a single fail-fast attempt — not the full propagation backoff, which would
+        waste ~15s and mislabel the failure as a token-propagation lag."""
+        repository, clone_from, _ = clone_setup
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        auth_error = GitCommandError(
+            "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
+        )
+        stale_attempts = len(backoff) + 1
+        # Stale ephemeral token exhausts its window; the re-minted credential is the PAT and fails too.
+        clone_from.side_effect = [auth_error for _ in range(stale_attempts + 1)]
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", None]),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
+            pytest.raises(GitCommandError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_called_once_with(1)
+        # stale token gets the full window; the PAT gets exactly ONE more attempt (no second window).
+        assert clone_from.call_count == stale_attempts + 1
+        assert clone_from.call_args_list[-1].kwargs["env"] == _expected_clone_env("pat-token")
+        # Only the stale token slept; the PAT attempt adds no further backoff.
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
     def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
         """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
@@ -281,7 +383,9 @@ class TestGitLabClient:
 
     def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must
-        not trigger the token-rotation retry."""
+        not trigger the token-rotation retry; ref-not-found errors surface as CloneRefNotFoundError."""
+        from codebase.exceptions import CloneRefNotFoundError
+
         repository, clone_from, _ = clone_setup
         clone_from.side_effect = GitCommandError(
             "git clone", 128, "fatal: Remote branch nope not found in upstream origin"
@@ -290,13 +394,61 @@ class TestGitLabClient:
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
-            pytest.raises(GitCommandError),
+            pytest.raises(CloneRefNotFoundError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
 
         invalidate.assert_not_called()
         assert clone_from.call_count == 1
+
+    def test_load_repo_raises_clone_ref_not_found_when_branch_gone(self, gitlab_client, clone_setup):
+        """A merged-and-deleted branch surfaces as CloneRefNotFoundError, not a raw GitCommandError,
+        and is not retried (it is not an auth failure)."""
+        from codebase.exceptions import CloneRefNotFoundError
+
+        repository, clone_from, _ = clone_setup
+        clone_from.side_effect = GitCommandError(
+            "git clone", 128, "fatal: Remote branch gone-branch not found in upstream origin"
+        )
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            pytest.raises(CloneRefNotFoundError) as exc_info,
+            gitlab_client.load_repo(repository, "gone-branch"),
+        ):
+            pass
+
+        assert exc_info.value.ref == "gone-branch"
+        assert exc_info.value.repo_slug == "group/repo"
+        assert clone_from.call_count == 1
+
+    @pytest.mark.parametrize("merged", [True, False])
+    def test_get_merge_request_maps_merged_state(self, gitlab_client, merged):
+        """get_merge_request maps GitLab ``state == "merged"`` onto ``MergeRequest.merged`` — the
+        value the merged-MR skip guard in address_mr_comments_task reads."""
+
+        def _mr(state):
+            mock_mr = Mock()
+            mock_mr.get_id.return_value = 7
+            mock_mr.source_branch = "feat-x"
+            mock_mr.target_branch = "main"
+            mock_mr.title = "feat: add x"
+            mock_mr.description = "details"
+            mock_mr.labels = []
+            mock_mr.web_url = "https://gitlab.com/group/repo/-/merge_requests/7"
+            mock_mr.sha = "abc123"
+            mock_mr.author = {"id": 1, "username": "alice", "name": "Alice"}
+            mock_mr.state = state
+            mock_mr.work_in_progress = False
+            return mock_mr
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        mock_project.mergerequests.get.return_value = _mr("merged" if merged else "opened")
+        assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
@@ -373,10 +525,11 @@ class TestGitLabClient:
         assert result.source_branch == "feat/x"
         assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
-    def test_update_or_create_merge_request_raises_when_branch_never_appears(self, gitlab_client):
-        """If the branch stays invisible past the retry budget, the create error surfaces."""
+    def test_update_or_create_merge_request_raises_when_branch_genuinely_missing(self, gitlab_client):
+        """If the branch stays invisible past the retry budget AND is genuinely absent, the create error surfaces."""
         mock_project = Mock()
         mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = GitlabGetError(response_code=404)
         gitlab_client.client.projects.get.return_value = mock_project
 
         with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError):
@@ -387,6 +540,84 @@ class TestGitLabClient:
         # One attempt per backoff step, plus the final attempt after the retries are exhausted.
         expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
         assert mock_project.mergerequests.create.call_count == expected_attempts
+
+    def test_update_or_create_merge_request_degrades_when_branch_pushed_but_mr_pending(self, gitlab_client, caplog):
+        """Branch exists on the remote but MR-create still can't see it past the budget -> degrade, don't fail.
+
+        This is GitLab's post-push branch-visibility lag outliving the retry budget: the push succeeded
+        (``branches.get`` resolves), so we raise the recoverable pending error rather than the raw 400 the
+        caller would treat as a fatal job failure.
+        """
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.return_value = Mock()  # branch resolves -> it really is pushed
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with (
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            caplog.at_level("ERROR", logger="daiv.clients"),
+            pytest.raises(MergeRequestBranchNotVisibleError) as exc,
+        ):
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert exc.value.source_branch == "feat/x"
+        mock_project.branches.get.assert_called_once_with("feat/x")
+        assert "feat/x" in caplog.text
+
+    def test_update_or_create_merge_request_reraises_unrelated_400_on_final_attempt(self, gitlab_client):
+        """A non-branch-visibility 400 surfacing only on the final attempt must NOT degrade to pending.
+
+        Guards the fix's worst failure mode: a real error misclassified as "MR pending". The branch is
+        never probed because the final error isn't the branch-missing signature.
+        """
+        backoff = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = [
+            *(self._branch_missing_error() for _ in backoff),
+            GitlabCreateError(error_message={"title": ["can't be blank"]}, response_code=400),
+        ]
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError) as exc:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert not isinstance(exc.value, MergeRequestBranchNotVisibleError)
+        mock_project.branches.get.assert_not_called()
+
+    def test_update_or_create_merge_request_reraises_create_error_when_branch_probe_fails(self, gitlab_client):
+        """If the branch-existence probe itself fails (e.g. a transport error), the original create error
+        surfaces — not the incidental probe error, and not a false "MR pending"."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = ConnectionError("boom")
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError) as exc:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert not isinstance(exc.value, MergeRequestBranchNotVisibleError)
+
+    @pytest.mark.parametrize(
+        ("side_effect", "expected"),
+        [
+            pytest.param(None, True, id="branch-present"),
+            pytest.param(GitlabGetError(response_code=404), False, id="gitlab-error-not-confirmed"),
+            pytest.param(ConnectionError("boom"), False, id="transport-error-not-confirmed"),
+        ],
+    )
+    def test_branch_exists_is_fail_safe(self, side_effect, expected):
+        """Present -> True; any lookup failure (SDK or unwrapped transport) -> "not confirmed" (False)."""
+        mock_project = Mock()
+        if side_effect is not None:
+            mock_project.branches.get.side_effect = side_effect
+        assert GitLabClient._branch_exists(mock_project, "feat/x") is expected
+        mock_project.branches.get.assert_called_once_with("feat/x")
 
     def test_update_or_create_merge_request_does_not_retry_unrelated_400(self, gitlab_client):
         """A 400 that isn't the branch-visibility race must fail fast (no retry/sleep)."""
@@ -650,6 +881,21 @@ class TestGitLabClient:
         assert kwargs["order_by"] == "last_activity_at"
         assert kwargs["sort"] == "desc"
 
+    @pytest.mark.parametrize(
+        ("slugs", "limit", "expected"),
+        [
+            # A listing ordered by a mutable key (last_activity_at) can surface the same project on
+            # two pages, so `list_repositories` returns one entry per slug.
+            pytest.param(["g/a", "g/b", "g/a"], None, ["g/a", "g/b"], id="dedupes-repeated-slugs"),
+            # `limit` bounds unique repos, not raw rows: a duplicate must not consume a slot.
+            pytest.param(["g/a", "g/a", "g/b"], 2, ["g/a", "g/b"], id="limit-counts-unique-slugs"),
+        ],
+    )
+    def test_list_repositories_dedupes_by_slug(self, gitlab_client, slugs, limit, expected):
+        gitlab_client.client.projects.list.return_value = iter([_gl_project(s) for s in slugs])
+
+        assert [r.slug for r in gitlab_client.list_repositories(limit=limit)] == expected
+
     def test_list_branches_passes_search_and_per_page(self, gitlab_client):
         """`list_branches` forwards `search` and caps `per_page` at `limit`."""
         mock_project = Mock()
@@ -703,20 +949,38 @@ class TestGitLabClient:
         assert kwargs["per_page"] == 100
 
     def test_get_merge_request_by_branches_returns_first_open_match(self, gitlab_client):
-        """When an open MR exists for the source/target pair, return the serialized MR."""
+        """When an open MR exists for the source branch, return the serialized MR."""
         mock_project = Mock()
         mock_mr = Mock()
         mock_project.mergerequests.list.return_value = iter([mock_mr])
         gitlab_client.client.projects.get.return_value = mock_project
         sentinel = Mock(name="serialized")
         with patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize:
-            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x")
 
         assert result is sentinel
         mock_project.mergerequests.list.assert_called_once_with(
-            source_branch="feat-x", target_branch="main", state="opened", iterator=True
+            source_branch="feat-x", state="opened", order_by="created_at", sort="asc", iterator=True
         )
+        assert "target_branch" not in mock_project.mergerequests.list.call_args.kwargs
         serialize.assert_called_once_with("group/repo", mock_mr)
+
+    def test_get_merge_request_by_branches_warns_and_picks_oldest_on_multiple(self, gitlab_client, caplog):
+        """Several open MRs share the source branch: return the oldest (sort=asc) and warn."""
+        mock_project = Mock()
+        oldest = Mock(iid=1)
+        mock_project.mergerequests.list.return_value = iter([oldest, Mock(iid=2)])
+        gitlab_client.client.projects.get.return_value = mock_project
+        sentinel = Mock(name="serialized")
+        with (
+            patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize,
+            caplog.at_level(logging.WARNING, logger="daiv.clients"),
+        ):
+            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x")
+
+        assert result is sentinel
+        serialize.assert_called_once_with("group/repo", oldest)
+        assert "Multiple open MRs" in caplog.text
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, gitlab_client):
         mock_project = Mock()
@@ -751,7 +1015,7 @@ class TestGitLabClient:
         mock_project.mergerequests.list.return_value = iter([])
         gitlab_client.client.projects.get.return_value = mock_project
 
-        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x")
 
         assert result is None
 
@@ -789,3 +1053,41 @@ class TestGitLabClient:
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.host == "gitlab.example.com"
         assert cred.value is None
+
+    def _repo(self):
+        return Repository(
+            pk=7,
+            slug="group/repo",
+            name="repo",
+            clone_url="https://gitlab.com/group/repo.git",
+            html_url="https://gitlab.com/group/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+
+    def test_push_uses_ephemeral_token_true_when_ephemeral_minted(self, gitlab_client):
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            assert gitlab_client.push_uses_ephemeral_token(self._repo()) is True
+
+    def test_push_uses_ephemeral_token_false_when_pat_fallback(self, gitlab_client):
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            assert gitlab_client.push_uses_ephemeral_token(self._repo()) is False
+
+    def test_trigger_merge_request_pipeline_creates_mr_pipeline(self, gitlab_client):
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_pipeline = Mock(
+            id=987, iid=3, sha="deadbeef", status="pending", web_url="https://gitlab.com/group/repo/-/pipelines/987"
+        )
+        gitlab_client.client.projects.get.return_value = mock_project
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_mr.pipelines.create.return_value = mock_pipeline
+
+        pipeline = gitlab_client.trigger_merge_request_pipeline("group/repo", 42)
+
+        gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
+        mock_project.mergerequests.get.assert_called_once_with(42, lazy=True)
+        mock_mr.pipelines.create.assert_called_once_with()
+        assert pipeline.id == 987
+        assert pipeline.status == "pending"
+        assert pipeline.web_url.endswith("/pipelines/987")

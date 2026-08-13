@@ -305,9 +305,6 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
-| `MCP_SERVERS_CONFIG_FILE`       | **Deprecated.** Servers are managed at `/dashboard/mcp-servers/`; a set value only triggers a warning when migrations run (every web-container start). | *(none)*                       | `/path/to/mcp.json` |
-| `MCP_SENTRY_URL`                | **Deprecated and ignored.** The `sentry` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`. | `http://mcp_sentry:8000/mcp`   | — |
-| `MCP_CONTEXT7_URL`              | **Deprecated and ignored.** The `context7` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`. | `http://mcp_context7:8000/mcp` | — |
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |
 
 !!! info
@@ -322,6 +319,8 @@ When enabled, tools outside the always-loaded set are deferred behind a `tool_se
 | `DEFERRED_TOOLS_ENABLED`        | Defer non-essential tools behind `tool_search` instead of binding them eagerly | `true` | `false` |
 | `DEFERRED_TOOLS_TOP_K_DEFAULT`  | Default number of results returned by a `tool_search` call     | `3`            | `5` |
 | `DEFERRED_TOOLS_TOP_K_MAX`      | Maximum number of results `tool_search` will return per call   | `10`           | `20` |
+| `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS` | Prefix-matched model names whose bound tools array is kept frozen (loaded schemas reach them via `tool_search` results only), preserving the provider prompt cache. Empty list disables freezing. | `claude-,anthropic/claude-,qwen/qwen3.8-max` | `claude-` |
+| `DEFERRED_TOOLS_EMBED_SCHEMAS_IN_RESULTS` | Embed each loaded tool's full schema in the `tool_search` result. Emergency valve: when `false`, results carry summaries only **and freezing is forced off** (a frozen model has no other way to receive schemas), so every model falls back to the array-append + summary pre-change behaviour. | `true` | `false` |
 
 ---
 

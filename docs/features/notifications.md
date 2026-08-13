@@ -110,7 +110,7 @@ When a run finishes, DAIV records the notification and one delivery row per exte
 - Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried.
 - The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails.
 
-## Related
+## Related pages
 
 <div class="grid cards" markdown>
 

@@ -2,15 +2,19 @@ from django.contrib.sites.models import Site
 
 import httpx
 import pytest
+from redis.exceptions import LockError, LockNotOwnedError
 
 from core.utils import (
+    DEFAULT_LOCK_TIMEOUT,
     async_download_url,
     batch_async_download_url,
     build_absolute_url,
     build_uri,
     extract_valid_image_mimetype,
     is_git_auth_error_text,
+    is_git_ref_not_found_text,
     is_valid_url,
+    locked_task,
     prefixed_email_subject,
 )
 
@@ -80,6 +84,20 @@ class IsGitAuthErrorTextTest:
     )
     def test_non_auth_text_returns_false(self, text):
         assert is_git_auth_error_text(text) is False
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("fatal: Remote branch chore/x not found in upstream origin", True),
+        ("Remote branch feature-1 not found in upstream origin\n", True),
+        ("fatal: could not read Username for 'https://...'", False),  # auth, not a missing ref
+        ("fatal: unable to access '...': Could not resolve host", False),  # network
+        ("", False),
+    ],
+)
+def test_is_git_ref_not_found_text(text, expected):
+    assert is_git_ref_not_found_text(text) is expected
 
 
 class IsValidUrlTest:
@@ -256,3 +274,95 @@ class BatchAsyncUrlToDataUrlTest:
         assert "https://example.com/success.jpg" in result
         assert isinstance(result["https://example.com/success.jpg"], bytes)
         assert result["https://example.com/success.jpg"].startswith(b"fake-image-data")
+
+
+class LockedTaskTest:
+    """A task lock that never expires strands every later run, so the timeout is load-bearing."""
+
+    def test_lock_is_always_acquired_with_an_expiry(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access")
+        def sync():
+            return "ran"
+
+        assert sync() == "ran"
+        timeout = mock_lock.call_args.kwargs["timeout"]
+        assert timeout == DEFAULT_LOCK_TIMEOUT
+        assert timeout is not None and timeout > 0
+
+    async def test_async_lock_is_always_acquired_with_an_expiry(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access")
+        async def sync():
+            return "ran"
+
+        assert await sync() == "ran"
+        assert mock_lock.call_args.kwargs["timeout"] == DEFAULT_LOCK_TIMEOUT
+
+    def test_explicit_timeout_is_forwarded(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="repo-access", timeout=120)
+        def sync():
+            return "ran"
+
+        sync()
+        assert mock_lock.call_args.kwargs["timeout"] == 120
+
+    @pytest.mark.parametrize("timeout", [None, 0, -1])
+    def test_non_expiring_timeout_is_rejected(self, timeout):
+        with pytest.raises(ValueError, match="positive number of seconds"):
+            locked_task(key="repo-access", timeout=timeout)
+
+    def test_task_is_skipped_while_the_lock_is_held(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+        mock_lock.return_value.__enter__.side_effect = LockError("held")
+        calls = []
+
+        @locked_task(key="repo-access")
+        def sync():
+            calls.append(1)
+
+        assert sync() is None
+        assert calls == []
+
+    @pytest.mark.parametrize(
+        ("args", "kwargs"), [(("group/proj",), {}), ((), {"repo_id": "group/proj"})], ids=["positional", "keyword"]
+    )
+    def test_named_key_field_resolves_however_the_caller_passed_it(self, mocker, args, kwargs):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="{repo_id}")
+        def consolidate(repo_id: str):
+            return "ran"
+
+        assert consolidate(*args, **kwargs) == "ran"
+        assert mock_lock.call_args.args[0] == "consolidate:group/proj"
+
+    async def test_named_key_field_resolves_for_an_async_task(self, mocker):
+        mock_lock = mocker.patch("core.utils.cache.lock")
+
+        @locked_task(key="{repo_id}")
+        async def consolidate(repo_id: str):
+            return "ran"
+
+        assert await consolidate("group/proj") == "ran"
+        assert mock_lock.call_args.args[0] == "consolidate:group/proj"
+
+    def test_expiry_mid_run_is_reported_as_an_error(self, mocker):
+        """Release raises when the lock expired under a live holder — a distinct failure from a skip."""
+        mock_lock = mocker.patch("core.utils.cache.lock")
+        mock_lock.return_value.__exit__.side_effect = LockNotOwnedError("expired")
+        logger = mocker.patch("core.utils.logger")
+        calls = []
+
+        @locked_task(key="repo-access")
+        def sync():
+            calls.append(1)
+
+        assert sync() is None
+        assert calls == [1]
+        assert logger.error.called
+        assert not logger.warning.called

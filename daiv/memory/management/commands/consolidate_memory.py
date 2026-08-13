@@ -4,8 +4,9 @@ import logging
 
 from django.core.management.base import BaseCommand, CommandError
 
-from memory.models import MemoryObservation, ObservationStatus
-from memory.tasks import CONSOLIDATION_MIN_PENDING, consolidate_memory_task
+from memory.constants import CONSOLIDATION_MIN_PENDING
+from memory.models import MemoryObservation
+from memory.tasks import consolidate_memory_task
 
 logger = logging.getLogger("daiv.memory")
 
@@ -21,7 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         repo_id = options["repo_id"]
-        pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
+        pending = MemoryObservation.objects.filter(repo_id=repo_id).pending().count()
         if pending == 0:
             logger.warning("No pending observations for %s; nothing to do.", repo_id)
             return

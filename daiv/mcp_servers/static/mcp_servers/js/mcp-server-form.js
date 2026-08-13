@@ -10,14 +10,17 @@
  * MultiValueTextarea) — and the original inputs are disabled so they are not
  * submitted alongside. Also holds the segmented-control state (transport,
  * filterMode) for the pill toggles and the tool-filter progressive disclosure.
+ * The Tool filter section itself is gated behind `showFilter` — hidden until
+ * the server is already synced, or a successful test reveals it.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
+    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, showFilter, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
         state: "idle", // idle | testing | ok | error
         error: "",
         toolCount: 0,
         transport,
         filterMode,
+        showFilter,
         filterPlaceholder,
         notInListLabel,
         readonlyLabel,
@@ -32,6 +35,7 @@ document.addEventListener("alpine:init", () => {
                 if (json.ok) {
                     this.state = "ok";
                     this.toolCount = json.tools.length;
+                    this.showFilter = true;
                     this.swapFilterField(json.tools);
                 } else {
                     this.state = "error";

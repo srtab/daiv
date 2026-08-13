@@ -331,6 +331,16 @@ class SiteConfiguration(models.Model):
             "(subject to the consolidation interval below)."
         ),
     )
+    memory_consolidation_max_pending_age_days = models.PositiveIntegerField(
+        _("consolidation flush age (days)"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_(
+            "Consolidate a repository that is still below the threshold above once its oldest "
+            "pending observation reaches this age, so low-volume repositories still form memory."
+        ),
+    )
     memory_consolidation_min_interval_hours = models.PositiveIntegerField(
         _("consolidation interval (hours)"),
         blank=True,
@@ -341,13 +351,31 @@ class SiteConfiguration(models.Model):
         _("memory max lines"),
         blank=True,
         null=True,
-        help_text=_("Hard cap on the consolidated memory document length, in lines."),
+        validators=[MinValueValidator(1)],
+        help_text=_("Cap on the memory document length in lines; entries beyond it are evicted."),
     )
     memory_max_bytes = models.PositiveIntegerField(
         _("memory max bytes"),
         blank=True,
         null=True,
-        help_text=_("Hard cap on the consolidated memory document size, in bytes."),
+        validators=[MinValueValidator(1)],
+        help_text=_("Cap on the memory document size in bytes; entries beyond it are evicted."),
+    )
+
+    # -- Run Classifier --
+    run_classifier_model_name = models.CharField(
+        _("classifier model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Model that classifies each finished scheduled run's report into an envelope."),
+    )
+    run_classifier_fallback_model_name = models.CharField(
+        _("classifier fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model when the classifier model fails."),
     )
 
     # -- Web Search --
@@ -500,6 +528,8 @@ class SiteConfiguration(models.Model):
         "memory_extraction_model_name",
         "memory_extraction_fallback_model_name",
         "memory_consolidation_model_name",
+        "run_classifier_model_name",
+        "run_classifier_fallback_model_name",
         "web_fetch_model_name",
     )
 
@@ -532,6 +562,13 @@ class SiteConfiguration(models.Model):
             match=("memory_*",),
             icon="cpu-chip",
             toggle_field="memory_enabled",
+            category="AI tasks",
+        ),
+        FieldGroup(
+            key="run_classifier",
+            title=_("Run classifier"),
+            match=("run_classifier_*",),
+            icon="cpu-chip",
             category="AI tasks",
         ),
         FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers", category="Models"),

@@ -31,6 +31,7 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 
 - **[MCP Endpoint](features/mcp-endpoint.md)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
 - **[Jobs API](features/jobs-api.md)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
+- **[Orchestration](features/orchestration.md)** — fan work out across repositories: one coordinator agent delegates sub-tasks to other repos in parallel and resumes with a rollup of the results.
 
 ### From the dashboard
 
@@ -54,12 +55,14 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 
 DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep-agent framework built on [LangGraph](https://langchain-ai.github.io/langgraph/) with sub-agent spawning, a middleware stack, and a virtual filesystem. On top of it, DAIV adds:
 
-- **Subagents** — specialized agents for fast codebase exploration and complex multi-step tasks.
-- **Sandbox** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
-- **MCP Tools** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
-- **Monitoring** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues. See [Monitoring](reference/monitoring.md).
+- **[Subagents](features/subagents.md)** — specialized agents for fast codebase exploration and complex multi-step tasks.
+- **[Sandbox](features/sandbox.md)** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
+- **[MCP Tools](customization/mcp-tools.md)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **[Monitoring](reference/monitoring.md)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **LLM Providers** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice. See [LLM Providers](getting-started/llm-providers.md).
+- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.
+
+For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see [Agent Architecture](reference/agent-architecture.md).
 
 ## Supported platforms
 
@@ -132,3 +135,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
     [:octicons-arrow-right-24: Scheduled Jobs](features/scheduled-jobs.md)
 
 </div>
+
+## Contributing
+
+DAIV is open-source under Apache 2.0. See [Community](community.md) for how to contribute, report issues, and get support.

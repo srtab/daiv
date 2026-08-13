@@ -26,6 +26,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             "agent_model",
             "agent_thinking_level",
             "notify_on",
+            "intent",
             "subscribers",
             "sandbox_environment",
         ]
@@ -77,6 +78,7 @@ class ScheduleTemplateForm(forms.ModelForm):
             "agent_model",
             "agent_thinking_level",
             "notify_on",
+            "intent",
         ]
 
     def clean(self):

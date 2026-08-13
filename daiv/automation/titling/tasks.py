@@ -5,10 +5,8 @@ import re
 from typing import Literal, cast
 
 from django_tasks import task
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from automation.agent.base import BaseAgent
 from automation.titling.services import MAX_TITLE_LENGTH
 from core.site_settings import site_settings
 
@@ -38,7 +36,12 @@ class GeneratedTitle(BaseModel):
 
 
 def _build_structured_llm():
-    """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured."""
+    """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured.
+
+    One of three deliberately separate copies — ``sessions.classification`` and ``memory.llm`` have
+    their own, with divergent retry policies; read those before reconciling them.
+    """
+    from automation.agent.base import BaseAgent
 
     def _structured(model_name: str):
         # No ``max_tokens`` cap: reasoning models (GPT-5, Claude thinking) count reasoning
@@ -61,6 +64,8 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
 
     ``repo_id`` and ``ref`` are optional context: omitted for batches that span multiple repos.
     """
+    from langchain_core.messages import HumanMessage, SystemMessage
+
     ref = ref.strip()
     user_text = ""
     if repo_id:

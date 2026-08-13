@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
@@ -15,6 +17,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemBackend,
+    DAIVFilesystemMiddleware,
     build_disk_workspace_backend,
 )
 
@@ -32,11 +35,11 @@ def working_repo(tmp_path) -> Path:
 
 @pytest.fixture
 def setup(working_repo):
-    """Disk-backed repo backend + the upstream filesystem tool map."""
+    """Disk-backed repo backend + DAIV's filesystem middleware and its tool map."""
     backend = DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
+    fs = DAIVFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
-    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo)
+    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo, middleware=fs)
 
 
 def _runtime(*, state: dict[str, Any], working_dir: Path) -> SimpleNamespace:
@@ -77,6 +80,49 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     assert edit_text.startswith(EDIT_SUCCESS_PREFIX), (
         f"upstream changed edit success format; update EDIT_SUCCESS_PREFIX: {edit_text!r}"
     )
+
+
+def test_write_file_description_does_not_contradict_upstream():
+    """DAIV's write_file guidance must not assert a mechanism upstream has changed.
+
+    Through deepagents 0.6 the disk backend refused to overwrite, so DAIV's appended text said
+    write_file "can ONLY create new files". 0.7 replaces the file instead and says so in its own
+    description, which turned the appended line into a contradiction inside one tool description.
+    Whether an overwrite is refused is now backend-dependent, so the guidance may only express a
+    preference.
+    """
+    from automation.agent.middlewares.file_system import WRITE_FILE_TOOL_DESCRIPTION
+
+    assert "edit_file" in WRITE_FILE_TOOL_DESCRIPTION, "must still steer edits to edit_file"
+    assert "ONLY create new files" not in WRITE_FILE_TOOL_DESCRIPTION
+    assert "will fail on files that already exist" not in WRITE_FILE_TOOL_DESCRIPTION
+
+
+async def test_glob_description_does_not_claim_bare_patterns_fail(tmp_path: Path):
+    """A bare repo-relative glob pattern does match, so the description must not say otherwise.
+
+    ``CompositeBackend.aglob`` merges the default backend with every route when ``path`` is unset,
+    so ``tests/**/*.py`` resolves under ``/workspace/repo`` without a ``**/`` prefix. Pin both the
+    claim and the behaviour, so neither can drift back independently.
+    """
+    from automation.agent.constants import REPO_PATH
+    from automation.agent.middlewares.file_system import GLOB_TOOL_DESCRIPTION, build_disk_workspace_backend
+
+    assert "matches nothing under the repo" not in GLOB_TOOL_DESCRIPTION
+    assert "repository root" in GLOB_TOOL_DESCRIPTION
+
+    clone = tmp_path / "repo"
+    (clone / "tests").mkdir(parents=True)
+    (clone / "tests" / "test_a.py").write_text("x\n")
+    backend = build_disk_workspace_backend(clone)
+
+    bare = await backend.aglob("tests/**/*.py")
+    paths = [e["path"] for e in (bare.matches or [])]
+
+    assert f"{REPO_PATH}/tests/test_a.py" in paths, "a bare repo-relative pattern must still match"
+    # Scoping to the repo root is what yields the single canonical path the description recommends.
+    scoped = await backend.aglob("tests/**/*.py", path=REPO_PATH)
+    assert [e["path"] for e in (scoped.matches or [])] == [f"{REPO_PATH}/tests/test_a.py"]
 
 
 def test_grep_arg_schema_describes_regex(setup):
@@ -155,10 +201,175 @@ class TestDiskBackendRegexGrep:
         assert "invalid regular expression" in result.error
         assert not result.matches
 
+    async def test_disk_grep_max_count_caps_and_flags_truncation(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("line", max_count=1)
+        assert result.error is None
+        assert len(result.matches or []) == 1
+        assert result.truncated is True
+
+    async def test_disk_grep_without_max_count_is_not_truncated(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("line")
+        assert len(result.matches or []) == 3
+        assert result.truncated is False
+
+    async def test_disk_grep_glob_filters_by_extension(self, tmp_path: Path):
+        (tmp_path / "keep.py").write_text("needle here\n")
+        (tmp_path / "skip.txt").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        result = await backend.agrep("needle", glob="*.py")
+
+        assert result.error is None
+        paths = sorted(m["path"] for m in (result.matches or []))
+        assert paths == ["/keep.py"]
+
+    @staticmethod
+    def _raise_on_locked(monkeypatch):
+        """Make opening ``locked.py`` raise a realistic ``PermissionError`` (whose ``str`` embeds
+        the absolute path), leaving every other file readable."""
+        import pathlib
+
+        real_open = pathlib.Path.open
+
+        def fake_open(self, *args, **kwargs):
+            if self.name == "locked.py":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "open", fake_open)
+
+    async def test_disk_grep_unreadable_file_with_matches_returns_clean_and_logs(
+        self, tmp_path: Path, monkeypatch, caplog
+    ):
+        """A non-actionable per-file read error must not withhold usable matches: with a good match
+        present the result comes back clean (so the composite still merges the other backends) and
+        the failure goes to the logs -- never embedding the real on-disk path (``virtual_mode``)."""
+        import logging
+
+        (tmp_path / "good.py").write_text("needle here\n")
+        (tmp_path / "locked.py").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        self._raise_on_locked(monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        # Usable matches survive and the result is NOT flagged as an error.
+        assert result.error is None
+        assert any(m["path"] == "/good.py" for m in (result.matches or []))
+        # The failure is logged for operators, sanitized (no real host path).
+        assert "could not fully search" in caplog.text
+        assert "PermissionError" in caplog.text and "Permission denied" in caplog.text
+        assert str(tmp_path) not in caplog.text
+
+    async def test_disk_grep_all_unreadable_surfaces_sanitized_error(self, tmp_path: Path, monkeypatch):
+        """With no matches to salvage the failure IS surfaced (so an empty result is not mistaken
+        for a genuine zero-match) -- still sanitized to keep the real host path out."""
+        (tmp_path / "locked.py").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        self._raise_on_locked(monkeypatch)
+
+        result = await backend.agrep("needle")
+
+        assert not result.matches
+        assert result.error is not None
+        assert "could not be fully searched" in result.error
+        assert "PermissionError" in result.error and "Permission denied" in result.error
+        assert str(tmp_path) not in result.error
+
+    async def test_disk_grep_timeout_is_flagged(self, tmp_path: Path, monkeypatch):
+        backend = self._backend(tmp_path)
+        # Force the wall-clock deadline into the past so the first walk step trips it.
+        monkeypatch.setattr(fs_module, "DEFAULT_GREP_TIMEOUT", -1)
+
+        result = await backend.agrep("alpha")
+
+        assert result.error is not None
+        assert "timed out" in result.error
+
+    async def test_disk_grep_globstar_matches_nested_but_star_does_not(self, tmp_path: Path):
+        """Pins the anchoring footgun the tool description warns about: ``**/*.py`` (GLOBSTAR)
+        reaches into subdirectories, a bare ``*.py`` does not — matched against the path relative
+        to root, not the bare filename."""
+        (tmp_path / "top.py").write_text("needle\n")
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "nested.py").write_text("needle\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        globstar = await backend.agrep("needle", glob="**/*.py")
+        star = await backend.agrep("needle", glob="*.py")
+
+        globstar_paths = {m["path"] for m in (globstar.matches or [])}
+        star_paths = {m["path"] for m in (star.matches or [])}
+        assert "/pkg/nested.py" in globstar_paths  # GLOBSTAR crosses directories
+        assert "/pkg/nested.py" not in star_paths  # a bare * does not
+        assert "/top.py" in star_paths
+
+    async def test_disk_grep_binary_file_is_skipped_silently(self, tmp_path: Path, caplog):
+        """A file that fails to decode on its first read is treated as binary: skipped with no
+        ``error`` and no warning, while sibling matches are returned (a regression that dropped the
+        ``scanned_lines`` guard would flag every binary and, in an all-binary dir, spuriously fail)."""
+        import logging
+
+        (tmp_path / "good.py").write_text("needle here\n")
+        (tmp_path / "image.bin").write_bytes(b"\xff\xfe\x00 not valid utf-8 \x80\x81")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        assert result.error is None
+        assert any(m["path"] == "/good.py" for m in (result.matches or []))
+        assert "could not fully search" not in caplog.text  # binary skip is silent, not flagged
+
+    async def test_disk_grep_partial_decode_is_flagged(self, tmp_path: Path, caplog):
+        """A file whose valid prefix exceeds the text read-buffer before hitting invalid bytes is a
+        *mid-file* decode failure (``scanned_lines > 0``): its matches are kept and the truncation is
+        recorded, unlike a first-chunk binary skip."""
+        import logging
+
+        # ~35 KB of valid matching lines (well past TextIOWrapper's ~8 KB read chunk) then bad bytes,
+        # so decoding only fails after many lines have already been scanned and matched.
+        (tmp_path / "truncated.py").write_bytes(b"needle\n" * 5000 + b"\xff\xfe still not utf-8\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        # Matches from the decodable prefix survive; the partial read is flagged (returned clean
+        # because matches exist, and logged for operators).
+        assert result.error is None
+        assert result.matches and any(m["path"] == "/truncated.py" for m in result.matches)
+        assert "could not fully search" in caplog.text
+        assert "UnicodeDecodeError" in caplog.text
+
+    def test_grep_error_detail_sanitizes_and_respects_virtual_mode(self, tmp_path: Path):
+        """Direct contract for the sanitizer: never leak the on-disk path, and only include generic
+        exception text (which can carry ``root_dir``) when NOT in virtual mode."""
+        virt = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        disk = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=False)
+
+        # OSError: only strerror, never the filename ``str(exc)`` would append.
+        oserr = PermissionError(13, "Permission denied", str(tmp_path / "secret"))
+        assert virt._grep_error_detail(oserr) == "PermissionError: Permission denied"
+        assert str(tmp_path) not in virt._grep_error_detail(oserr)
+
+        # UnicodeDecodeError: its path-free ``reason``.
+        ude = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        assert virt._grep_error_detail(ude) == "UnicodeDecodeError: invalid start byte"
+
+        # Generic exception: message suppressed under virtual_mode (it may carry the real root),
+        # included otherwise.
+        generic = RuntimeError(f"boom at {tmp_path}")
+        assert virt._grep_error_detail(generic) == "RuntimeError"
+        assert disk._grep_error_detail(generic) == f"RuntimeError: boom at {tmp_path}"
+
 
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
-    extension methods (``delete``/``stat_mode``) and the dispatch helper
+    extension methods (``unlink``/``stat_mode``) and the dispatch helper
     (``resolve_backend_for``), so a routed op reaches the right underlying backend with
     the route prefix stripped.
     """
@@ -189,24 +400,24 @@ class TestDAIVCompositeBackend:
         composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
         return composite, skills, repo, skills_root, repo_root
 
-    async def test_delete_strips_prefix_for_routed_path(self, tmp_path: Path):
+    async def test_unlink_strips_prefix_for_routed_path(self, tmp_path: Path):
         composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
         (skills_root / "foo.md").write_text("x")
 
-        ok = await composite.delete("/skills/foo.md")
+        ok = await composite.unlink("/skills/foo.md")
 
         assert ok is True
         assert not (skills_root / "foo.md").exists()
 
-    async def test_delete_passes_default_path_unchanged(self, tmp_path: Path):
+    async def test_unlink_passes_default_path_unchanged(self, tmp_path: Path):
         composite, _skills, _repo, _skills_root, repo_root = self._make_composite(tmp_path)
         target = repo_root / "bar.py"
         target.write_text("x")
 
-        ok = await composite.delete("/repo-mount/bar.py")
+        ok = await composite.unlink("/repo-mount/bar.py")
 
         assert ok is True
-        assert not target.exists(), "default-route delete must operate on the unstripped path"
+        assert not target.exists(), "default-route unlink must operate on the unstripped path"
 
     async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
         composite, _skills, _repo, skills_root, repo_root = self._make_composite(tmp_path)
@@ -253,7 +464,7 @@ class TestDAIVCompositeBackend:
         from automation.agent.middlewares.file_system import DAIVCompositeBackend
 
         good = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        plain_state = SimpleNamespace()  # missing delete + stat_mode
+        plain_state = SimpleNamespace()  # missing unlink + stat_mode
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=good, routes={"/x/": plain_state})  # type: ignore[arg-type]
@@ -401,7 +612,7 @@ class TestSandboxGrepTruncation:
         backend = SandboxFileBackend(client=client, session_id="sess-1")
         return backend
 
-    async def test_truncated_response_appends_a_note_match(self):
+    async def test_truncated_response_sets_the_flag_without_a_synthetic_match(self):
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
 
@@ -413,13 +624,11 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert result.error is None
-        note = result.matches[-1]
-        # The guidance must live in `path` (not just `text`): the default `files_with_matches` output
-        # mode renders only paths, so a text-only note would be invisible to the model there.
-        assert note["path"].startswith("(grep results truncated")
-        assert "narrow the path" in note["path"]
-        assert note["text"] == note["path"]
-        assert len(result.matches) == 4  # 3 real + 1 note
+        # deepagents 0.7 renders its own truncation guidance from `truncated`, so the note is no
+        # longer smuggled through a synthetic match's `path` to survive `files_with_matches`.
+        assert result.truncated is True
+        assert len(result.matches) == 3, "every returned match must be a real file"
+        assert all(m["path"].startswith(REPO_PATH) for m in result.matches)
 
     async def test_untruncated_response_has_no_note(self):
         from automation.agent.constants import REPO_PATH
@@ -431,6 +640,21 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert len(result.matches) == 1
+        assert result.truncated is False
+
+    async def test_max_count_trims_and_flags_truncation(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(
+            matches=[FsGrepMatch(path=f"{REPO_PATH}/f{i}.py", line=1, text="x") for i in range(5)], truncated=False
+        )
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH, max_count=2)
+
+        assert len(result.matches) == 2
+        assert result.truncated is True, "trimming on this side must still be reported as truncation"
         assert all(not m["path"].startswith("(grep results truncated") for m in result.matches)
 
     async def test_invalid_pattern_error_maps_to_model_hint(self):
@@ -449,3 +673,385 @@ class TestSandboxGrepTruncation:
         assert result.error.startswith("Grep 'foo(': ")
         assert "not a valid regular expression" in result.error
         assert "escape regex metacharacters" in result.error
+
+
+class TestSandboxReadPagination:
+    """`SandboxFileBackend.aread` maps the sandbox's reported line window onto deepagents'
+    read-window fields, so the middleware's pagination notice is server-side truth rather than a
+    count of the returned text (which would also count the truncation banner's rows)."""
+
+    def _bound_backend(self, fs_read_response):
+        from unittest.mock import AsyncMock
+
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        client = AsyncMock()
+        client.fs_read = AsyncMock(return_value=fs_read_response)
+        return SandboxFileBackend(client=client, session_id="sess-1")
+
+    async def test_mid_file_page_reports_the_exact_remainder(self):
+        """The notice names the window and the exact number of lines left, which only the sandbox's
+        `total_lines` makes possible."""
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=150))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line == 101
+        assert result.end_line == 150
+        assert result.total_lines == 400
+        assert result.next_offset == 150
+        assert "lines 101-150 of 400 total" in _remaining_lines_notice(result)
+        assert "250 lines remaining from offset 150" in _remaining_lines_notice(result)
+
+    async def test_final_page_emits_no_notice(self):
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(351, 401))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=400))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=350, limit=50)
+
+        assert result.end_line == 400
+        assert result.next_offset is None, "the window reached EOF"
+        assert _remaining_lines_notice(result) == ""
+
+    async def test_file_length_that_is_an_exact_multiple_of_limit_has_no_next_offset(self):
+        """A window ending exactly at `total_lines` is EOF, not a full page — advertising a resume
+        offset here would name an offset the next read rejects as invalid."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=100, end_line=100))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.end_line == 100
+        assert result.next_offset is None
+
+    async def test_byte_capped_page_resumes_at_the_partial_line(self):
+        """A capped page ends mid-line and carries a banner. The window must exclude both, so the
+        resume offset points *at* the partial line and re-reads it whole."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        # The banner text is illustrative; `aread` never parses `content`.
+        content = "".join(f"line {i}\n" for i in range(1, 98)) + "line 98 is cut he"
+        content += "\n\n[Output truncated: exceeded the 512000-byte read limit.]"
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=97, truncated=True)
+        )
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line == 1
+        assert result.end_line == 97, "the banner rows and the cut line are not source lines"
+        assert result.total_lines == 400
+        assert result.next_offset == 97, "0-indexed 97 is 1-indexed line 98 — the line that was cut"
+
+    async def test_byte_capped_single_huge_line_carries_no_window(self, caplog):
+        """A page whose first line alone exceeds the byte cap holds zero complete lines. deepagents
+        cannot express an empty window, so the model gets none — and no resume offset, which is a
+        dead end worth an operator warning."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(
+            FsReadResponse(content="x" * 100, encoding="utf-8", total_lines=1, end_line=0, truncated=True)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
+        assert "no complete line" in caplog.text
+
+    async def test_binary_read_carries_no_window(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="Zm9vYmFy", encoding="base64"))
+
+        result = await backend.aread(f"{REPO_PATH}/img.png", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.next_offset is None
+
+    async def test_empty_file_sentinel_carries_no_window(self):
+        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it is not
+        file content, so it is not line-windowed."""
+        from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content=EMPTY_CONTENT_WARNING, encoding="utf-8"))
+
+        result = await backend.aread(f"{REPO_PATH}/empty.py", offset=0, limit=1)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.next_offset is None
+
+    async def test_sandbox_without_line_metadata_drops_the_window_and_warns(self, caplog):
+        """A sandbox predating the wire fields returns them unset. Losing the notice is acceptable;
+        guessing a window is not — but the version skew must be visible to operators."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
+        assert "no read-window metadata" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("response_kwargs", "expected"),
+        [({}, "no read-window metadata"), ({"total_lines": 9999, "end_line": 9000}, "outside the requested window")],
+        ids=["version-skew", "malformed-window"],
+    )
+    async def test_read_faults_are_reported_once_per_run(self, caplog, response_kwargs, expected):
+        """Every cause here is systematic — a version skew or a sandbox arithmetic slip repeats on
+        every read — and each ERROR is a Sentry event, so one per run is the whole point."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", **response_kwargs))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            for _ in range(5):
+                await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert caplog.text.count(expected) == 1
+
+    async def test_total_lines_below_end_line_degrades_instead_of_raising(self, caplog):
+        """deepagents' `ReadResult` rejects this pair outright, and `aread` is called unguarded, so
+        passing it through would abort the run over a sandbox arithmetic slip."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=120, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.file_data is not None, "the content still reaches the model"
+        assert result.total_lines is None, "an impossible total is dropped, not clamped"
+        assert result.next_offset == 150
+        assert "total_lines=120 below end_line=150" in caplog.text
+
+    async def test_end_line_past_the_requested_window_drops_the_window(self, caplog):
+        """`end_line` cannot exceed `offset + limit`. Trusting a larger one hands the model a resume
+        offset past source lines it was never shown."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=9999, end_line=9000)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.next_offset is None
+        assert result.start_line is None
+        assert "outside the requested window" in caplog.text
+
+    async def test_window_over_empty_content_drops_the_window(self, caplog):
+        """A window with no text behind it would page the model forward over lines it never read."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8", total_lines=400, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line is None
+        assert result.next_offset is None
+        assert "over empty content" in caplog.text
+
+    async def test_window_without_a_total_still_advertises_a_resume_offset(self):
+        """Half-populated metadata must not read as EOF: an over-advertised offset self-corrects on
+        the next read, a missing one silently drops the rest of the file."""
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 51))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", end_line=50))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.total_lines is None
+        assert result.next_offset == 50
+        assert "More lines remain from offset 50" in _remaining_lines_notice(result)
+
+
+# ---------------------------------------------------------------------------
+# grep output-mode legibility
+# ---------------------------------------------------------------------------
+
+
+def test_daiv_filesystem_middleware_replaces_upstream_in_the_merge(setup):
+    """``create_deep_agent`` auto-adds its own ``FilesystemMiddleware`` and merges ours in by
+    ``.name`` — which defaults to the class name. A subclass under a new name is therefore
+    APPENDED rather than substituted, leaving two filesystem middlewares and restoring the
+    ``delete``/``execute`` tools that ``WORKSPACE_FS_TOOLS`` deliberately withholds from the main
+    agent. ``profile.py`` documents the same ``__name__``-collision requirement for the prompt-cache
+    subclass.
+    """
+    merged = _apply_custom_middleware(
+        [UpstreamFilesystemMiddleware(backend=setup.backend)], [DAIVFilesystemMiddleware(backend=setup.backend)]
+    )
+
+    assert [type(m) for m in merged] == [DAIVFilesystemMiddleware], (
+        "DAIV's subclass must take upstream's slot, not sit alongside it"
+    )
+
+
+async def test_grep_label_does_not_disable_large_tool_result_eviction(setup):
+    """Upstream's ``awrap_tool_call`` evicts oversized results for every tool outside
+    ``TOOLS_EXCLUDED_FROM_EVICTION`` — bash, task, MCP. Overriding it to add the grep label must
+    delegate to ``super()``, or one huge bash result blows up the context.
+    """
+    fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=10)
+    oversized = "x" * 20_000
+    request = ToolCallRequest(
+        tool_call={"name": "bash", "args": {}, "id": "call_bash"},
+        tool=None,
+        state={"messages": []},
+        runtime=_runtime(state={}, working_dir=setup.repo),
+    )
+
+    async def handler(req: ToolCallRequest):
+        return ToolMessage(content=oversized, tool_call_id=req.tool_call["id"], name="bash")
+
+    result = await fs.awrap_tool_call(request, handler)
+
+    assert oversized not in str(result.content), "oversized result was not evicted — super() was bypassed"
+
+
+async def _grep_via_middleware(setup, **kwargs) -> str:
+    """Run the real grep tool through the DAIV filesystem middleware and return the text."""
+    runtime = _runtime(state={}, working_dir=setup.repo)
+    request = ToolCallRequest(
+        tool_call={"name": "grep", "args": dict(kwargs), "id": "call_grep"},
+        tool=setup.tools["grep"],
+        state={"messages": []},
+        runtime=runtime,
+    )
+
+    async def handler(req: ToolCallRequest):
+        content = await setup.tools["grep"].coroutine(runtime=runtime, **req.tool_call["args"])
+        if isinstance(content, ToolMessage):
+            return content
+        return ToolMessage(content=content, tool_call_id=req.tool_call["id"], name="grep")
+
+    result = await setup.middleware.awrap_tool_call(request, handler)
+    return result.content if isinstance(result, ToolMessage) else result
+
+
+class TestGrepOutputMode:
+    """A grep result must name the mode that produced it."""
+
+    async def _grep(self, setup, **kwargs):
+        return await _grep_via_middleware(setup, **kwargs)
+
+    async def test_default_mode_result_names_the_mode_and_the_remedy(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert text.startswith("Mode: files_with_matches")
+        assert 'output_mode="content"' in text
+        assert "a.py" in text
+
+    async def test_content_mode_result_names_content_and_does_not_nag(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="content")
+
+        assert text.startswith("Mode: content")
+        assert 'output_mode="content"' not in text, "should not suggest a mode already in use"
+        assert "needle here" in text
+
+    async def test_no_match_is_not_told_to_retry_in_content_mode(self, setup):
+        (setup.repo / "a.py").write_text("nothing relevant\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert 'output_mode="content"' not in text
+
+    async def test_count_mode_result_names_count(self, setup):
+        (setup.repo / "a.py").write_text("needle\nneedle\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="count")
+
+        assert text.startswith("Mode: count")
+        assert "a.py: 2" in text
+
+
+def test_regex_literal_hint_patch_is_live():
+    """Catches what the behavioural test below cannot: if upstream renames the symbol AND rewords
+    the hint in one bump, the patch targets a dead attribute and the reworded hint reaches the
+    model with both assertions still green.
+    """
+    assert fs_module._REGEX_HINT_PATCH_APPLIED, "upstream no longer exposes regex_literal_hint here"
+
+
+async def test_no_match_does_not_claim_grep_is_literal(setup):
+    """deepagents appends a "grep matches literal text, not regex" note on a zero-match
+    regex-looking pattern, telling the caller to "run a separate search per alternative".
+
+    Both DAIV backends grep by regex, so the note is false here and drives alternation fan-out.
+    """
+    (setup.repo / "a.py").write_text("nothing relevant\n")
+
+    text = await _grep_via_middleware(setup, pattern="alpha|beta")
+
+    assert "literal text, not regex" not in text
+    assert "separate search per alternative" not in text
+
+
+def test_grep_description_states_the_default_output_mode():
+    """The tool description must say what a bare ``grep(pattern=...)`` returns."""
+    desc = fs_module.GREP_TOOL_DESCRIPTION
+
+    assert "files_with_matches" in desc, "description must name the default output mode"
+    assert 'output_mode="content"' in desc

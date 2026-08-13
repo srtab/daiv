@@ -1,0 +1,30 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Global MCP Servers" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Global MCP Servers" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Admin-managed servers that load in every run." %}
+        </p>
+    </div>
+    <a href="{% url 'mcp_servers:global_create' %}" class="btn-primary">{% translate "New server" %}</a>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Custom" %}</h2>
+    {% translate "No custom global servers configured." as gc_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=global_custom_servers empty_message=gc_empty %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Built-in" %}</h2>
+    {% translate "No built-in servers registered." as gb_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=global_builtin_servers empty_message=gb_empty %}
+</section>
+{% endblock app_content %}

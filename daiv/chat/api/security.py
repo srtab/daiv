@@ -17,12 +17,5 @@ class AuthBearer(HttpBearer):
         if key is None:
             return None
 
-        try:
-            api_key = await APIKey.objects.get_from_key(key)
-        except APIKey.DoesNotExist:
-            return None
-
-        if not api_key.user.is_active:
-            return None
-
-        return api_key.user
+        api_key = await APIKey.objects.get_active_key(key)
+        return api_key.user if api_key else None

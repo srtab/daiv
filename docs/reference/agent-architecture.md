@@ -149,7 +149,7 @@ The main agent can delegate work to two general-use subagents. See [Subagents](.
 | General-purpose | Same as main agent | Same as main agent | Full tool access | Complex searches, multi-step research |
 | Explore | Claude Haiku 4.5 (fast) | GPT-5.4-mini | Read-only filesystem | Quick file lookups, code structure questions |
 
-In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill fans out across these detectors, each running with a read-only tool stack and producing structured findings. [Custom subagents](../features/subagents.md#custom-subagents) defined per repository are also added to the available-agents list.
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](../features/subagents.md#custom-subagents) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
 

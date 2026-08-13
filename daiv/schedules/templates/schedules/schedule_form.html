@@ -135,6 +135,8 @@
 
             {% include "notifications/_notify_on_radio.html" with form=form %}
 
+            {% include "schedules/_intent_radio.html" with form=form %}
+
             {% include "schedules/_subscriber_picker.html" %}
 
             {% if object %}

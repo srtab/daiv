@@ -2,8 +2,29 @@ from unittest.mock import AsyncMock, Mock
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
+
+
+class TestIsOpenRouterAnthropicModel:
+    def test_detects_chat_openrouter_anthropic_model(self):
+        middleware = AnthropicPromptCachingMiddleware()
+        model = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
+        assert middleware._is_openrouter_anthropic_model(model) is True
+
+    def test_ignores_chat_openrouter_non_anthropic_model(self):
+        middleware = AnthropicPromptCachingMiddleware()
+        model = ChatOpenRouter(model="openai/gpt-5.4", api_key="x")
+        assert middleware._is_openrouter_anthropic_model(model) is False
+
+    def test_ignores_plain_chat_openai_even_with_anthropic_name(self):
+        # A vanilla ChatOpenAI can't serve Anthropic caching; only our OpenRouter
+        # subclass (which forwards extra_body cache_control) should qualify.
+        middleware = AnthropicPromptCachingMiddleware()
+        model = ChatOpenAI(model="anthropic/claude-haiku-4.5", api_key="x")
+        assert middleware._is_openrouter_anthropic_model(model) is False
 
 
 class TestAnthropicPromptCachingMiddleware:

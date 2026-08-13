@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pathlib
 import re
 
@@ -12,6 +13,20 @@ from pydantic import ValidationError
 logger = logging.getLogger("daiv.mcp_servers.migrations")
 
 _ENV_REF_FULL_RE = re.compile(r"^\$\{([^}]+)\}$")
+
+
+def _legacy_env(name: str) -> str | None:
+    """Read a legacy ``MCP_*`` setting the way ``MCPSettings`` did before the fields were
+    removed: the ``os.environ`` value takes precedence over a ``/run/secrets/<name>`` file,
+    and the literal string ``"None"`` means unset (pydantic ``env_parse_none_str``). Inlined so
+    this one-shot migration stays frozen and no longer imports the (now-deleted) conf fields."""
+    value = os.environ.get(name)
+    if value is None:
+        secret = pathlib.Path("/run/secrets", name)
+        if secret.exists():
+            value = secret.read_text().strip()
+    return None if value in (None, "None") else value
+
 
 # Inlined (not imported from mcp_servers.constants) so this one-shot migration stays frozen
 # even if MCP_NAME_RE changes later: lowercase alphanumerics + dashes, must start alphanumeric,
@@ -79,12 +94,12 @@ def _convert_headers(name: str, raw_headers: dict | None) -> list[dict]:
 
 
 def import_legacy_json(apps, schema_editor):
-    from automation.agent.mcp.conf import settings as mcp_conf
     from automation.agent.mcp.schemas import UserMcpServersConfig
 
-    if not mcp_conf.SERVERS_CONFIG_FILE:
+    config_file = _legacy_env("MCP_SERVERS_CONFIG_FILE")
+    if not config_file:
         return
-    path = pathlib.Path(mcp_conf.SERVERS_CONFIG_FILE)
+    path = pathlib.Path(config_file)
     if not path.exists():
         return
 

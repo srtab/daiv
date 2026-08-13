@@ -3,8 +3,10 @@
 The agent stores a :class:`~codebase.base.MergeRequest` in checkpointed state
 (``GitState.merge_request``). ``DAIVRedisSerializer`` encodes plain pydantic models
 via ``model_dump(mode="json")`` (cleaner nested-model handling than the stock
-``__dict__`` path) and -- critically -- reconstructs ``set`` values that the stock
-serializer's reviver silently nulls (``loaded_tool_names``).
+``__dict__`` path). ``set`` values (``loaded_tool_names``) used to be nulled by the
+stock reviver and needed a bespoke override; ``langgraph-checkpoint-redis`` 0.5.1 fixed
+that upstream, so the set tests below now guard the *stock* round-trip against a
+downgrade or regression.
 """
 
 from __future__ import annotations
@@ -119,22 +121,28 @@ def test_objects_with_to_json_are_not_intercepted():
     assert encoded.get("id", [None])[0] != "codebase.base"
 
 
-def test_stock_redis_serializer_loses_sets_on_round_trip():
-    """Regression guard: reproduce the production set→None corruption with the stock serializer.
+def test_stock_redis_serializer_round_trips_sets():
+    """Regression guard: the stock serializer used to corrupt sets to ``None``.
 
-    The adapter encodes a set via ``kwargs["__set_items__"]``, but the base reviver routes
-    ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` → ``TypeError``), which
-    ``langgraph-checkpoint>=4.1.1`` swallows by returning ``None`` -- silently nulling the set.
+    Historically the adapter encoded a set under a ``kwargs["__set_items__"]`` envelope, and
+    the base reviver routed ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` →
+    ``TypeError``), which ``langgraph-checkpoint>=4.1.1`` swallowed by returning ``None`` --
+    silently nulling the set. ``langgraph-checkpoint-redis`` 0.5.1 fixed this: the stock
+    serializer now encodes sets via the ``args`` constructor envelope and ``_revive_if_needed``
+    reconstructs them (``_reconstruct_set_constructor`` still accepts the legacy
+    ``__set_items__`` form too), so a round-trip is lossless. The guard is kept (asserting the
+    fixed behaviour) so a downgrade or upstream regression is caught here rather than silently
+    corrupting production checkpoints.
     """
     stock = JsonPlusRedisSerializer(allowed_json_modules=[("codebase.base", "MergeRequest")])
 
     restored = stock.loads_typed(stock.dumps_typed({"loaded_tool_names": {"Read", "Edit"}}))
 
-    assert restored == {"loaded_tool_names": None}  # corrupted
+    assert restored == {"loaded_tool_names": {"Read", "Edit"}}
 
 
 def test_set_round_trips_through_serde_contract():
-    """Through the public serde API the saver calls; our ``_reviver`` reconstructs the set."""
+    """Through the public serde API the saver calls; the stock reviver reconstructs the set (0.5.1)."""
     serde = DAIVRedisSerializer()
     original = {"loaded_tool_names": {"Read", "Edit", "Grep"}}
 
@@ -206,3 +214,315 @@ def test_dataclass_nested_alongside_set_and_model_round_trips(merge_request):
     assert restored["loaded_tool_names"] == {"Read", "Edit"}
     assert isinstance(restored["loaded_tool_names"], set)
     assert restored["merge_request"] == merge_request
+
+
+# ---------------------------------------------------------------------------
+# aresolve_thread_messages: DeltaChannel-aware messages read
+#
+# deepagents >= 0.6 stores ``messages`` in a langgraph ``DeltaChannel`` whose value is
+# usually ABSENT from ``channel_values`` (present only on periodic snapshot steps). The
+# helper reconstructs the accumulated list from the delta write history so the transcript
+# survives a reload. These tests pin the three resolution branches.
+# ---------------------------------------------------------------------------
+
+
+def _history_saver(history):
+    """A saver stub whose ``aget_delta_channel_history`` returns ``history``."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    saver = MagicMock()
+    saver.aget_delta_channel_history = AsyncMock(return_value=history)
+    return saver
+
+
+async def test_resolve_messages_returns_inline_list_without_history_walk():
+    """deepagents < 0.6 (plain add_messages) keeps the full list inline; return as-is and
+    never touch the (expensive, beta) delta-history contract."""
+    from core.checkpointer import aresolve_thread_messages
+
+    msgs = [HumanMessage(content="hi", id="h1")]
+    saver = _history_saver({})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"messages": msgs})
+
+    assert result is msgs
+    saver.aget_delta_channel_history.assert_not_awaited()
+
+
+async def test_resolve_messages_reconstructs_from_write_history_when_absent():
+    """The core bug: ``messages`` absent from ``channel_values`` (DeltaChannel non-snapshot
+    step) must be rebuilt by folding the ancestor writes, not read as empty."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    writes = [
+        ("task-0", "messages", [HumanMessage(content="q", id="h1")]),
+        ("task-1", "messages", [AIMessage(content="a", id="a1")]),
+    ]
+    saver = _history_saver({"messages": {"writes": writes}})
+
+    # channel_values has other channels but NO messages key -> reconstruction path.
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"session_id": "x"})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert [m.content for m in result] == ["q", "a"]
+
+
+async def test_resolve_messages_folds_seed_plus_writes():
+    """A snapshot ancestor supplies the ``seed``; later writes fold on top (and id-dedup
+    replaces an in-place update rather than duplicating)."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    seed = [HumanMessage(content="q", id="h1"), AIMessage(content="partial", id="a1")]
+    writes = [("task-2", "messages", [AIMessage(content="final", id="a1")])]
+    saver = _history_saver({"messages": {"seed": seed, "writes": writes}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert result[1].content == "final"  # id-dedup replaced the partial in place
+
+
+async def test_resolve_messages_empty_history_returns_empty_list():
+    """No seed and no writes (nothing recoverable) -> empty list, so callers still flag the
+    genuinely-empty case rather than crashing."""
+    from core.checkpointer import aresolve_thread_messages
+
+    saver = _history_saver({"messages": {"writes": []}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert result == []
+
+
+async def test_resolve_messages_tolerates_lossy_legacy_delta_snapshot_seed():
+    """Sentry DAIV-1T: a checkpoint written BEFORE the #1418 serializer fix stored the
+    ``_DeltaSnapshot`` seed as a bare JSON array, so it deserialises to a doubly-nested
+    ``[[msg, ...]]`` with the wrapper lost. Those checkpoints still live in Redis until their
+    TTL expires, so reading one (e.g. rendering an old session in the dashboard) must unwrap
+    the lost wrapper instead of feeding ``[[msg, ...]]`` to ``add_messages`` -- which unpacks
+    the inner list as ``(role, template)`` and raises ``NotImplementedError: Message as a
+    sequence must be (role string, template)``."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    inner = [HumanMessage(content="q", id="h1"), AIMessage(content="a", id="a1")]
+    lossy_seed = [inner]  # _DeltaSnapshot(value=inner) serialised pre-#1418 as a bare 1-element array
+    writes = [("task-3", "messages", [AIMessage(content="more", id="a2")])]
+    saver = _history_saver({"messages": {"seed": lossy_seed, "writes": writes}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert [m.id for m in result] == ["h1", "a1", "a2"]
+
+
+async def test_resolve_messages_tolerates_lossy_legacy_snapshot_inline():
+    """The other legacy read path: the latest checkpoint IS a snapshot boundary written
+    pre-#1418, so ``channel_values['messages']`` itself holds the lossy ``[[msg, ...]]``.
+    Unwrap it rather than returning the malformed nested list to the caller."""
+    from core.checkpointer import aresolve_thread_messages
+
+    inner = [HumanMessage(content="q", id="h1")]
+    saver = _history_saver({})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"messages": [inner]})
+
+    assert [m.id for m in result] == ["h1"]
+    saver.aget_delta_channel_history.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _unwrap_delta_snapshot: tolerate the live wrapper AND its lossy legacy serialisation
+# ---------------------------------------------------------------------------
+
+
+def test_unwrap_delta_snapshot_unwraps_live_wrapper():
+    """A live ``_DeltaSnapshot`` (what the #1418 serializer round-trips) yields its ``.value``."""
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    inner = [HumanMessage(content="q", id="h1")]
+    assert _unwrap_delta_snapshot(_DeltaSnapshot(inner)) is inner
+
+
+def test_unwrap_delta_snapshot_unwraps_lossy_legacy_form():
+    """Pre-#1418 lossy form: a bare 1-element list wrapping the messages list -> inner list."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    inner = [HumanMessage(content="q", id="h1"), HumanMessage(content="q2", id="h2")]
+    assert _unwrap_delta_snapshot([inner]) is inner
+
+
+def test_unwrap_delta_snapshot_unwraps_lossy_empty_snapshot():
+    """A lossy empty snapshot ``_DeltaSnapshot([])`` -> ``[[]]`` unwraps to ``[]``."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    assert _unwrap_delta_snapshot([[]]) == []
+
+
+def test_unwrap_delta_snapshot_passes_through_genuine_message_list():
+    """A genuine messages list is returned unchanged (identity), even a single-message one:
+    its elements are messages, never lists, so the lossy-form heuristic never misfires."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    single = [HumanMessage(content="hi", id="h1")]
+    assert _unwrap_delta_snapshot(single) is single
+
+    many = [HumanMessage(content="a", id="h1"), HumanMessage(content="b", id="h2")]
+    assert _unwrap_delta_snapshot(many) is many
+
+
+def test_unwrap_delta_snapshot_passes_through_non_snapshot_values():
+    """Non-snapshot inputs (``None``, empty list) pass through untouched."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    assert _unwrap_delta_snapshot(None) is None
+    empty: list = []
+    assert _unwrap_delta_snapshot(empty) is empty
+
+
+# ---------------------------------------------------------------------------
+# _DeltaSnapshot round-trip (Sentry DAIV-1S)
+#
+# deepagents >= 0.6 declares ``messages`` as a langgraph ``DeltaChannel`` with
+# ``snapshot_frequency=50``. Every 50 message updates ``create_checkpoint`` writes a
+# ``_DeltaSnapshot(value=[msg, ...])`` into ``channel_values["messages"]``. The stock
+# ``JsonPlusRedisSerializer`` has NO ``_DeltaSnapshot`` support -- it treats the NamedTuple
+# as a plain tuple, orjson serialises it as a bare JSON array ``[value]``, and the read path
+# returns a nested list ``[[msg, ...]]`` with the wrapper lost. When langgraph later feeds
+# that value to ``DeltaChannel.from_checkpoint`` as a seed, the double-nesting survives and
+# ``_messages_delta_reducer`` -> ``convert_to_messages([[msg, ...]])`` raises
+# ``NotImplementedError: Message as a sequence must be (role string, template)``.
+# ``DAIVRedisSerializer`` must round-trip ``_DeltaSnapshot`` losslessly.
+# ---------------------------------------------------------------------------
+
+
+def _recursive_deserialize(serde, doc):
+    """Decode ``doc`` via the real ``BaseRedisSaver._recursive_deserialize`` bound onto a minimal
+    object carrying only ``.serde`` -- the channel-values read path a stored snapshot actually
+    takes, without a live Redis. (The ``__bytes__`` branch that would touch ``_decode_blob`` is
+    unused for our input.) Exercising the real method guards the ``lc``-dict delegation contract."""
+    from langgraph.checkpoint.redis.base import BaseRedisSaver
+
+    class _SaverStub:
+        _recursive_deserialize = BaseRedisSaver._recursive_deserialize
+
+        def __init__(self, serde):
+            self.serde = serde
+
+    return _SaverStub(serde)._recursive_deserialize(doc)
+
+
+def test_delta_snapshot_round_trips_through_serde_contract():
+    """Through the public serde API the saver calls (``dumps_typed``/``loads_typed``): the
+    ``_DeltaSnapshot`` wrapper and its inner message list must both survive."""
+    from langchain_core.messages import AIMessage
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    serde = DAIVRedisSerializer()
+    snap = _DeltaSnapshot([HumanMessage(content="q", id="h1"), AIMessage(content="a", id="a1")])
+
+    restored = serde.loads_typed(serde.dumps_typed({"messages": snap}))["messages"]
+
+    assert isinstance(restored, _DeltaSnapshot)
+    assert [m.id for m in restored.value] == ["h1", "a1"]
+    assert [m.content for m in restored.value] == ["q", "a"]
+
+
+def test_delta_snapshot_round_trips_through_redis_read_path():
+    """Encode exactly as the RedisJSON checkpoint dump does, then revive via the channel-values
+    read path a stored snapshot actually takes: ``BaseRedisSaver._recursive_deserialize``, which
+    routes ``lc`` constructor dicts to ``serde._revive_if_needed``. Exercising the real saver
+    method (bound onto a minimal stub -- no Redis needed) guards the delegation contract."""
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    serde = DAIVRedisSerializer()
+    snap = _DeltaSnapshot([HumanMessage(content="q", id="h1")])
+
+    # As stored in RedisJSON: the whole checkpoint's channel_values dict, encoded via the dump path.
+    raw = orjson.dumps(serde._preprocess_interrupts({"messages": snap}), default=serde._default_handler)
+
+    revived = _recursive_deserialize(serde, orjson.loads(raw))
+
+    assert isinstance(revived["messages"], _DeltaSnapshot)
+    assert [m.id for m in revived["messages"].value] == ["h1"]
+
+
+def test_round_tripped_delta_snapshot_seed_reconstructs_without_crash():
+    """The exact Sentry DAIV-1S crash, end-to-end through the production chain: a snapshot is
+    stored + read back via the channel-values path (``_recursive_deserialize``), then used as a
+    ``DeltaChannel`` seed. ``from_checkpoint`` + ``replay_writes`` must fold cleanly and NOT raise
+    ``NotImplementedError`` from a double-nested value."""
+    from deepagents._messages_reducer import _messages_delta_reducer
+    from langchain_core.messages import AIMessage
+    from langgraph.channels.delta import DeltaChannel
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    serde = DAIVRedisSerializer()
+    snap = _DeltaSnapshot([HumanMessage(content="q", id="h1")])
+
+    # Store + read back exactly as the checkpoint save/load does: dump channel_values to
+    # RedisJSON, then decode via the saver's channel-values path (which yields the delta seed).
+    raw = orjson.dumps(serde._preprocess_interrupts({"messages": snap}), default=serde._default_handler)
+    seed = _recursive_deserialize(serde, orjson.loads(raw))["messages"]
+
+    channel = DeltaChannel(_messages_delta_reducer, list, snapshot_frequency=50)
+    channel.key = "messages"
+    replay = channel.from_checkpoint(seed)
+    replay.replay_writes([("task-0", "messages", [AIMessage(content="a", id="a1")])])
+
+    assert [m.id for m in replay.get()] == ["h1", "a1"]
+
+
+def test_delta_snapshot_nested_alongside_model_and_set_round_trips(merge_request):
+    """A realistic snapshot checkpoint: ``messages`` as a ``_DeltaSnapshot`` sitting next to a
+    domain model and a set in the same ``channel_values`` must all survive together."""
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    serde = DAIVRedisSerializer()
+    payload = {
+        "messages": _DeltaSnapshot([HumanMessage(content="q", id="h1")]),
+        "merge_request": merge_request,
+        "loaded_tool_names": {"Read", "Edit"},
+    }
+
+    restored = serde.loads_typed(serde.dumps_typed(payload))
+
+    assert isinstance(restored["messages"], _DeltaSnapshot)
+    assert [m.id for m in restored["messages"].value] == ["h1"]
+    assert restored["merge_request"] == merge_request
+    assert restored["loaded_tool_names"] == {"Read", "Edit"}
+
+
+def test_delta_snapshot_overrides_degrade_safely_when_type_unimportable(monkeypatch):
+    """If langgraph relocates ``_DeltaSnapshot`` (import guard trips -> both module refs ``None``),
+    the overrides must cleanly no-op -- never call ``_DeltaSnapshot(...)`` == ``None(...)``. Coverage
+    can't catch this: the guarded lines execute either way, so pin the two guards explicitly.
+
+    * decode: ``_is_delta_snapshot_envelope`` short-circuits on the ``None`` id, so an id-less
+      constructor look-alike is rejected instead of routed to ``None(...)`` -- drop the
+      ``_DELTA_SNAPSHOT_ID is not None`` clause and this assertion ``TypeError``s.
+    * encode: ``_preprocess_interrupts`` falls through to the stock ``(list, tuple)`` branch, so our
+      ``lc:2`` envelope is NOT produced (the fix silently disables -- hence the loud import log).
+    """
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    import core.checkpointer as cp
+
+    serde = DAIVRedisSerializer()
+    real_snap = _DeltaSnapshot([HumanMessage(content="q", id="h1")])
+
+    monkeypatch.setattr(cp, "_DeltaSnapshot", None)
+    monkeypatch.setattr(cp, "_DELTA_SNAPSHOT_ID", None)
+
+    # The exact shape that would hit ``None(...)`` if the id short-circuit were ever dropped.
+    idless_lookalike = {"lc": 2, "type": "constructor", "kwargs": {"value": [HumanMessage(content="q", id="h1")]}}
+    assert serde._is_delta_snapshot_envelope(idless_lookalike) is False
+
+    # Real wrapper no longer intercepted -> stock tuple output, not our dict envelope.
+    assert isinstance(serde._preprocess_interrupts(real_snap), tuple)

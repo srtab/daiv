@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import redirect
@@ -15,13 +16,31 @@ from django_filters.views import FilterView
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from codebase.authorization import can_view, viewable_repo_ids
 from core.site_settings import site_settings
+from core.utils import is_htmx
+from memory.consolidation import document_would_be_discarded
 from memory.filters import MemoryObservationFilter
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
+from memory.render import document_size
 from memory.tasks import consolidate_memory_task
+
+MEMORY_LIST_PAGE_SIZE = 25
+
+# Single source for the status filter predicates AND the pill choices, so they can't drift.
+# Un-annotated on purpose: an explicit `object` value type makes ty reject the lambda call.
+_STATUS_FILTERS = {
+    "document": (_("Document"), lambda row: row["has_document"]),
+    "no_document": (_("No document"), lambda row: not row["has_document"]),
+    "pending": (_("Pending"), lambda row: row["pending"] > 0),
+}
 
 
 class MemoryListView(LoginRequiredMixin, TemplateView):
     template_name = "memory/list.html"
+
+    def get_template_names(self):
+        if is_htmx(self.request):
+            return ["memory/_list_results.html"]
+        return ["memory/list.html"]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -49,7 +68,27 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
                 "last_consolidated_at": mem.last_consolidated_at if mem else None,
             })
 
-        ctx["repos"] = repos
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            needle = query.lower()
+            repos = [row for row in repos if needle in row["repo_id"].lower()]
+
+        status = self.request.GET.get("status", "")
+        if status in _STATUS_FILTERS:
+            predicate = _STATUS_FILTERS[status][1]
+            repos = [row for row in repos if predicate(row)]
+        else:
+            status = ""
+
+        page_obj = Paginator(repos, MEMORY_LIST_PAGE_SIZE).get_page(self.request.GET.get("page"))
+
+        ctx["page_obj"] = page_obj
+        ctx["paginator"] = page_obj.paginator
+        ctx["is_paginated"] = page_obj.has_other_pages()
+        ctx["search_query"] = query
+        ctx["current_status"] = status
+        ctx["statuses"] = [(value, label) for value, (label, _predicate) in _STATUS_FILTERS.items()]
+        ctx["has_active_filters"] = bool(query or status)
         ctx["memory_enabled"] = site_settings.memory_enabled
         return ctx
 
@@ -89,6 +128,7 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
         ctx = super().get_context_data(**kwargs)
         cleaned = ctx["filter"].form.cleaned_data if ctx["filter"].form.is_valid() else {}
         memory = self.memory
+        document_lines, document_bytes = document_size(memory.content) if memory else (0, 0)
         ctx.update({
             "repo_id": self.kwargs["repo_id"],
             "memory": memory,
@@ -97,8 +137,8 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
             "current_category": cleaned.get("category") or "",
             "statuses": ObservationStatus.choices,
             "categories": ObservationCategory.choices,
-            "document_lines": len(memory.content.splitlines()) if memory else 0,
-            "document_bytes": len(memory.content.encode("utf-8")) if memory else 0,
+            "document_lines": document_lines,
+            "document_bytes": document_bytes,
             "memory_enabled": site_settings.memory_enabled,
         })
         return ctx
@@ -112,12 +152,20 @@ class MemoryConsolidateView(AdminRequiredMixin, View):
             messages.warning(request, _("Memory capture is disabled site-wide; consolidation was not queued."))
             return redirect("memory:detail", repo_id=repo_id)
 
-        # Mirror the task's own guard so we don't report success for a run it will silently skip:
-        # ``consolidate_memory_task`` no-ops when the repo has no pending observations.
-        pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
+        # Mirror both of the task's own guards so we don't report success for a run it will skip.
+        pending = MemoryObservation.objects.filter(repo_id=repo_id).pending().count()
         if pending == 0:
             messages.info(
                 request, _("Nothing to consolidate for %(repo)s — no pending observations.") % {"repo": repo_id}
+            )
+        elif document_would_be_discarded(repo_id):
+            messages.error(
+                request,
+                _(
+                    "%(repo)s has a memory document but no entries, so consolidating would discard it. "
+                    "An administrator must run `backfill_memory_entries --repo-id %(repo)s` on the server first."
+                )
+                % {"repo": repo_id},
             )
         else:
             consolidate_memory_task.enqueue(repo_id)

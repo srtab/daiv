@@ -182,6 +182,116 @@ def test_apply_platform_egress_reachability_only_when_no_token():
     assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
 
 
+def _augmented_egress(token: str | None, *, host: str = "github.com"):
+    """A turn-start augmented config, as ``augment_sandbox_with_platform_egress`` builds it: an env
+    rule (``api.openai.com`` + secret ``s1``) with the platform rule for ``token`` layered on top
+    (host-only — ``inject=None``, no platform secret — when ``token`` is ``None``)."""
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    credential = GitEgressCredential(host=host, value=SecretStr(token) if token is not None else None)
+    return apply_platform_egress(env, credential)
+
+
+def test_refresh_platform_egress_swaps_token_without_duplicating_rule():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    stale = _augmented_egress("Basic STALE")
+
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="github.com", value=SecretStr("Basic FRESH")
+    )
+    fresh = refresh_platform_egress(stale, client, Mock())
+
+    # Only the platform secret's value changed; rules (and other secrets) are untouched — no dup rule.
+    assert [r.host for r in fresh.policy.rules] == ["github.com", "api.openai.com"]
+    assert fresh.secrets[PLATFORM_EGRESS_SECRET_NAME].value.get_secret_value() == "Basic FRESH"
+    assert fresh.secrets["s1"].value.get_secret_value() == "sk"
+    # The changed-token half of the identity contract: the publisher skips delivery when it gets the
+    # SAME object back (`is` check), so a real swap MUST come back as a new object with the input
+    # unmutated — an in-place mutation would silently disable every delivery.
+    assert fresh is not stale
+    assert stale.secrets[PLATFORM_EGRESS_SECRET_NAME].value.get_secret_value() == "Basic STALE"
+
+
+def test_refresh_platform_egress_noop_when_egress_none():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import refresh_platform_egress
+
+    client = Mock()
+    assert refresh_platform_egress(None, client, Mock()) is None
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_refresh_platform_egress_unchanged_when_token_is_identical():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    stale = _augmented_egress("Basic SAME", host="gitlab.example.com")
+
+    client = Mock()
+    # GitLab's day-cached clone token: the re-mint returns the byte-identical credential. There is no
+    # fresh token to deliver, so return the config unchanged (→ caller skips the pointless delivery).
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="gitlab.example.com", value=SecretStr("Basic SAME")
+    )
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+
+def test_refresh_platform_egress_unchanged_when_credential_tokenless():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    stale = _augmented_egress("Basic STALE")
+
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
+    # Nothing to swap in (token-less / eval platform): return the config unchanged rather than
+    # dropping the existing (still possibly-valid) secret.
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+    # Same for the no-credential-at-all arm (clone URL without a resolvable host).
+    client.get_git_egress_credential.return_value = None
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+
+def test_refresh_platform_egress_unchanged_when_config_never_carried_platform_secret():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import refresh_platform_egress
+
+    # Turn start resolved a HOST-ONLY credential (no token): the platform rule was built with
+    # inject=None and no platform secret was embedded.
+    stale = _augmented_egress(None)
+
+    client = Mock()
+    # Even if a token could be minted now, no rule references the platform secret — the proxy would
+    # never inject it. Return the config unchanged, without even minting.
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+    client.get_git_egress_credential.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_none_id():
     assert await resolve_sandbox_env(None) is None

@@ -66,6 +66,8 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Per-repo agent memory** — agent reads `.agents/AGENTS.md`; custom skills from `.agents/skills/`; subagents from `.agents/subagents/`. A custom skill with the same name as a built-in **shadows** the built-in (runtime + storage are consistent; the UI flags the card with "Overrides built-in"). The `code-review` skill additionally reads `.agents/review-rules.md` for per-repo review rules (with `AGENTS.md` as a secondary source).
 
+**Repository memory ("dreaming")** — `MemoryEntry` rows are the source of truth; `RepositoryMemory.content` is a render cache produced by `render_memory_document` (`memory/render.py`), never model-generated. Entries are append-only — `entry.supersede(successor)` / `entry.confirm(when)`, never in-place edits or deletes — and `memory_max_lines`/`memory_max_bytes` are enforced by `prune_to_budget`, never by slicing the rendered document. The structured-output schemas (`memory/schemas.py`) deliberately carry **no** pydantic length or size constraints: parsing is all-or-nothing, so one over-long field would discard a whole valid batch; limits are checked per item instead.
+
 **Django settings** — test module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is injected automatically in tests.
 
 **Python 3.14 except syntax (PEP 758)** — `except E1, E2:` is valid and equivalent to `except (E1, E2):`. Ruff canonicalises to the unparenthesised form, so do NOT "fix" it back to parens; both run, and rewriting is just churn.
@@ -73,16 +75,22 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is the canonical sandbox-side schema dump. The `tests/unit_tests/core/sandbox/test_schema_consistency.py` test will fail if the daiv-side schemas drift from it. Regenerate after any change to `daiv_sandbox/schemas.py` in the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo:
 
 ```bash
-# from a checkout of the daiv-sandbox repo
-uv run --all-extras python scripts/dump_schemas.py \
+# from a checkout of the daiv-sandbox repo (PYTHONPATH is required — that repo declares no build
+# backend, so `uv run` never puts `daiv_sandbox` on sys.path)
+PYTHONPATH=. uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
 
+A type the sandbox deletes disappears from the dump; if the daiv side still models it, delete the
+dead model rather than adding an exemption to that test. Note the comparison normalizes
+`title`/`description` away — field docstrings are *not* pinned and can silently drift from the
+sandbox's own wording.
+
+**MCP tool-load degradation** — `_load_server_tools` (`daiv/automation/agent/mcp/toolkits.py`) degrades to `[]` and never raises. Anticipated/transient failures log at **WARNING** (no traceback) so an external outage doesn't mint a Sentry error event per agent run; only genuinely unexpected errors fall through to `logger.exception` (ERROR + traceback). The canonical transient set lives in `_is_transient_mcp_error` (the authority — don't re-enumerate it here): a bare `TimeoutError` is caught earlier by its own `except TimeoutError:` clause, and the classifier covers upstream 5xx (`httpx.HTTPStatusError`), a broken MCP stream (`anyio.BrokenResourceError`, when anyio is importable), and a `BaseExceptionGroup` whose leaves are *all* transient (how anyio surfaces TaskGroup teardown). `CancelledError` is a `BaseException` → a group containing it is a `BaseExceptionGroup` that `except Exception` never catches, so outer cancellation keeps propagating; don't "fix" this.
+
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
-**Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/code-review/scripts/marker.py` as the reference.
-
-**Code-review detector output** — the `cr-*` detectors defer their `{"findings":[...]}` to `/workspace/tmp/subagent-output/<name>-<hash>.json` (via `DeferredOutputMiddleware`, added in `_build_detector_middleware`); the review orchestrator passes those paths to `scripts/findings.py merge` instead of re-typing the JSON. The detector charters are unaware of this — they still just return the structured object. (A detector with no structured response — e.g. one the `LoopBreakerMiddleware` stopped — defers a `.txt` error file instead, which `findings.py merge` counts as a `skipped`/failed detector, never as empty findings.)
+**Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
 
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
 

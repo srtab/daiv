@@ -192,6 +192,9 @@ This tool is best for retrieving the current state of:
 
 GITHUB_TOOL_NAME = "gh"
 
+# Acquired with blocking=True, so without an expiry a dead holder blocks token fetches forever.
+GITHUB_TOKEN_LOCK_TIMEOUT = 60
+
 GITHUB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitHub repository through the GitHub CLI.
 
@@ -681,8 +684,8 @@ async def _run_gitlab_subcommand(
     if not output:
         # This branch is reached only after returncode == 0 (failures return an `error: ...`
         # string above), so "no file was written" provably means a genuinely empty result, not a
-        # failed command. The code-review skill's `gitlab-delivery.md` Step 1 keys its
-        # empty-listing handling off this exact "no file was written" phrasing — keep them in sync.
+        # failed command. The substrings `empty result` and `no file was written` are asserted in
+        # tests/unit_tests/automation/agent/middlewares/test_git_platform.py; the rest is free prose.
         empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
         if to_file:
             empty += "\n(note: no file was written — the command produced no output.)"
@@ -719,7 +722,7 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
     if not token or expires_at is None or timezone.now().timestamp() > expires_at:
         thread_id = runtime.config.get("configurable", {}).get("thread_id", runtime.context.repository.slug)
 
-        with cache.lock(f"github_lock_{thread_id}", blocking=True):
+        with cache.lock(f"github_lock_{thread_id}", timeout=GITHUB_TOKEN_LOCK_TIMEOUT, blocking=True):
             cache_key = f"github_token_{thread_id}"
 
             if data := cache.get(cache_key):

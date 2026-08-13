@@ -1,11 +1,15 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from deepagents.backends.protocol import BackendProtocol
+
 
 def _common_patches():
     """Patches that disable side effects unrelated to the deferred-tools wiring."""
     return [
-        patch("automation.agent.graph.build_disk_workspace_backend"),
-        patch("automation.agent.graph.DAIVCompositeBackend"),
+        # Spec'd instances: deepagents 0.7 rejects a backend that is callable but not a
+        # `BackendProtocol`, which a bare mock otherwise is.
+        patch("automation.agent.graph.build_disk_workspace_backend", return_value=MagicMock(spec=BackendProtocol)),
+        patch("automation.agent.graph.DAIVCompositeBackend", return_value=MagicMock(spec=BackendProtocol)),
         patch("automation.agent.graph.create_general_purpose_subagent"),
         patch("automation.agent.graph.create_explore_subagent"),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
@@ -106,9 +110,10 @@ class TestCreateDaivAgentDeferredFlag:
 
     async def test_registers_code_review_detectors_as_subagents(self):
         # Guards the ``*load_builtin_code_review_detectors(...)`` spread at graph.py: a refactor
-        # dropping it would make the code-review skill silently fall back to inline review with no
-        # other failing test. The detector loader runs for real here (it is not patched), so the
-        # compiled subagents handed to create_deep_agent must include every cr-* detector name.
+        # dropping it would leave every review with zero detectors — the orchestrator would report
+        # all five dimensions as uncovered — with no other failing test. The detector loader runs for
+        # real here (it is not patched), so the compiled subagents handed to create_deep_agent must
+        # include every cr-* detector name.
         from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
 
         mock_create_deep_agent, _, _, *_ = await self._run(flag_on=False)

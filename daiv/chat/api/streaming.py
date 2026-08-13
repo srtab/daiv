@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
+from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
@@ -28,10 +28,9 @@ from .event_filter import SubagentEventFilter
 from .threads import ChatSessionService
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from ag_ui.core import RunAgentInput
-    from ag_ui.core.events import BaseEvent
 
     from codebase.base import MergeRequest
     from codebase.context import RuntimeCtx
@@ -103,6 +102,53 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         stream_kwargs["context"] = self._runtime_context
         return stream_kwargs
 
+    async def _handle_single_event(self, event: Any, state: dict[str, Any]) -> AsyncGenerator[Any]:
+        """Stamp the source LangGraph event's provenance onto any AGUI event upstream
+        emits without a ``raw_event``.
+
+        ``ag_ui_langgraph`` builds every event type with ``raw_event=event`` *except*
+        the ``REASONING_*`` family (``handle_reasoning_event`` and the redacted-thinking
+        ``ReasoningEncryptedValueEvent``), which it emits bare. ``SubagentEventFilter``
+        reads provenance exclusively from ``raw_event.metadata.langgraph_checkpoint_ns``,
+        so untagged reasoning reads back as top-level: a subagent's *thinking* bleeds
+        into the parent turn even though its text and tool calls are correctly dropped.
+
+        Stamping here rather than inferring the namespace in the filter is deliberate,
+        but *not* because the filter lacks the information: upstream yields a RAW event
+        carrying the same metadata immediately before dispatching each LangGraph event
+        (``agent.py`` ``_handle_stream_events``), so a "namespace of the last event that
+        had one" tracker would work today. It would just be betting on undocumented
+        yield ordering and on that RAW emission staying unconditional. Carrying
+        provenance *on* the event removes the bet.
+
+        Only the two keys the filter consumes are copied — stamping the whole metadata
+        dict would serialize ~550 bytes of LangGraph internals onto every reasoning
+        delta, and a thinking stream emits one event per delta.
+
+        Known limit: upstream tracks reasoning state per *run*, not per namespace
+        (``active_run["reasoning_process"]``), so the closing REASONING_END /
+        REASONING_ENCRYPTED_VALUE frames are stamped with whatever chunk is in flight
+        when they fire. A subagent whose reasoning is still open when its model stream
+        ends can therefore emit a stray unmatched END under the parent's namespace —
+        a dangling frame, never readable content.
+        """
+        metadata = event.get("metadata") if isinstance(event, dict) else None
+        if not isinstance(metadata, dict):
+            metadata = {}
+        provenance = {k: metadata[k] for k in ("langgraph_checkpoint_ns", "emit-messages") if k in metadata}
+
+        async for agui_event in super()._handle_single_event(event, state):
+            # The isinstance check is always true at runtime — every member of
+            # upstream's ``ProcessedEvents`` union subclasses ``BaseEvent``. Keep it
+            # anyway: ``copilotkit.LangGraphAGUIAgent`` *declares* this method as
+            # yielding ``str``, so it is the only form that narrows the loop variable
+            # for ``ty``. Dropping it reintroduces "unresolved attribute raw_event
+            # on type str"; a bare ``agui_event: BaseEvent`` declaration conflicts
+            # with the inherited signature instead.
+            if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
+                agui_event.raw_event = {"metadata": provenance}
+            yield agui_event
+
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
         # Upstream calls ``graph.config_schema().schema()`` which recurses into
         # ``context_schema=RuntimeCtx``. RuntimeCtx holds a ``git.Repo`` field that
@@ -154,6 +200,7 @@ class ChatRunStreamer:
 
     async def events(self) -> AsyncIterator[BaseEvent]:
         last_mr: MergeRequest | None = None
+        effective_ref = self.ref
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
         # stream error as a RUN_ERROR *event* and then returns normally (it does not raise),
@@ -178,16 +225,40 @@ class ChatRunStreamer:
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(
-                    repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
+                    repo_id=self.repo_id,
+                    scope=Scope.GLOBAL,
+                    ref=self.ref,
+                    sandbox_env_id=self.sandbox_environment_id,
+                    acting_user_id=self.user_id,
+                    fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):
+                if runtime_ctx.repo.ref != self.ref:
+                    effective_ref = runtime_ctx.repo.ref
+                    logger.warning(
+                        "chat: ref %r no longer exists for thread_id=%s; fell back to default branch %r",
+                        self.ref,
+                        self.thread_id,
+                        effective_ref,
+                    )
+                    try:
+                        await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                    except Exception:
+                        # The fallback clone already succeeded; a failed session re-pin must not paint
+                        # a viable run as RUN_ERROR. The ref_fallback event still moves the UI.
+                        logger.exception("chat: failed to reset session ref for thread_id=%s", self.thread_id)
+                    yield CustomEvent(
+                        type=EventType.CUSTOM,
+                        name="ref_fallback",
+                        value={"requested": self.ref, "using": effective_ref},
+                    )
                 # Record the turn as a RUNNING Run once we're committed to executing.
                 chat_run = await start_chat_run(
                     session_id=self.thread_id,
                     user_id=self.user_id,
                     prompt=self.prompt,
                     repo_id=self.repo_id,
-                    ref=self.ref,
+                    ref=effective_ref,
                     message_id=self.message_id,
                 )
                 agent_kwargs = get_daiv_agent_kwargs(
@@ -314,7 +385,7 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, self.ref, last_mr)
+                    await ChatSessionService.persist_ref(self.thread_id, effective_ref, last_mr)
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:

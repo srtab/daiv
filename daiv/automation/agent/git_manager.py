@@ -7,6 +7,7 @@ import re
 import subprocess  # noqa: S404
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from git import GitCommandError
 
@@ -83,8 +84,6 @@ class GitManager:
         sandbox_backend: The run's bound :class:`SandboxFileBackend` for sandbox mode.
         repo_path: Repo path inside the sandbox (defaults to ``REPO_PATH``).
     """
-
-    BRANCH_NAME_MAX_ATTEMPTS = 10
 
     def __init__(
         self,
@@ -272,17 +271,20 @@ class GitManager:
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
-        """Collect everything the publisher needs in at most two sandbox round-trips.
+        """Collect everything the publisher needs in exactly two sandbox round-trips.
 
-        Batch A (one round-trip): working-tree status, diff vs ``origin/<base_branch>``, untracked
+        Batch A: working-tree status, merge-base of ``origin/<base_branch>`` and ``HEAD``, untracked
         file list, remote branch list, and — when ``mr_source_branch`` is given —
-        ``origin/<mr_source_branch>..HEAD``. Batch B (only when untracked files exist): one
-        ``diff --no-index`` per untracked file, in a single round-trip. Replaces the previous
-        is_dirty/get_diff/has_unpushed/remote_branches sequence (~5+U round-trips) with <=2.
+        ``origin/<mr_source_branch>..HEAD``. Batch B (always): the working-tree diff against the
+        resolved merge-base SHA (or the branch tip when there is no common ancestor), plus one
+        ``diff --no-index`` per untracked file. Replaces the previous is_dirty/get_diff/has_unpushed/
+        remote_branches sequence (~5+U round-trips) with exactly 2. Diffing the merge-base (rather
+        than the branch tip) yields the branch's own delta only; tip diffing sweeps unrelated commits
+        in when the branch is stacked off a moving target.
         """
         batch_a: list[tuple[str, ...]] = [
             ("status", "--porcelain"),
-            ("diff", f"origin/{base_branch}"),
+            ("merge-base", f"origin/{base_branch}", "HEAD"),
             ("ls-files", "--others", "--exclude-standard"),
             ("ls-remote", "--heads", "origin"),
         ]
@@ -292,26 +294,41 @@ class GitManager:
             log_idx = len(batch_a) - 1
 
         res = await self._git_batch(batch_a)
-        status_res, diff_res, untracked_res, lsremote_res = res[0], res[1], res[2], res[3]
+        status_res, mergebase_res, untracked_res, lsremote_res = res[0], res[1], res[2], res[3]
 
-        # Exit-code discipline (same as the per-method versions): a real ref never exits non-zero for
-        # "differences found", and an empty branch list from a failing ls-remote would risk a colliding
-        # branch name, so raise rather than silently parse.
+        # status/ls-files use the same exit-code discipline as before.
         self._require_ok(batch_a[0], status_res)
-        self._require_ok(batch_a[1], diff_res)
         self._require_ok(batch_a[2], untracked_res)
+
+        # merge-base is not gated like the others: exit 1 ("no common ancestor") is expected for
+        # unrelated histories, so fall back to the base tip; any other non-zero exit is a real failure.
+        base_ref = f"origin/{base_branch}"
+        if mergebase_res.exit_code == 0 and mergebase_res.output.strip():
+            base_ref = mergebase_res.output.strip().splitlines()[0]
+        elif mergebase_res.exit_code == 1:
+            logger.warning(
+                "status_snapshot: no common ancestor between origin/%s and HEAD; "
+                "falling back to the branch tip for the diff base.",
+                base_branch,
+            )
+        else:
+            self._require_ok(batch_a[1], mergebase_res)  # exit 128 (bad ref) raises; exit-0-no-SHA keeps the tip
+
         # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent
         # credential lands here before the push. Classify it as the same actionable transport error a
-        # push would raise (auth → GitPushPermissionError, unreachable → GitPushNetworkError) instead
-        # of a raw GitCommandError that bypasses the classifier; non-transport failures fall through
-        # to _require_ok unchanged.
+        # push would raise instead of a raw GitCommandError; non-transport failures fall through.
         if lsremote_res.exit_code != 0:
             _raise_for_transport_failure(list(batch_a[3]), lsremote_res)
         self._require_ok(batch_a[3], lsremote_res)
 
+        # Batch B: the working-tree diff against the resolved base, plus one diff --no-index per
+        # untracked file. The main diff depends on the merge-base from batch A, so batch B always runs.
         untracked = self._nonempty_lines(untracked_res.output)
-        batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
-        diff = self._append_untracked(diff_res.output, untracked, batch_b)
+        diff_specs: list[tuple[str, ...]] = [("diff", base_ref)]
+        diff_specs += [("diff", "--no-index", "/dev/null", f) for f in untracked]
+        batch_b = await self._git_batch(diff_specs)
+        self._require_ok(diff_specs[0], batch_b[0])
+        diff = self._append_untracked(batch_b[0].output, untracked, batch_b[1:])
 
         if log_idx >= 0:
             log_res = res[log_idx]
@@ -342,7 +359,9 @@ class GitManager:
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
 
-    async def push_head_to(self, branch: str, *, force: bool = False, integrate_on_reject: bool = False) -> str:
+    async def push_head_to(
+        self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False
+    ) -> str:
         """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
 
         When ``integrate_on_reject`` is set and a *non-fast-forward* rejection comes back — the
@@ -358,8 +377,16 @@ class GitManager:
         retry. Raises ``GitPushPermissionError`` on an auth/permission failure, ``GitPushNetworkError``
         when the remote host is unreachable (e.g. a network-disabled sandbox), and ``GitCommandError``
         on any other push failure. Returns ``branch``.
+
+        skip_ci: pass ``-o ci.skip`` so the push creates no pipeline.
         """
-        push_args = ["push", "origin", f"HEAD:{branch}", *(["--force"] if force else [])]
+        push_args = [
+            "push",
+            *(["-o", "ci.skip"] if skip_ci else []),
+            "origin",
+            f"HEAD:{branch}",
+            *(["--force"] if force else []),
+        ]
         push = await self._git(*push_args, check=False)
         if push.exit_code == 0:
             return branch
@@ -430,32 +457,26 @@ class GitManager:
                 branches.append(ref[len("refs/heads/") :])
         return branches
 
-    def unique_branch_name(
-        self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS
-    ) -> str:
+    def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
         """
-        Generate a unique branch name.
+        Generate a branch name that does not collide with an existing remote branch.
+
+        Returns ``original_branch_name`` untouched when it is free; otherwise appends a
+        random suffix. A random suffix (rather than an incrementing counter) means naming
+        can never exhaust and abort the publish, which would discard the agent's work.
 
         Args:
-            original_branch_name: The original branch name.
-            existing_branch_names: The existing branch names.
-            max_attempts: The maximum number of attempts to generate a unique branch name.
+            original_branch_name: The preferred branch name.
+            existing_branch_names: Remote branch names to avoid colliding with.
 
         Returns:
-            A unique branch name.
+            A branch name absent from ``existing_branch_names``.
         """
-        suffix_count = 1
+        existing = set(existing_branch_names)
         branch_name = original_branch_name
 
-        while branch_name in existing_branch_names and suffix_count < max_attempts:
-            branch_name = f"{original_branch_name}-{suffix_count}"
-            suffix_count += 1
-
-        if suffix_count == max_attempts:
-            raise ValueError(
-                f"Failed to generate a unique branch name for {original_branch_name}, "
-                f"max attempts reached {max_attempts}."
-            )
+        while branch_name in existing:
+            branch_name = f"{original_branch_name}-{uuid4().hex[:8]}"
 
         return branch_name
 

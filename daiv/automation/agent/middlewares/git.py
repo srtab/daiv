@@ -268,9 +268,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
         try:
             client = RepoClient.create_instance(git_platform=context.git_platform)
-            return await sync_to_async(client.get_merge_request_by_branches)(
-                context.repository.slug, current_branch, context.config.default_branch
-            )
+            return await sync_to_async(client.get_merge_request_by_branches)(context.repository.slug, current_branch)
         except _MR_LOOKUP_PLATFORM_ERRORS:
             logger.exception(
                 "Failed to look up open merge request for %s on %s", context.repository.slug, current_branch
@@ -415,6 +413,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
 
         if outcome.merge_request is None:
+            # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record
+            # that work landed so the run isn't persisted as an indistinguishable no-op.
+            if outcome.published:
+                update["code_changes"] = True
             return update or None
 
         self._record_issue_mr(outcome.merge_request, runtime)

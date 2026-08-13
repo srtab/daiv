@@ -156,7 +156,7 @@ services:
       <<: *deploy_defaults
 
   app:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -178,7 +178,7 @@ services:
       <<: *deploy_defaults
 
   worker:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     command: sh /home/daiv/start-worker
     environment:
       <<: *app_environment_defaults
@@ -205,7 +205,7 @@ services:
       replicas: 1 (9)
 
   scheduler:
-    image: ghcr.io/srtab/daiv:latest (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
     command: sh /home/daiv/start-crontask
     environment:
       <<: *app_environment_defaults
@@ -280,7 +280,7 @@ secrets:
 2.   Replace with your full domain URL including schema (e.g., `https://your-hostname.com`)
 3.   Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
 4.   Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
-5.   **Recommended**: Replace `latest` with a specific version tag for production deployments
+5.   Continuous deploys track the `main` tag; keep the `${DAIV_IMAGE_TAG:-main}` form on every service so the Deploy workflow can roll back to a pinned per-commit tag (e.g. `DAIV_IMAGE_TAG=sha-XXXXXXX`)
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
@@ -336,7 +336,7 @@ Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guid
 
 ```yaml
 x-app-defaults: &x_app_default
-  image: ghcr.io/srtab/daiv:latest
+  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
   restart: unless-stopped
   ulimits: # (18)!
     nofile:
@@ -607,6 +607,7 @@ Your DAIV instance is now running and accessible. Continue with:
 1. **[Platform Setup](platform-setup.md)** — connect DAIV to your GitLab or GitHub repositories
 2. **[LLM Providers](llm-providers.md)** — configure your LLM provider and API keys
 3. **[Repository Config](../customization/repository-config.md)** — customize DAIV's behavior per repository
+4. **[Site Configuration](../reference/site-configuration.md)** — manage settings from the admin UI instead of environment variables
 
 !!! tip "First Login & User Management"
     On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command:

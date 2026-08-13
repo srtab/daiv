@@ -1,104 +1,4 @@
 {
-  "ApplyMutationsRequest": {
-    "$defs": {
-      "PutMutation": {
-        "properties": {
-          "content": {
-            "description": "Base64-encoded full file content.",
-            "format": "base64",
-            "title": "Content",
-            "type": "string"
-          },
-          "mode": {
-            "description": "POSIX mode bits to set on the file.",
-            "maximum": 4095,
-            "minimum": 0,
-            "title": "Mode",
-            "type": "integer"
-          },
-          "path": {
-            "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
-            "title": "Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "content",
-          "mode"
-        ],
-        "title": "PutMutation",
-        "type": "object"
-      }
-    },
-    "properties": {
-      "mutations": {
-        "items": {
-          "$ref": "#/$defs/PutMutation"
-        },
-        "maxItems": 64,
-        "minItems": 1,
-        "title": "Mutations",
-        "type": "array"
-      }
-    },
-    "required": [
-      "mutations"
-    ],
-    "title": "ApplyMutationsRequest",
-    "type": "object"
-  },
-  "ApplyMutationsResponse": {
-    "$defs": {
-      "MutationResult": {
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Per-item error message when ok=False.",
-            "title": "Error"
-          },
-          "ok": {
-            "description": "Whether the mutation was applied successfully.",
-            "title": "Ok",
-            "type": "boolean"
-          },
-          "path": {
-            "description": "The path the mutation targeted.",
-            "title": "Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "ok"
-        ],
-        "title": "MutationResult",
-        "type": "object"
-      }
-    },
-    "properties": {
-      "results": {
-        "items": {
-          "$ref": "#/$defs/MutationResult"
-        },
-        "title": "Results",
-        "type": "array"
-      }
-    },
-    "required": [
-      "results"
-    ],
-    "title": "ApplyMutationsResponse",
-    "type": "object"
-  },
   "EgressConfigRequest": {
     "$defs": {
       "EgressPolicy": {
@@ -115,7 +15,7 @@
           },
           "intercept": {
             "default": "all",
-            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only inject hosts.",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
             "enum": [
               "all",
               "credentialed"
@@ -207,18 +107,6 @@
     "title": "EgressConfigRequest",
     "type": "object"
   },
-  "EgressConfigResponse": {
-    "properties": {
-      "ok": {
-        "default": true,
-        "description": "True when the policy was provisioned to the sidecar.",
-        "title": "Ok",
-        "type": "boolean"
-      }
-    },
-    "title": "EgressConfigResponse",
-    "type": "object"
-  },
   "EgressPolicy": {
     "$defs": {
       "EgressRule": {
@@ -270,7 +158,7 @@
       },
       "intercept": {
         "default": "all",
-        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only inject hosts.",
+        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
         "enum": [
           "all",
           "credentialed"
@@ -551,6 +439,14 @@
   },
   "FsGlobRequest": {
     "properties": {
+      "exclude": {
+        "description": "Directory basenames/globs to prune from the search (extends the server defaults).",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exclude",
+        "type": "array"
+      },
       "path": {
         "description": "Absolute base directory under /workspace.",
         "title": "Path",
@@ -684,6 +580,14 @@
   },
   "FsGrepRequest": {
     "properties": {
+      "exclude": {
+        "description": "Directory basenames/globs to prune from the search (extends the server defaults).",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exclude",
+        "type": "array"
+      },
       "glob": {
         "anyOf": [
           {
@@ -703,7 +607,7 @@
         "type": "string"
       },
       "pattern": {
-        "description": "Literal substring to search for (not a regex).",
+        "description": "Regular expression to search for (POSIX extended / ERE syntax).",
         "title": "Pattern",
         "type": "string"
       }
@@ -1016,6 +920,19 @@
         "description": "Encoding of `content`: 'utf-8' for text, 'base64' for binary.",
         "title": "Encoding"
       },
+      "end_line": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's `offset` (an empty window) when a byte-capped page holds no complete line at all, i.e. a single line longer than the read limit \u2014 expected, not a bug.",
+        "title": "End Line"
+      },
       "error": {
         "anyOf": [
           {
@@ -1027,6 +944,25 @@
         ],
         "default": null,
         "description": "Structured error; null on success."
+      },
+      "total_lines": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Total source lines in the file. Text reads only; null for binary reads, the empty-file sentinel, and every error.",
+        "title": "Total Lines"
+      },
+      "truncated": {
+        "default": false,
+        "description": "True when the body was cut by the read byte limit; the text past `end_line` is a partial line.",
+        "title": "Truncated",
+        "type": "boolean"
       }
     },
     "title": "FsReadResponse",
@@ -1118,68 +1054,6 @@
       }
     },
     "title": "FsWriteResponse",
-    "type": "object"
-  },
-  "MutationResult": {
-    "properties": {
-      "error": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "default": null,
-        "description": "Per-item error message when ok=False.",
-        "title": "Error"
-      },
-      "ok": {
-        "description": "Whether the mutation was applied successfully.",
-        "title": "Ok",
-        "type": "boolean"
-      },
-      "path": {
-        "description": "The path the mutation targeted.",
-        "title": "Path",
-        "type": "string"
-      }
-    },
-    "required": [
-      "path",
-      "ok"
-    ],
-    "title": "MutationResult",
-    "type": "object"
-  },
-  "PutMutation": {
-    "properties": {
-      "content": {
-        "description": "Base64-encoded full file content.",
-        "format": "base64",
-        "title": "Content",
-        "type": "string"
-      },
-      "mode": {
-        "description": "POSIX mode bits to set on the file.",
-        "maximum": 4095,
-        "minimum": 0,
-        "title": "Mode",
-        "type": "integer"
-      },
-      "path": {
-        "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
-        "title": "Path",
-        "type": "string"
-      }
-    },
-    "required": [
-      "path",
-      "content",
-      "mode"
-    ],
-    "title": "PutMutation",
     "type": "object"
   },
   "RunRequest": {
@@ -1303,6 +1177,114 @@
     "type": "object"
   },
   "StartSessionRequest": {
+    "$defs": {
+      "EgressConfigRequest": {
+        "properties": {
+          "policy": {
+            "$ref": "#/$defs/EgressPolicy"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "$ref": "#/$defs/EgressSecret"
+            },
+            "title": "Secrets",
+            "type": "object"
+          }
+        },
+        "title": "EgressConfigRequest",
+        "type": "object"
+      },
+      "EgressPolicy": {
+        "properties": {
+          "default": {
+            "default": "deny",
+            "description": "Reachability for unlisted hosts.",
+            "enum": [
+              "deny",
+              "allow"
+            ],
+            "title": "Default",
+            "type": "string"
+          },
+          "intercept": {
+            "default": "all",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+            "enum": [
+              "all",
+              "credentialed"
+            ],
+            "title": "Intercept",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/EgressRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "EgressPolicy",
+        "type": "object"
+      },
+      "EgressRule": {
+        "properties": {
+          "host": {
+            "description": "Destination host glob (e.g. 'github.com', '*.githubusercontent.com').",
+            "title": "Host",
+            "type": "string"
+          },
+          "inject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Name of the secret whose header is injected for this host.",
+            "title": "Inject"
+          },
+          "methods": {
+            "description": "Allowed HTTP methods, or ['*'] for any.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "EgressRule",
+        "type": "object"
+      },
+      "EgressSecret": {
+        "properties": {
+          "header": {
+            "description": "Header name to set (e.g. 'Authorization', 'PRIVATE-TOKEN').",
+            "title": "Header",
+            "type": "string"
+          },
+          "value": {
+            "description": "Header value; redacted in logs/repr.",
+            "format": "password",
+            "title": "Value",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "header",
+          "value"
+        ],
+        "title": "EgressSecret",
+        "type": "object"
+      }
+    },
     "properties": {
       "base_image": {
         "description": "Docker image to be used as the base image for the sandbox.",
@@ -1321,6 +1303,18 @@
         "default": null,
         "description": "CPUs to be used for the sandbox.",
         "title": "Cpus"
+      },
+      "egress": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EgressConfigRequest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Egress policy + secrets. Omit for a network-isolated sandbox (network_mode=none); provide to route the sandbox through the per-session egress proxy with this policy. Immutable for the session's life."
       },
       "environment": {
         "anyOf": [
@@ -1350,12 +1344,6 @@
         "default": null,
         "description": "Memory in bytes to be used for the sandbox.",
         "title": "Memory Bytes"
-      },
-      "network_enabled": {
-        "default": false,
-        "description": "Whether to enable network for the sandbox.",
-        "title": "Network Enabled",
-        "type": "boolean"
       }
     },
     "required": [

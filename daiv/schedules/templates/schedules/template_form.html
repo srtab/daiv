@@ -89,6 +89,8 @@
 
     {% include "notifications/_notify_on_radio.html" with form=form %}
 
+    {% include "schedules/_intent_radio.html" with form=form %}
+
     <div class="mt-8 flex items-center gap-3">
         <button type="submit" class="btn-primary">{% if object %}Save changes{% else %}Create template{% endif %}</button>
         <a href="{% url 'schedule_template_list' %}" class="btn-secondary">Cancel</a>
