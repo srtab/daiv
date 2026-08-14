@@ -81,6 +81,12 @@ msgstr "nenhum"
 msgid "reset"
 msgstr "repor"
 
+msgid "global"
+msgstr "global"
+
+msgid "mine"
+msgstr "meu"
+
 msgid "needs authorization — unavailable this run"
 msgstr "necessita de autorização — indisponível nesta execução"
 

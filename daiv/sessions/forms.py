@@ -104,7 +104,7 @@ class AgentRunFieldsMixin(forms.Form):
         label=_("Sandbox environment"),
     )
 
-    def __init__(self, *args, user=None, owner=None, **kwargs):
+    def __init__(self, *args, user=None, owner=None, mcp_overrides=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         if "sandbox_environment" in self.fields and user is not None:
@@ -115,7 +115,9 @@ class AgentRunFieldsMixin(forms.Form):
         self.mcp_owner = owner or user
         self.mcp_pool = build_selection_pool(getattr(self.mcp_owner, "pk", None))
         if "mcp_servers" in self.fields and not self.is_bound:
-            stored = getattr(getattr(self, "instance", None), "mcp_overrides", {}) or {}
+            # ``mcp_overrides`` is for the instance-less forms (a retry prefills from the source
+            # run's session); ``ModelForm`` subclasses fall back to the row being edited.
+            stored = mcp_overrides or getattr(getattr(self, "instance", None), "mcp_overrides", {}) or {}
             self.fields["mcp_servers"].initial = sorted(effective_selection(stored, self.mcp_pool))
 
     def clean(self):

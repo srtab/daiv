@@ -164,12 +164,36 @@
   const bashFilesChanged = (resultStr) =>
     (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
 
-  // ``filesCache`` lives here, not on the returned data object: Alpine makes every own
+  // Only consider write_todos calls from the current ask. Walking backwards and bailing at
+  // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
+  // from a finished run don't linger.
+  const findLatestTodos = (turns) => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      if (turn.role === "run_status") continue;
+      if (turn.role === "user") return [];
+      for (let j = turn.segments.length - 1; j >= 0; j--) {
+        const s = turn.segments[j];
+        if (s.type === "tool_call" && s.name === "write_todos") {
+          try {
+            const args = JSON.parse(s.args || "{}");
+            return Array.isArray(args.todos) ? args.todos : [];
+          } catch {
+            return [];
+          }
+        }
+      }
+    }
+    return [];
+  };
+
+  // These caches live here, not on the returned data object: Alpine makes every own
   // property reactive, so a cache read inside the getter would subscribe each reader to it
   // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
   // this factory once per component.
   const chat = (config) => {
   let filesCache = null;
+  let todosCache = null;
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -625,26 +649,13 @@
     },
 
     get latestTodos() {
-      // Only consider write_todos calls from the current ask. Walking backwards
-      // and bailing at the most recent user turn clears the rail on follow-up,
-      // so stale "all complete" lists from a finished run don't linger.
-      for (let i = this.turns.length - 1; i >= 0; i--) {
-        const turn = this.turns[i];
-        if (turn.role === "run_status") continue;
-        if (turn.role === "user") return [];
-        for (let j = turn.segments.length - 1; j >= 0; j--) {
-          const s = turn.segments[j];
-          if (s.type === "tool_call" && s.name === "write_todos") {
-            try {
-              const args = JSON.parse(s.args || "{}");
-              return Array.isArray(args.todos) ? args.todos : [];
-            } catch {
-              return [];
-            }
-          }
-        }
-      }
-      return [];
+      // Cached for the rest of the microtask like ``filesTouched``, for the same reason:
+      // the progress pill and sheet read this a dozen-plus times per Alpine flush, and
+      // each read re-walked the transcript and re-parsed the todo args.
+      if (todosCache) return todosCache;
+      todosCache = findLatestTodos(this.turns);
+      queueMicrotask(() => { todosCache = null; });
+      return todosCache;
     },
 
     get todosDone() {
@@ -702,12 +713,7 @@
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const parts = [];
-      // Counted from the local array rather than via ``todosDone``, which would walk the
-      // transcript and re-parse the todo args a second time on every read of this getter.
-      if (todos.length) {
-        const done = todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
-        parts.push(`${done}/${todos.length}`);
-      }
+      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
       if (files.length) parts.push(this._filesLabel(files.length));
 
       if (this.streaming || this.resuming) {
@@ -1189,9 +1195,7 @@
         const snap = evt.snapshot || {};
         if ("diff_stats" in snap) {
           const stats = normalizeDiffStats(snap.diff_stats);
-          const key = stats ? `${stats.added}:${stats.removed}` : "null";
-          if (stats && this._lastDiffKey !== key) {
-            this._lastDiffKey = key;
+          if (stats && (this.diffStats?.added !== stats.added || this.diffStats?.removed !== stats.removed)) {
             this.diffStats = stats;
           }
         }

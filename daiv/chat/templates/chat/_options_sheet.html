@@ -100,8 +100,8 @@ ever mean "MCP server selection differs from the defaults".
                   <span class="sheet-row__head">
                     <span class="sheet-row__name" x-text="server.name"></span>
                     <span class="env-popover__scope-tag"
-                          :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
-                          x-text="server.scope"></span>
+                          :class="'env-popover__scope-tag--' + (server.scope === 'global' ? 'global' : 'user')"
+                          x-text="server.scope === 'global' ? '{% translate "global" %}' : '{% translate "mine" %}'"></span>
                   </span>
                   <span class="sheet-row__meta" x-show="server.available" x-text="mcpToolsLabel(server)"></span>
                   <span class="sheet-row__meta" x-show="!server.available">{% translate "needs authorization — unavailable this run" %}</span>

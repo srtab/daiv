@@ -787,7 +787,7 @@ def test_composer_rows_report_the_tool_filter_effect():
         tool_filter_items=["a"],
     )
 
-    [row] = services.composer_server_rows(None)
+    [row] = services.composer_server_rows(services.deduped_pool_rows(None))
     assert row["name"] == "filtered"
     assert row["scope"] == "global"
     assert row["tools"] == 3
@@ -808,7 +808,7 @@ def test_composer_rows_list_on_demand_servers_as_non_default():
         name="off", transport=MCPServer.Transport.HTTP, url="http://x", status=MCPServer.Status.DISABLED
     )
 
-    rows = services.composer_server_rows(None)
+    rows = services.composer_server_rows(services.deduped_pool_rows(None))
     assert [(row["name"], row["is_default"]) for row in rows] == [("opt-in", False)]
 
 
@@ -828,7 +828,7 @@ def test_composer_rows_flag_a_server_that_cannot_resolve_its_headers(monkeypatch
         headers=[{"name": "X-Token", "mode": "env_ref", "value": "ABSENT_TOKEN"}],
     )
 
-    [row] = services.composer_server_rows(None)
+    [row] = services.composer_server_rows(services.deduped_pool_rows(None))
     assert row["available"] is False
     assert "ABSENT_TOKEN" not in str(row)
     assert "internal ops server" not in str(row)
@@ -846,7 +846,7 @@ def test_shadow_warning_is_runtime_only(caplog, member_user):
     )
 
     with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
-        services.composer_server_rows(member_user)
+        services.deduped_pool_rows(member_user.pk)
     assert "shadowed by a non-disabled global" not in caplog.text
 
     with caplog.at_level("WARNING", logger="daiv.mcp_servers"):

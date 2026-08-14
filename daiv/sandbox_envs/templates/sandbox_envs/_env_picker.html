@@ -10,11 +10,12 @@ Parameters:
 - field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
                                   leave empty to use the picker as an event-only source (e.g. chat hero)
 - on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
-- disabled (default False)      — render a static, server-rendered pill (no Alpine, no popover, no caret).
-                                  Used where the env is locked for the current context (e.g. chat composer
-                                  on an existing thread, since the backend ignores env changes after the
-                                  first turn). Caller must pass `selected_env` (the resolved env object,
-                                  or None for Auto) since the locked render doesn't ship the envs list.
+- disabled (default False)      — render a static, server-rendered disclosure row (no Alpine, no list,
+                                  no caret). Used where the env is locked for the current context (the
+                                  chat composer's options sheet on an existing thread, since the backend
+                                  ignores env changes after the first turn). Requires `variant="sheet"`.
+                                  Caller must pass `selected_env` (the resolved env object, or None for
+                                  Auto) since the locked render doesn't ship the envs list.
 - selected_env (default None)   — pre-resolved env object for the locked render only.
 - dynamic_label_expr (default "") — Alpine expression read via ``x-text`` to override the locked pill's
                                   name. Set by callers whose surrounding scope tracks the just-committed
@@ -33,7 +34,7 @@ Parameters:
                                   value renders the pill + popover, unchanged.
 {% endcomment %}
 
-{% if disabled and variant == "sheet" %}
+{% if disabled %}
 <div class="sheet-disclosure sheet-disclosure--locked"
      {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Locked for this conversation' %}"{% endif %}
      aria-disabled="true">
@@ -50,32 +51,6 @@ Parameters:
         {% endif %}
     </span>
     {% icon "lock-closed" "h-3 w-3 shrink-0 opacity-60" %}
-</div>
-{% elif disabled %}
-<div class="relative inline-flex">
-    <span class="env-pill env-pill--locked"
-          {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Auto' %}"{% endif %}
-          aria-disabled="true">
-        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
-            <path d="M12 22.08V12"/>
-        </svg>
-        <span class="env-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
-        {% if dynamic_scope_expr %}
-        <span class="env-pill__scope-tag"
-              x-show="{{ dynamic_scope_expr }}" x-cloak
-              :class="{{ dynamic_scope_expr }} ? 'env-pill__scope-tag--' + {{ dynamic_scope_expr }} : ''"
-              x-text="{{ dynamic_scope_expr }}"></span>
-        {% elif selected_env %}
-        <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
-        {% endif %}
-        <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <title>{% translate "Locked for this conversation" %}</title>
-            <rect x="5" y="11" width="14" height="9" rx="2"/>
-            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-        </svg>
-    </span>
 </div>
 {% else %}
 {# One live component for both variants; ``variant`` selects only the trigger + list chrome. #}

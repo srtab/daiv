@@ -217,5 +217,6 @@ def test_retry_prefills_selection_from_source_session(member_client, member_user
 
     pool = build_selection_pool(member_user.pk)
     expected = sorted(effective_selection({"b": "on"}, pool))
-    assert resp.context["form"].initial.get("mcp_servers") == expected
+    # The form seeds the field against the pool it built, so read the value the picker renders.
+    assert resp.context["form"]["mcp_servers"].value() == expected
     assert "b" in expected
