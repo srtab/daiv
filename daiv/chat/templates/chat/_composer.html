@@ -79,8 +79,10 @@ above it — same markup, only the container differs (see ``.composer-sheet`` in
               placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 
-    {# ``--crowded`` is what makes the effort word yield first: it drops only when a
-       progress pill is actually sharing the row, not at every phone width. #}
+    {% comment %}
+    ``--crowded`` is what makes the effort word yield first: it drops only when a
+    progress pill is actually sharing the row, not at every phone width.
+    {% endcomment %}
     <div class="chat-composer__actions"
          :class="{ 'chat-composer__actions--crowded': progressPill }">
       <div class="chat-composer__tools">
@@ -89,15 +91,19 @@ above it — same markup, only the container differs (see ``.composer-sheet`` in
       </div>
 
       <div class="chat-composer__buttons">
-        {# Model as plain text, immediately before Send — no pill chrome. Locked in a thread:
-           the backend rejects a changed ``agent_model`` after the first turn. #}
+        {% comment %}
+        Model as plain text, immediately before Send — no pill chrome. Locked in a thread:
+        the backend rejects a changed ``agent_model`` after the first turn.
+        {% endcomment %}
         <span x-show="thread" x-cloak>
           {% include "automation/_agent_picker.html" with variant="label" disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" dynamic_thinking_expr="lockedAgentThinking" %}
         </span>
-        {# ``x-if``, not ``x-show``: the live picker seeds a hidden ``agent_model`` input and
-           dispatches its selection on init. Left mounted in a thread it would overwrite the
-           pinned label and make ``submit()`` forward the site default, which the API rejects
-           with a 409 (the model is pinned on the first turn). #}
+        {% comment %}
+        ``x-if``, not ``x-show``: the live picker seeds a hidden ``agent_model`` input and
+        dispatches its selection on init. Left mounted in a thread it would overwrite the
+        pinned label and make ``submit()`` forward the site default, which the API rejects
+        with a 409 (the model is pinned on the first turn).
+        {% endcomment %}
         <template x-if="!thread">
           {% include "automation/_agent_picker.html" with variant="label" required=False providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
         </template>

@@ -162,7 +162,13 @@
   const bashFilesChanged = (resultStr) =>
     (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
 
-  const chat = (config) => ({
+  // ``filesCache`` lives here, not on the returned data object: Alpine makes every own
+  // property reactive, so a cache read inside the getter would subscribe each reader to it
+  // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
+  // this factory once per component.
+  const chat = (config) => {
+  let filesCache = null;
+  return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
@@ -183,9 +189,6 @@
     // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
     // pill stays in sync without re-deriving the label from the raw model spec.
     lockedAgentLabel: config.initialAgentLabel || "",
-    lockedAgentEffortDots: config.initialAgentEffortDots || 0,
-    // Effort word rendered after the model name in the composer's plain-text model label.
-    lockedAgentThinking: config.initialAgentThinking || "",
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
@@ -211,7 +214,6 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
-    _filesCache: null,
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
@@ -259,13 +261,18 @@
     },
 
     applyAgentSelection(detail) {
-      // The agent picker is the single source of truth for the pill label, effort
-      // dots, and the spec submit() forwards — we just stamp whatever it dispatched.
+      // The agent picker is the single source of truth for the pill label and the spec
+      // submit() forwards — we just stamp whatever it dispatched.
       this._agentModel = detail?.model || "";
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
-      this.lockedAgentEffortDots = detail?.effort_dots || 0;
-      this.lockedAgentThinking = detail?.thinking_level || "";
+    },
+
+    // Effort word after the model name in the composer's label. Derived rather than a
+    // second stored copy of ``_agentThinkingLevel``, which drifts the moment one of the
+    // two assignments is missed; the seed covers the render before the picker dispatches.
+    get lockedAgentThinking() {
+      return this._agentThinkingLevel || config.initialAgentThinking || "";
     },
 
     // ---------- Composer sheets ---------------------------------------
@@ -284,29 +291,14 @@
 
     // ---------- Tools (MCP servers) -----------------------------------
 
-    // Servers that can actually be switched. A broken one (undecryptable headers, a
-    // missing env-var reference) would load zero tools whatever the switch said, so it
-    // renders greyed with the reason instead of a control that silently does nothing.
-    get mcpUsable() {
-      return this.mcpCatalog.filter((s) => s.available);
-    },
-
-    get mcpUnavailable() {
-      return this.mcpCatalog.filter((s) => !s.available);
-    },
-
-    // Filtered by the same search as the healthy rows: an unfiltered list underneath a
-    // "No servers match" message contradicts it on screen.
-    get mcpUnavailableVisible() {
-      const q = this.mcpQuery.trim().toLowerCase();
-      return q ? this.mcpUnavailable.filter((s) => s.name.toLowerCase().includes(q)) : this.mcpUnavailable;
-    },
-
-    // Ordered for display: enabled first, then by name — computed once per expand and
-    // held in ``mcpOrder`` so toggling never reshuffles the list. Search filters this
-    // order rather than replacing it.
+    // One ordered list for every row the sheet draws — switchable first, then enabled,
+    // then by name. Order is computed once per expand and held in ``mcpOrder`` so toggling
+    // never reshuffles the list; search filters that order rather than replacing it.
+    // Unavailable servers sort last and render inert, but stay listed: dropping them here
+    // would drop them from the next selection this page posts, and keep them out of the
+    // thread long after the outage was fixed.
     get mcpVisible() {
-      const byName = new Map(this.mcpUsable.map((s) => [s.name, s]));
+      const byName = new Map(this.mcpCatalog.map((s) => [s.name, s]));
       const ordered = this.mcpOrder.map((n) => byName.get(n)).filter(Boolean);
       const q = this.mcpQuery.trim().toLowerCase();
       return q ? ordered.filter((s) => s.name.toLowerCase().includes(q)) : ordered;
@@ -323,7 +315,9 @@
     },
 
     toggleMcp(name) {
-      if (!this.mcpUsable.some((s) => s.name === name)) return;
+      // A broken server (undecryptable headers, a missing env-var reference) loads zero
+      // tools whatever the switch says, so its row is inert rather than silently useless.
+      if (!this.mcpCatalog.some((s) => s.name === name && s.available)) return;
       this.mcpSelected = this.isMcpOn(name)
         ? this.mcpSelected.filter((n) => n !== name)
         : [...this.mcpSelected, name];
@@ -349,10 +343,11 @@
     },
 
     _freezeMcpOrder() {
-      this.mcpOrder = [...this.mcpUsable]
+      this.mcpOrder = [...this.mcpCatalog]
         .sort((a, b) => {
+          const availDelta = Number(b.available) - Number(a.available);
           const onDelta = Number(this.isMcpOn(b.name)) - Number(this.isMcpOn(a.name));
-          return onDelta || a.name.localeCompare(b.name);
+          return availDelta || onDelta || a.name.localeCompare(b.name);
         })
         .map((s) => s.name);
     },
@@ -654,7 +649,7 @@
       // rest of the current microtask collapses those into one transcript walk; releasing
       // it there means no mutation can ever be observed through a stale cache, since
       // `turns` only changes between events.
-      if (this._filesCache) return this._filesCache;
+      if (filesCache) return filesCache;
       // path -> { path, op, fromPath?, segmentId }
       const map = new Map();
       const record = (path, op, seg, extra = {}) => {
@@ -677,9 +672,9 @@
         }
       }
       // Reverse so most-recent comes first.
-      this._filesCache = [...map.values()].reverse();
-      queueMicrotask(() => { this._filesCache = null; });
-      return this._filesCache;
+      filesCache = [...map.values()].reverse();
+      queueMicrotask(() => { filesCache = null; });
+      return filesCache;
     },
 
     get showJumpToLatest() {
@@ -699,26 +694,29 @@
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const parts = [];
-      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      // Counted from the local array rather than via ``todosDone``, which would walk the
+      // transcript and re-parse the todo args a second time on every read of this getter.
+      if (todos.length) {
+        const done = todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+        parts.push(`${done}/${todos.length}`);
+      }
       if (files.length) parts.push(this._filesLabel(files.length));
 
       if (this.streaming || this.resuming) {
-        return parts.length ? { tone: "live", live: true, label: parts.join(" · ") } : null;
+        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
       }
       // A cancelled turn can leave work uncommitted for good, so counts stay the only
       // truth there — a line total would describe something that was never published.
       if (this._lastRunAborted()) {
-        return parts.length
-          ? { tone: "warn", live: false, label: [this._labels.stopped, ...parts].join(" · ") }
-          : null;
+        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
       }
       // ``diff`` rather than a joined label: added and removed are tinted separately,
       // the way they are everywhere else a diff is reported.
       const stats = this.diffStats;
       if (stats && (stats.added || stats.removed)) {
-        return { tone: "idle", live: false, label: "", diff: stats };
+        return { tone: "idle", label: "", diff: stats };
       }
-      return parts.length ? { tone: "idle", live: false, label: parts.join(" · ") } : null;
+      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
     },
 
     // What the hero's selection line shows before a thread exists: the two things the
@@ -1183,7 +1181,11 @@
         const snap = evt.snapshot || {};
         if ("diff_stats" in snap) {
           const stats = normalizeDiffStats(snap.diff_stats);
-          if (stats) this.diffStats = stats;
+          const key = stats ? `${stats.added}:${stats.removed}` : "null";
+          if (stats && this._lastDiffKey !== key) {
+            this._lastDiffKey = key;
+            this.diffStats = stats;
+          }
         }
         if ("merge_request" in snap) {
           const raw = snap.merge_request;
@@ -1303,7 +1305,8 @@
         if (force) this._autoFollow = true;
       });
     },
-  });
+  };
+  };
 
   // Collapse tall user-message bubbles. Measures the rendered height once on
   // init: user text is immutable after creation, and Alpine's keyed x-for reuses

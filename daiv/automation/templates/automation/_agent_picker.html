@@ -66,11 +66,6 @@ Parameters:
                                        initial value is empty until a page refresh). The expression
                                        must resolve to a non-empty string in the parent Alpine scope;
                                        contributing a fallback there is the caller's job.
-- dynamic_effort_dots_expr           — Alpine expression resolving to a 0..5 dot count, used to
-  (default "")                         drive the locked pill's effort meter when the surrounding
-                                       scope can change after first render (chat composer first-turn
-                                       flow). Falls back to the server-rendered static dot pattern
-                                       (driven by ``initial_effort_dots``) when omitted.
 - initial_effort_dots                — Number of lit dots in the locked pill's effort meter when
   (default 0)                          rendering statically. Computed by ``agent_picker_context`` from
                                        ``initial_thinking_level``; the partial accepts the raw int so
@@ -110,20 +105,8 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
       aria-disabled="true">
     {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
     <span class="agent-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
-    {% if dynamic_effort_dots_expr %}
-        {# Chat composer first-turn flow: Alpine drives visibility and dot highlighting from the parent #}
-        {# scope, so the just-submitted effort survives the hero→composer transition before any refresh. #}
-        <span class="agent-pill__effort" x-show="({{ dynamic_effort_dots_expr }}) > 0" x-cloak>
-            {% icon "bolt" "agent-pill__effort-icon" %}
-            <template x-for="i in 5" :key="i">
-                <span class="agent-pill__effort-dot"
-                      :class="i <= ({{ dynamic_effort_dots_expr }}) ? 'agent-pill__effort-dot--on' : ''"></span>
-            </template>
-        </span>
-    {% elif initial_effort_dots %}
-        {# Static render — used by callers that omit ``dynamic_effort_dots_expr`` (no parent Alpine scope #}
-        {# to mutate the dots post-render). Mirrors the Alpine x-for loop above; the ``"1234"`` literal is #}
-        {# the standard Django idiom for a fixed-count loop where the value isn't read. #}
+    {% if initial_effort_dots %}
+        {# The ``"12345"`` literal is the standard Django idiom for a fixed-count loop whose value isn't read. #}
         <span class="agent-pill__effort">
             {% icon "bolt" "agent-pill__effort-icon" %}
             {% for _ in "12345" %}
@@ -151,22 +134,17 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
      })'
      class="relative inline-flex">
 
-    {% if variant == "label" %}
+    {# One trigger; ``variant`` selects only its chrome, so the toggle wiring, aria contract and stale tooltip cannot drift. #}
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
             :title="{% if stale %}'{% translate "This model is no longer available — pick another."|escapejs %}'{% else %}pillLabel.name{% endif %}"
-            class="model-label model-label--button{% if stale %} model-label--stale{% endif %}">
+            class="{% if variant == 'label' %}model-label model-label--button{% if stale %} model-label--stale{% endif %}{% else %}agent-pill{% if stale %} agent-pill--stale{% endif %}{% endif %}">
+        {% if variant == "label" %}
         <span class="model-label__name" x-text="pillLabel.name"></span>
         <span class="model-label__effort" x-show="thinkingLevel" x-cloak x-text="thinkingLevel"></span>
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
-    </button>
-    {% else %}
-    <button type="button"
-            @click.stop="toggle()"
-            :aria-expanded="open"
-            :title="{% if stale %}'{% translate "This model is no longer available — pick another."|escapejs %}'{% else %}pillLabel.name{% endif %}"
-            class="agent-pill{% if stale %} agent-pill--stale{% endif %}">
+        {% else %}
         {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
         <span class="agent-pill__name" x-text="pillLabel.name"></span>
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
@@ -178,8 +156,8 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
             </template>
         </span>
         {% icon "chevron-down" "agent-pill__caret" %}
+        {% endif %}
     </button>
-    {% endif %}
 
     <div x-show="open" x-cloak
          @click.outside="close()"

@@ -51,7 +51,34 @@ Parameters:
     </span>
     {% icon "lock-closed" "h-3 w-3 shrink-0 opacity-60" %}
 </div>
-{% elif variant == "sheet" %}
+{% elif disabled %}
+<div class="relative inline-flex">
+    <span class="env-pill env-pill--locked"
+          {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Auto' %}"{% endif %}
+          aria-disabled="true">
+        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
+            <path d="M12 22.08V12"/>
+        </svg>
+        <span class="env-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
+        {% if dynamic_scope_expr %}
+        <span class="env-pill__scope-tag"
+              x-show="{{ dynamic_scope_expr }}" x-cloak
+              :class="{{ dynamic_scope_expr }} ? 'env-pill__scope-tag--' + {{ dynamic_scope_expr }} : ''"
+              x-text="{{ dynamic_scope_expr }}"></span>
+        {% elif selected_env %}
+        <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
+        {% endif %}
+        <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <title>{% translate "Locked for this conversation" %}</title>
+            <rect x="5" y="11" width="14" height="9" rx="2"/>
+            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+        </svg>
+    </span>
+</div>
+{% else %}
+{# One live component for both variants; ``variant`` selects only the trigger + list chrome. #}
 <div x-data='envPicker({
         envs: [
             {% for env in envs %}
@@ -68,8 +95,9 @@ Parameters:
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
         createUrl: "{{ env_create_url|escapejs }}"
      })'
-     class="w-full">
+     class="{% if variant == 'sheet' %}w-full{% else %}relative inline-flex{% endif %}">
 
+    {% if variant == "sheet" %}
     <button type="button"
             class="sheet-disclosure"
             :class="open ? 'sheet-disclosure--open' : ''"
@@ -144,56 +172,7 @@ Parameters:
             </button>
         </div>
     </div>
-
-    {% if field_name %}
-    <input type="hidden" name="{{ field_name }}" :value="selectedId">
-    {% endif %}
-</div>
-{% elif disabled %}
-<div class="relative inline-flex">
-    <span class="env-pill env-pill--locked"
-          {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Auto' %}"{% endif %}
-          aria-disabled="true">
-        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
-            <path d="M12 22.08V12"/>
-        </svg>
-        <span class="env-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
-        {% if dynamic_scope_expr %}
-        <span class="env-pill__scope-tag"
-              x-show="{{ dynamic_scope_expr }}" x-cloak
-              :class="{{ dynamic_scope_expr }} ? 'env-pill__scope-tag--' + {{ dynamic_scope_expr }} : ''"
-              x-text="{{ dynamic_scope_expr }}"></span>
-        {% elif selected_env %}
-        <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
-        {% endif %}
-        <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <title>{% translate "Locked for this conversation" %}</title>
-            <rect x="5" y="11" width="14" height="9" rx="2"/>
-            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-        </svg>
-    </span>
-</div>
-{% else %}
-<div x-data='envPicker({
-        envs: [
-            {% for env in envs %}
-            {
-                "id": "{{ env.id }}",
-                "name": "{{ env.name|escapejs }}",
-                "scope": "{{ env.scope }}",
-                "is_default": {% if env.is_default %}true{% else %}false{% endif %},
-                "summary": "{{ env.summary|escapejs }}"
-            }{% if not forloop.last %},{% endif %}
-            {% endfor %}
-        ],
-        selectedId: "{{ selected_id|default:''|escapejs }}",
-        onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
-        createUrl: "{{ env_create_url|escapejs }}"
-     })'
-     class="relative inline-flex">
-
+    {% else %}
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
@@ -298,6 +277,7 @@ Parameters:
             </button>
         </div>
     </div>
+    {% endif %}
 
     {% if field_name %}
     <input type="hidden" name="{{ field_name }}" :value="selectedId">

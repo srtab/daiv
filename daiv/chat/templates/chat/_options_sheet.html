@@ -38,16 +38,20 @@ ever mean "MCP server selection differs from the defaults".
         <div x-show="thread" x-cloak>
           {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
         </div>
-        {# ``x-if``: the live picker announces its selection on the window, which in a
-           thread would fight the server-rendered locked row for the same value. #}
+        {% comment %}
+        ``x-if``: the live picker announces its selection on the window, which in a
+        thread would fight the server-rendered locked row for the same value.
+        {% endcomment %}
         <template x-if="!thread">
           {% include "sandbox_envs/_env_picker.html" with variant="sheet" envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
         </template>
       </section>
 
-      {# Tools = MCP servers, one row per server and never one per tool. There can be
-         dozens, so the group collapses to a single disclosure row and the sheet's height
-         stops depending on how many servers exist. #}
+      {% comment %}
+      Tools = MCP servers, one row per server and never one per tool. There can be
+      dozens, so the group collapses to a single disclosure row and the sheet's height
+      stops depending on how many servers exist.
+      {% endcomment %}
       <section class="composer-sheet__group" x-show="mcpCatalog.length" x-cloak>
         <h3 class="composer-sheet__label">{% translate "Tools" %}</h3>
 
@@ -79,9 +83,17 @@ ever mean "MCP server selection differs from the defaults".
 
           {# Contained scroll so the groups above stay reachable however many servers exist. #}
           <div class="sheet-panel__scroll scrollbar-thin">
+            {% comment %}
+            One row for every server. A server whose headers can't be resolved loads zero
+            tools whatever a switch says, so its switch is disabled — a `label` whose
+            control is disabled doesn't toggle. It stays *in* the selection: dropping it
+            here would drop it from the next selection this sheet posts, and keep it out
+            of the thread long after the outage is fixed.
+            {% endcomment %}
             <template x-for="server in mcpVisible" :key="server.name">
-              <label class="sheet-row">
+              <label class="sheet-row" :class="server.available ? '' : 'sheet-row--unavailable'">
                 <input type="checkbox" class="sheet-row__switch"
+                       :disabled="!server.available"
                        :checked="isMcpOn(server.name)"
                        @change="toggleMcp(server.name)">
                 <span class="sheet-row__body">
@@ -91,34 +103,13 @@ ever mean "MCP server selection differs from the defaults".
                           :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
                           x-text="server.scope"></span>
                   </span>
-                  <span class="sheet-row__meta" x-text="mcpToolsLabel(server)"></span>
+                  <span class="sheet-row__meta" x-show="server.available" x-text="mcpToolsLabel(server)"></span>
+                  <span class="sheet-row__meta" x-show="!server.available">{% translate "needs authorization — unavailable this run" %}</span>
                 </span>
               </label>
             </template>
 
-            {# A server whose headers can't be resolved loads zero tools whatever a switch
-               says, so its switch is inert. It stays *in* the selection: dropping it here
-               would drop it from the next selection this sheet posts, and keep it out of
-               the thread long after the outage is fixed. #}
-            <template x-for="server in mcpUnavailableVisible" :key="server.name">
-              <div class="sheet-row sheet-row--unavailable">
-                <input type="checkbox" class="sheet-row__switch" disabled
-                       :checked="isMcpOn(server.name)"
-                       aria-hidden="true" tabindex="-1">
-                <span class="sheet-row__body">
-                  <span class="sheet-row__head">
-                    <span class="sheet-row__name" x-text="server.name"></span>
-                    <span class="env-popover__scope-tag"
-                          :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
-                          x-text="server.scope"></span>
-                  </span>
-                  <span class="sheet-row__meta">{% translate "needs authorization — unavailable this run" %}</span>
-                </span>
-              </div>
-            </template>
-
-            <p class="composer-sheet__empty"
-               x-show="!mcpVisible.length && !mcpUnavailableVisible.length && mcpQuery.trim()">
+            <p class="composer-sheet__empty" x-show="!mcpVisible.length && mcpQuery.trim()">
               {% translate "No servers match" %}
             </p>
           </div>

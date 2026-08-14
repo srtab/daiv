@@ -6,6 +6,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from asgiref.sync import sync_to_async
+from mcp_servers.models import MCPServer
 from mcp_servers.services import loadable_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
@@ -129,10 +130,9 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
 
 # Bounds on what a client may post into ``Session.mcp_servers``. Both matter: the count
 # alone leaves each entry unbounded, and the whole point is that nothing unbounded reaches
-# the JSON column. The length matches ``MCPServer.name``'s ``max_length``, so a name too
-# long to be one cannot be stored as one.
+# the JSON column.
 MAX_MCP_SERVER_NAMES = 200
-MAX_MCP_SERVER_NAME_LENGTH = 80
+MAX_MCP_SERVER_NAME_LENGTH = MCPServer._meta.get_field("name").max_length
 
 
 def _normalize_mcp_servers(value: object) -> list[str] | None:

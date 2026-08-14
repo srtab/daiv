@@ -86,7 +86,6 @@
          }{% else %}null{% endif %},
          selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
          initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
-         initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
          initialAgentThinking: "{{ agent_picker_initial_thinking|default:''|escapejs }}",
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
@@ -131,8 +130,10 @@
               <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
                 {% translate "Ready when you are — describe the change, the bug, or what to explore." %}
               </p>
-              {# Hero-only: what the first turn will run with, and the way into the options
-                 sheet before a thread exists. Disappears the moment a thread does. #}
+              {% comment %}
+              Hero-only: what the first turn will run with, and the way into the options
+              sheet before a thread exists. Disappears the moment a thread does.
+              {% endcomment %}
               <button type="button" class="chat-hero__selection"
                       @click="openSheet('options')"
                       x-text="heroSelectionLabel"></button>

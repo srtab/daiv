@@ -389,10 +389,9 @@ def test_effort_dots_for_level_normalisation(level, expected):
 
 @pytest.mark.parametrize(("dots", "expected_on_count"), [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
 def test_locked_partial_renders_static_effort_dots(providers, dots, expected_on_count):
-    """The locked-pill static branch (no ``dynamic_effort_dots_expr``) emits exactly
-    five dot spans and lights the leading ``initial_effort_dots`` of them. Used by
-    any caller that omits the Alpine expression — typically the env-locked settings
-    widget; the chat composer takes the Alpine branch instead."""
+    """The locked pill emits exactly five dot spans and lights the leading
+    ``initial_effort_dots`` of them. Its only caller is the env-locked settings widget —
+    the chat composer uses the ``label`` variant, which carries the effort word instead."""
     from django.template.loader import render_to_string
 
     html = render_to_string(

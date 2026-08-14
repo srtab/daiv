@@ -14,7 +14,7 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
           :aria-expanded="sheet === 'progress'"
           aria-haspopup="dialog"
           title="{% translate 'Session progress' %}">
-    <span class="composer-trigger__live" x-show="progressPill && progressPill.live" x-cloak aria-hidden="true"></span>
+    <span class="composer-trigger__live" x-show="progressPill && progressPill.tone === 'live'" x-cloak aria-hidden="true"></span>
     <template x-if="progressPill && progressPill.diff">
       <span class="diff-stat">
         <span class="diff-stat__plus" x-text="`+${progressPill.diff.added}`"></span>
@@ -55,8 +55,10 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
         <h3 class="composer-sheet__label">
           {% translate "Files changed" %}
           <span x-show="filesTouched.length" x-text="`· ${filesTouched.length}`"></span>
-          {# Whole-run totals from the publisher. There is no per-file breakdown to show
-             beside each row: the diff is measured once, not file by file. #}
+          {% comment %}
+          Whole-run totals from the publisher. There is no per-file breakdown to show
+          beside each row: the diff is measured once, not file by file.
+          {% endcomment %}
           <template x-if="diffStats">
             <span class="diff-stat">·
               <span class="diff-stat__plus" x-text="`+${diffStats.added}`"></span>

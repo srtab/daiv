@@ -121,15 +121,17 @@ class GitChangePublisher(ChangePublisher):
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
-            if not snapshot.dirty:
-                if not snapshot.diff.strip():
-                    logger.info("No changes to publish.")
-                    return PublishOutcome(merge_request=None, published=False)
-                if merge_request is not None and not snapshot.has_unpushed:
-                    logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-                    return PublishOutcome(
-                        merge_request=merge_request, published=False, diff_stats=diff_line_stats(snapshot.diff)
-                    )
+            if not snapshot.dirty and not snapshot.diff.strip():
+                logger.info("No changes to publish.")
+                return PublishOutcome(merge_request=None, published=False)
+
+            # Measured once here so every path below reports the same numbers; the only
+            # return that legitimately has none is the empty-diff one above.
+            diff_stats = diff_line_stats(snapshot.diff)
+
+            if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+                logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
+                return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
             fallback_from_mr: MergeRequest | None = None
             if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -211,7 +213,7 @@ class GitChangePublisher(ChangePublisher):
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
-                    diff_stats=diff_line_stats(snapshot.diff),
+                    diff_stats=diff_stats,
                 )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
@@ -238,7 +240,7 @@ class GitChangePublisher(ChangePublisher):
             merge_request=merge_request,
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
-            diff_stats=diff_line_stats(snapshot.diff),
+            diff_stats=diff_stats,
         )
 
     async def _refresh_sandbox_egress(self) -> None:

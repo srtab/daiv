@@ -1910,15 +1910,12 @@ main:has(.chat-shell) {
     color: #fff;
   }
 
+  /* The `overflow` is safe now that no sheet hosts a floating popover: every list inside
+     one expands in place, so an `overflow` ancestor has nothing left to clip. The per-list
+     contained scrolls still bound the common case; this bounds the sheet itself when
+     several are open at once or the viewport is short. */
   .composer-sheet__body {
     padding: 0 14px 16px;
-  }
-
-  /* Safe now that no sheet hosts a floating popover: every list inside one expands in
-     place, so an `overflow` ancestor has nothing left to clip. The per-list contained
-     scrolls still bound the common case; this bounds the sheet itself when several are
-     open at once or the viewport is short. */
-  .composer-sheet__body {
     max-height: min(60vh, 460px);
     overflow-y: auto;
   }
@@ -1936,13 +1933,6 @@ main:has(.chat-shell) {
     text-transform: uppercase;
     color: #64748b;
     margin-bottom: 8px;
-  }
-
-  .composer-sheet__row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
   }
 
   .composer-sheet__empty {
