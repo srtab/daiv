@@ -11,6 +11,7 @@ from __future__ import annotations
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from mcp_servers.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
 from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
 
@@ -50,9 +51,40 @@ class RepoListField(forms.JSONField):
         return super().prepare_value(value)
 
 
+class MCPSelectionField(forms.JSONField):
+    """Hidden JSON list of checked MCP server names. ``required=False``; ``to_python`` normalizes
+    None/empty to ``[]`` and rejects non-list-of-str. ``prepare_value`` returns the list itself (not
+    a JSON string): the Alpine picker seeds ``x-model`` from ``mcp_picker_context`` — which reads
+    ``BoundField.value()`` and expects a list — and overwrites the hidden input's DOM ``value`` on
+    init, so no JSON-string serialization is needed here."""
+
+    widget = forms.HiddenInput
+    default_error_messages = {"invalid": _("Malformed MCP selection.")}
+
+    def to_python(self, value):
+        parsed = super().to_python(value)
+        if parsed in (None, ""):
+            return []
+        try:
+            return parse_server_names(parsed)
+        except ValueError as err:
+            raise forms.ValidationError(self.error_messages["invalid"], code="invalid") from err
+
+    def prepare_value(self, value):
+        if isinstance(value, str):
+            # Bound-form re-render: BoundField.value() feeds the raw submitted string back through
+            # prepare_value; parse it so callers always see a list, degrading a malformed value to [].
+            try:
+                return self.to_python(value)
+            except forms.ValidationError:
+                return []
+        return list(value) if value else []
+
+
 class AgentRunFieldsMixin(forms.Form):
     prompt = forms.CharField(label=_("Prompt"), required=True)
     repos = RepoListField(required=True)
+    mcp_servers = MCPSelectionField(required=False)
     agent_model = forms.CharField(
         label=_("Agent model"),
         required=False,
@@ -72,11 +104,19 @@ class AgentRunFieldsMixin(forms.Form):
         label=_("Sandbox environment"),
     )
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, owner=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         if "sandbox_environment" in self.fields and user is not None:
             self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
+
+        # Pool is scoped to the run/schedule OWNER, not the editing admin, so an admin
+        # editing a member's schedule sees the member's USER-scoped servers.
+        self.mcp_owner = owner or user
+        self.mcp_pool = build_selection_pool(getattr(self.mcp_owner, "pk", None))
+        if "mcp_servers" in self.fields and not self.is_bound:
+            stored = getattr(getattr(self, "instance", None), "mcp_overrides", {}) or {}
+            self.fields["mcp_servers"].initial = sorted(effective_selection(stored, self.mcp_pool))
 
     def clean(self):
         cleaned = super().clean() or {}
@@ -99,6 +139,9 @@ class AgentRunFieldsMixin(forms.Form):
                 assert_can_run(self.user, [entry["repo_id"] for entry in repos])
             except RepositoryAccessDenied:
                 self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+
+        selected = set(cleaned.get("mcp_servers") or [])
+        cleaned["mcp_overrides"] = diff_selection(selected, self.mcp_pool)
         return cleaned
 
 

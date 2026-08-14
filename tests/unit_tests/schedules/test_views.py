@@ -317,6 +317,20 @@ class TestScheduleRunNowView:
         run = Run.objects.get(session__scheduled_job=schedule)
         assert run.sandbox_environment_id == env.id
 
+    def test_run_now_stamps_schedule_mcp_overrides_onto_session(self, member_client, member_user, schedule):
+        schedule.mcp_overrides = {"tool-x": "off"}
+        schedule.save(update_fields=["mcp_overrides"])
+
+        with mock.patch("sessions.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
+        assert response.status_code == 302
+        from sessions.models import Session
+
+        session = Session.objects.get(scheduled_job=schedule)
+        assert session.mcp_overrides == {"tool-x": "off"}
+
     def test_run_now_auto_resolves_against_schedule_owner_not_request_user(
         self, member_client, member_user, schedule, admin_user
     ):

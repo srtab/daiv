@@ -14,6 +14,7 @@ from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from mcp_servers.selection import mcp_picker_context
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 from sessions.models import SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
@@ -135,6 +136,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         context.update(env_picker_context(context["form"]))
         context.update(agent_picker_context(context["form"]))
+        context.update(mcp_picker_context(context["form"]))
         return context
 
     def form_valid(self, form):
@@ -163,6 +165,7 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
         context.update(env_picker_context(context["form"]))
         context.update(agent_picker_context(context["form"]))
+        context.update(mcp_picker_context(context["form"]))
         return context
 
     def get_breadcrumbs(self):
@@ -239,6 +242,7 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
+                mcp_overrides=schedule.mcp_overrides,
             )
         except RepositoryAccessDenied:
             messages.error(request, f"Schedule '{schedule.name}' was not triggered: {REPO_ACCESS_DENIED_MESSAGE}")

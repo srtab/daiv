@@ -50,6 +50,8 @@
 
     {% include "notifications/_notify_on_radio.html" with form=form %}
 
+    {% include "mcp_servers/_mcp_picker.html" %}
+
     <div class="mt-8 flex items-center gap-3">
         <button type="submit" class="btn-primary">
             {% if source_run %}Retry{% else %}Start run{% endif %}

@@ -167,6 +167,7 @@ class ScheduledJob(TimeStampedModel):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
+    mcp_overrides = models.JSONField(_("MCP overrides"), default=dict, blank=True)
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)

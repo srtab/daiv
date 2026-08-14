@@ -114,6 +114,36 @@ def test_detail_renders_for_own_session(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client, member_user):
+    """The reloaded Tools sheet is seeded with the effective selection (defaults with the
+    session's stored overrides applied), not with the raw ``mcp_overrides`` keys."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://a",
+        status=MCPServer.Status.ACTIVE,
+    )
+    MCPServer.objects.create(
+        name="b",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://b",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    session = _create_session(user=member_user, mcp_overrides={"b": "on"})
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+    assert resp.status_code == 200
+    # default {"a"} + override {"b": "on"} → both checked, not just the overridden name.
+    assert resp.context["mcp_servers_selected"] == ["a", "b"]
+    assert [(row["name"], row["is_default"]) for row in resp.context["mcp_server_rows"]] == [("a", True), ("b", False)]
+
+
+@pytest.mark.django_db
 def test_detail_with_live_checkpoint_renders_transcript(member_client, member_user):
     from langchain_core.messages import AIMessage
 

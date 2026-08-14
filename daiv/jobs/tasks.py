@@ -17,7 +17,7 @@ LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
 
 
-async def _acquire_session_lock(thread_id: str, holder_id: str) -> bool | None:
+async def _acquire_session_lock(thread_id: str, holder_id: str, *, session_exists: bool) -> bool | None:
     """Claim the session's execution slot, waiting for the current holder.
 
     Returns True when claimed, None when the session row doesn't exist (legacy
@@ -28,8 +28,10 @@ async def _acquire_session_lock(thread_id: str, holder_id: str) -> bool | None:
     before timing out, but a waiter that began at (roughly) the moment the
     holder crashed can hit its own timeout at about the same time takeover
     would first succeed. Takeover is not guaranteed for that co-incident case.
+    ``session_exists`` is pre-computed by the caller from the same row it reads
+    ``mcp_overrides`` off of, avoiding a redundant DB round-trip.
     """
-    if not await Session.objects.filter(pk=thread_id).aexists():
+    if not session_exists:
         logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
         return None
     deadline = time.monotonic() + LOCK_WAIT_TIMEOUT_S
@@ -133,7 +135,9 @@ async def run_job_task(
     input_data = {"messages": [HumanMessage(content=prompt)]}
 
     holder_id = run_id or f"job-{thread_id[:8]}"
-    locked = await _acquire_session_lock(thread_id, holder_id)
+    session_row = await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides").afirst()
+    mcp_overrides = session_row.mcp_overrides if session_row is not None else {}
+    locked = await _acquire_session_lock(thread_id, holder_id, session_exists=session_row is not None)
     heartbeat_task = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if locked else None
     try:
         try:
@@ -144,6 +148,7 @@ async def run_job_task(
                     ref=ref,
                     sandbox_env_id=sandbox_environment_id,
                     acting_user_id=user_id,
+                    mcp_overrides=mcp_overrides,
                 ) as runtime_ctx,
                 open_checkpointer() as checkpointer,
             ):

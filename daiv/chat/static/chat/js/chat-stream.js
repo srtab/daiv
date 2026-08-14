@@ -105,14 +105,16 @@
 
   const loadInitialTurns = () => loadJSONScript("chat-initial-turns", []);
 
-  // Every MCP server this user could load, one row per server. Rows the health check
-  // already knows are broken carry `available: false`: they stay in the selection (so the
-  // thread keeps them once the outage is fixed) but their switch is inert.
+  // Every MCP server this user could load, one row per server, `is_default` marking the
+  // ``active`` ones. Rows the health check already knows are broken carry
+  // `available: false`: they stay in the selection (so the thread keeps them once the
+  // outage is fixed) but their switch is inert.
   const loadMcpCatalog = () => {
     const rows = loadJSONScript("chat-mcp-servers", []);
     return Array.isArray(rows) ? rows : [];
   };
 
+  // The thread's stored overrides, already resolved against the live pool server-side.
   const loadMcpSelection = () => {
     const stored = loadJSONScript("chat-mcp-selected", null);
     return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
@@ -305,9 +307,16 @@
     },
 
     // Drives the badge dot on the options trigger. The env can't change mid-thread, so a
-    // narrowed server selection is the only thing the dot can ever be reporting.
+    // selection that deviates from the pool defaults is the only thing the dot can ever be
+    // reporting — the same deviation the server stores as ``Session.mcp_overrides``.
     get mcpDirty() {
-      return this.mcpSelected.length !== this.mcpCatalog.length;
+      const defaults = this._defaultMcpNames();
+      return this.mcpSelected.length !== defaults.length
+        || defaults.some((name) => !this.isMcpOn(name));
+    },
+
+    _defaultMcpNames() {
+      return this.mcpCatalog.filter((s) => s.is_default).map((s) => s.name);
     },
 
     isMcpOn(name) {
@@ -329,11 +338,11 @@
       this._mcpTouched = true;
     },
 
-    // Back to the ``MCPServer.enabled`` defaults — every server the user can load. The
-    // server recognises a selection covering the whole pool and stores NULL for it, so
-    // reset really does restore "all of them, including ones added later".
+    // Back to the pool defaults — the ``active`` servers, not every server in the list.
+    // An ``on-demand`` server is loadable but opt-in, so reset turns it back off; the
+    // server stores the resulting empty diff, which keeps tracking the admin's defaults.
     resetMcp() {
-      this.mcpSelected = this.mcpCatalog.map((s) => s.name);
+      this.mcpSelected = this._defaultMcpNames();
       this._mcpTouched = true;
     },
 
@@ -406,17 +415,16 @@
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
 
-      // A stored selection is intersected with what the user can load *now*: a server
-      // may have been disabled, deleted, or broken since the turn that stored it. No
-      // stored selection means every available server, which is also what a fresh
-      // thread runs with.
+      // The server already resolved the thread's stored overrides against the live pool,
+      // so this is the effective selection, not a raw list to re-interpret. It is still
+      // intersected with the catalog — and with the whole pool rather than just the
+      // servers that are healthy right now, since a broken one dropped here would be
+      // dropped from the next selection this page posts and would stay out of the thread
+      // long after the outage was fixed.
       const stored = loadMcpSelection();
-      // Intersected with the whole pool, not just the servers that are healthy right now:
-      // a broken one dropped here would be dropped from the next selection this page
-      // posts, and would stay out of the thread long after the outage was fixed.
       this.mcpSelected = stored
         ? this.mcpCatalog.filter((s) => stored.includes(s.name)).map((s) => s.name)
-        : this.mcpCatalog.map((s) => s.name);
+        : this._defaultMcpNames();
       this._freezeMcpOrder();
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
@@ -942,9 +950,9 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet. An untouched
-      // thread keeps a NULL selection server-side, which means "everything" and keeps
-      // meaning that as servers are added — sending today's full list would freeze it.
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
       if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const body = {

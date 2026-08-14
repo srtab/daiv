@@ -22,6 +22,7 @@ from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
+from mcp_servers.selection import build_selection_pool, effective_selection, mcp_picker_context
 from mcp_servers.services import composer_server_rows
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
@@ -267,10 +268,15 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             )
         )
 
-        # Tools group in the composer's options sheet: one row per MCP server the caller
-        # could load, plus this thread's stored narrowing (None = all of them).
+        # Tools group in the composer's options sheet: one row per MCP server, plus the names
+        # this thread's stored overrides currently resolve to. Both read the *viewer's* pool,
+        # which is the pool ``create_chat_completion`` diffs their next turn against.
         ctx["mcp_server_rows"] = composer_server_rows(self.request.user)
-        ctx["mcp_servers_selected"] = session.mcp_servers if session is not None else None
+        ctx["mcp_servers_selected"] = sorted(
+            effective_selection(
+                session.mcp_overrides if session is not None else {}, build_selection_pool(self.request.user.pk)
+            )
+        )
 
         if session is None:
             ctx.update({
@@ -444,6 +450,9 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 "agent_model": source.agent_model,
                 "agent_thinking_level": source.agent_thinking_level,
             })
+            pool = build_selection_pool(self.request.user.pk)
+            source_overrides = source.session.mcp_overrides if source.session_id else {}
+            initial["mcp_servers"] = sorted(effective_selection(source_overrides, pool))
         return initial
 
     def get_context_data(self, **kwargs):
@@ -451,6 +460,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
+        ctx.update(mcp_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):
@@ -471,6 +481,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
+                mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise

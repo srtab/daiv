@@ -77,15 +77,16 @@ class ChatSessionService:
         sandbox_environment: SandboxEnvironment | None = None,
         agent_model: str = "",
         agent_thinking_level: str = "",
+        mcp_overrides: dict | None = None,
     ) -> tuple[Session, bool]:
         """First sight of ``thread_id`` creates a chat-origin ``Session`` under ``user``;
         later calls return the existing row regardless of owner. Caller must enforce
         ownership.
 
-        ``agent_model`` and ``agent_thinking_level`` are pinned at session creation:
-        they're written to ``defaults`` so the first turn fixes the override and
-        subsequent turns ignore client-supplied values (same lock semantics as
-        ``sandbox_environment``). The boolean return flag lets callers detect the
+        ``agent_model``, ``agent_thinking_level``, and ``mcp_overrides`` are pinned at
+        session creation: they're written to ``defaults`` so the first turn fixes the
+        override and subsequent turns ignore client-supplied values (same lock semantics
+        as ``sandbox_environment``). The boolean return flag lets callers detect the
         existing-session case and reject a client that tries to change the override
         after the first turn — see ``chat.api.views.create_chat_completion``.
         """
@@ -98,6 +99,7 @@ class ChatSessionService:
             "title": TitlerService.heuristic(first_message),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
+            "mcp_overrides": mcp_overrides or {},
         }
         if sandbox_environment is not None:
             defaults["sandbox_environment"] = sandbox_environment
@@ -112,15 +114,15 @@ class ChatSessionService:
         return session, created
 
     @staticmethod
-    async def set_mcp_servers(thread_id: str, names: list[str] | None) -> None:
+    async def set_mcp_overrides(thread_id: str, overrides: dict) -> None:
         """Store the composer's Tools selection for ``thread_id``, overwriting any previous one.
 
         Unlike the model and the env this is not pinned on the first turn: the composer can
-        retune it per turn, so a reload shows what the last turn actually ran with. ``None``
-        is a value here, not an absence — it means "every server, including ones added
-        later" — so callers must only reach this when the client actually sent a selection.
+        retune it per turn, so a reload shows what the last turn actually ran with. Callers
+        must only reach this when the client actually sent a selection — an empty dict means
+        "the pool defaults", not "no selection sent".
         """
-        await Session.objects.filter(thread_id=thread_id).aupdate(mcp_servers=names)
+        await Session.objects.filter(thread_id=thread_id).aupdate(mcp_overrides=overrides)
 
     @staticmethod
     async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:

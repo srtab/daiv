@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -184,9 +184,7 @@ class ChatRunStreamer:
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
-    # The composer's Tools selection for this turn: MCP server names to load, or ``None``
-    # for "load everything this user could load".
-    mcp_server_names: list[str] | None = None
+    mcp_overrides: dict = field(default_factory=dict)
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -233,7 +231,7 @@ class ChatRunStreamer:
                     ref=self.ref,
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
-                    mcp_server_names=self.mcp_server_names,
+                    mcp_overrides=self.mcp_overrides,
                     fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):

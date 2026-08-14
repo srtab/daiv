@@ -6,8 +6,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from asgiref.sync import sync_to_async
-from mcp_servers.models import MCPServer
-from mcp_servers.services import loadable_server_names
+from mcp_servers.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
@@ -128,59 +127,6 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     return _sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
-# Bounds on what a client may post into ``Session.mcp_servers``. Both matter: the count
-# alone leaves each entry unbounded, and the whole point is that nothing unbounded reaches
-# the JSON column.
-MAX_MCP_SERVER_NAMES = 200
-MAX_MCP_SERVER_NAME_LENGTH = MCPServer._meta.get_field("name").max_length
-
-
-def _normalize_mcp_servers(value: object) -> list[str] | None:
-    """Validate ``forwarded_props.mcp_servers`` into a deduped list of server names.
-
-    ``None`` (absent) means "no selection sent" and leaves the thread's stored one alone;
-    ``[]`` is a real selection meaning "no MCP servers this turn".
-    """
-    if value is None:
-        return None
-    if not isinstance(value, list) or len(value) > MAX_MCP_SERVER_NAMES:
-        raise HttpError(400, f"mcp_servers must be a list of at most {MAX_MCP_SERVER_NAMES} server names.")
-    names = []
-    for entry in value:
-        if not isinstance(entry, str) or not entry.strip() or len(entry) > MAX_MCP_SERVER_NAME_LENGTH:
-            raise HttpError(
-                400,
-                "mcp_servers entries must be non-empty server names of at most "
-                f"{MAX_MCP_SERVER_NAME_LENGTH} characters.",
-            )
-        names.append(entry.strip())
-    return list(dict.fromkeys(names))
-
-
-async def _narrowing_or_none(names: list[str], user) -> list[str] | None:
-    """Collapse a selection that names every server the caller can load back to ``None``.
-
-    ``None`` is not "unset" but a live promise — *all of them, including the ones added
-    after this turn*. Storing today's full list instead would quietly freeze the thread to
-    today's servers, which is precisely what a user pressing "reset" is asking not to
-    happen. Only a real narrowing is worth remembering.
-    """
-    pool = set(await sync_to_async(loadable_server_names)(user.pk))
-    # An empty pool makes every selection vacuously "everything"; there is nothing to
-    # promise future servers to, so keep the client's explicit value rather than reading
-    # "none" as "all".
-    return None if pool and pool <= set(names) else names
-
-
-def _stored_mcp_servers(session: Session) -> list[str] | None:
-    """The thread's stored selection, ignoring a column that isn't a list of strings —
-    a hand-edited row must degrade to "load everything", not blank the toolset."""
-    stored = session.mcp_servers
-    if isinstance(stored, list) and all(isinstance(entry, str) for entry in stored):
-        return stored
-    return None
-
-
 class RunHandle(Schema):
     """The default ``POST /completions`` response: a pointer to the detached run.
 
@@ -239,7 +185,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except AgentOverrideError as err:
         raise HttpError(400, str(err)) from err
 
-    mcp_servers = _normalize_mcp_servers(forwarded.get("mcp_servers"))
+    # Absent key = "no selection sent", which leaves the thread's stored one alone;
+    # a present one is diffed against the owner's live pool.
+    raw_selection = forwarded.get("mcp_servers")
+    submitted_overrides = None
+    if raw_selection is not None:
+        try:
+            names = parse_server_names(raw_selection)
+        except ValueError as err:
+            raise HttpError(400, str(err)) from err
+        pool = await sync_to_async(build_selection_pool)(user.pk)
+        submitted_overrides = diff_selection(set(names), pool)
 
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
@@ -265,6 +221,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment=env_obj,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
+        mcp_overrides=submitted_overrides or {},
     )
     # Ownership: an existing session must be visible to the caller. A webhook-origin
     # session (user=None) is visible to anyone who can see it, so "continue as chat"
@@ -314,15 +271,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
-    # Per-turn, not pinned: the composer's Tools sheet can retune this on any turn, and the
-    # stored value is only a memory of the last one — so it is written *after* the slot is
-    # won. A turn rejected as a duplicate must not leave the thread remembering a selection
-    # that never ran.
-    if mcp_servers is not None:
-        effective_mcp_servers = await _narrowing_or_none(mcp_servers, user)
-        await ChatSessionService.set_mcp_servers(thread_id, effective_mcp_servers)
-    else:
-        effective_mcp_servers = _stored_mcp_servers(session)
+    # Unlike the model and the env, the Tools selection is *not* pinned: nothing bakes it
+    # into the thread (``build_runtime_servers`` re-resolves it on every run), so the sheet
+    # stays live and each turn overwrites the memory of the last one. The write lands after
+    # the slot is won — a turn rejected as a duplicate must not leave the thread remembering
+    # a selection that never ran.
+    effective_overrides = session.mcp_overrides
+    if submitted_overrides is not None and not created and submitted_overrides != effective_overrides:
+        effective_overrides = submitted_overrides
+        await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
 
     # Only emit the resolved-env hint when:
     # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
@@ -345,7 +302,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
-        mcp_server_names=effective_mcp_servers,
+        mcp_overrides=effective_overrides,
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

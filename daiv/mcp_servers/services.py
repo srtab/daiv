@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from django.utils import timezone
 
@@ -17,9 +17,6 @@ from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
-
-if TYPE_CHECKING:
-    from collections.abc import Collection
 
 logger = logging.getLogger("daiv.mcp_servers")
 
@@ -43,86 +40,81 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def loadable_servers(user_id: int | None = None, *, warn_shadowed: bool = False) -> list[MCPServer]:
-    """The ``MCPServer`` rows that would load for ``user_id``: every enabled GLOBAL row
-    plus that user's enabled USER rows, minus the personal rows a global server of the
-    same name shadows (a member must never redirect traffic for a name an admin controls).
+def deduped_pool_rows(user_id: int | None = None, *, warn_shadowed: bool = False) -> list[MCPServer]:
+    """Non-``disabled`` servers visible to ``user_id``, name-deduped with GLOBAL winning.
 
-    This is the pool the composer's Tools group lists and the pool a per-thread selection
-    narrows — a selection can only take servers *out* of it, never add one back in, so
-    ``MCPServer.enabled`` stays the admin's decision alone.
+    A user-scoped row whose name matches ANY non-disabled global (active or on-demand) is
+    dropped: an admin publishing a name — even on demand — controls it. Order is globals
+    then user rows, each sorted by name; the returned rows carry full ``status`` for callers
+    to split default vs. opt-in.
 
-    ``warn_shadowed`` logs each skipped personal row. Only the runtime path sets it: the
-    display path runs on every page render, where the same warning would say nothing new
-    once per navigation and drown the log it is meant to stand out in.
-    """
-    global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
+    ``warn_shadowed`` logs each dropped personal row. Only the runtime path sets it: the
+    display paths (composer sheet, run/schedule pickers) run this on every page render,
+    where the same warning would say nothing new once per navigation and drown the log it
+    is meant to stand out in."""
+    globals_ = list(
+        MCPServer.objects
+        .exclude(status=MCPServer.Status.DISABLED)
+        .filter(scope=MCPServer.Scope.GLOBAL)
+        .order_by("name")
+    )
     user_rows: list[MCPServer] = []
     if user_id is not None:
         user_rows = list(
-            MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.USER, user_id=user_id).order_by("name")
+            MCPServer.objects
+            .exclude(status=MCPServer.Status.DISABLED)
+            .filter(scope=MCPServer.Scope.USER, user_id=user_id)
+            .order_by("name")
         )
-
-    global_names = {row.name for row in global_rows}
-    kept: list[MCPServer] = []
-    for row in [*global_rows, *user_rows]:
-        if row.is_shadowed_by(global_names):
+    global_names = {r.name for r in globals_}
+    pool: list[MCPServer] = list(globals_)
+    for row in user_rows:
+        if row.name in global_names:
             if warn_shadowed:
                 logger.warning(
-                    "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
-                    "user-scoped row",
+                    "MCP server '%s' (pk=%s, user_id=%s) is shadowed by a non-disabled global server of the "
+                    "same name; excluding the user-scoped row",
                     row.name,
                     row.pk,
                     row.user_id,
                 )
             continue
-        kept.append(row)
-    return kept
+        pool.append(row)
+    return pool
 
 
-def loadable_server_names(user_id: int | None = None) -> list[str]:
-    """Just the names from :func:`loadable_servers` — what a stored selection is compared
-    against to tell a real narrowing from "all of them"."""
-    return [str(row.name) for row in loadable_servers(user_id)]
+def build_runtime_servers(user_id: int | None = None, overrides: dict | None = None) -> list[tuple[str, UserMcpServer]]:
+    """Resolve the effective MCP server set for a run and convert each to a ``UserMcpServer`` DTO.
 
-
-def build_runtime_servers(
-    user_id: int | None = None, names: Collection[str] | None = None
-) -> list[tuple[str, UserMcpServer]]:
-    """Read the loadable ``MCPServer`` rows and convert each to the ``UserMcpServer``
-    DTO the toolkit consumes. Returns ``(name, dto)`` tuples.
-
-    ``names`` is a per-run narrowing of :func:`loadable_servers` — the composer's Tools
-    selection, stored on ``Session.mcp_servers``. ``None`` means "no selection made",
-    which loads the whole pool. An empty collection means "the user turned everything
-    off" and loads nothing; a name outside the pool is ignored rather than honoured.
-
-    A row whose ``headers`` cannot be decrypted, or that can't be converted, is
-    skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
-    dropped defensively (the form forbids them; a raw DB write could still add one).
-
-    A failure of the DB query itself propagates to the caller: ``MCPToolkit.get_tools``
-    does not guard it, so a DB outage surfaces as a failed agent-graph build rather
-    than as silently-empty tools.
+    Default set = the ``active`` rows of the deduped pool (``deduped_pool_rows``). ``overrides``
+    (``{name: "on"|"off"}``) deviate from it: ``"off"`` drops a default; ``"on"`` adds a pool entry
+    (a stale ``"on"`` for a disabled/deleted/unknown name self-heals to a no-op). Any value other
+    than the exact strings ``"on"``/``"off"`` is ignored and logged. Empty/omitted ``overrides``
+    reproduce the pure-default behavior. Header resolution and tool-filter conversion are unchanged.
     """
-    rows = loadable_servers(user_id, warn_shadowed=True)
-    if names is not None:
-        selected = set(names)
-        rows = [row for row in rows if row.name in selected]
-        # A stored selection outlives the servers it named: one can be renamed, deleted, or
-        # belong to a different user on a session someone else continued. Silently loading
-        # fewer tools than asked for is indistinguishable from "the user chose none", so say
-        # which names went nowhere.
-        if unknown := sorted(selected - {row.name for row in rows}):
-            logger.warning(
-                "MCP server selection for user_id=%s names %d server(s) it cannot load: %s; running without them",
-                user_id,
-                len(unknown),
-                ", ".join(unknown),
-            )
+    overrides = overrides or {}
+    pool = {row.name: row for row in deduped_pool_rows(user_id, warn_shadowed=True)}
+    selected = {name for name, row in pool.items() if row.is_default}
+    for name, value in overrides.items():
+        if value == "off":
+            selected.discard(name)
+        elif value == "on":
+            if name in pool:
+                selected.add(name)
+            else:
+                logger.warning(
+                    "MCP override '%s'='on' refers to a server absent from the pool "
+                    "(disabled/deleted/shadowed); dropping from the run (user_id=%s)",
+                    name,
+                    user_id,
+                )
+        else:
+            logger.warning("MCP override for '%s' has unrecognized value %r; ignoring", name, value)
 
     out: list[tuple[str, UserMcpServer]] = []
-    for row in rows:
+    for name, row in pool.items():
+        if name not in selected:
+            continue
         try:
             raw_headers = row.headers or []
             if row.scope == MCPServer.Scope.USER:
@@ -136,15 +128,12 @@ def build_runtime_servers(
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
-            # A single malformed row — e.g. a transport/mode outside the DTO's allowed literals,
-            # or a header column of the wrong JSON shape (reachable via a raw DB write, since the
-            # form and model choices otherwise constrain these) — must not blank tools from healthy
-            # peers. Skip it loudly, consistent with the per-server isolation in MCPToolkit.get_tools.
+            # One bad row must not blank peers; skip and log.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )
             continue
-        out.append((row.name, dto))
+        out.append((name, dto))
     return out
 
 
@@ -308,7 +297,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
 
 def server_health(server: MCPServer) -> dict[str, Any]:
     """Synchronous decryption + env-ref check, no network. Flags rows that
-    look enabled but whose headers ``build_runtime_servers`` would skip
+    look loadable but whose headers ``build_runtime_servers`` would skip
     (undecryptable) or partially drop (missing env-ref var), plus literal
     headers that still carry an unexpanded ``${...}`` reference (migration
     0002 imports ``"Bearer ${TOKEN}"``-style headers verbatim because the
@@ -362,9 +351,14 @@ def composer_server_rows(user: Any) -> list[dict[str, Any]]:
     health reason names the missing environment variables of global servers, which the
     admin-gated server list exists to hold, and this payload is read by every member who
     opens a session page.
+
+    ``is_default`` splits the pool the way ``build_runtime_servers`` does: ``active`` rows
+    are on unless a turn says otherwise, ``on-demand`` rows are off until one does. The
+    sheet renders both — an on-demand server the user can never see is a server they can
+    never opt into.
     """
     rows: list[dict[str, Any]] = []
-    for server in loadable_servers(getattr(user, "pk", None)):
+    for server in deduped_pool_rows(getattr(user, "pk", None)):
         rows.append({
             "name": server.name,
             "scope": "mine" if server.is_user_scoped else "global",
@@ -373,6 +367,7 @@ def composer_server_rows(user: Any) -> list[dict[str, Any]]:
             "filtered": server.tool_filter_mode != MCPServer.FilterMode.NONE,
             "synced": server.tools_synced_at is not None,
             "available": server_health(server)["ok"],
+            "is_default": server.is_default,
         })
     return rows
 

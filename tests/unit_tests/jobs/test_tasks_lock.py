@@ -17,7 +17,7 @@ async def _mk_session(**kwargs):
 
 async def test_acquire_free_lock_immediately():
     session = await _mk_session()
-    assert await _acquire_session_lock(session.thread_id, "run-1") is True
+    assert await _acquire_session_lock(session.thread_id, "run-1", session_exists=True) is True
 
 
 async def test_acquire_waits_then_succeeds_when_released():
@@ -27,9 +27,9 @@ async def test_acquire_waits_then_succeeds_when_released():
         await SessionLock.release(session.thread_id, "chat-run")
 
     with patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01), patch("jobs.tasks.asyncio.sleep", side_effect=_release_soon):
-        assert await _acquire_session_lock(session.thread_id, "run-1") is True
+        assert await _acquire_session_lock(session.thread_id, "run-1", session_exists=True) is True
 
 
 async def test_acquire_skips_missing_session():
     # No Session row (legacy null-thread activity): don't block, don't crash.
-    assert await _acquire_session_lock(str(uuid.uuid4()), "run-1") is None
+    assert await _acquire_session_lock(str(uuid.uuid4()), "run-1", session_exists=False) is None

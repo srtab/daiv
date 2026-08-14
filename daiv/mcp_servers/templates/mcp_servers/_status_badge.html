@@ -1,0 +1,4 @@
+{% comment %}Status badge for an MCP server row. Param: `s` (the MCPServer). ``active`` is the
+default set (success tint); ``on-demand`` and ``disabled`` share the neutral pending tint.
+The label comes already-translated from the model's choice labels via ``get_status_display``.{% endcomment %}
+<span class="status-badge {% if s.is_default %}status-badge-success{% else %}status-badge-pending{% endif %}">{{ s.get_status_display }}</span>
