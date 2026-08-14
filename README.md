@@ -188,6 +188,10 @@ To test DAIV with a local GitLab instance:
 - [x] Notifications — in-app, email, and Rocket Chat delivery shipped; Slack, Discord, and Microsoft Teams planned.
 - [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.
 
+## Agentic Patterns used in this repo
+
+<!-- AGENTIC_BADGES_START -->
+<!-- AGENTIC_BADGES_END -->
 
 ## Contributing
 
