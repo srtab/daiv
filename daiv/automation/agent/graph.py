@@ -259,7 +259,7 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id)
+    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id, server_names=ctx.mcp_server_names)
 
     subagents = [
         create_general_purpose_subagent(

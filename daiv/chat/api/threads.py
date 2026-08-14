@@ -112,6 +112,19 @@ class ChatSessionService:
         return session, created
 
     @staticmethod
+    async def set_mcp_servers(thread_id: str, names: list[str] | None) -> None:
+        """Store the composer's Tools selection for ``thread_id``.
+
+        Unlike the model and the env this is not pinned on the first turn: the composer can
+        retune it per turn, so every turn that carries a selection overwrites the stored one
+        and a reload shows what the last turn actually ran with. ``None`` means the client
+        sent no selection, which leaves whatever is stored alone.
+        """
+        if names is None:
+            return
+        await Session.objects.filter(thread_id=thread_id).aupdate(mcp_servers=names)
+
+    @staticmethod
     async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:
         """Sync ``Session.ref`` with the agent's final ``merge_request``.
 

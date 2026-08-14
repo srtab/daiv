@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 13:14+0000\n"
+"POT-Creation-Date: 2026-08-14 13:25+0000\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -145,6 +145,9 @@ msgstr "IID da issue"
 
 msgid "merge request IID"
 msgstr "IID do merge request"
+
+msgid "MCP servers"
+msgstr ""
 
 msgid "created at"
 msgstr "criado em"
@@ -339,6 +342,18 @@ msgid "files"
 msgstr ""
 
 msgid "stopped"
+msgstr ""
+
+msgid "tool"
+msgstr ""
+
+msgid "tools"
+msgstr ""
+
+msgid "filtered to"
+msgstr ""
+
+msgid "not synced yet"
 msgstr ""
 
 msgid "This session's state has expired. Start a new session to continue."

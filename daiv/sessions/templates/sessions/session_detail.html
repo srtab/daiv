@@ -33,6 +33,8 @@
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
+  {{ mcp_server_rows|json_script:"chat-mcp-servers" }}
+  {{ mcp_servers_selected|json_script:"chat-mcp-selected" }}
 
   {% if poll_transcript %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
@@ -52,11 +54,17 @@
   {% translate "Show more" as show_more_label %}
   {% translate "Show less" as show_less_label %}
 
-  {# Progress-pill wording. The pill is composed in JS from live counts, so the pieces #}
-  {# are translated here and handed over rather than built from an English template. #}
+  {# Composer wording. The progress pill and the MCP rows are assembled in JS from live #}
+  {# counts, so the pieces are translated here and handed over rather than built from an #}
+  {# English template. #}
   {% translate "file" as file_word %}
   {% translate "files" as files_word %}
   {% translate "stopped" as stopped_word %}
+  {% translate "tool" as tool_word %}
+  {% translate "tools" as tools_word %}
+  {% translate "filtered to" as filtered_to_word %}
+  {% translate "not synced yet" as not_synced_word %}
+  {% translate "MCP servers" as mcp_servers_word %}
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
@@ -82,10 +90,15 @@
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
          envAutoLabel: "{{ locked_env_fallback|escapejs }}",
-         progressLabels: {
+         labels: {
            file: "{{ file_word|escapejs }}",
            files: "{{ files_word|escapejs }}",
-           stopped: "{{ stopped_word|escapejs }}"
+           stopped: "{{ stopped_word|escapejs }}",
+           tool: "{{ tool_word|escapejs }}",
+           tools: "{{ tools_word|escapejs }}",
+           filteredTo: "{{ filtered_to_word|escapejs }}",
+           notSynced: "{{ not_synced_word|escapejs }}",
+           mcpServers: "{{ mcp_servers_word|escapejs }}"
          }
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"

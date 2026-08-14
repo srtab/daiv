@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from django.utils import timezone
 
@@ -17,6 +17,9 @@ from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger("daiv.mcp_servers")
 
@@ -40,22 +43,14 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcpServer]]:
-    """Read enabled ``MCPServer`` rows and convert each to the ``UserMcpServer``
-    DTO the toolkit consumes. Returns ``(name, dto)`` tuples.
+def loadable_servers(user_id: int | None = None) -> list[MCPServer]:
+    """The ``MCPServer`` rows that would load for ``user_id``: every enabled GLOBAL row
+    plus that user's enabled USER rows, minus the personal rows a global server of the
+    same name shadows (a member must never redirect traffic for a name an admin controls).
 
-    Loads all enabled GLOBAL rows (built-in + custom). When ``user_id`` is given,
-    also loads that user's enabled USER rows. On a name collision the GLOBAL row
-    wins and the USER row is skipped — a member must never redirect traffic for a
-    name an admin controls.
-
-    A row whose ``headers`` cannot be decrypted, or that can't be converted, is
-    skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
-    dropped defensively (the form forbids them; a raw DB write could still add one).
-
-    A failure of the DB query itself propagates to the caller: ``MCPToolkit.get_tools``
-    does not guard it, so a DB outage surfaces as a failed agent-graph build rather
-    than as silently-empty tools.
+    This is the pool the composer's Tools group lists and the pool a per-thread selection
+    narrows — a selection can only take servers *out* of it, never add one back in, so
+    ``MCPServer.enabled`` stays the admin's decision alone.
     """
     global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
     user_rows: list[MCPServer] = []
@@ -65,7 +60,7 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
         )
 
     global_names = {row.name for row in global_rows}
-    out: list[tuple[str, UserMcpServer]] = []
+    kept: list[MCPServer] = []
     for row in [*global_rows, *user_rows]:
         if row.is_shadowed_by(global_names):
             logger.warning(
@@ -76,6 +71,36 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
                 row.user_id,
             )
             continue
+        kept.append(row)
+    return kept
+
+
+def build_runtime_servers(
+    user_id: int | None = None, names: Collection[str] | None = None
+) -> list[tuple[str, UserMcpServer]]:
+    """Read the loadable ``MCPServer`` rows and convert each to the ``UserMcpServer``
+    DTO the toolkit consumes. Returns ``(name, dto)`` tuples.
+
+    ``names`` is a per-run narrowing of :func:`loadable_servers` — the composer's Tools
+    selection, stored on ``Session.mcp_servers``. ``None`` means "no selection made",
+    which loads the whole pool. An empty collection means "the user turned everything
+    off" and loads nothing; a name outside the pool is ignored rather than honoured.
+
+    A row whose ``headers`` cannot be decrypted, or that can't be converted, is
+    skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
+    dropped defensively (the form forbids them; a raw DB write could still add one).
+
+    A failure of the DB query itself propagates to the caller: ``MCPToolkit.get_tools``
+    does not guard it, so a DB outage surfaces as a failed agent-graph build rather
+    than as silently-empty tools.
+    """
+    rows = loadable_servers(user_id)
+    if names is not None:
+        selected = set(names)
+        rows = [row for row in rows if row.name in selected]
+
+    out: list[tuple[str, UserMcpServer]] = []
+    for row in rows:
         try:
             raw_headers = row.headers or []
             if row.scope == MCPServer.Scope.USER:
@@ -300,6 +325,37 @@ def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
         return discovered
     tool_filter = ToolFilter(mode=server.tool_filter_mode, items=list(server.tool_filter_items or []))
     return [tool for tool in discovered if tool_filter.allows(tool.get("name", ""))]
+
+
+def composer_server_rows(user: Any) -> list[dict[str, Any]]:
+    """One row per MCP *server* for the chat composer's Tools group — never one per tool.
+
+    Per-tool selection already exists as ``MCPServer.tool_filter_mode``; the composer
+    displays its effect (``exposed`` < ``tools``) instead of duplicating the control.
+
+    ``available`` is :func:`server_health`, the network-free check for headers that
+    cannot be decrypted or reference a missing env var. Those servers degrade to zero
+    tools at runtime (``_load_server_tools`` swallows the failure), so the composer
+    greys them out with the reason rather than offering a switch that silently does
+    nothing. They are also left out of the selectable set: a selection naming only
+    healthy servers is the same runtime outcome, minus a connection attempt that was
+    always going to fail.
+    """
+    rows: list[dict[str, Any]] = []
+    for server in loadable_servers(getattr(user, "pk", None)):
+        health = server_health(server)
+        rows.append({
+            "name": server.name,
+            "description": server.description,
+            "scope": "mine" if server.is_user_scoped else "global",
+            "tools": len(server.discovered_tools or []),
+            "exposed": len(exposed_tools(server)),
+            "filtered": server.tool_filter_mode != MCPServer.FilterMode.NONE,
+            "synced": server.tools_synced_at is not None,
+            "available": health["ok"],
+            "reason": health["reason"] or "",
+        })
+    return rows
 
 
 def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:

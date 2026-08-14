@@ -139,6 +139,11 @@ class Session(models.Model):
     )
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    # Names of the MCP servers this thread loads, or NULL for "whatever is enabled".
+    # Unlike the model and the env, this is *not* pinned on the first turn — the composer
+    # can retune it per turn, and each turn overwrites the stored selection so a reload
+    # shows what the last turn actually ran with.
+    mcp_servers = models.JSONField(_("MCP servers"), null=True, blank=True, default=None)
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).

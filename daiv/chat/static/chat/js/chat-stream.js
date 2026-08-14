@@ -45,15 +45,23 @@
     CommitMetadata: { label: "Committing changes" },
   };
 
-  const loadInitialMergeRequest = () => {
-    const el = document.getElementById("chat-initial-merge-request");
-    if (!el) return null;
+  // Reads a Django ``json_script`` payload. Returns `fallback` when the element is
+  // absent or its content isn't valid JSON, so a missing block degrades rather than
+  // taking the whole component down at init.
+  const loadJSONScript = (id, fallback) => {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
     try {
-      const v = JSON.parse(el.textContent);
-      return v && typeof v === "object" ? v : null;
-    } catch {
-      return null;
+      return JSON.parse(el.textContent);
+    } catch (err) {
+      console.error("chat: failed to parse %s", id, err);
+      return fallback;
     }
+  };
+
+  const loadInitialMergeRequest = () => {
+    const v = loadJSONScript("chat-initial-merge-request", null);
+    return v && typeof v === "object" ? v : null;
   };
 
   // Tools whose args directly name a file the agent *modified*. Read-only tools
@@ -82,15 +90,31 @@
     return `Request failed (status ${resp.status}). Please retry.`;
   };
 
-  const loadInitialTurns = () => {
-    const el = document.getElementById("chat-initial-turns");
-    if (!el) return [];
-    try {
-      return JSON.parse(el.textContent);
-    } catch (err) {
-      console.error("chat: failed to parse server-embedded turns", err);
-      return [];
-    }
+  const loadInitialTurns = () => loadJSONScript("chat-initial-turns", []);
+
+  // Every MCP server this user could load, one row per server. Rows the health check
+  // already knows are broken carry `available: false` and never take part in a selection.
+  const loadMcpCatalog = () => {
+    const rows = loadJSONScript("chat-mcp-servers", []);
+    return Array.isArray(rows) ? rows : [];
+  };
+
+  const loadMcpSelection = () => {
+    const stored = loadJSONScript("chat-mcp-selected", null);
+    return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
+  };
+
+  // English fallbacks for the fragments the composer assembles counts from. The page
+  // passes translated ones through ``chat({labels: …})``; these only apply if it doesn't.
+  const DEFAULT_LABELS = {
+    file: "file",
+    files: "files",
+    stopped: "stopped",
+    tool: "tool",
+    tools: "tools",
+    filteredTo: "filtered to",
+    notSynced: "not synced yet",
+    mcpServers: "MCP servers",
   };
 
   const THINKING_LABELS = [
@@ -186,11 +210,21 @@
     // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
     // are separate surfaces on purpose (what you configure vs. what the run produced).
     sheet: "",
-    _progressLabels: {
-      file: (config.progressLabels || {}).file || "file",
-      files: (config.progressLabels || {}).files || "files",
-      stopped: (config.progressLabels || {}).stopped || "stopped",
-    },
+    // Translated fragments the JS composes counts out of; the server owns the wording.
+    _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
+    // Tools group. The catalog is every server this user could load; the selection is a
+    // subset of the *available* ones. A never-touched thread carries no stored selection,
+    // which means "all of them" — and keeps meaning that as servers are added later.
+    mcpCatalog: loadMcpCatalog(),
+    mcpSelected: [],
+    mcpExpanded: false,
+    mcpQuery: "",
+    // Frozen row order for as long as the list stays open, so a row the user just toggled
+    // never slides out from under their finger. Recomputed on each expand.
+    mcpOrder: [],
+    // Whether the user changed the selection in this page session. Only then does submit()
+    // send one — otherwise an untouched thread keeps its NULL and picks up new servers.
+    _mcpTouched: false,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -228,6 +262,84 @@
 
     toggleSheet(name) {
       this.sheet = this.sheet === name ? "" : name;
+    },
+
+    // ---------- Tools (MCP servers) -----------------------------------
+
+    // Servers that can actually be switched. A broken one (undecryptable headers, a
+    // missing env-var reference) would load zero tools whatever the switch said, so it
+    // renders greyed with the reason instead of a control that silently does nothing.
+    get mcpUsable() {
+      return this.mcpCatalog.filter((s) => s.available);
+    },
+
+    get mcpUnavailable() {
+      return this.mcpCatalog.filter((s) => !s.available);
+    },
+
+    // Ordered for display: enabled first, then by name — computed once per expand and
+    // held in ``mcpOrder`` so toggling never reshuffles the list. Search filters this
+    // order rather than replacing it.
+    get mcpVisible() {
+      const byName = new Map(this.mcpUsable.map((s) => [s.name, s]));
+      const ordered = this.mcpOrder.map((n) => byName.get(n)).filter(Boolean);
+      const q = this.mcpQuery.trim().toLowerCase();
+      return q ? ordered.filter((s) => s.name.toLowerCase().includes(q)) : ordered;
+    },
+
+    get mcpSummary() {
+      return `${this.mcpSelected.length}/${this.mcpUsable.length}`;
+    },
+
+    // Drives the badge dot on the options trigger. The env can't change mid-thread, so a
+    // narrowed server selection is the only thing the dot can ever be reporting.
+    get mcpDirty() {
+      return this.mcpSelected.length !== this.mcpUsable.length;
+    },
+
+    isMcpOn(name) {
+      return this.mcpSelected.includes(name);
+    },
+
+    toggleMcp(name) {
+      if (!this.mcpUsable.some((s) => s.name === name)) return;
+      this.mcpSelected = this.isMcpOn(name)
+        ? this.mcpSelected.filter((n) => n !== name)
+        : [...this.mcpSelected, name];
+      this._mcpTouched = true;
+    },
+
+    selectNoMcp() {
+      this.mcpSelected = [];
+      this._mcpTouched = true;
+    },
+
+    // Back to the ``MCPServer.enabled`` defaults — every server the user can load.
+    resetMcp() {
+      this.mcpSelected = this.mcpUsable.map((s) => s.name);
+      this._mcpTouched = true;
+    },
+
+    toggleMcpList() {
+      this.mcpExpanded = !this.mcpExpanded;
+      if (this.mcpExpanded) this._freezeMcpOrder();
+    },
+
+    _freezeMcpOrder() {
+      this.mcpOrder = [...this.mcpUsable]
+        .sort((a, b) => {
+          const onDelta = Number(this.isMcpOn(b.name)) - Number(this.isMcpOn(a.name));
+          return onDelta || a.name.localeCompare(b.name);
+        })
+        .map((s) => s.name);
+    },
+
+    // "31 tools · filtered to 6" — the effect of MCPServer.tool_filter_mode, not a
+    // second copy of the control.
+    mcpToolsLabel(server) {
+      if (!server.synced) return this._labels.notSynced;
+      const base = `${server.tools} ${server.tools === 1 ? this._labels.tool : this._labels.tools}`;
+      return server.filtered ? `${base} · ${this._labels.filteredTo} ${server.exposed}` : base;
     },
 
     applyPolledTurns(turns) {
@@ -275,6 +387,16 @@
       // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
+
+      // A stored selection is intersected with what the user can load *now*: a server
+      // may have been disabled, deleted, or broken since the turn that stored it. No
+      // stored selection means every available server, which is also what a fresh
+      // thread runs with.
+      const stored = loadMcpSelection();
+      this.mcpSelected = stored
+        ? this.mcpUsable.filter((s) => stored.includes(s.name)).map((s) => s.name)
+        : this.mcpUsable.map((s) => s.name);
+      this._freezeMcpOrder();
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
       // and files) would otherwise stay "open" and pop back into view on the next turn.
@@ -551,19 +673,20 @@
       }
       if (this._lastRunAborted()) {
         return parts.length
-          ? { tone: "warn", live: false, label: [this._progressLabels.stopped, ...parts].join(" · ") }
+          ? { tone: "warn", live: false, label: [this._labels.stopped, ...parts].join(" · ") }
           : null;
       }
       return parts.length ? { tone: "idle", live: false, label: parts.join(" · ") } : null;
     },
 
-    // What the hero's selection line shows before a thread exists.
+    // What the hero's selection line shows before a thread exists: the two things the
+    // first turn will run with that aren't already on screen.
     get heroSelectionLabel() {
-      return this.lockedEnvLabel;
+      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
     },
 
     _filesLabel(n) {
-      return `${n} ${n === 1 ? this._progressLabels.file : this._progressLabels.files}`;
+      return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
     },
 
     _lastRunAborted() {
@@ -777,6 +900,10 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+      // Only sent once the user has actually touched the Tools sheet. An untouched
+      // thread keeps a NULL selection server-side, which means "everything" and keeps
+      // meaning that as servers are added — sending today's full list would freeze it.
+      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const body = {
         threadId: this.thread.thread_id,

@@ -22,6 +22,7 @@ from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
+from mcp_servers.services import composer_server_rows
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
@@ -265,6 +266,11 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 initial_thinking_level=session.agent_thinking_level if session is not None else "",
             )
         )
+
+        # Tools group in the composer's options sheet: one row per MCP server the caller
+        # could load, plus this thread's stored narrowing (None = all of them).
+        ctx["mcp_server_rows"] = composer_server_rows(self.request.user)
+        ctx["mcp_servers_selected"] = session.mcp_servers if session is not None else None
 
         if session is None:
             ctx.update({

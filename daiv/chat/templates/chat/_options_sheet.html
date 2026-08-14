@@ -16,6 +16,8 @@ ever mean "MCP server selection differs from the defaults".
           title="{% translate 'Session options' %}">
     {% icon "plus" "h-4 w-4" %}
     <span class="sr-only">{% translate "Session options" %}</span>
+    <span class="composer-trigger__dot" x-show="mcpDirty" x-cloak
+          title="{% translate 'MCP server selection differs from the default' %}"></span>
   </button>
 
   <div class="composer-sheet composer-sheet--options"
@@ -42,6 +44,82 @@ ever mean "MCP server selection differs from the defaults".
           <template x-if="!thread">
             {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
           </template>
+        </div>
+      </section>
+
+      {# Tools = MCP servers, one row per server and never one per tool. There can be
+         dozens, so the group collapses to a single disclosure row and the sheet's height
+         stops depending on how many servers exist. #}
+      <section class="composer-sheet__group" x-show="mcpCatalog.length" x-cloak>
+        <h3 class="composer-sheet__label">{% translate "Tools" %}</h3>
+
+        <button type="button"
+                class="mcp-disclosure"
+                :class="mcpExpanded ? 'mcp-disclosure--open' : ''"
+                @click="toggleMcpList()"
+                :aria-expanded="mcpExpanded">
+          {% icon "plug" "h-3.5 w-3.5 shrink-0 opacity-70" %}
+          <span class="mcp-disclosure__title">{% translate "MCP servers" %}</span>
+          <span class="mcp-disclosure__count">
+            <span x-text="mcpSelected.length"></span> {% translate "on" %}
+            <span class="mcp-disclosure__sep">·</span>
+            <span x-text="mcpUsable.length"></span> {% translate "available" %}
+          </span>
+          {% icon "chevron-down" "mcp-disclosure__chev h-3.5 w-3.5 shrink-0" %}
+        </button>
+
+        <div class="mcp-panel" x-show="mcpExpanded" x-cloak>
+          <div class="mcp-panel__bar">
+            <input type="search" x-model="mcpQuery"
+                   @keydown.enter.prevent
+                   placeholder="{% translate 'Filter servers…' %}"
+                   class="picker-popover__search mcp-panel__search"
+                   aria-label="{% translate 'Filter servers by name' %}">
+            <button type="button" class="mcp-panel__bulk" @click="selectNoMcp()">{% translate "none" %}</button>
+            <button type="button" class="mcp-panel__bulk" @click="resetMcp()">{% translate "reset" %}</button>
+          </div>
+
+          {# Contained scroll so the groups above stay reachable however many servers exist. #}
+          <div class="mcp-panel__scroll scrollbar-thin">
+            <template x-for="server in mcpVisible" :key="server.name">
+              <label class="mcp-row">
+                <input type="checkbox" class="mcp-row__switch"
+                       :checked="isMcpOn(server.name)"
+                       @change="toggleMcp(server.name)">
+                <span class="mcp-row__body">
+                  <span class="mcp-row__head">
+                    <span class="mcp-row__name" x-text="server.name"></span>
+                    <span class="env-popover__scope-tag"
+                          :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
+                          x-text="server.scope"></span>
+                  </span>
+                  <span class="mcp-row__meta" x-text="mcpToolsLabel(server)"></span>
+                </span>
+              </label>
+            </template>
+
+            <p class="composer-sheet__empty" x-show="!mcpVisible.length && mcpQuery.trim()">
+              {% translate "No servers match" %}
+            </p>
+
+            {# A server whose headers can't be resolved loads zero tools whatever a switch
+               says, so it gets the reason instead of a control that does nothing. #}
+            <template x-for="server in mcpUnavailable" :key="server.name">
+              <div class="mcp-row mcp-row--unavailable">
+                <span class="mcp-row__body">
+                  <span class="mcp-row__head">
+                    <span class="mcp-row__name" x-text="server.name"></span>
+                    <span class="env-popover__scope-tag"
+                          :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
+                          x-text="server.scope"></span>
+                  </span>
+                  <span class="mcp-row__meta">
+                    <span x-text="server.reason"></span> — {% translate "unavailable this run" %}
+                  </span>
+                </span>
+              </div>
+            </template>
+          </div>
         </div>
       </section>
     </div>

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 13:14+0000\n"
+"POT-Creation-Date: 2026-08-14 13:26+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -47,6 +47,9 @@ msgstr "O DAIV pode cometer erros. Verifique informações importantes."
 msgid "Session options"
 msgstr "Contexto da sessão"
 
+msgid "MCP server selection differs from the default"
+msgstr ""
+
 msgid "Options"
 msgstr ""
 
@@ -54,6 +57,36 @@ msgid "Close"
 msgstr ""
 
 msgid "Environment"
+msgstr ""
+
+msgid "Tools"
+msgstr ""
+
+msgid "MCP servers"
+msgstr ""
+
+msgid "on"
+msgstr ""
+
+msgid "available"
+msgstr ""
+
+msgid "Filter servers…"
+msgstr ""
+
+msgid "Filter servers by name"
+msgstr ""
+
+msgid "none"
+msgstr ""
+
+msgid "reset"
+msgstr ""
+
+msgid "No servers match"
+msgstr ""
+
+msgid "unavailable this run"
 msgstr ""
 
 #, fuzzy
@@ -78,6 +111,11 @@ msgstr ""
 
 msgid "Show all"
 msgstr "Mostrar tudo"
+
+#, fuzzy
+#~| msgid "Session context"
+#~ msgid "Session context"
+#~ msgstr "Contexto da sessão"
 
 #~ msgid "Sending…"
 #~ msgstr "A enviar…"

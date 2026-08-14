@@ -657,3 +657,79 @@ def test_sync_discovered_tools_decryption_error_preserves_snapshot(monkeypatch):
     assert probed is False  # never reached the network probe
     assert s.discovered_tools == [{"name": "old", "description": ""}]  # untouched
     assert s.tools_synced_at is None
+
+
+# ---------------------------------------------------------------------------
+# Per-thread server selection (chat composer's Tools group)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_names_narrows_the_loadable_pool():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+    MCPServer.objects.create(name="beta", transport=MCPServer.Transport.HTTP, url="http://b")
+
+    assert [name for name, _ in build_runtime_servers(None, ["alpha"])] == ["alpha"]
+
+
+@pytest.mark.django_db
+def test_empty_names_loads_nothing_while_none_loads_everything():
+    """``[]`` is a real selection ("no MCP servers this turn"); ``None`` means the thread
+    has no selection at all and must keep picking up whatever is enabled."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+
+    assert build_runtime_servers(None, []) == []
+    assert [name for name, _ in build_runtime_servers(None, None)] == ["alpha"]
+
+
+@pytest.mark.django_db
+def test_names_cannot_re_enable_a_disabled_server():
+    """A selection narrows the pool and never widens it — ``MCPServer.enabled`` stays the
+    admin's decision, not something a member can undo from the chat composer."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="off", transport=MCPServer.Transport.HTTP, url="http://off", enabled=False)
+
+    assert build_runtime_servers(None, ["off"]) == []
+
+
+@pytest.mark.django_db
+def test_composer_rows_report_the_tool_filter_effect():
+    """The row shows what ``tool_filter_mode`` already does; it does not offer a second
+    per-tool control."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="filtered",
+        transport=MCPServer.Transport.HTTP,
+        url="http://f",
+        discovered_tools=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["a"],
+    )
+
+    [row] = services.composer_server_rows(None)
+    assert row["name"] == "filtered"
+    assert row["scope"] == "global"
+    assert row["tools"] == 3
+    assert row["exposed"] == 1
+    assert row["filtered"] is True
+    assert row["available"] is True
+
+
+@pytest.mark.django_db
+def test_composer_rows_flag_a_server_that_cannot_resolve_its_headers(monkeypatch):
+    """``_load_server_tools`` degrades such a server to zero tools, so the composer greys
+    it out with the reason instead of offering a switch that silently does nothing."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    monkeypatch.delenv("ABSENT_TOKEN", raising=False)
+    MCPServer.objects.create(
+        name="broken",
+        transport=MCPServer.Transport.HTTP,
+        url="http://b",
+        headers=[{"name": "X-Token", "mode": "env_ref", "value": "ABSENT_TOKEN"}],
+    )
+
+    [row] = services.composer_server_rows(None)
+    assert row["available"] is False
+    assert "ABSENT_TOKEN" in row["reason"]

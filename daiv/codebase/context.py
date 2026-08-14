@@ -16,7 +16,7 @@ from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator, Iterator, Sequence
 
 
 logger = logging.getLogger("daiv.codebase")
@@ -89,6 +89,11 @@ class RuntimeCtx:
     """The DAIV user who triggered this run, when known. Selects that user's
     personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
     which load global servers only."""
+    mcp_server_names: tuple[str, ...] | None = None
+    """Per-run narrowing of the MCP servers to load, by name — the chat composer's Tools
+    selection. ``None`` (every non-chat trigger, and a thread nobody has retuned) loads
+    every server the user could load. An empty tuple loads none. A selection can only
+    narrow the pool, never re-enable a server an admin disabled."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
@@ -167,6 +172,7 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_env_id: str | None = None,
     acting_user_id: int | None = None,
+    mcp_server_names: Sequence[str] | None = None,
     fallback_ref_on_missing: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
@@ -185,6 +191,8 @@ async def set_runtime_ctx(
             :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
             to the GLOBAL default env if nothing matches.
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
+        mcp_server_names: Optional per-run narrowing of the MCP servers to load, by name.
+            ``None`` loads every server the user could load.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
@@ -256,6 +264,7 @@ async def set_runtime_ctx(
                 issue=issue,
                 merge_request=merge_request,
                 acting_user_id=acting_user_id,
+                mcp_server_names=None if mcp_server_names is None else tuple(mcp_server_names),
             )
             token = runtime_ctx.set(ctx)
             try:

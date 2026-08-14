@@ -125,6 +125,39 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     return _sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
+# A selection is a list of server names, so a sane cap is "more than anyone has". It only
+# guards against a client posting an unbounded list into a JSON column — the names are
+# intersected with what the user can actually load, so extras are inert either way.
+MAX_MCP_SERVER_NAMES = 200
+
+
+def _normalize_mcp_servers(value: object) -> list[str] | None:
+    """Validate ``forwarded_props.mcp_servers`` into a deduped list of server names.
+
+    ``None`` (absent) means "no selection sent" and leaves the thread's stored one alone;
+    ``[]`` is a real selection meaning "no MCP servers this turn".
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) > MAX_MCP_SERVER_NAMES:
+        raise HttpError(400, "mcp_servers must be a list of at most 200 server names.")
+    names = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry.strip():
+            raise HttpError(400, "mcp_servers entries must be non-empty server names.")
+        names.append(entry.strip())
+    return list(dict.fromkeys(names))
+
+
+def _stored_mcp_servers(session: Session) -> list[str] | None:
+    """The thread's stored selection, ignoring a column that isn't a list of strings —
+    a hand-edited row must degrade to "load everything", not blank the toolset."""
+    stored = session.mcp_servers
+    if isinstance(stored, list) and all(isinstance(entry, str) for entry in stored):
+        return stored
+    return None
+
+
 class RunHandle(Schema):
     """The default ``POST /completions`` response: a pointer to the detached run.
 
@@ -182,6 +215,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         )
     except AgentOverrideError as err:
         raise HttpError(400, str(err)) from err
+
+    mcp_servers = _normalize_mcp_servers(forwarded.get("mcp_servers"))
 
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
@@ -253,6 +288,11 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             " from forwarded_props or start a new thread to change it.",
         )
 
+    # Per-turn, not pinned: the composer's Tools sheet can retune this on any turn, and the
+    # stored value is only a memory of the last one so a reload shows what actually ran.
+    await ChatSessionService.set_mcp_servers(thread_id, mcp_servers)
+    effective_mcp_servers = mcp_servers if mcp_servers is not None else _stored_mcp_servers(session)
+
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
@@ -277,6 +317,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
+        mcp_server_names=effective_mcp_servers,
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

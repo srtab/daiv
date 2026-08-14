@@ -23,6 +23,8 @@ from .conf import settings
 from .connections import build_connections_and_filters
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from langchain_core.tools.base import BaseTool
 
     from automation.agent.mcp.schemas import ToolFilter
@@ -94,11 +96,13 @@ async def _load_server_tools(server_name: str, connection, timeout: float) -> li
 
 class MCPToolkit(BaseToolkit):
     @classmethod
-    async def get_tools(cls, user_id: int | None = None) -> list[BaseTool]:
+    async def get_tools(cls, user_id: int | None = None, server_names: Collection[str] | None = None) -> list[BaseTool]:
+        """``server_names`` narrows the run to a subset of the servers the user could load
+        (the chat composer's per-thread Tools selection); ``None`` loads all of them."""
         from asgiref.sync import sync_to_async
         from mcp_servers.services import build_runtime_servers
 
-        servers = await sync_to_async(build_runtime_servers)(user_id)
+        servers = await sync_to_async(build_runtime_servers)(user_id, server_names)
         connections, tool_filters = build_connections_and_filters(servers)
 
         if not connections:

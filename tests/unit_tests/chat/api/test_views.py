@@ -1014,3 +1014,97 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     assert session is not None
     assert session.active_run_id is None
     await user.adelete()
+
+
+# ---------------------------------------------------------------------------
+# MCP server selection (composer's Tools sheet)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_mcp_selection_is_stored_and_forwarded(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp", forwardedProps={"mcp_servers": ["sentry", "sentry", "linear"]}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    assert patched_streamer.call_args.kwargs["mcp_server_names"] == ["sentry", "linear"]
+    session = await Session.objects.aget(thread_id="t-mcp")
+    assert session.mcp_servers == ["sentry", "linear"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_mcp_selection_is_per_turn_not_pinned(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """Unlike the model and the env, the Tools selection is retunable on any turn — the
+    second turn overwrites the first one's rather than being rejected as divergent."""
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-mcp-retune",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        mcp_servers=["sentry"],
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-retune", forwardedProps={"mcp_servers": []}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    assert patched_streamer.call_args.kwargs["mcp_server_names"] == []
+    session = await Session.objects.aget(thread_id="t-mcp-retune")
+    assert session.mcp_servers == []
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_turn_without_a_selection_reuses_the_stored_one(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """An untouched composer sends nothing, which must not silently widen the thread back
+    to every server."""
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-mcp-keep", user=user, repo_id="a/b", ref="main", mcp_servers=["sentry"]
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-keep"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    assert patched_streamer.call_args.kwargs["mcp_server_names"] == ["sentry"]
+    session = await Session.objects.aget(thread_id="t-mcp-keep")
+    assert session.mcp_servers == ["sentry"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("value", ["sentry", [""], [1], list(range(201))])
+async def test_malformed_mcp_selection_returns_400(client: TestAsyncClient, authed, value):
+    _, raw, user = authed
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=f"t-mcp-bad-{uuid.uuid4()}", forwardedProps={"mcp_servers": value}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    await user.adelete()
