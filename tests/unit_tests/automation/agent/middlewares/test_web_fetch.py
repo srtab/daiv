@@ -168,6 +168,11 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
     assert result1 == "ANSWER"
     assert result2 == "ANSWER"
     assert httpx_mock.get_requests()
+    # Second call is served from cache, so the summariser model is built exactly once,
+    # and it must carry the tighter web_fetch budget rather than the global default.
+    mock_base_agent.get_model.assert_called_once_with(
+        model="openrouter:openai/gpt-4.1-mini", timeout=web_fetch_module.WEB_FETCH_MODEL_TIMEOUT_SECONDS
+    )
 
 
 async def test_cache_key_changes_with_prompt(httpx_mock):
@@ -339,3 +344,32 @@ async def test_model_failure_returns_contents(httpx_mock):
 
         result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
     assert result == "Model processing failed (Boom). Contents of https://example.com:\nCONTENT"
+
+
+async def test_model_build_failure_logs_error_and_still_returns_content(httpx_mock, caplog):
+    """A permanent misconfiguration (get_model raising, e.g. missing API key) must be logged at
+    ERROR (Sentry-visible) for operators, yet still return the raw page content — flagged so the
+    agent knows it is unsummarised — because the agent can reason over it and cannot fix config."""
+    httpx_mock.add_response(
+        url="https://example.com",
+        status_code=200,
+        headers={"content-type": "text/html"},
+        text="<html><body>CONTENT</body></html>",
+    )
+    with (
+        patch.object(web_fetch_module, "BaseAgent") as mock_base_agent,
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
+        mock_base_agent.get_model.side_effect = RuntimeError("Provider 'openrouter' has no API key configured.")
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
+
+    assert "CONTENT" in result  # raw content is preserved, not thrown away
+    assert "summariser unavailable" in result  # but clearly flagged as unsummarised
+    assert any(rec.levelname == "ERROR" for rec in caplog.records)  # operators still get the signal

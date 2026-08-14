@@ -272,3 +272,21 @@ async def test_submit_job_rate_limited():
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert "Rate limit" in json.loads(result)["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_per_repo_prompt_passthrough():
+    """Per-repo ``prompt`` on ``RepoSubmitSpec`` reaches the ``RepoTarget`` passed to ``asubmit_batch_runs``."""
+    from mcp_server.server import submit_job
+    from sessions.services import BatchSubmitFailure, BatchSubmitResult
+
+    failure = BatchSubmitFailure(repo_id="a/b", ref="", error="dry-run")
+    batch_result = BatchSubmitResult(batch_id="00000000-0000-0000-0000-000000000001", runs=[], failed=[failure])
+
+    submit = AsyncMock(return_value=batch_result)
+    with patch("mcp_server.server.asubmit_batch_runs", new=submit):
+        await submit_job(repos=[{"repo_id": "a/b", "prompt": "per-repo override"}], prompt="batch-level")
+
+    targets = submit.call_args.kwargs["repos"]
+    assert len(targets) == 1
+    assert targets[0].prompt == "per-repo override"

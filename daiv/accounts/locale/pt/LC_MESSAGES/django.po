@@ -97,6 +97,9 @@ msgstr ""
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
+msgid "New chat"
+msgstr "Novo chat"
+
 msgid "Dashboard"
 msgstr "Painel"
 

@@ -31,6 +31,7 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 
 - **[MCP Endpoint](features/mcp-endpoint.md)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
 - **[Jobs API](features/jobs-api.md)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
+- **[Orchestration](features/orchestration.md)** — fan work out across repositories: one coordinator agent delegates sub-tasks to other repos in parallel and resumes with a rollup of the results.
 
 ### From the dashboard
 

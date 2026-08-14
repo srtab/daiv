@@ -31,6 +31,9 @@ pull_request_assistant:
 slash_commands:
   enabled: true
 
+orchestration:
+  enabled: true
+
 # Model overrides
 models:
   agent:
@@ -96,6 +99,9 @@ pull_request_assistant:
 
 slash_commands:
   enabled: false
+
+orchestration:
+  enabled: false
 ```
 
 | Section | Option | Default | Description |
@@ -103,6 +109,7 @@ slash_commands:
 | `issue_addressing` | `enabled` | `true` | [Issue Addressing](../features/issue-addressing.md) |
 | `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
+| `orchestration` | `enabled` | `true` | [Orchestration](../features/orchestration.md) — binds the `delegate_jobs` tool |
 
 ## Branch naming and commit conventions
 

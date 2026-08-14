@@ -17,10 +17,12 @@ from automation.agent.provider_clients import build_sdk_client_kwargs
 from core.constants import BOT_NAME
 from core.models import Provider, ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
+from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
+    import httpx
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import BaseMessage
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -266,8 +268,44 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
         return
     import httpx
 
-    kw["http_client"] = httpx.Client(verify=False)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
-    kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
+    # Carry over the resolved request timeout; a custom client otherwise falls back to
+    # httpx's 5s default, which would cut off real generations.
+    timeout = kw["timeout"]
+    kw["http_client"] = httpx.Client(verify=False, timeout=timeout)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
+    kw["http_async_client"] = httpx.AsyncClient(verify=False, timeout=timeout)  # noqa: S501
+
+
+def _resolve_request_timeout(provider_type: ProviderType, timeout_seconds: float) -> httpx.Timeout | float:
+    """Return a per-request timeout in the shape each provider's langchain integration accepts.
+
+    ``langchain-openai`` (OpenAI + OpenRouter) accepts an ``httpx.Timeout``, so we give the connect
+    phase its own short fuse while read/write/pool get the full budget. ``langchain-anthropic``
+    (``timeout: float | None``) and ``langchain-google-genai`` (scalar seconds, converted to ms
+    internally) only accept a plain number, so those get a bare float.
+    """
+    timeout_seconds = float(timeout_seconds)
+    if provider_type in _HTTPX_CLIENT_PROVIDER_TYPES:
+        import httpx
+
+        return httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds))
+    return timeout_seconds
+
+
+def _apply_request_timeout_and_retries(kw: dict, provider_type: ProviderType) -> None:
+    """Bound how long a model call can hang and how many times it retries.
+
+    Replaces the SDKs' own defaults (600s timeouts for OpenAI/Anthropic, unbounded for Google)
+    with the site-configured budget. Caller-supplied ``timeout`` / ``max_retries`` (e.g. the
+    tighter web_fetch budget) take precedence, but an explicit ``None`` is treated as unset so a
+    caller cannot silently reintroduce an unbounded default.
+    """
+    if kw.get("max_retries") is None:
+        retries = site_settings.model_max_retries
+        # langchain-google-genai's max_retries counts total *attempts* (0 and 1 both mean "no
+        # retries"), so translate to keep "N retries" meaning uniform across providers.
+        kw["max_retries"] = retries + 1 if provider_type == ProviderType.GOOGLE_GENAI else retries
+    if kw.get("timeout") is None:
+        kw["timeout"] = _resolve_request_timeout(provider_type, site_settings.model_request_timeout_seconds)
 
 
 _BARE_NAME_HEURISTICS = (
@@ -420,6 +458,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         else:
             raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
+
+        _apply_request_timeout_and_retries(kw, row.provider_type)
 
         if not row.verify_ssl:
             _apply_insecure_http_clients(kw, row)

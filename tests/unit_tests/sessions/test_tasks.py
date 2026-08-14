@@ -21,6 +21,16 @@ def test_sync_stuck_runs_cron_task_dispatches_command():
     mock_call_command.assert_called_once_with("sync_stuck_runs")
 
 
+def test_release_orphan_queued_sessions_cron_task_dispatches_command():
+    """The cron task dispatches the release_orphan_queued_sessions management command."""
+    from sessions.tasks import release_orphan_queued_sessions_cron_task
+
+    with patch("sessions.tasks.call_command") as mock_call_command:
+        release_orphan_queued_sessions_cron_task.func()
+
+    mock_call_command.assert_called_once_with("release_orphan_queued_sessions")
+
+
 # --- reclassify_missing_envelopes_cron_task (Epic 1 review backstop) --------
 
 

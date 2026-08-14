@@ -27,6 +27,10 @@ run_finished = Signal()
 # operator greps for stays identical across them.
 LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
+# ``error_message`` prefix for a run that never reached the broker. Shared with
+# ``release_orphan_queued_sessions``, which re-queues continuations matching it.
+DISPATCH_FAILED_PREFIX = "dispatch_failed"
+
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def backfill_session_user(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -128,7 +132,23 @@ MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
 @receiver(run_finished)
 def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
-    """Release queued continuations on this session, one at a time, until one succeeds.
+    """Release queued continuations on this session via ``release_next_queued``.
+
+    ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
+    re-entry while still letting notification receivers fire.
+    """
+    if kwargs.get("skip_dispatch"):
+        return
+
+    session_id = getattr(run, "session_id", None)
+    if not session_id:
+        return
+
+    release_next_queued(session_id)
+
+
+def release_next_queued(session_id: Any) -> None:
+    """Promote QUEUED Runs on this session to READY and enqueue, one at a time, until one succeeds.
 
     Atomic compare-and-swap (``filter(pk=, status=QUEUED).update(status=READY)``) wins
     the race against concurrent dispatchers reading the same row. A losing race or a
@@ -138,17 +158,11 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
     by ``MAX_CONSECUTIVE_DISPATCH_FAILURES`` so a broker outage doesn't mass-fail the
     whole backlog.
 
-    ``skip_dispatch=True`` (passed by re-emits from dispatch-failure paths) suppresses
-    re-entry while still letting notification receivers fire.
+    Nothing is promoted while ANY sibling is READY/RUNNING: ``run_one_active_per_session``
+    only covers the job-pipeline trigger types, so e.g. an active chat run is invisible to
+    the constraint and a promoted row would just block on the session lock.
     """
     from sessions.models import Run, RunStatus
-
-    if kwargs.get("skip_dispatch"):
-        return
-
-    session_id = getattr(run, "session_id", None)
-    if not session_id:
-        return
 
     consecutive_failures = 0
     while True:
@@ -156,12 +170,15 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         if next_q is None:
             return
 
+        if Run.objects.filter(session_id=session_id, status__in=[RunStatus.READY, RunStatus.RUNNING]).exists():
+            return  # active sibling; a later release (run_finished, chat turn end, cron) picks this up
+
         try:
             claimed = Run.objects.filter(pk=next_q.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY)
         except IntegrityError:
             # A concurrent insert (e.g. a fresh _submit_one) already created a
             # READY row on this session; the partial unique constraint blocks us.
-            logger.debug("dispatch_next_in_session: peer claim on session=%s, backing off", session_id)
+            logger.debug("release_next_queued: peer claim on session=%s, backing off", session_id)
             return
 
         if claimed != 1:
@@ -175,7 +192,7 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
         consecutive_failures += 1
         if consecutive_failures >= MAX_CONSECUTIVE_DISPATCH_FAILURES:
             logger.warning(
-                "dispatch_next_in_session: bailing on session=%s after %d consecutive dispatch failures; "
+                "release_next_queued: bailing on session=%s after %d consecutive dispatch failures; "
                 "remaining QUEUED siblings left for release_orphan_queued_sessions",
                 session_id,
                 consecutive_failures,
@@ -210,7 +227,7 @@ def _enqueue_queued_run(run: Any) -> bool:
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)
-        run.save(update_fields=run.mark_failed("dispatch_failed", err))
+        run.save(update_fields=run.mark_failed(DISPATCH_FAILED_PREFIX, err))
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
 
@@ -231,6 +248,123 @@ def _enqueue_queued_run(run: Any) -> bool:
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
     return True
+
+
+def render_batch_summary(batch_id: Any, siblings: list) -> str:
+    """Build the coordinator continuation prompt from denormalized Run fields."""
+    from django.urls import reverse
+
+    from sessions.models import RunStatus
+
+    n_ok = sum(1 for r in siblings if r.status == RunStatus.SUCCESSFUL)
+    n_failed = sum(1 for r in siblings if r.status == RunStatus.FAILED)
+    lines = [f"The delegated batch {batch_id} has finished ({n_ok} succeeded, {n_failed} failed).", ""]
+    for r in siblings:
+        state = "successful" if r.status == RunStatus.SUCCESSFUL else "failed"
+        checkout = f"{r.repo_id}@{r.ref}" if r.ref else r.repo_id
+        lines.append(f"## {checkout} ({state})")
+        lines.append(f"- Session: {reverse('session_detail', kwargs={'thread_id': r.session_id})}")
+        if r.merge_request_web_url:
+            lines.append(f"- Merge request: {r.merge_request_web_url}")
+        summary = (r.result_summary or r.error_message or "").strip()
+        if summary:
+            # Quote-indent every reply line so a leg's output cannot float to top level or spoof
+            # a sibling's section header.
+            lines.append("- Reply:")
+            lines.extend(f"  > {reply_line}" for reply_line in summary[:500].splitlines())
+        elif r.status == RunStatus.FAILED:
+            # A FAILED leg can arrive with an empty error_message (best-effort terminal save);
+            # make the gap explicit so the coordinator doesn't read a blank block as a clean no-op.
+            lines.append("- Reply: (failed with no captured error message; check the leg session)")
+        lines.append("")
+    lines.append(
+        "Compose the consolidated outcome and continue your instructions "
+        "(e.g. report back where the request came from)."
+    )
+    return "\n".join(lines)
+
+
+@receiver(run_finished)
+def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) -> None:
+    """When every leg of a *delegated* batch is terminal, enqueue one coordinator
+    continuation run on the parent thread.
+
+    Deliberately ignores ``skip_dispatch`` (unlike ``dispatch_next_in_session``): a last
+    leg that turns terminal via the dispatch-failure re-emit must still resume the
+    coordinator. The continuation is always created QUEUED — the insert itself is the
+    winner election (``run_one_continuation_per_batch``) — then released through the
+    dispatcher's single promotion path; a busy coordinator (any active run, including
+    trigger types outside ``run_one_active_per_session``) leaves it QUEUED for a later
+    release (``run_finished``, chat turn end, or the orphan-release cron).
+    """
+    from sessions.models import Run, RunStatus, Session, SessionOrigin
+    from sessions.services import acreate_run
+
+    if run.trigger_type != SessionOrigin.DELEGATED_JOB:
+        return  # free in-memory guard: only delegated legs can complete a delegated batch
+    batch_id = run.batch_id
+    if not batch_id:
+        return  # continuation runs carry continuation_of_batch_id, not batch_id
+
+    if Run.objects.by_batch(batch_id).exclude(status__in=RunStatus.terminal()).exists():
+        return  # legs still pending
+
+    if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
+        return  # already resumed (winner election)
+
+    leg_session = Session.objects.filter(pk=run.session_id).only("parent_thread_id").first()
+    if leg_session is None or not leg_session.parent_thread_id:
+        return  # not a delegated leg (broadcast batch, or session gone)
+    parent_thread_id = leg_session.parent_thread_id
+
+    coordinator = Session.objects.select_related("user").filter(thread_id=parent_thread_id).first()
+    if coordinator is None:
+        logger.warning(
+            "resume_coordinator: parent thread %s not found for batch %s; the batch notification is the fallback"
+            " signal",
+            parent_thread_id,
+            batch_id,
+        )
+        return
+
+    siblings = list(
+        Run.objects.by_batch(batch_id).only(
+            "status", "repo_id", "ref", "session", "merge_request_web_url", "result_summary", "error_message"
+        )
+    )
+    try:
+        continuation = async_to_sync(acreate_run)(
+            status=RunStatus.QUEUED,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            task_result_id=None,
+            repo_id=coordinator.repo_id,
+            ref=coordinator.ref,
+            user=coordinator.user,
+            prompt=render_batch_summary(batch_id, siblings),
+            thread_id=parent_thread_id,
+            sandbox_environment_id=str(coordinator.sandbox_environment_id)
+            if coordinator.sandbox_environment_id
+            else None,
+            continuation_of_batch_id=batch_id,
+            agent_model=coordinator.agent_model,
+            agent_thinking_level=coordinator.agent_thinking_level,
+        )
+    except IntegrityError:
+        return  # another worker won run_one_continuation_per_batch
+
+    # QUEUED is the only crash-safe resting state (recoverable by the orphan-release cron);
+    # promotion + enqueue go through the dispatcher's single release path.
+    release_next_queued(parent_thread_id)
+
+    continuation.refresh_from_db(fields=["status"])
+    if continuation.status == RunStatus.FAILED:
+        logger.error(
+            "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
+            "coordinator will NOT auto-resume until the retry sweep re-queues it — the batch "
+            "notification is the interim signal",
+            batch_id,
+            parent_thread_id,
+        )
 
 
 @receiver(run_finished, dispatch_uid="agent_sessions.classify_on_run_finished")

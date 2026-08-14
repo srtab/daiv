@@ -152,6 +152,26 @@ async def test_submit_continuation_queues_when_thread_busy():
     assert await Run.objects.filter(session_id=tid).acount() == 2
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_submit_batch_creates_all_rows_before_first_enqueue():
+    """A leg can turn terminal (emitting run_finished) as soon as it is enqueued, so every
+    sibling row must already exist by then — else batch-completion receivers elect on a subset."""
+    seen_batch_counts: list[int] = []
+
+    async def _fake_enqueue(**kwargs):
+        run = await Run.objects.aget(pk=kwargs["run_id"])
+        seen_batch_counts.append(await Run.objects.filter(batch_id=run.batch_id).acount())
+        return await _atask_result_row(uuid.uuid4())
+
+    repos = [RepoTarget(repo_id=f"g/r{i}") for i in range(3)]
+    with patch("sessions.services.run_job_task") as mock_task:
+        mock_task.aenqueue = AsyncMock(side_effect=_fake_enqueue)
+        result = await asubmit_batch_runs(user=None, prompt="p", repos=repos, trigger_type=SessionOrigin.API_JOB)
+
+    assert len(result.runs) == 3
+    assert seen_batch_counts == [3, 3, 3]
+
+
 # ---------------------------------------------------------------------------
 # validate_repo_list tests (ported from activity)
 # ---------------------------------------------------------------------------

@@ -12,6 +12,9 @@ from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtim
 class RepoSubmitItem(Schema):
     repo_id: str = Field(min_length=1)
     ref: str | None = None
+    prompt: str | None = Field(
+        default=None, description="Optional per-repo instruction; overrides the batch prompt for this repo."
+    )
 
 
 class JobSubmitRequest(Schema):

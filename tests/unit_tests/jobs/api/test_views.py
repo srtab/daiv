@@ -506,3 +506,31 @@ async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: T
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_rest_per_repo_prompt_passthrough(authenticated_client: TestAsyncClient):
+    """Per-repo ``prompt`` on ``RepoSubmitItem`` reaches the ``RepoTarget`` passed to ``asubmit_batch_runs``."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from sessions.services import BatchSubmitFailure, BatchSubmitResult
+
+    # Report the single repo as failed so the view's runs_iter loop is never entered,
+    # keeping the test focused on the target-build path.
+    failure = BatchSubmitFailure(repo_id="group/project", ref="", error="dry-run")
+    batch_result = MagicMock(spec=BatchSubmitResult)
+    batch_result.batch_id = "00000000-0000-0000-0000-000000000001"
+    batch_result.runs = []
+    batch_result.failed = [failure]
+
+    submit = AsyncMock(return_value=batch_result)
+    with patch("jobs.api.views.asubmit_batch_runs", new=submit):
+        response = await authenticated_client.post(
+            "/jobs",
+            json={"repos": [{"repo_id": "group/project", "prompt": "per-repo override"}], "prompt": "batch-level"},
+        )
+
+    assert response.status_code == 202
+    targets = submit.call_args.kwargs["repos"]
+    assert len(targets) == 1
+    assert targets[0].prompt == "per-repo override"

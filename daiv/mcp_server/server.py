@@ -104,6 +104,9 @@ class RepoSubmitSpec(BaseModel):
     ref: str | None = Field(
         default=None, description="Git reference (branch name or commit SHA). None / empty string = default branch."
     )
+    prompt: str | None = Field(
+        default=None, description="Optional per-repo instruction; overrides the batch prompt for this repo."
+    )
 
 
 @mcp.tool()
@@ -119,7 +122,8 @@ async def submit_job(
                 " to commit, push, create a branch, or open a merge/pull request; those steps run"
                 " automatically after the job, and DAIV generates the branch name, commit message,"
                 " and MR/PR title/description itself. Be specific: include file paths, function"
-                " names, or error messages. The same prompt runs independently against each repository."
+                " names, or error messages. The same prompt runs independently against each repository"
+                " unless a per-repo override is set via repos[].prompt."
             )
         ),
     ],
@@ -252,7 +256,7 @@ async def submit_job(
         if env_row is not None:
             explicit_env_id = str(env_row.id)
 
-    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt) for s in specs]
     targets = await aresolve_repo_envs(user=mcp_user, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=mcp_user,

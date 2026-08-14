@@ -279,6 +279,11 @@ def on_run_finished(sender, run, **kwargs) -> None:
         if run.trigger_type in (SessionOrigin.webhooks() | {SessionOrigin.CHAT}):
             return
 
+        # Coordinator continuation runs are internal plumbing; the legs' batch/per-run
+        # notification below is the user-facing signal.
+        if run.continuation_of_batch_id is not None:
+            return
+
         if run.batch_id is not None:
             siblings = Run.objects.by_batch(run.batch_id)
             total = siblings.count()

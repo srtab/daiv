@@ -69,8 +69,8 @@ POST /api/jobs
 
 | Field                  | Type             | Required | Description |
 |------------------------|------------------|----------|-------------|
-| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch. |
-| `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`. |
+| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha", "prompt": "..." }` — `ref` and `prompt` are optional. `ref` defaults to the repository's default branch; `repos[].prompt` overrides the batch-level `prompt` for that repository. |
+| `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`, unless a per-repo override is provided via `repos[].prompt`. |
 | `agent_model`          | string           | no       | Override the model used for this batch. Invalid model / thinking-level combinations are rejected with `400`. |
 | `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
 | `notify_on`            | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`. |

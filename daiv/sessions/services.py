@@ -28,12 +28,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
+MAX_DELEGATED_TARGETS = 10
+
 
 @dataclass(frozen=True)
 class RepoTarget:
     repo_id: str
     ref: str = ""
     sandbox_environment_id: str | None = None
+    prompt: str | None = None  # per-target override; falls back to the batch prompt
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,8 @@ async def aget_or_create_session(
     scheduled_job=None,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
@@ -92,6 +97,8 @@ async def aget_or_create_session(
             "scheduled_job": scheduled_job,
             "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
+            "parent_thread_id": parent_thread_id,
+            "spawn_depth": spawn_depth,
         },
     )
     if not created:
@@ -121,6 +128,9 @@ async def acreate_run(
     title: str = "",
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
+    continuation_of_batch_id: uuid.UUID | None = None,
 ) -> Run:
     """Async: create a Session (idempotent) then a Run linked to it.
 
@@ -147,6 +157,8 @@ async def acreate_run(
         scheduled_job=scheduled_job,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
+        parent_thread_id=parent_thread_id,
+        spawn_depth=spawn_depth,
     )
     return await Run.objects.acreate(
         session=session,
@@ -166,6 +178,7 @@ async def acreate_run(
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
+        continuation_of_batch_id=continuation_of_batch_id,
     )
 
 
@@ -209,6 +222,8 @@ async def asubmit_batch_runs(
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
     thread_id: str | None = None,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -217,6 +232,10 @@ async def asubmit_batch_runs(
 
     Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
     failure) lands in ``result.failed`` while siblings continue.
+
+    All Run rows are created before any task is enqueued, so ``run_finished`` receivers
+    that scan the batch (coordinator resume, rollup notification) never observe a
+    partially-created sibling set.
     """
     _validate(repos)
     if user is not None:
@@ -238,7 +257,10 @@ async def asubmit_batch_runs(
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
         schedule_run_base = await Run.objects.filter(session__scheduled_job=scheduled_job).acount()
 
-    async def _submit_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
+    def _effective_prompt(target: RepoTarget) -> str:
+        return target.prompt or prompt
+
+    async def _create_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
 
         run_title = ""
@@ -249,7 +271,7 @@ async def asubmit_batch_runs(
             "trigger_type": trigger_type,
             "repo_id": target.repo_id,
             "ref": target.ref,
-            "prompt": prompt,
+            "prompt": _effective_prompt(target),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
@@ -260,6 +282,8 @@ async def asubmit_batch_runs(
             "thread_id": effective_thread_id,
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
+            "parent_thread_id": parent_thread_id,
+            "spawn_depth": spawn_depth,
         }
 
         # Claim the session atomically by trying to create a READY row. The partial
@@ -267,7 +291,7 @@ async def asubmit_batch_runs(
         # when a sibling (READY/RUNNING) is already active on this session — in that
         # case we fall back to QUEUED, no task enqueue.
         try:
-            run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
+            return await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
         except IntegrityError:
             try:
                 return await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
@@ -284,14 +308,15 @@ async def asubmit_batch_runs(
                 repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
             )
 
+    async def _enqueue_one(run: Run, target: RepoTarget) -> Run | BatchSubmitFailure:
         try:
             task = await run_job_task.aenqueue(
                 repo_id=target.repo_id,
-                prompt=prompt,
+                prompt=_effective_prompt(target),
                 ref=target.ref or None,
                 agent_model=agent_model or None,
                 agent_thinking_level=agent_thinking_level or None,
-                thread_id=effective_thread_id,
+                thread_id=str(run.session_id),
                 sandbox_environment_id=target.sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=user.id if user is not None else None,
@@ -312,9 +337,6 @@ async def asubmit_batch_runs(
             logger.exception(
                 "submit_batch_runs: failed to link task_result_id=%s to run=%s (orphan task will run)", task.id, run.pk
             )
-            # Surface in error_message that the agent may run to completion (push a
-            # commit / open an MR) while this row shows FAILED — the work is real but
-            # uncapturable because nothing links back to it.
             await _mark_failed_and_advance(
                 run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
             )
@@ -324,8 +346,20 @@ async def asubmit_batch_runs(
         return run
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
-    # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    # whole batch; the helpers already catch Exception themselves.
+    created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+
+    # QUEUED fallbacks are not enqueued here — the dispatcher releases them later.
+    to_enqueue = [
+        (i, outcome, target)
+        for i, (target, outcome) in enumerate(zip(repos, created, strict=True))
+        if not isinstance(outcome, BatchSubmitFailure | BaseException) and outcome.status == RunStatus.READY
+    ]
+    enqueued = await asyncio.gather(*[_enqueue_one(r, t) for _, r, t in to_enqueue], return_exceptions=True)
+
+    outcomes: list = list(created)
+    for (i, _, _), outcome in zip(to_enqueue, enqueued, strict=True):
+        outcomes[i] = outcome
 
     runs: list[Run] = []
     failed: list[BatchSubmitFailure] = []

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
+from asgiref.sync import sync_to_async
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
@@ -403,3 +404,11 @@ class ChatRunStreamer:
                 await SessionLock.release(self.thread_id, self.run_id)
             except Exception:
                 logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
+            # Chat runs emit no run_finished, so a delegated-batch continuation that completed
+            # during this turn parks QUEUED; release it now that the slot is free.
+            try:
+                from sessions.signals import release_next_queued
+
+                await sync_to_async(release_next_queued, thread_sensitive=True)(self.thread_id)
+            except Exception:
+                logger.exception("chat: failed to release queued runs for thread_id=%s", self.thread_id)

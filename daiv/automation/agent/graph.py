@@ -26,6 +26,7 @@ from automation.agent.constants import (
 )
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -310,6 +311,7 @@ async def create_daiv_agent(
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
+        *([DelegateJobsMiddleware()] if ctx.config.orchestration.enabled else []),
         *(
             [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]
             if _sandbox_enabled
