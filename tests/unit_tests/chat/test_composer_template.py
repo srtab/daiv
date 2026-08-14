@@ -117,3 +117,23 @@ def test_hero_carries_a_selection_line_instead_of_pickers(member_client):
 
     assert "chat-hero__selection" in html
     assert "chat-hero__picker" not in html
+
+
+@pytest.mark.django_db
+def test_progress_sheet_tints_the_line_counts(member_client, member_user):
+    """``+x`` and ``−y`` are tinted wherever they appear — on the pill and on the Files
+    changed group label — rather than rendered as one flat string."""
+    html = _render_thread(member_client, _create_session(member_user))
+
+    assert "diff-stat__plus" in html
+    assert "diff-stat__minus" in html
+
+
+@pytest.mark.django_db
+def test_effort_word_yields_only_when_the_row_is_crowded(member_client, member_user):
+    """The model label sheds its effort word before the name truncates, but only once a
+    progress pill is actually sharing the action row — a phone with no pill keeps it."""
+    html = _render_thread(member_client, _create_session(member_user))
+
+    assert "chat-composer__actions--crowded" in html
+    assert "'chat-composer__actions--crowded': progressPill" in html
