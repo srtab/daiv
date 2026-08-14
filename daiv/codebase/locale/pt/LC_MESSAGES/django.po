@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-08-14 13:14+0000\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -25,6 +25,12 @@ msgstr "GitLab"
 
 msgid "GitHub"
 msgstr "GitHub"
+
+msgid "Read"
+msgstr ""
+
+msgid "Write"
+msgstr ""
 
 msgid "repository ID"
 msgstr "ID do repositório"
@@ -80,13 +86,89 @@ msgstr "Métrica de Merge"
 msgid "Merge Metrics"
 msgstr "Métricas de Merge"
 
+msgid "provider"
+msgstr ""
+
+#, fuzzy
+#| msgid "platform"
+msgid "platform user ID"
+msgstr "plataforma"
+
+#, fuzzy
+#| msgid "platform"
+msgid "platform username"
+msgstr "plataforma"
+
+msgid "access level"
+msgstr ""
+
+msgid "synced at"
+msgstr ""
+
+#, fuzzy
+#| msgid "repository ID"
+msgid "Repository Access"
+msgstr "ID do repositório"
+
+#, fuzzy
+#| msgid "repository ID"
+msgid "Repository Accesses"
+msgstr "ID do repositório"
+
+msgid "Never synced"
+msgstr ""
+
+msgid "OK"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "last started at"
+msgstr ""
+
+msgid "last success at"
+msgstr ""
+
+msgid "status"
+msgstr ""
+
+msgid "Repository Access Sync State"
+msgstr ""
+
+msgid "Repository Access Sync States"
+msgstr ""
+
+#, fuzzy
+#| msgid "repository ID"
+msgid "repository slug"
+msgstr "ID do repositório"
+
+msgid "name"
+msgstr ""
+
+#, fuzzy
+#| msgid "target branch"
+msgid "default branch"
+msgstr "branch de destino"
+
+msgid "HTML URL"
+msgstr ""
+
+msgid "topics"
+msgstr ""
+
+#, fuzzy
+#| msgid "repository ID"
+msgid "Repository Catalog"
+msgstr "ID do repositório"
+
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
 
 msgid "No branches found."
 msgstr "Nenhum ramo encontrado."
 
-#| msgid "repository ID"
 msgid "Choose repository"
 msgstr "Escolher repositório"
 
@@ -102,12 +184,16 @@ msgstr "predefinição"
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
-#| msgid "repository ID"
+#, fuzzy
+#| msgid "Add repository"
+msgid "Pick a repository"
+msgstr "Adicionar repositório"
+
 msgid "Add repository"
 msgstr "Adicionar repositório"
 
-msgid "Could not load repositories."
-msgstr "Não foi possível carregar os repositórios."
-
 msgid "No repositories found."
 msgstr "Nenhum repositório encontrado."
+
+#~ msgid "Could not load repositories."
+#~ msgstr "Não foi possível carregar os repositórios."

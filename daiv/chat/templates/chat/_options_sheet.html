@@ -1,0 +1,49 @@
+{% load i18n icon_tags %}
+{% comment %}
+Options trigger + sheet: Environment, then Tools (MCP servers).
+
+Deliberately holds nothing that is already on screen — no model row, no effort row, no
+repo/branch row. The env is locked once a thread exists (the backend snapshots it on the
+first turn and discards the header afterwards), so the badge dot on the trigger can only
+ever mean "MCP server selection differs from the defaults".
+{% endcomment %}
+<div class="composer-sheet-anchor">
+  <button type="button"
+          class="composer-trigger composer-trigger--icon"
+          @click.stop="toggleSheet('options')"
+          :aria-expanded="sheet === 'options'"
+          aria-haspopup="dialog"
+          title="{% translate 'Session options' %}">
+    {% icon "plus" "h-4 w-4" %}
+    <span class="sr-only">{% translate "Session options" %}</span>
+  </button>
+
+  <div class="composer-sheet composer-sheet--options"
+       x-show="sheet === 'options'"
+       x-cloak
+       @click.outside="closeSheet()"
+       role="dialog"
+       aria-label="{% translate 'Session options' %}">
+    <div class="composer-sheet__head">
+      <span class="composer-sheet__title">{% translate "Options" %}</span>
+      <button type="button" class="composer-sheet__close" @click="closeSheet()"
+              aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
+    </div>
+
+    <div class="composer-sheet__body">
+      <section class="composer-sheet__group">
+        <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
+        <div class="composer-sheet__row">
+          <span x-show="thread" x-cloak>
+            {% include "sandbox_envs/_env_picker.html" with disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
+          </span>
+          {# ``x-if``: the live picker announces its selection on the window, which in a
+             thread would fight the server-rendered locked label for the same pill. #}
+          <template x-if="!thread">
+            {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
+          </template>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>

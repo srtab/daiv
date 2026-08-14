@@ -146,6 +146,8 @@
     // pill stays in sync without re-deriving the label from the raw model spec.
     lockedAgentLabel: config.initialAgentLabel || "",
     lockedAgentEffortDots: config.initialAgentEffortDots || 0,
+    // Effort word rendered after the model name in the composer's plain-text model label.
+    lockedAgentThinking: config.initialAgentThinking || "",
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
@@ -168,7 +170,6 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
-    _filesSeen: new Set(),
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
@@ -182,6 +183,14 @@
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
+    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
+    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    sheet: "",
+    _progressLabels: {
+      file: (config.progressLabels || {}).file || "file",
+      files: (config.progressLabels || {}).files || "files",
+      stopped: (config.progressLabels || {}).stopped || "stopped",
+    },
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -204,6 +213,21 @@
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
       this.lockedAgentEffortDots = detail?.effort_dots || 0;
+      this.lockedAgentThinking = detail?.thinking_level || "";
+    },
+
+    // ---------- Composer sheets ---------------------------------------
+
+    openSheet(name) {
+      this.sheet = name;
+    },
+
+    closeSheet() {
+      this.sheet = "";
+    },
+
+    toggleSheet(name) {
+      this.sheet = this.sheet === name ? "" : name;
     },
 
     applyPolledTurns(turns) {
@@ -252,22 +276,11 @@
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
 
-      // Seed _filesSeen with any paths already present in hydrated history so
-      // the "new row pulse" animation does not fire on initial load.
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const p = pickPath(seg.args);
-            if (p) this._filesSeen.add(`${seg.name}::${p}`);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              if (entry.path) this._filesSeen.add(`bash::${entry.path}`);
-            }
-          }
-        }
-      }
+      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
+      // and files) would otherwise stay "open" and pop back into view on the next turn.
+      this.$watch("!progressPill", (gone) => {
+        if (gone && this.sheet === "progress") this.sheet = "";
+      });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
       // never scrolls; main holds overflow-y-auto and is the page surface.
@@ -488,20 +501,11 @@
     },
 
     get filesTouched() {
-      // path -> { path, op, fromPath?, segmentId, isNew }
+      // path -> { path, op, fromPath?, segmentId }
       const map = new Map();
-      const seenKeys = [];
       const record = (path, op, seg, extra = {}) => {
         if (!path) return;
-        const key = `${seg.name}::${path}`;
-        seenKeys.push(key);
-        map.set(path, {
-          path,
-          op,
-          segmentId: `tool-${seg.id}`,
-          isNew: !this._filesSeen.has(key),
-          ...extra,
-        });
+        map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
       };
       for (const t of this.turns) {
         if (t.role === "run_status") continue;
@@ -519,16 +523,52 @@
         }
       }
       // Reverse so most-recent comes first.
-      const arr = [...map.values()].reverse();
-      // Promote everything we just yielded into _filesSeen under the SAME
-      // composite key shape used by the `isNew` lookup so the pulse animation
-      // only fires once per (tool, path) pair.
-      for (const key of seenKeys) this._filesSeen.add(key);
-      return arr;
+      return [...map.values()].reverse();
     },
 
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
+    },
+
+    // ---------- Progress trigger --------------------------------------
+
+    // The composer's progress pill, or ``null`` when there is nothing behind it. The
+    // decision is made on *content*, never on run state: no todos, no files and no diff
+    // means no button, because an empty sheet is worse than no way into one.
+    //
+    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
+    // numbers would be a guess. A cancelled turn is the one state where work can sit
+    // uncommitted for good, so it keeps counts too.
+    get progressPill() {
+      const todos = this.latestTodos;
+      const files = this.filesTouched;
+      const parts = [];
+      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      if (files.length) parts.push(this._filesLabel(files.length));
+
+      if (this.streaming || this.resuming) {
+        return parts.length ? { tone: "live", live: true, label: parts.join(" · ") } : null;
+      }
+      if (this._lastRunAborted()) {
+        return parts.length
+          ? { tone: "warn", live: false, label: [this._progressLabels.stopped, ...parts].join(" · ") }
+          : null;
+      }
+      return parts.length ? { tone: "idle", live: false, label: parts.join(" · ") } : null;
+    },
+
+    // What the hero's selection line shows before a thread exists.
+    get heroSelectionLabel() {
+      return this.lockedEnvLabel;
+    },
+
+    _filesLabel(n) {
+      return `${n} ${n === 1 ? this._progressLabels.file : this._progressLabels.files}`;
+    },
+
+    _lastRunAborted() {
+      const last = this.turns[this.turns.length - 1];
+      return last?.role === "run_status" && last.status === "aborted";
     },
 
     // ---------- Rendering helpers used inline by x-html ---------------
@@ -675,6 +715,18 @@
     async submit() {
       if (!this.canSend() || this.streaming || this.resuming) return;
 
+      // Read the picker's selection before creating the thread: the live picker is
+      // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
+      // and the hidden-input fallback below would race Alpine's DOM flush.
+      // ``_agentModel`` is normally already set (the picker dispatches on init); the
+      // inputs cover a submit that beats that first dispatch.
+      const agentModel = this._agentModel
+        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
+        || "";
+      const agentThinkingLevel = this._agentThinkingLevel
+        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
+        || "";
+
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
@@ -720,17 +772,8 @@
         }))
         .filter((m) => m.content);
 
-      // Use whatever the agent picker last dispatched (it dispatches both on user change
-      // and once on init for the seeded default). The hidden-input fallback covers the
-      // edge case where the picker hasn't dispatched yet at submit time (very fast first
-      // click). The server pins these to ``ChatThread.agent_model`` / ``agent_thinking_level``
-      // on first sight of the thread and ignores them on subsequent turns.
-      const agentModel = this._agentModel
-        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
-        || "";
-      const agentThinkingLevel = this._agentThinkingLevel
-        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
-        || "";
+      // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
+      // first sight of the thread and rejects a divergent value afterwards.
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
