@@ -619,14 +619,20 @@ async def test_mcptoolkit_forwards_user_id(monkeypatch):
 
     seen = {}
 
-    def fake_build(user_id=None):
+    def fake_build(user_id=None, names=None):
         seen["user_id"] = user_id
+        seen["names"] = names
         return []
 
     monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
     tools = await toolkits.MCPToolkit.get_tools(user_id=42)
     assert tools == []
     assert seen["user_id"] == 42
+    # No per-thread selection means the whole pool, not an empty one.
+    assert seen["names"] is None
+
+    await toolkits.MCPToolkit.get_tools(user_id=42, server_names=["sentry"])
+    assert seen["names"] == ["sentry"]
 
 
 @pytest.mark.django_db

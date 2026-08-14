@@ -408,6 +408,7 @@ class TestDiffLineStats:
             "diff --git a/b.py b/b.py\n"
             "--- a/b.py\n"
             "+++ b/b.py\n"
+            "@@ -0,0 +1 @@\n"
             "+added three\n"
         )
         stats = diff_line_stats(diff)

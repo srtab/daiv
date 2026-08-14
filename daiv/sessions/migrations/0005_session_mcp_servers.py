@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("sessions", "0004_runenvelope")]
+    dependencies = [("agent_sessions", "0004_runenvelope")]
 
     operations = [
         migrations.AddField(
