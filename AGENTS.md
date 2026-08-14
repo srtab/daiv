@@ -23,7 +23,7 @@ make makemessages && make compilemessages
 
 - Unit tests live in `tests/unit_tests/` mirroring `daiv/` structure.
 - `asyncio_mode = "auto"` — no need for `@pytest.mark.asyncio`.
-- Python **3.14 only** (`requires-python = ">=3.14,<3.15"`).
+- Python **3.14 only** (`requires-python = ">=3.14,<3.15"`). Ask uv for the specifier, never the bare `3.14` family: the family matches `3.14.0rc2`, on which pydantic cannot build a single model, so every test errors at collection. `.claude/hooks/session-start.sh` pins this for web sessions.
 - Never edit `pyproject.toml` directly; use `uv add <pkg>==<version>` / `uv remove <pkg>`.
 
 ## Repo map
