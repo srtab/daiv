@@ -26,6 +26,7 @@ from automation.agent.constants import (
 )
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -294,10 +295,6 @@ async def create_daiv_agent(
         mcp_tools=mcp_tools,
     )
     subagents.extend(custom_subagents)
-
-    # Deferred to avoid a circular import:
-    # delegate_jobs → sessions.services → jobs.tasks → automation.agent.graph
-    from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware  # noqa: PLC0415
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom

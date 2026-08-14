@@ -268,15 +268,11 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
         return
     import httpx
 
-    # Reuse the request timeout already resolved onto ``kw`` so these custom clients
-    # don't silently fall back to httpx's 5s default (which would throttle real
-    # generations); when a caller passes a bare-float override it applies here too.
-    client_kwargs: dict = {"verify": False}
-    if (timeout := kw.get("timeout")) is not None:
-        client_kwargs["timeout"] = timeout
-
-    kw["http_client"] = httpx.Client(**client_kwargs)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
-    kw["http_async_client"] = httpx.AsyncClient(**client_kwargs)  # noqa: S501
+    # Carry over the resolved request timeout; a custom client otherwise falls back to
+    # httpx's 5s default, which would cut off real generations.
+    timeout = kw["timeout"]
+    kw["http_client"] = httpx.Client(verify=False, timeout=timeout)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
+    kw["http_async_client"] = httpx.AsyncClient(verify=False, timeout=timeout)  # noqa: S501
 
 
 def _resolve_request_timeout(provider_type: ProviderType, timeout_seconds: float) -> httpx.Timeout | float:

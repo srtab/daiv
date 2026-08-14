@@ -4,6 +4,8 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from django.urls import reverse
+
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.runnables import RunnableConfig  # noqa: TCH002 — used in @tool signature at runtime
 from langchain_core.tools import tool
@@ -12,7 +14,7 @@ from sandbox_envs.services import aresolve_repo_envs
 from sessions.models import MAX_SPAWN_DEPTH, Session, SessionOrigin
 from sessions.services import MAX_DELEGATED_TARGETS, RepoTarget, asubmit_batch_runs
 
-from codebase.authorization import RepositoryAccessDenied, aassert_can_run
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from codebase.conf import settings
 from codebase.models import RepositoryCatalog
 
@@ -65,25 +67,29 @@ self-contained — include the context it needs and the no-change convention.
 """
 
 
+def _error(message: str) -> str:
+    return json.dumps({"error": message})
+
+
 @tool(DELEGATE_JOBS_NAME, description=DELEGATE_JOBS_DESCRIPTION)
 async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: RunnableConfig) -> str:
     """Delegate per-repo sub-jobs; returns a JSON string (no state mutation)."""
     thread_id = (config.get("configurable") or {}).get("thread_id")
     if not thread_id:
-        return json.dumps({"error": "delegate_jobs is only available inside a checkpointed run."})
+        return _error("delegate_jobs is only available inside a checkpointed run.")
 
     session = await Session.objects.select_related("user").filter(thread_id=thread_id).afirst()
     if session is None:
-        return json.dumps({"error": "Could not resolve the current session for delegation."})
+        return _error("Could not resolve the current session for delegation.")
     if session.user_id is None:
-        return json.dumps({"error": "Delegation requires an authenticated coordinator; this session has no user."})
+        return _error("Delegation requires an authenticated coordinator; this session has no user.")
 
     if not targets:
-        return json.dumps({"error": "At least one target is required."})
+        return _error("At least one target is required.")
     if len(targets) > MAX_DELEGATED_TARGETS:
-        return json.dumps({"error": f"At most {MAX_DELEGATED_TARGETS} targets per delegate_jobs call."})
-    if session.spawn_depth + 1 > MAX_SPAWN_DEPTH:
-        return json.dumps({"error": f"Delegation depth limit reached (MAX_SPAWN_DEPTH={MAX_SPAWN_DEPTH})."})
+        return _error(f"At most {MAX_DELEGATED_TARGETS} targets per delegate_jobs call.")
+    if session.spawn_depth >= MAX_SPAWN_DEPTH:
+        return _error(f"Delegation depth limit reached (MAX_SPAWN_DEPTH={MAX_SPAWN_DEPTH}).")
     # An omitted ref and the default branch's explicit name are the same physical checkout, so
     # resolve both through the synced catalog before comparing.
     slugs = {session.repo_id} | {t.repo_id for t in targets}
@@ -101,20 +107,18 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
     if any(checkout(t.repo_id, t.ref) == coordinator_checkout for t in targets):
         # In-repo parallelism belongs to subagents; a different ref on the same repo is a distinct
         # checkout and may delegate.
-        return json.dumps({
-            "error": (
-                f"Cannot delegate to the coordinator's own checkout ({session.repo_id!r} on "
-                f"{session.ref or 'default branch'!r}). delegate_jobs fans work out to other "
-                "checkouts as independent jobs; for parallel work on this one, use the `task` "
-                "tool (subagents) instead."
-            )
-        })
+        return _error(
+            f"Cannot delegate to the coordinator's own checkout ({session.repo_id!r} on "
+            f"{session.ref or 'default branch'!r}). delegate_jobs fans work out to other "
+            "checkouts as independent jobs; for parallel work on this one, use the `task` "
+            "tool (subagents) instead."
+        )
 
     seen: set[tuple[str, str]] = set()
     for t in targets:
         key = checkout(t.repo_id, t.ref)
         if key in seen:
-            return json.dumps({"error": f"Duplicate target: {t.repo_id} on {t.ref or 'default branch'}."})
+            return _error(f"Duplicate target: {t.repo_id} on {t.ref or 'default branch'}.")
         seen.add(key)
 
     user = session.user
@@ -127,16 +131,14 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
         denied = set(exc.repo_ids)
 
     allowed = [t for t in targets if t.repo_id not in denied]
-    failed = [{"repo_id": rid, "error": "access denied (WRITE required)"} for rid in sorted(denied)]
+    failed = [{"repo_id": rid, "error": REPO_ACCESS_DENIED_MESSAGE} for rid in sorted(denied)]
 
     batch_id: str | None = None
     delegated: list[dict] = []
     if allowed:
         repo_targets = [RepoTarget(repo_id=t.repo_id, ref=t.ref or "", prompt=t.prompt) for t in allowed]
-        # Env resolution and batch submit hit the DB and re-check authorization; a raise here
-        # (OperationalError, a revoked-access RepositoryAccessDenied, a validation ValueError) must
-        # surface as the tool's JSON error contract, not an opaque tool-node crash. asubmit_batch_runs
-        # is best-effort per repo, so a partial result is impossible once it has returned.
+        # A raise here (OperationalError, revoked-access RepositoryAccessDenied, validation
+        # ValueError) must surface as the tool's JSON error contract, not a tool-node crash.
         try:
             repo_targets = await aresolve_repo_envs(user=user, repos=repo_targets, explicit_env_id=None)
             result = await asubmit_batch_runs(
@@ -149,14 +151,14 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
             )
         except Exception:  # noqa: BLE001
             logger.exception("delegate_jobs: submission failed for thread=%s", thread_id)
-            return json.dumps({"error": "Delegation submission failed; no sub-jobs were started."})
+            return _error("Delegation submission failed; no sub-jobs were started.")
         batch_id = str(result.batch_id)
         delegated = [
             {
                 "repo_id": run.repo_id,
                 "ref": run.ref,
                 "thread_id": str(run.session_id),
-                "session_url": f"/dashboard/sessions/{run.session_id}/",
+                "session_url": reverse("session_detail", kwargs={"thread_id": run.session_id}),
             }
             for run in result.runs
         ]
@@ -174,7 +176,8 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
 class DelegateJobsMiddleware(AgentMiddleware):
     """Bind the delegate_jobs tool and inject its usage note. Added to the agent when
     ``orchestration.enabled`` is set — on by default; a repo opts out with
-    ``orchestration.enabled: false``."""
+    ``orchestration.enabled: false``.
+    """
 
     def __init__(self) -> None:
         self.tools = [delegate_jobs_tool]

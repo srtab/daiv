@@ -237,11 +237,8 @@ async def web_fetch_tool(
     if not prompt.strip() or site_settings.web_fetch_model_name is None:
         return f"Contents of {url}:\n{content}"
 
-    # Building the model is pure construction (no network): any failure here — disabled
-    # provider, missing API key, invalid model spec — is a permanent misconfiguration that
-    # breaks every call, so log it loudly (ERROR -> Sentry) for operators. We still hand the
-    # agent the raw content it can reason over itself (withholding it helps nobody, since the
-    # agent can't fix provider config), but flag it clearly so it isn't mistaken for a summary.
+    # Building the model is pure construction, so a failure here is a permanent provider
+    # misconfiguration that breaks every call — log at ERROR (Sentry) rather than degrade quietly.
     try:
         model = BaseAgent.get_model(model=site_settings.web_fetch_model_name, timeout=WEB_FETCH_MODEL_TIMEOUT_SECONDS)
     except Exception as e:

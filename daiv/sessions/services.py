@@ -257,9 +257,11 @@ async def asubmit_batch_runs(
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
         schedule_run_base = await Run.objects.filter(session__scheduled_job=scheduled_job).acount()
 
+    def _effective_prompt(target: RepoTarget) -> str:
+        return target.prompt or prompt
+
     async def _create_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
-        effective_prompt = target.prompt or prompt
 
         run_title = ""
         if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
@@ -269,7 +271,7 @@ async def asubmit_batch_runs(
             "trigger_type": trigger_type,
             "repo_id": target.repo_id,
             "ref": target.ref,
-            "prompt": effective_prompt,
+            "prompt": _effective_prompt(target),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
@@ -310,7 +312,7 @@ async def asubmit_batch_runs(
         try:
             task = await run_job_task.aenqueue(
                 repo_id=target.repo_id,
-                prompt=target.prompt or prompt,
+                prompt=_effective_prompt(target),
                 ref=target.ref or None,
                 agent_model=agent_model or None,
                 agent_thinking_level=agent_thinking_level or None,
@@ -335,9 +337,6 @@ async def asubmit_batch_runs(
             logger.exception(
                 "submit_batch_runs: failed to link task_result_id=%s to run=%s (orphan task will run)", task.id, run.pk
             )
-            # Surface in error_message that the agent may run to completion (push a
-            # commit / open an MR) while this row shows FAILED — the work is real but
-            # uncapturable because nothing links back to it.
             await _mark_failed_and_advance(
                 run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
             )
@@ -346,14 +345,11 @@ async def asubmit_batch_runs(
             )
         return run
 
-    # Phase 1 — create every Run row before anything is enqueued. A leg can turn terminal
-    # (and emit ``run_finished``) the moment it is enqueued, and batch-completion receivers
-    # must never observe a partially-created batch.
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; the helpers already catch Exception themselves.
     created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
 
-    # Phase 2 — enqueue the READY rows; QUEUED fallbacks are released later by the dispatcher.
+    # QUEUED fallbacks are not enqueued here — the dispatcher releases them later.
     to_enqueue = [
         (i, outcome, target)
         for i, (target, outcome) in enumerate(zip(repos, created, strict=True))
