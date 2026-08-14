@@ -1773,8 +1773,12 @@ main:has(.chat-shell) {
   }
 
   /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
-     upward — `.picker-popover` anchors `top-full` by default. */
+     upward — `.picker-popover` anchors `top-full` by default. That includes the env
+     picker inside the options sheet: opening downward from a sheet that is itself flush
+     with the viewport bottom puts the list off-screen, and the sheet deliberately has no
+     `overflow` to scroll it back into reach. */
   .chat-context .picker-popover,
+  .composer-sheet .picker-popover,
   .chat-composer__buttons .picker-popover {
     top: auto;
     bottom: 100%;

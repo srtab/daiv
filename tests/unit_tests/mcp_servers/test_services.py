@@ -720,11 +720,14 @@ def test_composer_rows_report_the_tool_filter_effect():
 @pytest.mark.django_db
 def test_composer_rows_flag_a_server_that_cannot_resolve_its_headers(monkeypatch):
     """``_load_server_tools`` degrades such a server to zero tools, so the composer greys
-    it out with the reason instead of offering a switch that silently does nothing."""
+    it out instead of offering a switch that silently does nothing. Only the fact travels:
+    the health reason names a global server's missing env vars, and this payload is read by
+    every member who opens a session page — the server list that shows it is admin-gated."""
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     monkeypatch.delenv("ABSENT_TOKEN", raising=False)
     MCPServer.objects.create(
         name="broken",
+        description="internal ops server",
         transport=MCPServer.Transport.HTTP,
         url="http://b",
         headers=[{"name": "X-Token", "mode": "env_ref", "value": "ABSENT_TOKEN"}],
@@ -732,4 +735,48 @@ def test_composer_rows_flag_a_server_that_cannot_resolve_its_headers(monkeypatch
 
     [row] = services.composer_server_rows(None)
     assert row["available"] is False
-    assert "ABSENT_TOKEN" in row["reason"]
+    assert "ABSENT_TOKEN" not in str(row)
+    assert "internal ops server" not in str(row)
+
+
+@pytest.mark.django_db
+def test_unloadable_names_in_a_selection_are_logged(caplog):
+    """A stored selection outlives the servers it names. Loading fewer tools than asked for
+    must not look like "the user chose none"."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        out = build_runtime_servers(None, ["alpha", "renamed-away"])
+
+    assert [name for name, _ in out] == ["alpha"]
+    assert "renamed-away" in caplog.text
+
+
+@pytest.mark.django_db
+def test_shadow_warning_is_runtime_only(caplog, django_user_model):
+    """``loadable_servers`` feeds the composer on every page render; warning there would
+    say nothing new once per navigation and drown the log it is meant to stand out in."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    user = django_user_model.objects.create_user(username="member", email="m@e.com", password="x")  # noqa: S106
+    MCPServer.objects.create(name="dup", transport=MCPServer.Transport.HTTP, url="http://g")
+    MCPServer.objects.create(
+        name="dup", scope=MCPServer.Scope.USER, user=user, transport=MCPServer.Transport.HTTP, url="http://u"
+    )
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        services.composer_server_rows(user)
+    assert "shadows a global server" not in caplog.text
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        build_runtime_servers(user.pk)
+    assert "shadows a global server" in caplog.text
+
+
+@pytest.mark.django_db
+def test_loadable_server_names_returns_the_pool():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+    MCPServer.objects.create(name="beta", transport=MCPServer.Transport.HTTP, url="http://b", enabled=False)
+
+    assert services.loadable_server_names() == ["alpha"]

@@ -113,23 +113,27 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
 def diff_line_stats(diff: str) -> MergeRequestDiffStats:
     """Count added/removed lines and touched files in a unified diff.
 
-    The same arithmetic ``git diff --numstat`` does: ``+``/``-`` lines are content,
-    ``+++``/``---`` are file headers, and each ``diff --git`` line opens a new file. Kept
-    as a plain scan rather than a ``unidiff`` parse so it cannot raise on a truncated diff
-    — it feeds a status pill, and a parse error must never abort a publish.
+    The same arithmetic ``git diff --numstat`` does. Position, not prefix, decides what a
+    line is: only inside a hunk (after its ``@@`` header) does a leading ``+``/``-`` mean
+    content. Testing the prefix alone would read the ``+++``/``---`` file headers as
+    content — and, worse, would then have to skip every real line that happens to start
+    with ``++`` or ``--`` to compensate, silently losing ``++i;`` and ``-- comment``.
 
-    Used for the composer's ``+x −y`` pill before a merge request exists; once one does,
-    :meth:`RepoClient.get_merge_request_diff_stats` is authoritative so the pill and the
-    MR page cannot disagree.
+    Kept as a plain scan rather than a ``unidiff`` parse so it cannot raise on a truncated
+    diff: it feeds a status pill, and a parse error must never abort a publish.
     """
     from codebase.base import MergeRequestDiffStats
 
     added = removed = 0
     files: set[str] = set()
+    in_hunk = False
     for line in diff.splitlines():
         if line.startswith("diff --git "):
             files.add(line)
-        elif line.startswith(("+++", "---")):
+            in_hunk = False
+        elif line.startswith("@@"):
+            in_hunk = True
+        elif not in_hunk:
             continue
         elif line.startswith("+"):
             added += 1

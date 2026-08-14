@@ -422,3 +422,10 @@ class TestDiffLineStats:
     def test_empty_diff_is_all_zeros(self):
         stats = diff_line_stats("")
         assert (stats.lines_added, stats.lines_removed, stats.files_changed) == (0, 0, 0)
+
+    def test_content_lines_that_look_like_headers_still_count(self):
+        """``+++i;`` and ``-- comment`` are real content. Only a line's position — inside a
+        hunk or not — separates content from the ``+++``/``---`` file headers."""
+        diff = "diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1,2 +1,2 @@\n+++i;\n--- audit trail\n"
+        stats = diff_line_stats(diff)
+        assert (stats.lines_added, stats.lines_removed) == (1, 1)

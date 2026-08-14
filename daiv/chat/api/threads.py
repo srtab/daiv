@@ -113,15 +113,13 @@ class ChatSessionService:
 
     @staticmethod
     async def set_mcp_servers(thread_id: str, names: list[str] | None) -> None:
-        """Store the composer's Tools selection for ``thread_id``.
+        """Store the composer's Tools selection for ``thread_id``, overwriting any previous one.
 
         Unlike the model and the env this is not pinned on the first turn: the composer can
-        retune it per turn, so every turn that carries a selection overwrites the stored one
-        and a reload shows what the last turn actually ran with. ``None`` means the client
-        sent no selection, which leaves whatever is stored alone.
+        retune it per turn, so a reload shows what the last turn actually ran with. ``None``
+        is a value here, not an absence — it means "every server, including ones added
+        later" — so callers must only reach this when the client actually sent a selection.
         """
-        if names is None:
-            return
         await Session.objects.filter(thread_id=thread_id).aupdate(mcp_servers=names)
 
     @staticmethod

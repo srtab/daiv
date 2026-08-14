@@ -63,7 +63,7 @@ ever mean "MCP server selection differs from the defaults".
           <span class="mcp-disclosure__count">
             <span x-text="mcpSelected.length"></span> {% translate "on" %}
             <span class="mcp-disclosure__sep">·</span>
-            <span x-text="mcpUsable.length"></span> {% translate "available" %}
+            <span x-text="mcpCatalog.length"></span> {% translate "available" %}
           </span>
           {% icon "chevron-down" "mcp-disclosure__chev h-3.5 w-3.5 shrink-0" %}
         </button>
@@ -98,14 +98,15 @@ ever mean "MCP server selection differs from the defaults".
               </label>
             </template>
 
-            <p class="composer-sheet__empty" x-show="!mcpVisible.length && mcpQuery.trim()">
-              {% translate "No servers match" %}
-            </p>
-
             {# A server whose headers can't be resolved loads zero tools whatever a switch
-               says, so it gets the reason instead of a control that does nothing. #}
-            <template x-for="server in mcpUnavailable" :key="server.name">
+               says, so its switch is inert. It stays *in* the selection: dropping it here
+               would drop it from the next selection this sheet posts, and keep it out of
+               the thread long after the outage is fixed. #}
+            <template x-for="server in mcpUnavailableVisible" :key="server.name">
               <div class="mcp-row mcp-row--unavailable">
+                <input type="checkbox" class="mcp-row__switch" disabled
+                       :checked="isMcpOn(server.name)"
+                       aria-hidden="true" tabindex="-1">
                 <span class="mcp-row__body">
                   <span class="mcp-row__head">
                     <span class="mcp-row__name" x-text="server.name"></span>
@@ -113,12 +114,15 @@ ever mean "MCP server selection differs from the defaults".
                           :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
                           x-text="server.scope"></span>
                   </span>
-                  <span class="mcp-row__meta">
-                    <span x-text="server.reason"></span> — {% translate "unavailable this run" %}
-                  </span>
+                  <span class="mcp-row__meta">{% translate "needs authorization — unavailable this run" %}</span>
                 </span>
               </div>
             </template>
+
+            <p class="composer-sheet__empty"
+               x-show="!mcpVisible.length && !mcpUnavailableVisible.length && mcpQuery.trim()">
+              {% translate "No servers match" %}
+            </p>
           </div>
         </div>
       </section>

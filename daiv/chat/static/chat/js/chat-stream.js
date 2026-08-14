@@ -106,7 +106,8 @@
   const loadInitialTurns = () => loadJSONScript("chat-initial-turns", []);
 
   // Every MCP server this user could load, one row per server. Rows the health check
-  // already knows are broken carry `available: false` and never take part in a selection.
+  // already knows are broken carry `available: false`: they stay in the selection (so the
+  // thread keeps them once the outage is fixed) but their switch is inert.
   const loadMcpCatalog = () => {
     const rows = loadJSONScript("chat-mcp-servers", []);
     return Array.isArray(rows) ? rows : [];
@@ -210,6 +211,7 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
+    _filesCache: null,
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
@@ -293,6 +295,13 @@
       return this.mcpCatalog.filter((s) => !s.available);
     },
 
+    // Filtered by the same search as the healthy rows: an unfiltered list underneath a
+    // "No servers match" message contradicts it on screen.
+    get mcpUnavailableVisible() {
+      const q = this.mcpQuery.trim().toLowerCase();
+      return q ? this.mcpUnavailable.filter((s) => s.name.toLowerCase().includes(q)) : this.mcpUnavailable;
+    },
+
     // Ordered for display: enabled first, then by name — computed once per expand and
     // held in ``mcpOrder`` so toggling never reshuffles the list. Search filters this
     // order rather than replacing it.
@@ -303,14 +312,10 @@
       return q ? ordered.filter((s) => s.name.toLowerCase().includes(q)) : ordered;
     },
 
-    get mcpSummary() {
-      return `${this.mcpSelected.length}/${this.mcpUsable.length}`;
-    },
-
     // Drives the badge dot on the options trigger. The env can't change mid-thread, so a
     // narrowed server selection is the only thing the dot can ever be reporting.
     get mcpDirty() {
-      return this.mcpSelected.length !== this.mcpUsable.length;
+      return this.mcpSelected.length !== this.mcpCatalog.length;
     },
 
     isMcpOn(name) {
@@ -330,9 +335,11 @@
       this._mcpTouched = true;
     },
 
-    // Back to the ``MCPServer.enabled`` defaults — every server the user can load.
+    // Back to the ``MCPServer.enabled`` defaults — every server the user can load. The
+    // server recognises a selection covering the whole pool and stores NULL for it, so
+    // reset really does restore "all of them, including ones added later".
     resetMcp() {
-      this.mcpSelected = this.mcpUsable.map((s) => s.name);
+      this.mcpSelected = this.mcpCatalog.map((s) => s.name);
       this._mcpTouched = true;
     },
 
@@ -409,9 +416,12 @@
       // stored selection means every available server, which is also what a fresh
       // thread runs with.
       const stored = loadMcpSelection();
+      // Intersected with the whole pool, not just the servers that are healthy right now:
+      // a broken one dropped here would be dropped from the next selection this page
+      // posts, and would stay out of the thread long after the outage was fixed.
       this.mcpSelected = stored
-        ? this.mcpUsable.filter((s) => stored.includes(s.name)).map((s) => s.name)
-        : this.mcpUsable.map((s) => s.name);
+        ? this.mcpCatalog.filter((s) => stored.includes(s.name)).map((s) => s.name)
+        : this.mcpCatalog.map((s) => s.name);
       this._freezeMcpOrder();
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
@@ -639,6 +649,12 @@
     },
 
     get filesTouched() {
+      // Alpine re-evaluates every binding that reads this in a single flush — the pill,
+      // its class, the crowded modifier, the sheet's rows, the $watch. Caching for the
+      // rest of the current microtask collapses those into one transcript walk; releasing
+      // it there means no mutation can ever be observed through a stale cache, since
+      // `turns` only changes between events.
+      if (this._filesCache) return this._filesCache;
       // path -> { path, op, fromPath?, segmentId }
       const map = new Map();
       const record = (path, op, seg, extra = {}) => {
@@ -661,7 +677,9 @@
         }
       }
       // Reverse so most-recent comes first.
-      return [...map.values()].reverse();
+      this._filesCache = [...map.values()].reverse();
+      queueMicrotask(() => { this._filesCache = null; });
+      return this._filesCache;
     },
 
     get showJumpToLatest() {

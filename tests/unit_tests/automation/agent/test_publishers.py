@@ -12,9 +12,7 @@ from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
-# What the stubbed client reports for a merge request, and what counting the fake
-# ``"diff"`` body yields (no +/- lines) when there is no merge request to ask.
-_MR_STATS = MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2)
+# The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
 
 
@@ -81,7 +79,6 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
     publisher.client.push_uses_ephemeral_token.return_value = False
-    publisher.client.get_merge_request_diff_stats.return_value = _MR_STATS
     return publisher
 
 
@@ -468,7 +465,7 @@ class TestPublishSuggestsContextFile:
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_MR_STATS)
+            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -566,7 +563,7 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_MR_STATS
+                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
@@ -674,7 +671,7 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=mr)
 
-        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_MR_STATS)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -691,7 +688,7 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         assert gm.status_snapshot.await_args.kwargs["mr_source_branch"] == "feat/x"
         # Clean tree already on its MR → no duplicate MR, no metadata call.
-        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_MR_STATS)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
 
     async def test_diffs_against_existing_mr_target_branch_on_dirty_tree(self, monkeypatch):
@@ -718,7 +715,7 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
         gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
-        assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_MR_STATS)
+        assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
 
     async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
         publisher = _make_publisher()
@@ -848,15 +845,13 @@ class TestPublishPipelineHeal:
 
 
 class TestPublishDiffStats:
-    """``+x −y`` for the composer's progress pill: measured server-side, never summed
-    from edit tool calls."""
+    """``+x −y`` for the composer's progress pill: counted from the snapshot the publish
+    already took, never fetched back from the platform."""
 
-    async def test_prefers_the_merge_requests_own_numbers(self, monkeypatch):
-        """Once an MR exists its numbers win, so the pill can't disagree with the MR page
-        a click away — even though the working-tree diff is right there."""
+    async def test_counts_the_snapshot_diff(self, monkeypatch):
         publisher = _make_publisher()
         mr = _make_merge_request()
-        gm = _fake_git_manager(diff="diff --git a/x b/x\n+++ b/x\n+one\n+two\n-three\n")
+        gm = _fake_git_manager(diff="diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n+one\n+two\n-three\n")
         _patch_open_git_manager(monkeypatch, gm)
 
         with (
@@ -866,30 +861,25 @@ class TestPublishDiffStats:
         ):
             outcome = await publisher.publish(merge_request=None)
 
-        publisher.client.get_merge_request_diff_stats.assert_called_once_with("owner/repo", 42)
-        assert outcome.diff_stats == _MR_STATS
-
-    async def test_falls_back_to_the_local_diff_when_the_platform_lookup_fails(self, monkeypatch, caplog):
-        """A status pill must never cost the run its published work."""
-        from gitlab.exceptions import GitlabError
-
-        publisher = _make_publisher()
-        publisher.client.get_merge_request_diff_stats.side_effect = GitlabError("boom")
-        mr = _make_merge_request()
-        gm = _fake_git_manager(diff="diff --git a/x b/x\n+++ b/x\n--- a/x\n+one\n+two\n-three\n")
-        _patch_open_git_manager(monkeypatch, gm)
-
-        with (
-            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=mr),
-            patch.object(publisher, "_suggest_context_file"),
-            caplog.at_level("WARNING", logger="daiv.tools"),
-        ):
-            outcome = await publisher.publish(merge_request=None)
-
-        assert outcome.published is True
         assert outcome.diff_stats == MergeRequestDiffStats(lines_added=2, lines_removed=1, files_changed=1)
-        assert "Could not read diff stats" in caplog.text
+
+    async def test_never_asks_the_platform_for_the_numbers(self, monkeypatch):
+        """The snapshot diff is the merge-base delta for the branch the MR is built from,
+        so it already is what the MR page shows. Fetching it back costs a full MR-diff
+        download on GitLab, truncates past a size cap, and answers zero while a
+        just-created MR is still being prepared."""
+        publisher = _make_publisher()
+        mr = _make_merge_request()
+        _patch_open_git_manager(monkeypatch, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None)
+
+        publisher.client.get_merge_request_diff_stats.assert_not_called()
 
     async def test_no_changes_reports_no_stats(self, monkeypatch):
         """State 02 — a turn that changed nothing has no numbers to show, and the composer

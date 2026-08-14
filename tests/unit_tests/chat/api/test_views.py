@@ -1108,3 +1108,85 @@ async def test_malformed_mcp_selection_returns_400(client: TestAsyncClient, auth
     )
     assert response.status_code == 400
     await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_selection_covering_the_whole_pool_is_stored_as_null(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """ "Reset" must restore the live promise, not freeze the thread to today's servers:
+    NULL means "all of them, including the ones added after this turn"."""
+    from mcp_servers.models import MCPServer
+
+    _, raw, user = authed
+    await MCPServer.objects.all().adelete()
+    await MCPServer.objects.acreate(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-mcp-reset", user=user, repo_id="a/b", ref="main", mcp_servers=[]
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-reset", forwardedProps={"mcp_servers": ["alpha"]}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    session = await Session.objects.aget(thread_id="t-mcp-reset")
+    assert session.mcp_servers is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_real_narrowing_is_still_stored(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from mcp_servers.models import MCPServer
+
+    _, raw, user = authed
+    await MCPServer.objects.all().adelete()
+    await MCPServer.objects.acreate(name="alpha", transport=MCPServer.Transport.HTTP, url="http://a")
+    await MCPServer.objects.acreate(name="beta", transport=MCPServer.Transport.HTTP, url="http://b")
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-narrow", forwardedProps={"mcp_servers": ["alpha"]}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    session = await Session.objects.aget(thread_id="t-mcp-narrow")
+    assert session.mcp_servers == ["alpha"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer
+):
+    """The stored selection is a memory of what the last turn ran with, so a turn that
+    never ran must not leave one behind."""
+    await Session.objects.all().adelete()
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-mcp-locked",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        mcp_servers=["alpha"],
+        active_run_id="someone-elses-run",
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-mcp-locked", forwardedProps={"mcp_servers": ["beta"]}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 409
+
+    session = await Session.objects.aget(thread_id="t-mcp-locked")
+    assert session.mcp_servers == ["alpha"]
+    await user.adelete()

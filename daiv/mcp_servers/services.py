@@ -43,7 +43,7 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def loadable_servers(user_id: int | None = None) -> list[MCPServer]:
+def loadable_servers(user_id: int | None = None, *, warn_shadowed: bool = False) -> list[MCPServer]:
     """The ``MCPServer`` rows that would load for ``user_id``: every enabled GLOBAL row
     plus that user's enabled USER rows, minus the personal rows a global server of the
     same name shadows (a member must never redirect traffic for a name an admin controls).
@@ -51,6 +51,10 @@ def loadable_servers(user_id: int | None = None) -> list[MCPServer]:
     This is the pool the composer's Tools group lists and the pool a per-thread selection
     narrows — a selection can only take servers *out* of it, never add one back in, so
     ``MCPServer.enabled`` stays the admin's decision alone.
+
+    ``warn_shadowed`` logs each skipped personal row. Only the runtime path sets it: the
+    display path runs on every page render, where the same warning would say nothing new
+    once per navigation and drown the log it is meant to stand out in.
     """
     global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
     user_rows: list[MCPServer] = []
@@ -63,16 +67,23 @@ def loadable_servers(user_id: int | None = None) -> list[MCPServer]:
     kept: list[MCPServer] = []
     for row in [*global_rows, *user_rows]:
         if row.is_shadowed_by(global_names):
-            logger.warning(
-                "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
-                "user-scoped row",
-                row.name,
-                row.pk,
-                row.user_id,
-            )
+            if warn_shadowed:
+                logger.warning(
+                    "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
+                    "user-scoped row",
+                    row.name,
+                    row.pk,
+                    row.user_id,
+                )
             continue
         kept.append(row)
     return kept
+
+
+def loadable_server_names(user_id: int | None = None) -> list[str]:
+    """Just the names from :func:`loadable_servers` — what a stored selection is compared
+    against to tell a real narrowing from "all of them"."""
+    return [str(row.name) for row in loadable_servers(user_id)]
 
 
 def build_runtime_servers(
@@ -94,10 +105,21 @@ def build_runtime_servers(
     does not guard it, so a DB outage surfaces as a failed agent-graph build rather
     than as silently-empty tools.
     """
-    rows = loadable_servers(user_id)
+    rows = loadable_servers(user_id, warn_shadowed=True)
     if names is not None:
         selected = set(names)
         rows = [row for row in rows if row.name in selected]
+        # A stored selection outlives the servers it named: one can be renamed, deleted, or
+        # belong to a different user on a session someone else continued. Silently loading
+        # fewer tools than asked for is indistinguishable from "the user chose none", so say
+        # which names went nowhere.
+        if unknown := sorted(selected - {row.name for row in rows}):
+            logger.warning(
+                "MCP server selection for user_id=%s names %d server(s) it cannot load: %s; running without them",
+                user_id,
+                len(unknown),
+                ", ".join(unknown),
+            )
 
     out: list[tuple[str, UserMcpServer]] = []
     for row in rows:
@@ -333,27 +355,24 @@ def composer_server_rows(user: Any) -> list[dict[str, Any]]:
     Per-tool selection already exists as ``MCPServer.tool_filter_mode``; the composer
     displays its effect (``exposed`` < ``tools``) instead of duplicating the control.
 
-    ``available`` is :func:`server_health`, the network-free check for headers that
-    cannot be decrypted or reference a missing env var. Those servers degrade to zero
-    tools at runtime (``_load_server_tools`` swallows the failure), so the composer
-    greys them out with the reason rather than offering a switch that silently does
-    nothing. They are also left out of the selectable set: a selection naming only
-    healthy servers is the same runtime outcome, minus a connection attempt that was
-    always going to fail.
+    ``available`` is :func:`server_health`, the network-free check for headers that cannot
+    be decrypted or reference a missing env var. Those servers degrade to zero tools at
+    runtime (``_load_server_tools`` swallows the failure), so the composer greys them out
+    rather than offering a switch that silently does nothing. Only the *fact* travels: the
+    health reason names the missing environment variables of global servers, which the
+    admin-gated server list exists to hold, and this payload is read by every member who
+    opens a session page.
     """
     rows: list[dict[str, Any]] = []
     for server in loadable_servers(getattr(user, "pk", None)):
-        health = server_health(server)
         rows.append({
             "name": server.name,
-            "description": server.description,
             "scope": "mine" if server.is_user_scoped else "global",
             "tools": len(server.discovered_tools or []),
             "exposed": len(exposed_tools(server)),
             "filtered": server.tool_filter_mode != MCPServer.FilterMode.NONE,
             "synced": server.tools_synced_at is not None,
-            "available": health["ok"],
-            "reason": health["reason"] or "",
+            "available": server_health(server)["ok"],
         })
     return rows
 
