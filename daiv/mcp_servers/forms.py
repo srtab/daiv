@@ -118,7 +118,7 @@ class MCPServerForm(forms.ModelForm):
 
     class Meta:
         model = MCPServer
-        fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
+        fields = ("name", "description", "transport", "url", "status", "tool_filter_mode")
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
     def __init__(self, *args, user=None, scope=None, **kwargs):

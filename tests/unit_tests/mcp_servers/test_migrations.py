@@ -363,7 +363,7 @@ def test_0004_placeholder_gets_effective_env_url_and_legacy_filter(monkeypatch):
 
     row = MCPServer.objects.get(name="sentry")
     assert row.url == "http://mcp-sentry:8000/mcp"
-    assert row.enabled is True  # preserved
+    assert row.status == "active"  # enabled=True preserved by 0004, backfilled to status by 0009
     assert row.transport == "http"
     assert row.tool_filter_mode == "allow"
     assert "search_issue" in row.tool_filter_items  # legacy stdio name
@@ -382,7 +382,7 @@ def test_0004_none_kill_switch_maps_to_remote_default_disabled(monkeypatch):
 
     row = MCPServer.objects.get(name="sentry")
     assert row.url.startswith("https://mcp.sentry.dev/mcp")
-    assert row.enabled is False
+    assert row.status == "disabled"
     assert "search_issues" in row.tool_filter_items  # hosted-endpoint name
     assert "search_issue" not in row.tool_filter_items
 
@@ -397,7 +397,7 @@ def test_0004_preserves_disabled_flag(monkeypatch):
 
     row = MCPServer.objects.get(name="context7")
     assert row.url == "http://mcp_context7:8000/mcp"
-    assert row.enabled is False
+    assert row.status == "disabled"
 
 
 @pytest.mark.django_db(transaction=True)

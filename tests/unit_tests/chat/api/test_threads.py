@@ -230,3 +230,17 @@ def test_extract_last_user_message_id_missing_id_coerced_to_empty():
     # A human message without an id (client didn't set one) → "" not the string "None".
     input_data = SimpleNamespace(messages=[SimpleNamespace(role="user", content="hi")])
     assert _extract_last_user_message_id(input_data) == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_session_stamps_mcp_overrides(member_user):
+    session, created = await ChatSessionService.get_or_create_for_user(
+        user=member_user,
+        thread_id="t-mcp-ov",
+        repo_id="g/r",
+        ref="main",
+        input_data=_fake_input(["hello"]),
+        mcp_overrides={"x": "on"},
+    )
+    assert created is True
+    assert session.mcp_overrides == {"x": "on"}

@@ -5,6 +5,8 @@ import time
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
+from asgiref.sync import sync_to_async
+from mcp_servers.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
@@ -183,6 +185,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except AgentOverrideError as err:
         raise HttpError(400, str(err)) from err
 
+    # Absent key = "no override supplied" (never diverges); present = diff against the owner's pool.
+    raw_selection = forwarded.get("mcp_servers")
+    submitted_overrides = None
+    if raw_selection is not None:
+        try:
+            names = parse_server_names(raw_selection)
+        except ValueError as err:
+            raise HttpError(400, str(err)) from err
+        pool = await sync_to_async(build_selection_pool)(user.pk)
+        submitted_overrides = diff_selection(set(names), pool)
+
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
         env_obj = await resolve_env_for_user(user, env_header)
@@ -207,6 +220,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment=env_obj,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
+        mcp_overrides=submitted_overrides or {},
     )
     # Ownership: an existing session must be visible to the caller. A webhook-origin
     # session (user=None) is visible to anyone who can see it, so "continue as chat"
@@ -253,6 +267,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             " from forwarded_props or start a new thread to change it.",
         )
 
+    # MCP selection is pinned at creation; an omitted payload (submitted_overrides is None)
+    # never diverges. A divergent submitted selection is rejected rather than run silently.
+    # Both sides are pool-relative diffs: if an admin flips a server's status between turns,
+    # an unchanged visual selection produces a different diff, triggering this guard.
+    if not created and submitted_overrides is not None and submitted_overrides != session.mcp_overrides:
+        raise HttpError(
+            409,
+            "MCP server selection is pinned for this thread; remove mcp_servers from forwarded_props "
+            "or start a new thread to change it.",
+        )
+
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
@@ -277,6 +302,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
+        mcp_overrides=session.mcp_overrides,
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

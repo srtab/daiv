@@ -16,10 +16,10 @@ logger = logging.getLogger("daiv.mcp_servers")
 
 def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
     """Ensure each built-in seed has a DB row, creating missing ones with the
-    full seed defaults (URL, description, tool filter, enabled state).
+    full seed defaults (URL, description, tool filter, status).
 
     Existing rows are never touched — the row is the source of truth once it
-    exists (preserves admin edits and the enabled flag). The initial lookup
+    exists (preserves admin edits and the status). The initial lookup
     guards against a missing/partially-migrated table (e.g. tests, a fresh DB)
     so the upsert is a no-op rather than an error in that state.
     """
@@ -54,7 +54,7 @@ def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
                     url=seed.url,
                     tool_filter_mode=seed.tool_filter_mode,
                     tool_filter_items=list(seed.tool_filter_items),
-                    enabled=seed.enabled,
+                    status=seed.status,
                 )
         except IntegrityError:
             logger.exception("Failed to upsert built-in MCP server row %r", seed.name)

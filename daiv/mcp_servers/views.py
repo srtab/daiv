@@ -4,7 +4,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -33,7 +33,7 @@ def _decorate(servers, *, global_names=frozenset()):
     the owner it does not load — a condition the create-time guard can't catch when
     the global is added *after* the personal server."""
     for s in servers:
-        s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
+        s.health = services.server_health(s) if s.is_loadable else {"ok": True, "reason": None}
         s.exposed = services.exposed_tools(s)
         s.filtered_out = (
             len(s.discovered_tools) - len(s.exposed) if s.tool_filter_mode != MCPServer.FilterMode.NONE else 0
@@ -102,7 +102,10 @@ class MCPServerListView(LoginRequiredMixin, FilterView):
         # Fetch every global row once; the read-only section shows them all and
         # the name set drives shadow detection on the personal rows.
         global_rows = list(MCPServer.objects.global_servers())
-        _decorate(ctx["your_servers"], global_names={s.name for s in global_rows})
+        # Shadow detection mirrors deduped_pool_rows: only a non-disabled global shadows a
+        # user row, so a disabled global must not badge one that actually still loads.
+        shadowing_names = {s.name for s in global_rows if s.is_loadable}
+        _decorate(ctx["your_servers"], global_names=shadowing_names)
         ctx["global_servers"] = _decorate(global_rows)
         form = ctx["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
@@ -301,13 +304,16 @@ class MCPServerDeleteView(LoginRequiredMixin, View):
         return redirect(url)
 
 
-class MCPServerToggleView(LoginRequiredMixin, View):
+class MCPServerStatusView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
         obj = MCPServer.objects.manageable_get(request.user, pk)
-        obj.enabled = not obj.enabled
-        obj.save(update_fields=["enabled", "modified"])
+        status = request.POST.get("status")
+        if status not in MCPServer.Status.values:
+            return HttpResponseBadRequest("invalid status")
+        obj.status = status
+        obj.save(update_fields=["status", "modified"])
         return redirect(_list_url_for(obj))
 
 

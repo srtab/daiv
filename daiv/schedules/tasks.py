@@ -87,6 +87,7 @@ def dispatch_scheduled_jobs_cron_task():
                         notify_on=None,
                         trigger_type=SessionOrigin.SCHEDULE,
                         scheduled_job=schedule,
+                        mcp_overrides=schedule.mcp_overrides,
                     )
                     schedule.last_run_at = now
                     schedule.last_run_batch_id = result.batch_id
