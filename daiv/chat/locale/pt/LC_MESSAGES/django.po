@@ -42,72 +42,68 @@ msgstr "Enviar"
 msgid "DAIV can make mistakes. Verify important information."
 msgstr "O DAIV pode cometer erros. Verifique informações importantes."
 
-#, fuzzy
-#| msgid "Session context"
 msgid "Session options"
-msgstr "Contexto da sessão"
+msgstr "Opções da sessão"
 
 msgid "MCP server selection differs from the default"
-msgstr ""
+msgstr "A seleção de servidores MCP difere da predefinição"
 
 msgid "Options"
-msgstr ""
+msgstr "Opções"
 
 msgid "Close"
-msgstr ""
+msgstr "Fechar"
 
 msgid "Environment"
-msgstr ""
+msgstr "Ambiente"
 
 msgid "Tools"
-msgstr ""
+msgstr "Ferramentas"
 
 msgid "MCP servers"
-msgstr ""
+msgstr "Servidores MCP"
 
 msgid "on"
-msgstr ""
+msgstr "ativos"
 
 msgid "available"
-msgstr ""
+msgstr "disponíveis"
 
 msgid "Filter servers…"
-msgstr ""
+msgstr "Filtrar servidores…"
 
 msgid "Filter servers by name"
-msgstr ""
+msgstr "Filtrar servidores por nome"
 
 msgid "none"
-msgstr ""
+msgstr "nenhum"
 
 msgid "reset"
-msgstr ""
+msgstr "repor"
 
 msgid "needs authorization — unavailable this run"
-msgstr ""
+msgstr "necessita de autorização — indisponível nesta execução"
 
 msgid "No servers match"
-msgstr ""
+msgstr "Nenhum servidor corresponde"
 
-#, fuzzy
-#| msgid "Session context"
 msgid "Session progress"
-msgstr "Contexto da sessão"
+msgstr "Progresso da sessão"
 
 msgid "Progress"
-msgstr ""
+msgstr "Progresso"
 
 msgid "Todos"
 msgstr "Tarefas"
 
 msgid "Nothing planned yet."
-msgstr ""
+msgstr "Ainda não há nada planeado."
 
 msgid "Files changed"
 msgstr "Ficheiros alterados"
 
 msgid "No files touched yet."
-msgstr ""
+msgstr "Ainda não foi alterado nenhum ficheiro."
 
 msgid "Show all"
 msgstr "Mostrar tudo"

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 13:25+0000\n"
+"POT-Creation-Date: 2026-08-14 22:29+0000\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -31,6 +31,9 @@ msgstr "Últimos 30 dias"
 
 msgid "Malformed repository list."
 msgstr "Lista de repositórios inválida."
+
+msgid "Malformed MCP selection."
+msgstr "Seleção de MCP inválida."
 
 msgid "Prompt"
 msgstr "Prompt"
@@ -134,6 +137,9 @@ msgstr "modelo do agente"
 msgid "agent thinking level"
 msgstr "nível de raciocínio do agente"
 
+msgid "MCP overrides"
+msgstr "substituições de MCP"
+
 msgid "sandbox environment"
 msgstr "ambiente sandbox"
 
@@ -145,9 +151,6 @@ msgstr "IID da issue"
 
 msgid "merge request IID"
 msgstr "IID do merge request"
-
-msgid "MCP servers"
-msgstr ""
 
 msgid "created at"
 msgstr "criado em"
@@ -336,25 +339,28 @@ msgid "Show less"
 msgstr "Mostrar menos"
 
 msgid "file"
-msgstr ""
+msgstr "ficheiro"
 
 msgid "files"
-msgstr ""
+msgstr "ficheiros"
 
 msgid "stopped"
-msgstr ""
+msgstr "parada"
 
 msgid "tool"
-msgstr ""
+msgstr "ferramenta"
 
 msgid "tools"
-msgstr ""
+msgstr "ferramentas"
 
 msgid "filtered to"
-msgstr ""
+msgstr "filtrado para"
 
 msgid "not synced yet"
-msgstr ""
+msgstr "ainda não sincronizado"
+
+msgid "MCP servers"
+msgstr "servidores MCP"
 
 msgid "This session's state has expired. Start a new session to continue."
 msgstr "O estado desta sessão expirou. Inicie uma nova sessão para continuar."

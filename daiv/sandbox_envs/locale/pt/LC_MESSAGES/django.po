@@ -268,10 +268,8 @@ msgstr "Automático"
 msgid "Search environments…"
 msgstr "Procurar ambientes…"
 
-#, fuzzy
-#| msgid "Search environments…"
 msgid "Search environments"
-msgstr "Procurar ambientes…"
+msgstr "Procurar ambientes"
 
 msgid "Resolved at runtime from the selected repo."
 msgstr "Resolvido em tempo de execução a partir do repositório selecionado."

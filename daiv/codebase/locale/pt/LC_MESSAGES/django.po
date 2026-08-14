@@ -27,10 +27,10 @@ msgid "GitHub"
 msgstr "GitHub"
 
 msgid "Read"
-msgstr ""
+msgstr "Leitura"
 
 msgid "Write"
-msgstr ""
+msgstr "Escrita"
 
 msgid "repository ID"
 msgstr "ID do repositório"
@@ -87,81 +87,67 @@ msgid "Merge Metrics"
 msgstr "Métricas de Merge"
 
 msgid "provider"
-msgstr ""
+msgstr "fornecedor"
 
-#, fuzzy
-#| msgid "platform"
 msgid "platform user ID"
-msgstr "plataforma"
+msgstr "ID do utilizador na plataforma"
 
-#, fuzzy
-#| msgid "platform"
 msgid "platform username"
-msgstr "plataforma"
+msgstr "nome de utilizador na plataforma"
 
 msgid "access level"
-msgstr ""
+msgstr "nível de acesso"
 
 msgid "synced at"
-msgstr ""
+msgstr "sincronizado em"
 
-#, fuzzy
-#| msgid "repository ID"
 msgid "Repository Access"
-msgstr "ID do repositório"
+msgstr "Acesso a Repositório"
 
-#, fuzzy
-#| msgid "repository ID"
 msgid "Repository Accesses"
-msgstr "ID do repositório"
+msgstr "Acessos a Repositórios"
 
 msgid "Never synced"
-msgstr ""
+msgstr "Nunca sincronizado"
 
 msgid "OK"
-msgstr ""
+msgstr "OK"
 
 msgid "Failed"
-msgstr ""
+msgstr "Falhou"
 
 msgid "last started at"
-msgstr ""
+msgstr "último início em"
 
 msgid "last success at"
-msgstr ""
+msgstr "último sucesso em"
 
 msgid "status"
-msgstr ""
+msgstr "estado"
 
 msgid "Repository Access Sync State"
-msgstr ""
+msgstr "Estado de Sincronização de Acessos a Repositórios"
 
 msgid "Repository Access Sync States"
-msgstr ""
+msgstr "Estados de Sincronização de Acessos a Repositórios"
 
-#, fuzzy
-#| msgid "repository ID"
 msgid "repository slug"
-msgstr "ID do repositório"
+msgstr "slug do repositório"
 
 msgid "name"
-msgstr ""
+msgstr "nome"
 
-#, fuzzy
-#| msgid "target branch"
 msgid "default branch"
-msgstr "branch de destino"
+msgstr "branch predefinido"
 
 msgid "HTML URL"
-msgstr ""
+msgstr "URL HTML"
 
 msgid "topics"
-msgstr ""
+msgstr "tópicos"
 
-#, fuzzy
-#| msgid "repository ID"
 msgid "Repository Catalog"
-msgstr "ID do repositório"
+msgstr "Catálogo de Repositórios"
 
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
@@ -184,10 +170,8 @@ msgstr "predefinição"
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
-#, fuzzy
-#| msgid "Add repository"
 msgid "Pick a repository"
-msgstr "Adicionar repositório"
+msgstr "Selecionar um repositório"
 
 msgid "Add repository"
 msgstr "Adicionar repositório"
