@@ -15,6 +15,12 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
           aria-haspopup="dialog"
           title="{% translate 'Session progress' %}">
     <span class="composer-trigger__live" x-show="progressPill && progressPill.live" x-cloak aria-hidden="true"></span>
+    <template x-if="progressPill && progressPill.diff">
+      <span class="diff-stat">
+        <span class="diff-stat__plus" x-text="`+${progressPill.diff.added}`"></span>
+        <span class="diff-stat__minus" x-text="`−${progressPill.diff.removed}`"></span>
+      </span>
+    </template>
     <span x-text="progressPill ? progressPill.label : ''"></span>
   </button>
 
@@ -49,6 +55,14 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
         <h3 class="composer-sheet__label">
           {% translate "Files changed" %}
           <span x-show="filesTouched.length" x-text="`· ${filesTouched.length}`"></span>
+          {# Whole-run totals from the publisher. There is no per-file breakdown to show
+             beside each row: the diff is measured once, not file by file. #}
+          <template x-if="diffStats">
+            <span class="diff-stat">·
+              <span class="diff-stat__plus" x-text="`+${diffStats.added}`"></span>
+              <span class="diff-stat__minus" x-text="`−${diffStats.removed}`"></span>
+            </span>
+          </template>
         </h3>
         <p class="composer-sheet__empty" x-show="!filesTouched.length">{% translate "No files touched yet." %}</p>
         <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">

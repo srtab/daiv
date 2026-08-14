@@ -117,21 +117,31 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  color: #e2e8f0;
+  color: #cbd5e1;
 }
 
+/* The mark carries the state colour; the row text only changes weight of attention —
+   dimmed once done, brightened while active. A ✓ needs no strike-through beside it. */
 .chat-todo__icon {
   display: inline-block;
-  width: 12px;
-  color: inherit;
+  flex: 0 0 12px;
+  text-align: center;
+  color: #64748b;
 }
 
 .chat-todo--completed {
-  color: #64748b;
-  text-decoration: line-through;
+  color: #646c88;
+}
+
+.chat-todo--completed .chat-todo__icon {
+  color: #34d399;
 }
 
 .chat-todo--in_progress {
+  color: #fff;
+}
+
+.chat-todo--in_progress .chat-todo__icon {
   color: #fbbf24;
 }
 

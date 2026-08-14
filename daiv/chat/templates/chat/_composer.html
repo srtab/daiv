@@ -79,7 +79,10 @@ above it — same markup, only the container differs (see ``.composer-sheet`` in
               placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 
-    <div class="chat-composer__actions">
+    {# ``--crowded`` is what makes the effort word yield first: it drops only when a
+       progress pill is actually sharing the row, not at every phone width. #}
+    <div class="chat-composer__actions"
+         :class="{ 'chat-composer__actions--crowded': progressPill }">
       <div class="chat-composer__tools">
         {% include "chat/_options_sheet.html" %}
         {% include "chat/_progress_sheet.html" %}

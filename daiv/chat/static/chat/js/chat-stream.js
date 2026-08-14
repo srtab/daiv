@@ -694,9 +694,11 @@
           ? { tone: "warn", live: false, label: [this._labels.stopped, ...parts].join(" · ") }
           : null;
       }
+      // ``diff`` rather than a joined label: added and removed are tinted separately,
+      // the way they are everywhere else a diff is reported.
       const stats = this.diffStats;
       if (stats && (stats.added || stats.removed)) {
-        return { tone: "idle", live: false, label: `+${stats.added} −${stats.removed}` };
+        return { tone: "idle", live: false, label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", live: false, label: parts.join(" · ") } : null;
     },
@@ -826,20 +828,22 @@
       return `Thought for ${formatElapsed(s)}`;
     },
 
+    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {
-        case "added": return "+";
-        case "deleted": return "−";
-        case "renamed": return "→";
-        default: return "~";
+        case "added": return "A";
+        case "deleted": return "D";
+        case "renamed": return "R";
+        default: return "M";
       }
     },
 
     todoIcon(status) {
       const s = (status || "pending").toLowerCase();
-      if (s === "completed") return "☑";
-      if (s === "in_progress") return "◐";
-      return "☐";
+      if (s === "completed") return "✓";
+      if (s === "in_progress") return "▸";
+      return "·";
     },
 
     // ---------- User actions ------------------------------------------

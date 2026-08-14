@@ -1626,12 +1626,16 @@ main:has(.chat-shell) {
     color: #fcd34d;
   }
 
-  @media (max-width: 460px) {
-    .model-label__effort {
+  /* The effort word yields before the model name does, but only once the row is genuinely
+     tight: a progress pill sharing it on the narrowest phones. A 390px phone has room for
+     `glm-5.2 high` even beside a pill, and dropping it there would cost the reader the
+     effort for no gain. Past this the name is what truncates. */
+  @media (max-width: 380px) {
+    .chat-composer__actions--crowded .model-label__effort {
       display: none;
     }
 
-    .model-label__name {
+    .chat-composer__actions--crowded .model-label__name {
       max-width: 14ch;
     }
   }
@@ -1962,11 +1966,22 @@ main:has(.chat-shell) {
   }
 
   .composer-sheet__file-op {
-    flex: 0 0 10px;
+    flex: 0 0 12px;
     text-align: center;
     font-weight: 600;
     color: #64748b;
   }
+
+  /* Added / removed line counts, tinted the same everywhere they appear. */
+  .diff-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diff-stat__plus { color: #34d399; }
+  .diff-stat__minus { color: #fca5a5; }
 
   .composer-sheet__file-path {
     flex: 1 1 auto;
