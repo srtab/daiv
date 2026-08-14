@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from codebase.base import Discussion, Note, NoteableType, Scope, User
 from codebase.utils import (
     compute_thread_id,
+    diff_line_stats,
     discussion_has_daiv_mentions,
     note_mentions_daiv,
     notes_to_messages,
@@ -389,3 +390,35 @@ class TestRedactDiffContent:
         assert "django.po" in result
         # The degrade must be loud: a dropped/downgraded warning would let unredacted diffs pass silently.
         assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+class TestDiffLineStats:
+    """The arithmetic behind the composer's ``+x −y`` pill."""
+
+    def test_counts_content_lines_and_files(self):
+        diff = (
+            "diff --git a/a.py b/a.py\n"
+            "--- a/a.py\n"
+            "+++ b/a.py\n"
+            "@@ -1,2 +1,3 @@\n"
+            " context\n"
+            "+added one\n"
+            "+added two\n"
+            "-removed one\n"
+            "diff --git a/b.py b/b.py\n"
+            "--- a/b.py\n"
+            "+++ b/b.py\n"
+            "+added three\n"
+        )
+        stats = diff_line_stats(diff)
+        assert (stats.lines_added, stats.lines_removed, stats.files_changed) == (3, 1, 2)
+
+    def test_file_headers_are_not_content(self):
+        """``+++``/``---`` open every file section; counting them would inflate every diff
+        by two lines per file."""
+        stats = diff_line_stats("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n")
+        assert (stats.lines_added, stats.lines_removed) == (0, 0)
+
+    def test_empty_diff_is_all_zeros(self):
+        stats = diff_line_stats("")
+        assert (stats.lines_added, stats.lines_removed, stats.files_changed) == (0, 0, 0)

@@ -30,13 +30,13 @@ def _create_session(user, **kwargs) -> Session:
 
 
 def _render_new_chat(client) -> str:
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, None))):
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, None, None))):
         return client.get(reverse("session_new_chat")).content.decode()
 
 
 def _render_thread(client, session: Session) -> str:
     with (
-        patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, None))),
+        patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, None, None))),
         patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()

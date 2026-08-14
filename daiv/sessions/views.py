@@ -280,13 +280,14 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
                 "merge_request": None,
+                "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
             })
             return ctx
 
-        messages_history, expired, merge_request = async_to_sync(ahydrate_thread)(session.thread_id)
+        messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
@@ -312,6 +313,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = no_state and not ctx["turns"]
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
+        ctx["diff_stats"] = diff_stats
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a

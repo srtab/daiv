@@ -75,7 +75,7 @@ async def finalize_chat_run(
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
 # chat client through STATE_SNAPSHOT events.
-STREAMED_STATE_KEYS = ("merge_request",)
+STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0

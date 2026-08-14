@@ -100,6 +100,36 @@ class TestGitMiddleware:
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] is None
 
+    async def test_aafter_agent_surfaces_diff_stats_as_a_plain_dict(self):
+        """``diff_stats`` streams to the chat composer through the same STATE_SNAPSHOT the MR
+        rides on, so it is dumped to plain ints rather than checkpointed as a model."""
+        from codebase.base import MergeRequestDiffStats
+
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(
+                    merge_request=_mr(),
+                    published=True,
+                    diff_stats=MergeRequestDiffStats(lines_added=182, lines_removed=41, files_changed=6),
+                )
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result["diff_stats"] == {"lines_added": 182, "lines_removed": 41, "files_changed": 6}
+
+    async def test_aafter_agent_omits_diff_stats_when_there_are_none(self):
+        """A turn that published nothing leaves the key out entirely, so the composer keeps
+        showing counts instead of a stale line total."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert "diff_stats" not in result
+
     async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
         """A no-op outcome (no MR at all) returns None — nothing to surface in state."""
         mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())

@@ -9,14 +9,18 @@ from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
+import httpx
+import requests
 from asgiref.sync import sync_to_async
+from github import GithubException
+from gitlab.exceptions import GitlabError
 
 from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
-from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.utils import redact_diff_content
+from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -29,6 +33,16 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.tools")
+
+# Platform / transport failures that make the merge request's own diff stats unreadable.
+# The pill degrades to the locally-computed numbers rather than failing the publish.
+# Mirrors ``GitMiddleware._MR_LOOKUP_PLATFORM_ERRORS``: bugs propagate.
+_DIFF_STATS_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (
+    GitlabError,
+    GithubException,
+    httpx.HTTPError,
+    requests.RequestException,
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +59,10 @@ class PublishOutcome:
     merge_request: MergeRequest | None
     published: bool
     protected_branch_fallback_source: str | None = None
+    diff_stats: MergeRequestDiffStats | None = None
+    """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
+    pill. ``None`` when there was nothing to measure. Read from the merge request itself
+    whenever one exists, so the pill and the MR page cannot disagree."""
 
 
 class ChangePublisher:
@@ -117,7 +135,11 @@ class GitChangePublisher(ChangePublisher):
                     return PublishOutcome(merge_request=None, published=False)
                 if merge_request is not None and not snapshot.has_unpushed:
                     logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-                    return PublishOutcome(merge_request=merge_request, published=False)
+                    return PublishOutcome(
+                        merge_request=merge_request,
+                        published=False,
+                        diff_stats=await self._adiff_stats(snapshot.diff, merge_request),
+                    )
 
             fallback_from_mr: MergeRequest | None = None
             if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -199,6 +221,7 @@ class GitChangePublisher(ChangePublisher):
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    diff_stats=diff_line_stats(snapshot.diff),
                 )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
@@ -225,7 +248,31 @@ class GitChangePublisher(ChangePublisher):
             merge_request=merge_request,
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
+            diff_stats=await self._adiff_stats(snapshot.diff, merge_request),
         )
+
+    async def _adiff_stats(self, diff: str, merge_request: MergeRequest | None) -> MergeRequestDiffStats:
+        """Lines added/removed and files touched by the run's work.
+
+        Prefers the merge request's own numbers so the composer's ``+x −y`` pill can never
+        disagree with the MR page a click away. Falls back to counting the working-tree
+        diff — the only source before an MR exists, and the safe degrade when the platform
+        lookup fails (a status pill must never cost the run its published work).
+        """
+        local = diff_line_stats(diff)
+        if merge_request is None:
+            return local
+        try:
+            return await sync_to_async(self.client.get_merge_request_diff_stats)(
+                self.ctx.repository.slug, merge_request.merge_request_id
+            )
+        except _DIFF_STATS_PLATFORM_ERRORS:
+            logger.warning(
+                "Could not read diff stats for MR !%s; reporting the locally-computed ones instead.",
+                merge_request.merge_request_id,
+                exc_info=True,
+            )
+            return local
 
     async def _refresh_sandbox_egress(self) -> None:
         """Re-mint the git-platform token and deliver it onto the live sandbox session, so the

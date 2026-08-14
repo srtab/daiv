@@ -64,6 +64,19 @@
     return v && typeof v === "object" ? v : null;
   };
 
+  // ``{lines_added, lines_removed, files_changed}`` as the publisher measured it — never
+  // summed client-side from edit tool calls, which double-counts repeat edits and scores
+  // bash-driven changes as zero.
+  const normalizeDiffStats = (raw) => {
+    if (!raw || typeof raw !== "object") return null;
+    const added = Number(raw.lines_added);
+    const removed = Number(raw.lines_removed);
+    if (!Number.isFinite(added) || !Number.isFinite(removed)) return null;
+    return { added, removed };
+  };
+
+  const loadInitialDiffStats = () => normalizeDiffStats(loadJSONScript("chat-initial-diff-stats", null));
+
   // Tools whose args directly name a file the agent *modified*. Read-only tools
   // (read_file, grep, glob, ls) and search patterns don't qualify — they're
   // noise in the "files touched" rail. Bash-driven mutations (rm, mv, scripts,
@@ -184,6 +197,9 @@
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
+    // Server-measured diff for the work published so far, refreshed by every
+    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    diffStats: loadInitialDiffStats(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
@@ -671,10 +687,16 @@
       if (this.streaming || this.resuming) {
         return parts.length ? { tone: "live", live: true, label: parts.join(" · ") } : null;
       }
+      // A cancelled turn can leave work uncommitted for good, so counts stay the only
+      // truth there — a line total would describe something that was never published.
       if (this._lastRunAborted()) {
         return parts.length
           ? { tone: "warn", live: false, label: [this._labels.stopped, ...parts].join(" · ") }
           : null;
+      }
+      const stats = this.diffStats;
+      if (stats && (stats.added || stats.removed)) {
+        return { tone: "idle", live: false, label: `+${stats.added} −${stats.removed}` };
       }
       return parts.length ? { tone: "idle", live: false, label: parts.join(" · ") } : null;
     },
@@ -1137,6 +1159,10 @@
         // unchanged merge_request. Dedupe on identity so we don't churn
         // Alpine reactivity (and the publish-phase chip sweep) per node.
         const snap = evt.snapshot || {};
+        if ("diff_stats" in snap) {
+          const stats = normalizeDiffStats(snap.diff_stats);
+          if (stats) this.diffStats = stats;
+        }
         if ("merge_request" in snap) {
           const raw = snap.merge_request;
           const key = raw ? `${raw.merge_request_id}:${raw.source_branch}:${raw.draft}` : "null";

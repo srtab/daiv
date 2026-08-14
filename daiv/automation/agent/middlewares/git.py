@@ -95,6 +95,15 @@ class GitState(AgentState):
     Whether the agent produced code changes that were published to the repository.
     """
 
+    diff_stats: NotRequired[dict[str, int]]
+    """
+    ``{"lines_added", "lines_removed", "files_changed"}`` for the work published so far.
+    Public on the output schema like ``merge_request``, so the chat composer's ``+x −y``
+    pill updates from the same ``STATE_SNAPSHOT`` that carries the MR. A plain dict rather
+    than the pydantic model: three ints have nothing to gain from an ``lc:2`` envelope
+    round-trip through the checkpointer.
+    """
+
     protected_branch_fallback_source: Annotated[str | None, PrivateStateAttr]
     """
     Source branch of the original MR when the publisher fell back to a fresh MR
@@ -411,6 +420,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
         outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
+
+        if outcome.diff_stats is not None:
+            update["diff_stats"] = outcome.diff_stats.model_dump()
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

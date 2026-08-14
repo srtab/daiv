@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from git import Repo
     from langchain_core.messages import AnyMessage
 
-    from codebase.base import Discussion, Note, Scope, User
+    from codebase.base import Discussion, MergeRequestDiffStats, Note, Scope, User
 
 logger = logging.getLogger("daiv.codebase")
 
@@ -108,6 +108,34 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
         else:
             messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
     return messages
+
+
+def diff_line_stats(diff: str) -> MergeRequestDiffStats:
+    """Count added/removed lines and touched files in a unified diff.
+
+    The same arithmetic ``git diff --numstat`` does: ``+``/``-`` lines are content,
+    ``+++``/``---`` are file headers, and each ``diff --git`` line opens a new file. Kept
+    as a plain scan rather than a ``unidiff`` parse so it cannot raise on a truncated diff
+    — it feeds a status pill, and a parse error must never abort a publish.
+
+    Used for the composer's ``+x −y`` pill before a merge request exists; once one does,
+    :meth:`RepoClient.get_merge_request_diff_stats` is authoritative so the pill and the
+    MR page cannot disagree.
+    """
+    from codebase.base import MergeRequestDiffStats
+
+    added = removed = 0
+    files: set[str] = set()
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            files.add(line)
+        elif line.startswith(("+++", "---")):
+            continue
+        elif line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return MergeRequestDiffStats(lines_added=added, lines_removed=removed, files_changed=len(files))
 
 
 def redact_diff_content(diff: str, omit_content_patterns: tuple[str, ...]) -> str:
