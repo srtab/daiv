@@ -536,3 +536,46 @@ def test_edit_form_get_does_not_leak_egress_secret(client):
     body = resp.content.decode()
     assert "sk-TOPSECRET" not in body  # plaintext value never rendered
     assert "api.openai.com" in body  # the host itself is fine to show
+
+
+# ---------------------------------------------------------------------------
+# _env_picker.html rendering variants
+# ---------------------------------------------------------------------------
+
+
+def _render_picker(**ctx) -> str:
+    from django.template.loader import render_to_string
+
+    return render_to_string("sandbox_envs/_env_picker.html", {"envs": [], "selected_id": "", **ctx})
+
+
+@pytest.mark.django_db
+def test_picker_defaults_to_the_pill_and_popover():
+    """The Run form shares this partial as a labeled field; its pill must not change."""
+    html = _render_picker()
+
+    assert "env-pill" in html
+    assert "picker-popover" in html
+    assert "sheet-disclosure" not in html
+
+
+@pytest.mark.django_db
+def test_sheet_variant_expands_in_place_instead_of_floating():
+    """Inside the composer's options sheet a popover has nowhere to go — the sheet sits
+    flush with the viewport bottom — so the sheet variant uses the same disclosure +
+    contained-scroll list the Tools group does."""
+    html = _render_picker(variant="sheet")
+
+    assert "sheet-disclosure" in html
+    assert "sheet-panel__scroll" in html
+    assert "picker-popover__search" in html  # the search input's styling is still shared
+    assert "picker-popover left-0" not in html  # ...but nothing floats
+
+
+@pytest.mark.django_db
+def test_locked_sheet_variant_states_the_env_rather_than_offering_it():
+    html = _render_picker(variant="sheet", disabled=True)
+
+    assert "sheet-disclosure--locked" in html
+    assert 'aria-disabled="true"' in html
+    assert "sheet-panel" not in html

@@ -1773,12 +1773,10 @@ main:has(.chat-shell) {
   }
 
   /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
-     upward — `.picker-popover` anchors `top-full` by default. That includes the env
-     picker inside the options sheet: opening downward from a sheet that is itself flush
-     with the viewport bottom puts the list off-screen, and the sheet deliberately has no
-     `overflow` to scroll it back into reach. */
+     upward — `.picker-popover` anchors `top-full` by default. (Sheet contents don't need
+     this: they expand in place rather than floating, precisely because a sheet flush with
+     the viewport bottom has nowhere below it to open into.) */
   .chat-context .picker-popover,
-  .composer-sheet .picker-popover,
   .chat-composer__buttons .picker-popover {
     top: auto;
     bottom: 100%;
@@ -1916,10 +1914,11 @@ main:has(.chat-shell) {
     padding: 0 14px 16px;
   }
 
-  /* Only the progress sheet scrolls as a whole — the options sheet hosts popovers
-     (the env picker) that an `overflow` ancestor would clip, and gives its one long
-     list a contained scroll of its own instead. */
-  .composer-sheet--progress .composer-sheet__body {
+  /* Safe now that no sheet hosts a floating popover: every list inside one expands in
+     place, so an `overflow` ancestor has nothing left to clip. The per-list contained
+     scrolls still bound the common case; this bounds the sheet itself when several are
+     open at once or the viewport is short. */
+  .composer-sheet__body {
     max-height: min(60vh, 460px);
     overflow-y: auto;
   }
@@ -2014,10 +2013,13 @@ main:has(.chat-shell) {
     color: #cbd5e1;
   }
 
-  /* Tools group. One row per MCP server, collapsed behind a disclosure so the sheet's
-     height never tracks how many servers exist. */
+  /* Sheet groups that hold a list: a disclosure row carrying the current selection,
+     expanding in place into a searchable, contained-scroll list. Shared by Environment
+     (single-select) and Tools (multi-select) so the sheet reads as one surface — and so
+     neither has to escape it as a floating popover, which a sheet flush with the viewport
+     bottom has nowhere to open into. */
 
-  .mcp-disclosure {
+  .sheet-disclosure {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2033,17 +2035,28 @@ main:has(.chat-shell) {
     transition: background-color 0.15s ease, border-color 0.15s ease;
   }
 
-  .mcp-disclosure:hover {
+  .sheet-disclosure:hover {
     background: rgba(255, 255, 255, 0.06);
   }
 
-  .mcp-disclosure:focus-visible {
+  .sheet-disclosure:focus-visible {
     outline: 2px solid rgba(180, 195, 230, 0.5);
     outline-offset: 2px;
   }
 
+  /* Locked (the env, once a thread pins it): same row, stated as a fact rather than a
+     control — no chevron, no hover, a lock where the chevron would be. */
+  .sheet-disclosure--locked {
+    cursor: default;
+    opacity: 0.75;
+  }
+
+  .sheet-disclosure--locked:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
   /* Open: accent tint, and square off the bottom so trigger + list read as one control. */
-  .mcp-disclosure--open {
+  .sheet-disclosure--open {
     border-color: rgba(167, 139, 250, 0.3);
     background: rgba(167, 139, 250, 0.1);
     color: #ddd6fe;
@@ -2052,7 +2065,7 @@ main:has(.chat-shell) {
     border-bottom-right-radius: 0;
   }
 
-  .mcp-disclosure__title {
+  .sheet-disclosure__title {
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -2060,7 +2073,7 @@ main:has(.chat-shell) {
     white-space: nowrap;
   }
 
-  .mcp-disclosure__count {
+  .sheet-disclosure__count {
     margin-left: auto;
     font-size: 12px;
     font-variant-numeric: tabular-nums;
@@ -2068,19 +2081,19 @@ main:has(.chat-shell) {
     white-space: nowrap;
   }
 
-  .mcp-disclosure__sep {
+  .sheet-disclosure__sep {
     color: #475569;
   }
 
-  .mcp-disclosure__chev {
+  .sheet-disclosure__chev {
     transition: transform 0.15s ease;
   }
 
-  .mcp-disclosure--open .mcp-disclosure__chev {
+  .sheet-disclosure--open .sheet-disclosure__chev {
     transform: rotate(180deg);
   }
 
-  .mcp-panel {
+  .sheet-panel {
     border: 1px solid rgba(167, 139, 250, 0.3);
     border-top: none;
     border-radius: 0 0 10px 10px;
@@ -2088,13 +2101,13 @@ main:has(.chat-shell) {
     padding: 8px;
   }
 
-  .mcp-panel__bar {
+  .sheet-panel__bar {
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
-  .mcp-panel__search {
+  .sheet-panel__search {
     flex: 1 1 auto;
     min-width: 0;
     padding-top: 4px !important;
@@ -2102,7 +2115,7 @@ main:has(.chat-shell) {
     font-size: 12.5px !important;
   }
 
-  .mcp-panel__bulk {
+  .sheet-panel__bulk {
     flex: 0 0 auto;
     padding: 4px 8px;
     border-radius: 8px;
@@ -2112,38 +2125,40 @@ main:has(.chat-shell) {
     cursor: pointer;
   }
 
-  .mcp-panel__bulk:hover {
+  .sheet-panel__bulk:hover {
     background: rgba(255, 255, 255, 0.06);
     color: #e2e8f0;
   }
 
   /* Contained scroll: the groups above the Tools list stay reachable no matter how many
      servers there are. */
-  .mcp-panel__scroll {
+  .sheet-panel__scroll {
     margin-top: 6px;
     max-height: 150px;
     overflow-y: auto;
   }
 
-  .mcp-row {
+  .sheet-row {
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    width: 100%;
     padding: 5px 4px;
     border-radius: 6px;
+    text-align: left;
     cursor: pointer;
   }
 
-  .mcp-row:hover {
+  .sheet-row:hover {
     background: rgba(255, 255, 255, 0.04);
   }
 
-  .mcp-row__switch {
+  .sheet-row__switch {
     margin-top: 3px;
     flex: 0 0 auto;
   }
 
-  .mcp-row__body {
+  .sheet-row__body {
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -2151,14 +2166,14 @@ main:has(.chat-shell) {
     flex: 1 1 auto;
   }
 
-  .mcp-row__head {
+  .sheet-row__head {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
   }
 
-  .mcp-row__name {
+  .sheet-row__name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2167,21 +2182,44 @@ main:has(.chat-shell) {
     color: #e2e8f0;
   }
 
-  .mcp-row__meta {
+  .sheet-row__meta {
     font-size: 11.5px;
     color: #64748b;
   }
 
-  .mcp-row--unavailable {
+  /* Single-select rows (Environment) mark the current value instead of switching it. */
+  .sheet-row--selected {
+    background: rgba(167, 139, 250, 0.12);
+  }
+
+  .sheet-row__check {
+    flex: 0 0 14px;
+    margin-top: 3px;
+    height: 14px;
+    width: 14px;
+    color: #c4b5fd;
+  }
+
+  .sheet-row__check--off {
+    visibility: hidden;
+  }
+
+  .sheet-panel__footer {
+    margin-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 4px;
+  }
+
+  .sheet-row--unavailable {
     cursor: default;
     opacity: 0.55;
   }
 
-  .mcp-row--unavailable:hover {
+  .sheet-row--unavailable:hover {
     background: transparent;
   }
 
-  .mcp-row--unavailable .mcp-row__meta {
+  .sheet-row--unavailable .sheet-row__meta {
     color: #fcd34d;
   }
 }

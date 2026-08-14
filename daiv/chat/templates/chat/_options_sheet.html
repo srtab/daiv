@@ -32,19 +32,17 @@ ever mean "MCP server selection differs from the defaults".
               aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
     </div>
 
-    <div class="composer-sheet__body">
+    <div class="composer-sheet__body scrollbar-thin">
       <section class="composer-sheet__group">
         <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
-        <div class="composer-sheet__row">
-          <span x-show="thread" x-cloak>
-            {% include "sandbox_envs/_env_picker.html" with disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
-          </span>
-          {# ``x-if``: the live picker announces its selection on the window, which in a
-             thread would fight the server-rendered locked label for the same pill. #}
-          <template x-if="!thread">
-            {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
-          </template>
+        <div x-show="thread" x-cloak>
+          {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
         </div>
+        {# ``x-if``: the live picker announces its selection on the window, which in a
+           thread would fight the server-rendered locked row for the same value. #}
+        <template x-if="!thread">
+          {% include "sandbox_envs/_env_picker.html" with variant="sheet" envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
+        </template>
       </section>
 
       {# Tools = MCP servers, one row per server and never one per tool. There can be
@@ -54,46 +52,46 @@ ever mean "MCP server selection differs from the defaults".
         <h3 class="composer-sheet__label">{% translate "Tools" %}</h3>
 
         <button type="button"
-                class="mcp-disclosure"
-                :class="mcpExpanded ? 'mcp-disclosure--open' : ''"
+                class="sheet-disclosure"
+                :class="mcpExpanded ? 'sheet-disclosure--open' : ''"
                 @click="toggleMcpList()"
                 :aria-expanded="mcpExpanded">
           {% icon "plug" "h-3.5 w-3.5 shrink-0 opacity-70" %}
-          <span class="mcp-disclosure__title">{% translate "MCP servers" %}</span>
-          <span class="mcp-disclosure__count">
+          <span class="sheet-disclosure__title">{% translate "MCP servers" %}</span>
+          <span class="sheet-disclosure__count">
             <span x-text="mcpSelected.length"></span> {% translate "on" %}
-            <span class="mcp-disclosure__sep">·</span>
+            <span class="sheet-disclosure__sep">·</span>
             <span x-text="mcpCatalog.length"></span> {% translate "available" %}
           </span>
-          {% icon "chevron-down" "mcp-disclosure__chev h-3.5 w-3.5 shrink-0" %}
+          {% icon "chevron-down" "sheet-disclosure__chev h-3.5 w-3.5 shrink-0" %}
         </button>
 
-        <div class="mcp-panel" x-show="mcpExpanded" x-cloak>
-          <div class="mcp-panel__bar">
+        <div class="sheet-panel" x-show="mcpExpanded" x-cloak>
+          <div class="sheet-panel__bar">
             <input type="search" x-model="mcpQuery"
                    @keydown.enter.prevent
                    placeholder="{% translate 'Filter servers…' %}"
-                   class="picker-popover__search mcp-panel__search"
+                   class="picker-popover__search sheet-panel__search"
                    aria-label="{% translate 'Filter servers by name' %}">
-            <button type="button" class="mcp-panel__bulk" @click="selectNoMcp()">{% translate "none" %}</button>
-            <button type="button" class="mcp-panel__bulk" @click="resetMcp()">{% translate "reset" %}</button>
+            <button type="button" class="sheet-panel__bulk" @click="selectNoMcp()">{% translate "none" %}</button>
+            <button type="button" class="sheet-panel__bulk" @click="resetMcp()">{% translate "reset" %}</button>
           </div>
 
           {# Contained scroll so the groups above stay reachable however many servers exist. #}
-          <div class="mcp-panel__scroll scrollbar-thin">
+          <div class="sheet-panel__scroll scrollbar-thin">
             <template x-for="server in mcpVisible" :key="server.name">
-              <label class="mcp-row">
-                <input type="checkbox" class="mcp-row__switch"
+              <label class="sheet-row">
+                <input type="checkbox" class="sheet-row__switch"
                        :checked="isMcpOn(server.name)"
                        @change="toggleMcp(server.name)">
-                <span class="mcp-row__body">
-                  <span class="mcp-row__head">
-                    <span class="mcp-row__name" x-text="server.name"></span>
+                <span class="sheet-row__body">
+                  <span class="sheet-row__head">
+                    <span class="sheet-row__name" x-text="server.name"></span>
                     <span class="env-popover__scope-tag"
                           :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
                           x-text="server.scope"></span>
                   </span>
-                  <span class="mcp-row__meta" x-text="mcpToolsLabel(server)"></span>
+                  <span class="sheet-row__meta" x-text="mcpToolsLabel(server)"></span>
                 </span>
               </label>
             </template>
@@ -103,18 +101,18 @@ ever mean "MCP server selection differs from the defaults".
                would drop it from the next selection this sheet posts, and keep it out of
                the thread long after the outage is fixed. #}
             <template x-for="server in mcpUnavailableVisible" :key="server.name">
-              <div class="mcp-row mcp-row--unavailable">
-                <input type="checkbox" class="mcp-row__switch" disabled
+              <div class="sheet-row sheet-row--unavailable">
+                <input type="checkbox" class="sheet-row__switch" disabled
                        :checked="isMcpOn(server.name)"
                        aria-hidden="true" tabindex="-1">
-                <span class="mcp-row__body">
-                  <span class="mcp-row__head">
-                    <span class="mcp-row__name" x-text="server.name"></span>
+                <span class="sheet-row__body">
+                  <span class="sheet-row__head">
+                    <span class="sheet-row__name" x-text="server.name"></span>
                     <span class="env-popover__scope-tag"
                           :class="server.scope === 'mine' ? 'env-popover__scope-tag--user' : 'env-popover__scope-tag--global'"
                           x-text="server.scope"></span>
                   </span>
-                  <span class="mcp-row__meta">{% translate "needs authorization — unavailable this run" %}</span>
+                  <span class="sheet-row__meta">{% translate "needs authorization — unavailable this run" %}</span>
                 </span>
               </div>
             </template>

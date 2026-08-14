@@ -137,3 +137,15 @@ def test_effort_word_yields_only_when_the_row_is_crowded(member_client, member_u
 
     assert "chat-composer__actions--crowded" in html
     assert "'chat-composer__actions--crowded': progressPill" in html
+
+
+@pytest.mark.django_db
+def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
+    """Environment and Tools share one interaction model, and neither escapes the sheet:
+    a bottom sheet has nothing below it for a popover to open into."""
+    html = _render_thread(member_client, _create_session(member_user))
+
+    sheet_start = html.index('class="composer-sheet composer-sheet--options')
+    sheet = html[sheet_start : html.index("composer-sheet composer-sheet--progress")]
+    assert sheet.count("sheet-disclosure") >= 2
+    assert "picker-popover left-0" not in sheet
