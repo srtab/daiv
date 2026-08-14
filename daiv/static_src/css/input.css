@@ -1746,6 +1746,28 @@ main:has(.chat-shell) {
     min-width: 0;
   }
 
+  /* Branch names are the one part of the row with no length ceiling. Letting the chip
+     shrink and ellipsizing the branch keeps the context row one line down to 320px,
+     where it would otherwise wrap inside the chip. */
+  .chat-context .repo-chip {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chat-context .repo-chip__btn {
+    min-width: 0;
+  }
+
+  .chat-context .repo-chip__btn--branch {
+    display: inline-block;
+    min-width: 0;
+    max-width: 24ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
   /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
      upward — `.picker-popover` anchors `top-full` by default. */
   .chat-context .picker-popover,
