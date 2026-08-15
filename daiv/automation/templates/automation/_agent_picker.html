@@ -162,18 +162,9 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"
-         class="picker-popover agent-popover">
+         class="picker-popover">
 
-        {% comment %}
-        Shown only where the popover renders as a bottom sheet (the chat dock below
-        1100px), which covers its own trigger and so needs a dismiss of its own.
-        {% endcomment %}
-        <div class="agent-popover__sheet-head">
-            <span class="agent-popover__sheet-title">{% translate "Model" %}</span>
-            <button type="button" @click="close()"
-                    class="agent-popover__sheet-close"
-                    aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
-        </div>
+        {% include "core/_picker_sheet_head.html" with title=_("Model") close_expr="close()" %}
 
         <div class="agent-popover__section">
             <div class="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">{% translate "Provider" %}</div>

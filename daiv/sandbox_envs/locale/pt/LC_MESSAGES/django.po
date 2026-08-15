@@ -316,6 +316,9 @@ msgstr "Nome inválido"
 msgid "Duplicate name"
 msgstr "Nome duplicado"
 
+msgid "Environment"
+msgstr "Ambiente"
+
 msgid "Environment variables"
 msgstr "Variáveis de ambiente"
 

@@ -149,6 +149,12 @@ msgstr "tópicos"
 msgid "Repository Catalog"
 msgstr "Catálogo de Repositórios"
 
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "Branch"
+msgstr "Ramo"
+
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
 

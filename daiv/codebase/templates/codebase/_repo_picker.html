@@ -109,7 +109,8 @@ Parameters:
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="picker-popover left-3 w-80">
+         class="picker-popover picker-popover--inset">
+        {% include "core/_picker_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="repoSearch"
                placeholder="{{ search_repos_placeholder }}"
@@ -145,7 +146,8 @@ Parameters:
     <div x-show="popover === 'branch'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="picker-popover left-3 w-80">
+         class="picker-popover picker-popover--inset">
+        {% include "core/_picker_sheet_head.html" with title=_("Branch") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="branchSearch"
                placeholder="{{ search_branches_placeholder }}"

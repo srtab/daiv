@@ -1,0 +1,21 @@
+{% load i18n icon_tags %}
+{% comment %}
+Title + dismiss for a `.picker-popover`, shown only where that popover renders as a
+bottom sheet (below 1100px) and so covers the trigger that would otherwise dismiss it.
+`.picker-sheet-head` is `display: none` at wider widths — the anchored popover keeps its
+trigger visible and needs no chrome.
+
+Parameters:
+- title (required)      — what the sheet is picking, e.g. "Repository". Translate at the
+                          call site: this partial lives in ``core`` and the string belongs
+                          to the app whose picker is rendering it.
+- close_expr (required) — Alpine expression that closes the popover, e.g. ``close()``.
+                          Pickers name this differently (``closePopover()``,
+                          ``closePicker()``), so it can't be hardcoded.
+{% endcomment %}
+<div class="picker-sheet-head">
+    <span class="picker-sheet-head__title">{{ title }}</span>
+    <button type="button" @click="{{ close_expr }}"
+            class="picker-sheet-head__close"
+            aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
+</div>

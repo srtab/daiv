@@ -700,3 +700,6 @@ msgstr "Modelo de recurso quando o modelo do classificador falha."
 
 msgid "Run classifier"
 msgstr "Classificador de execuções"
+
+msgid "Close"
+msgstr "Fechar"

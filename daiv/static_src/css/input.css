@@ -1805,48 +1805,22 @@ main:has(.chat-shell) {
     vertical-align: bottom;
   }
 
-  /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
-     upward — `.picker-popover` anchors `top-full` by default. (Sheet contents don't need
-     this: they expand in place rather than floating, precisely because a sheet flush with
-     the viewport bottom has nowhere below it to open into.) */
-  .chat-context .picker-popover,
-  .chat-composer__buttons .picker-popover {
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 8px;
-  }
-
-  .chat-composer__buttons .picker-popover {
-    left: auto;
-    right: 0;
-  }
-
-  /* The model popover is the one dock surface that isn't a sheet, and its trigger sits
-     beside Send at the right edge — 320px of popover had nowhere to go on a phone. Below
-     1100px it becomes the bottom sheet its neighbours in the action row already are. */
-  @media (max-width: 1099px) {
-    .chat-composer__buttons .agent-popover {
-      position: fixed;
-      inset: auto 0 0 0;
-      width: auto;
-      max-width: none;
-      max-height: 72vh;
-      overflow-y: auto;
-      margin: 0;
-      z-index: 60;
-      border-width: 1px 0 0;
-      border-radius: 18px 18px 0 0;
-      box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
-      --surface-rise-from: 12px;
+  /* Only above 1100px, where these are still anchored popovers rather than bottom sheets
+     (see `.picker-popover`). The dock is pinned to the viewport bottom, so a popover it
+     hosts has to open upward — `.picker-popover` anchors `top-full` by default — and the
+     model trigger sits at the right edge beside Send, so its popover opens inward. */
+  @media (min-width: 1100px) {
+    .chat-context .picker-popover,
+    .chat-composer__buttons .picker-popover {
+      top: auto;
+      bottom: 100%;
+      margin-top: 0;
+      margin-bottom: 8px;
     }
 
-    .chat-composer__buttons .agent-popover__sheet-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 4px 6px 8px;
+    .chat-composer__buttons .picker-popover {
+      left: auto;
+      right: 0;
     }
   }
 
@@ -2385,14 +2359,67 @@ main:has(.chat-shell) {
   /* Shared shell for the repo / branch / env / subscriber pickers — see _repo_picker.html,
      _env_picker.html, _subscriber_picker.html. Templates layer on left-* / w-* utilities
      since position and width vary per call site. */
+  /* Geometry lives here, never as `left-*`/`w-*` utilities on the element: utilities
+     outrank every component rule whatever the selector, so a utility anchor survives into
+     widths where it doesn't fit. Below 1100px these stop floating altogether. */
   .picker-popover {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
     background: #0d1117;
     border-color: rgba(255, 255, 255, 0.08);
-    /* Call sites size these in fixed px; the clamp keeps that from widening the page
-       on a phone. It can't fix an anchor pinned to a viewport edge — see the dock. */
+    left: 0;
+    width: 320px;
     max-width: calc(100vw - 24px);
   }
+  .picker-popover--wide { width: 340px; }
+  .picker-popover--inset { left: 12px; }
+
+  /* Chrome for the sheet form only: a sheet covers its own trigger, so it has to carry a
+     dismiss. An anchored popover leaves the trigger visible and needs neither. */
+  .picker-sheet-head {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px 8px;
+  }
+  .picker-sheet-head__title {
+    @apply text-[11px] font-semibold uppercase text-slate-500;
+    letter-spacing: 0.14em;
+  }
+  .picker-sheet-head__close {
+    @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-slate-400;
+  }
+  .picker-sheet-head__close:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+  }
+
+  /* A trigger anywhere but hard left puts a 320px panel over the right edge of a phone,
+     and no anchor tweak fixes every case — so below 1100px every picker is a bottom
+     sheet, the same surface the chat composer's options and progress already use.
+     Stays last: it re-declares `display` and geometry the rules above set. */
+  @media (max-width: 1099px) {
+    .picker-popover {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: auto;
+      max-width: none;
+      max-height: 72vh;
+      max-height: 72dvh;
+      overflow-y: auto;
+      margin: 0;
+      z-index: 60;
+      border-width: 1px 0 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
+      --surface-rise-from: 12px;
+    }
+
+    .picker-sheet-head {
+      display: flex;
+    }
+  }
+
   .picker-popover__search {
     @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
   }
@@ -2486,30 +2513,6 @@ main:has(.chat-shell) {
            bg-amber-500/20 text-[10px] font-semibold text-amber-300;
   }
 
-  /* Geometry lives here rather than as `left-0 w-[320px]` utilities on the element:
-     utilities outrank every component rule whatever the selector, so a call site could
-     never re-anchor the popover away from a viewport edge. */
-  .agent-popover {
-    left: 0;
-    width: 320px;
-  }
-
-  /* Chrome for the sheet form only; an anchored popover dismisses on outside click with
-     its trigger still visible, so it needs neither title nor close button. */
-  .agent-popover__sheet-head {
-    display: none;
-  }
-  .agent-popover__sheet-title {
-    @apply text-[11px] font-semibold uppercase text-slate-500;
-    letter-spacing: 0.14em;
-  }
-  .agent-popover__sheet-close {
-    @apply inline-flex h-6 w-6 items-center justify-center rounded-lg text-slate-400;
-  }
-  .agent-popover__sheet-close:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
-  }
 
   .agent-popover__section {
     @apply border-t border-white/[0.05] px-3 py-2 text-[12px];
