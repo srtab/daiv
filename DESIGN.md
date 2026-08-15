@@ -136,6 +136,25 @@ Reusable partial at `accounts/templates/accounts/_quick_link_card.html`:
 
 Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
 
+### Page Header
+
+Every page title with actions at its top right uses `.page-header` (and
+`.page-header__actions` when there is more than one action):
+
+```html
+<div class="animate-fade-up page-header">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">Skills</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">Description.</p>
+    </div>
+    <a href="…" class="btn-primary">Upload skill</a>
+</div>
+```
+
+The actions drop below the title on their own line when both no longer fit — never
+add a breakpoint for this: the sidebar takes 240px out of the viewport, so `sm:`
+(640px) fires when the content area is only ~350px wide, narrower than a phone.
+
 ### Badges / Pills
 
 ```html
