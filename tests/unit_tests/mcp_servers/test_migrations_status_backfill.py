@@ -33,3 +33,31 @@ def test_backfill_maps_enabled_to_status():
     executor = MigrationExecutor(connection)
     executor.loader.build_graph()
     executor.migrate(executor.loader.graph.leaf_nodes("mcp_servers"))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unbackfill_keeps_disabled_servers_off_on_rollback():
+    """Reversing 0010 re-adds ``enabled`` at its default (``True``). If 0009's reverse stayed a
+    no-op, a rollback would turn every deliberately-disabled server back on."""
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0008_mcpserver_status")])
+    state = executor.loader.project_state((("mcp_servers", "0008_mcpserver_status"),))
+    Historical = state.apps.get_model("mcp_servers", "MCPServer")  # noqa: N806
+
+    Historical.objects.all().delete()
+    # ``enabled=True`` on every row is exactly what reversing 0010 leaves behind.
+    active = Historical.objects.create(name="a", transport="http", url="http://a", enabled=True, status="active")
+    on_demand = Historical.objects.create(name="o", transport="http", url="http://o", enabled=True, status="on-demand")
+    disabled = Historical.objects.create(name="d", transport="http", url="http://d", enabled=True, status="disabled")
+
+    ops.unbackfill(Historical)
+
+    for row in (active, on_demand, disabled):
+        row.refresh_from_db()
+    assert active.enabled is True
+    assert on_demand.enabled is True
+    assert disabled.enabled is False
+
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes("mcp_servers"))

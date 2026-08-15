@@ -221,7 +221,9 @@ class ScheduledJob(TimeStampedModel):
             models.CheckConstraint(condition=models.Q(intent__in=Intent.values), name="sched_intent_valid"),
         ]
 
-    DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at")
+    # ``sandbox_environment`` is here but not in ``_USER_FACING_FIELDS``: templates have no such
+    # column. ``mcp_overrides`` is carried by ``ScheduleCreateView.get_form_kwargs`` instead.
+    DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at", "sandbox_environment")
 
     def to_schedule_kwargs(self) -> dict:
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""

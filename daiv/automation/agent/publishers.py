@@ -47,7 +47,8 @@ class PublishOutcome:
     protected_branch_fallback_source: str | None = None
     diff_stats: MergeRequestDiffStats | None = None
     """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
-    pill. ``None`` when there was nothing to measure.
+    pill. ``None`` only when no publish was attempted; a publish that found nothing reports
+    zeros, because the pill has to be able to go back down.
 
     Counted from ``status_snapshot``'s diff — the merge-base delta for the very branch the
     MR is built from, so it already *is* what the MR page shows, computed for free from a
@@ -121,13 +122,14 @@ class GitChangePublisher(ChangePublisher):
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
+            # Measured once so every return reports the same numbers, and measured before the
+            # empty-diff return so a turn that reverts its predecessor's work publishes zeros —
+            # withholding them would leave the previous turn's `+x −y` standing in state.
+            diff_stats = diff_line_stats(snapshot.diff)
+
             if not snapshot.dirty and not snapshot.diff.strip():
                 logger.info("No changes to publish.")
-                return PublishOutcome(merge_request=None, published=False)
-
-            # Measured once here so every path below reports the same numbers; the only
-            # return that legitimately has none is the empty-diff one above.
-            diff_stats = diff_line_stats(snapshot.diff)
+                return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
             if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
                 logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)

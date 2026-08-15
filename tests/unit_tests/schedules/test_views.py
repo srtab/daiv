@@ -759,6 +759,39 @@ class TestScheduleDuplicateFlow:
         assert response.status_code == 200
         assert response.context["form"].initial["intent"] == Intent.DO_CHANGE
 
+    def test_create_view_from_param_carries_the_mcp_selection_and_env(self, member_client, member_user):
+        """Duplicating dropped both silently: the copy came up with the default server pool and
+        Auto, which reads as "same schedule" right up until it runs against different tooling."""
+        from mcp_servers.models import MCPServer
+        from sandbox_envs.models import SandboxEnvironment, Scope
+
+        MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+        MCPServer.objects.create(
+            name="opt-in",
+            scope=MCPServer.Scope.GLOBAL,
+            transport=MCPServer.Transport.HTTP,
+            url="http://o",
+            status=MCPServer.Status.ON_DEMAND,
+        )
+        env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            sandbox_environment=env,
+            mcp_overrides={"opt-in": "on"},
+        )
+
+        response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
+
+        assert response.status_code == 200
+        form = response.context["form"]
+        assert form.fields["mcp_servers"].initial == ["opt-in"]
+        assert form.initial["sandbox_environment"] == env
+
     def test_create_view_with_unknown_from_pk_falls_back_to_blank(self, member_client):
         response = member_client.get(reverse("schedule_create") + "?from=999999")
         assert response.status_code == 200

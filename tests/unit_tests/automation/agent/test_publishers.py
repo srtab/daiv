@@ -401,7 +401,7 @@ class TestPublishSandboxEgressRefresh:
         with caplog.at_level("ERROR", logger="daiv.tools"):
             outcome = await publisher.publish(merge_request=None)
 
-        assert outcome == PublishOutcome(merge_request=None, published=False)
+        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
         assert "Could not refresh the sandbox egress token" in caplog.text
 
     async def test_refresh_skips_delivery_when_nothing_to_refresh(self, monkeypatch):
@@ -658,7 +658,8 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=None)
 
-        assert outcome == PublishOutcome(merge_request=None, published=False)
+        # Zeros, not ``None``: the pill has to be able to go back down after a revert-everything turn.
+        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -881,12 +882,12 @@ class TestPublishDiffStats:
 
         publisher.client.get_merge_request_diff_stats.assert_not_called()
 
-    async def test_no_changes_reports_no_stats(self, monkeypatch):
-        """State 02 — a turn that changed nothing has no numbers to show, and the composer
-        renders no pill rather than an empty one."""
+    async def test_no_changes_reports_zeros(self, monkeypatch):
+        """State 02 — a turn that changed nothing reports zeros, which the composer renders as
+        no pill. Reporting ``None`` instead would leave a previous turn's ``+x −y`` standing."""
         publisher = _make_publisher()
         _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff="", has_unpushed=False))
 
         outcome = await publisher.publish(merge_request=None)
 
-        assert outcome.diff_stats is None
+        assert outcome.diff_stats == MergeRequestDiffStats(lines_added=0, lines_removed=0, files_changed=0)

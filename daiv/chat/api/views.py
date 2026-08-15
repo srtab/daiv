@@ -271,11 +271,11 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
-    # Unlike the model and the env, the Tools selection is *not* pinned: nothing bakes it
-    # into the thread (``build_runtime_servers`` re-resolves it on every run), so the sheet
-    # stays live and each turn overwrites the memory of the last one. The write lands after
-    # the slot is won — a turn rejected as a duplicate must not leave the thread remembering
-    # a selection that never ran.
+    # Unlike the model and the env, the Tools selection is *not* pinned: nothing bakes it into
+    # the thread (``build_runtime_servers`` re-resolves it on every run), so the sheet stays live
+    # and each turn overwrites the memory of the last one. Only *retunes* are gated on the claim,
+    # so a turn rejected as a duplicate leaves no memory of a selection that never ran; a first
+    # turn's selection is persisted with the session row above, like the model and the env.
     effective_overrides = session.mcp_overrides
     if submitted_overrides is not None and not created and submitted_overrides != effective_overrides:
         effective_overrides = submitted_overrides

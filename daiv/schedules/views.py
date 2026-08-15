@@ -116,6 +116,11 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         kwargs["user"] = self.request.user
+        # Not an `initial` key: `mcp_overrides` is a pool-relative diff, and the form field holds
+        # names, so only ``AgentRunFieldsMixin`` can resolve one into the other.
+        source = self._get_source_schedule()
+        if source is not None:
+            kwargs["mcp_overrides"] = source.mcp_overrides
         return kwargs
 
     def get_initial(self):

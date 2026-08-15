@@ -13,9 +13,11 @@ Parameters:
 - disabled (default False)      — render a static, server-rendered disclosure row (no Alpine, no list,
                                   no caret). Used where the env is locked for the current context (the
                                   chat composer's options sheet on an existing thread, since the backend
-                                  ignores env changes after the first turn). Requires `variant="sheet"`.
-                                  Caller must pass `selected_env` (the resolved env object, or None for
-                                  Auto) since the locked render doesn't ship the envs list.
+                                  ignores env changes after the first turn). Wins over `variant`: locking
+                                  is about what the user may do, so it must not depend on chrome, and the
+                                  sheet is the only place that locks today. Caller must pass `selected_env`
+                                  (the resolved env object, or None for Auto) since the locked render
+                                  doesn't ship the envs list.
 - selected_env (default None)   — pre-resolved env object for the locked render only.
 - dynamic_label_expr (default "") — Alpine expression read via ``x-text`` to override the locked pill's
                                   name. Set by callers whose surrounding scope tracks the just-committed
@@ -35,10 +37,13 @@ Parameters:
 {% endcomment %}
 
 {% if disabled %}
+{# The lock is the point of this render, so it is announced whether or not an env is named —
+   the greyed-out styling is the only other thing saying the row cannot be operated. #}
 <div class="sheet-disclosure sheet-disclosure--locked"
-     {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Locked for this conversation' %}"{% endif %}
+     title="{% if selected_env %}{{ selected_env.scope }} · {{ selected_env.name }} — {% endif %}{% translate 'Locked for this conversation' %}"
      aria-disabled="true">
     {% icon "sandbox" "h-3.5 w-3.5 shrink-0 opacity-70" %}
+    <span class="sr-only">{% translate "Locked for this conversation" %}</span>
     <span class="sheet-disclosure__title"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
     <span class="sheet-disclosure__count">
         {% if dynamic_scope_expr %}

@@ -139,6 +139,21 @@ class TestGitMiddleware:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
             assert await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime) is None
 
+    async def test_aafter_agent_writes_zero_diff_stats_so_the_pill_can_go_back_down(self):
+        """A turn that reverts its predecessor's work publishes zeros, and those have to reach state:
+        skipping the write would leave the earlier turn's ``+x −y`` standing after a reload."""
+        from codebase.base import MergeRequestDiffStats
+
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=None, published=False, diff_stats=MergeRequestDiffStats())
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result == {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}}
+
     async def test_aafter_agent_records_code_changes_on_pending_mr_degrade(self):
         """The branch-visibility degrade (published + no MR) must flip ``code_changes`` so a pushed
         branch is not persisted as an indistinguishable no-op."""

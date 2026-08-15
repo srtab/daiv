@@ -9,8 +9,10 @@ and the live model label ship in the HTML; which one shows is a client-side deci
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from django.template.loader import render_to_string
 from django.urls import reverse
 
 import pytest
@@ -149,3 +151,17 @@ def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
     sheet = html[sheet_start : html.index("composer-sheet composer-sheet--progress")]
     assert sheet.count("sheet-disclosure") >= 2
     assert "picker-popover left-0" not in sheet
+
+
+@pytest.mark.parametrize("selected_env", [None, SimpleNamespace(name="ci-heavy", scope="user")])
+def test_locked_env_row_always_announces_why_it_cannot_be_operated(selected_env):
+    """`aria-disabled` on a plain div is weak and the greyed styling is the only other cue, so the
+    reason has to survive next to the env name rather than be overwritten by it."""
+    html = render_to_string(
+        "sandbox_envs/_env_picker.html", {"disabled": True, "variant": "sheet", "selected_env": selected_env}
+    )
+
+    assert "Locked for this conversation" in html
+    assert "sheet-disclosure--locked" in html
+    if selected_env is not None:
+        assert "ci-heavy" in html
