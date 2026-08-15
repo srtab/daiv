@@ -83,6 +83,10 @@
   // find -delete, …) are folded in from the bash tool's `files_changed` result.
   const PATH_TOOLS = new Set(["write_file", "edit_file"]);
 
+  // Where this is missing, `autosize()` polyfills growth and the `:placeholder-shown`
+  // floor in input.css covers the empty box, whose wrapped placeholder JS can't measure.
+  const NATIVE_FIELD_SIZING = CSS.supports("field-sizing", "content");
+
   const uuid = () => crypto.randomUUID();
 
   const HTTP_ERROR_MESSAGES = {
@@ -886,9 +890,9 @@
 
     autosize() {
       const el = this.$refs.prompt;
-      if (!el) return;
+      if (!el || NATIVE_FIELD_SIZING) return;
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 14 * 16) + "px";
+      el.style.height = el.scrollHeight + "px";
     },
 
     async submit() {
