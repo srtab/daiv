@@ -888,6 +888,9 @@
       const el = this.$refs.prompt;
       if (!el) return;
       el.style.height = "auto";
+      // An inline height would beat `field-sizing`, and `scrollHeight` doesn't count a
+      // wrapped placeholder — so leave the empty box for the stylesheet to size.
+      if (!el.value) return;
       el.style.height = Math.min(el.scrollHeight, 14 * 16) + "px";
     },
 

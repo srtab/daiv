@@ -89,6 +89,16 @@ def test_send_is_icon_only(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_composer_rests_at_one_row(member_client, member_user):
+    """The box's height is its content: a fixed second row put the action row a dead line
+    below the text. Growth is `autosize()` plus `field-sizing`, which is also what gives
+    the placeholder its second line on the phone widths where it wraps."""
+    html = _render_thread(member_client, _create_session(member_user))
+
+    assert 'rows="1"' in html
+
+
+@pytest.mark.django_db
 def test_both_sheets_are_rendered_with_their_triggers(member_client, member_user):
     html = _render_thread(member_client, _create_session(member_user))
 

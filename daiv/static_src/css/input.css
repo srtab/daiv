@@ -1524,8 +1524,21 @@ main:has(.chat-shell) {
     font-size: 15px;
     color: #fff;
     line-height: 1.55;
-    min-height: 2.8rem;
+    /* Rest at exactly what's in the box — one line (2rem) when empty, growing from
+       there — so the action row sits under the text instead of under a dead row.
+       `field-sizing` is what makes the empty box size to its *placeholder*: it needs
+       two lines on a phone, where it wraps, and one everywhere it fits. */
+    field-sizing: content;
+    min-height: 2rem;
     max-height: 14rem;
+  }
+
+  /* Without `field-sizing` the empty box can't measure its own placeholder, so keep
+     the two-line floor while it shows rather than clipping the wrapped half. */
+  @supports not (field-sizing: content) {
+    .chat-composer__textarea:placeholder-shown {
+      min-height: 3.5rem;
+    }
   }
 
   .chat-composer__textarea::placeholder {
@@ -1543,7 +1556,7 @@ main:has(.chat-shell) {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-top: 6px;
+    margin-top: 2px;
   }
 
   .chat-composer__tools {
