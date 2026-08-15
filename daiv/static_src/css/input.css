@@ -19,6 +19,39 @@
   }
 }
 
+/* Every surface that opens over the page — pickers, sheets, menus — rises into place.
+   Travel is `--surface-rise-from`: bottom sheets come from further out than a small menu
+   anchored to its trigger. Enter only; `x-show` drops the element on close. */
+@keyframes surface-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--surface-rise-from, 8px));
+  }
+}
+
+/* The roster of floating surfaces, in one place. `.surface-rise` is the hook for the
+   dropdowns built from utilities alone; the rest already have a component class. Any new
+   one belongs here — a surface that appears without motion reads as a repaint glitch next
+   to these. Alpine's `x-transition` must not be used alongside: it drives `opacity` and
+   `transform` from inline styles and the two fight over the same 180ms. */
+.surface-rise,
+.picker-popover,
+.composer-sheet,
+.filter-menu,
+.card__menu-panel {
+  animation: surface-rise 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface-rise,
+  .picker-popover,
+  .composer-sheet,
+  .filter-menu,
+  .card__menu-panel {
+    animation: none;
+  }
+}
+
 a, button, [role="button"] {
   cursor: pointer;
 }
@@ -1805,7 +1838,7 @@ main:has(.chat-shell) {
       border-width: 1px 0 0;
       border-radius: 18px 18px 0 0;
       box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
-      animation: composer-sheet-in 180ms ease-out both;
+      --surface-rise-from: 12px;
     }
 
     .chat-composer__buttons .agent-popover__sheet-head {
@@ -1872,14 +1905,8 @@ main:has(.chat-shell) {
     border-radius: 18px 18px 0 0;
     background: #0d1117;
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
-    animation: composer-sheet-in 180ms ease-out both;
-  }
-
-  @keyframes composer-sheet-in {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
+    /* Further than a menu: a sheet enters from off the bottom edge, not from its trigger. */
+    --surface-rise-from: 12px;
   }
 
   .composer-sheet__backdrop {
