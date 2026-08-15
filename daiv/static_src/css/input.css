@@ -1524,8 +1524,18 @@ main:has(.chat-shell) {
     font-size: 15px;
     color: #fff;
     line-height: 1.55;
-    min-height: 2.8rem;
+    /* Sizes the box to what's in it, and the empty box to its *placeholder* — two lines
+       where that wraps on a phone, one everywhere it fits, never a dead row. */
+    field-sizing: content;
     max-height: 14rem;
+  }
+
+  /* Without it the box can't measure its own placeholder, so hold the previous two-line
+     rest while it shows rather than clipping the wrapped half. */
+  @supports not (field-sizing: content) {
+    .chat-composer__textarea:placeholder-shown {
+      min-height: calc(2lh + 8px);
+    }
   }
 
   .chat-composer__textarea::placeholder {
@@ -1543,7 +1553,7 @@ main:has(.chat-shell) {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-top: 6px;
+    margin-top: 2px;
   }
 
   .chat-composer__tools {
