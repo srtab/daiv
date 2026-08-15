@@ -257,6 +257,7 @@
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
+    _announceOpen: null,
     // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
     // are separate surfaces on purpose (what you configure vs. what the run produced).
     sheet: "",
@@ -309,6 +310,7 @@
 
     openSheet(name) {
       this.sheet = name;
+      this._announceOpen();
     },
 
     closeSheet() {
@@ -316,7 +318,8 @@
     },
 
     toggleSheet(name) {
-      this.sheet = this.sheet === name ? "" : name;
+      if (this.sheet === name) this.closeSheet();
+      else this.openSheet(name);
     },
 
     // ---------- Tools (MCP servers) -----------------------------------
@@ -439,6 +442,8 @@
     },
 
     init() {
+      this._announceOpen = surfaceGroup.join(() => this.closeSheet());
+
       // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
