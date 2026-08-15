@@ -26,11 +26,7 @@ ever mean "MCP server selection differs from the defaults".
        @click.outside="closeSheet()"
        role="dialog"
        aria-label="{% translate 'Session options' %}">
-    <div class="composer-sheet__head">
-      <span class="composer-sheet__title">{% translate "Options" %}</span>
-      <button type="button" class="composer-sheet__close" @click="closeSheet()"
-              aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
-    </div>
+    {% include "core/_sheet_head.html" with title=_("Options") close_expr="closeSheet()" surface="composer-sheet" %}
 
     <div class="composer-sheet__body scrollbar-thin">
       <section class="composer-sheet__group">

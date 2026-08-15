@@ -19,6 +19,38 @@
   }
 }
 
+/* Every surface that opens over the page — pickers, sheets, menus — rises into place.
+   Travel is `--surface-rise-from`: bottom sheets come from further out than a small menu
+   anchored to its trigger. Enter only; `x-show` drops the element on close. */
+@keyframes surface-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--surface-rise-from, 8px));
+  }
+}
+
+/* The roster of floating surfaces — one rule, so enrolling a surface is one edit.
+   `.surface-rise` is the hook for the dropdowns built from utilities alone; the rest
+   already have a component class. Any new one belongs here — a surface that appears
+   without motion reads as a repaint glitch next to these. Alpine's `x-transition` must
+   not be used alongside: it drives `opacity` and `transform` from inline styles and the
+   two fight over the same frames. */
+.surface-rise,
+.picker-popover,
+.composer-sheet,
+.filter-menu,
+.card__menu-panel {
+  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out both;
+}
+
+/* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
+   they just stop travelling. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --surface-rise-duration: 0.01ms;
+  }
+}
+
 a, button, [role="button"] {
   cursor: pointer;
 }
@@ -1772,21 +1804,23 @@ main:has(.chat-shell) {
     vertical-align: bottom;
   }
 
-  /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
-     upward — `.picker-popover` anchors `top-full` by default. (Sheet contents don't need
-     this: they expand in place rather than floating, precisely because a sheet flush with
-     the viewport bottom has nowhere below it to open into.) */
-  .chat-context .picker-popover,
-  .chat-composer__buttons .picker-popover {
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 8px;
-  }
+  /* Only above 1100px, where these are still anchored popovers rather than bottom sheets
+     (see `.picker-popover`). Scoped to the dock rather than to the two triggers that live
+     there today: the dock is pinned to the viewport bottom, so anything anchored
+     `top-full` inside it opens off the screen. */
+  @media (width >= 1100px) {
+    .chat-dock .picker-popover {
+      top: auto;
+      bottom: 100%;
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
 
-  .chat-composer__buttons .picker-popover {
-    left: auto;
-    right: 0;
+    /* Only this one — its trigger sits at the right edge, beside Send. */
+    .chat-composer__buttons .picker-popover {
+      left: auto;
+      right: 0;
+    }
   }
 
   /* Accent is reserved for "nothing picked yet" (the one state where the row is an
@@ -1844,14 +1878,8 @@ main:has(.chat-shell) {
     border-radius: 18px 18px 0 0;
     background: #0d1117;
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
-    animation: composer-sheet-in 180ms ease-out both;
-  }
-
-  @keyframes composer-sheet-in {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
+    /* Further than a menu: a sheet enters from off the bottom edge, not from its trigger. */
+    --surface-rise-from: 12px;
   }
 
   .composer-sheet__backdrop {
@@ -1879,7 +1907,10 @@ main:has(.chat-shell) {
     }
   }
 
-  .composer-sheet__head {
+  /* One head for every sheet, whether it opens from the composer or from a picker; the
+     pickers differ only in padding and in being hidden above 1100px (`.picker-popover__head`). */
+  .composer-sheet__head,
+  .picker-popover__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1887,7 +1918,8 @@ main:has(.chat-shell) {
     padding: 12px 14px 8px;
   }
 
-  .composer-sheet__title {
+  .composer-sheet__title,
+  .picker-popover__title {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
@@ -1895,8 +1927,10 @@ main:has(.chat-shell) {
     color: #64748b;
   }
 
-  .composer-sheet__close {
+  .composer-sheet__close,
+  .picker-popover__close {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
     height: 24px;
@@ -1905,7 +1939,8 @@ main:has(.chat-shell) {
     color: #94a3b8;
   }
 
-  .composer-sheet__close:hover {
+  .composer-sheet__close:hover,
+  .picker-popover__close:hover {
     background: rgba(255, 255, 255, 0.06);
     color: #fff;
   }
@@ -2327,14 +2362,53 @@ main:has(.chat-shell) {
   }
   .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
 
-  /* Shared shell for the repo / branch / env / subscriber pickers — see _repo_picker.html,
-     _env_picker.html, _subscriber_picker.html. Templates layer on left-* / w-* utilities
-     since position and width vary per call site. */
+  /* Shared shell for the model / repo / branch / env / subscriber pickers. Geometry lives
+     here, never as `left-*`/`w-*` utilities on the element: utilities outrank every
+     component rule whatever the selector, so a utility anchor survives into widths where
+     it doesn't fit. Below 1100px these stop floating altogether. */
   .picker-popover {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
     background: #0d1117;
     border-color: rgba(255, 255, 255, 0.08);
+    left: 0;
+    width: 320px;
   }
+  .picker-popover--wide { width: 340px; }
+  .picker-popover--inset { left: 12px; }
+
+  /* A picker's head exists only in its sheet form, which covers the trigger that would
+     otherwise dismiss it; the sheets in the composer are always sheets, so theirs is
+     always on. Everything but that and the padding is shared — see `.composer-sheet__head`. */
+  .picker-popover__head {
+    display: none;
+    padding: 4px 6px 8px;
+  }
+
+  /* A trigger anywhere but hard left puts a 320px panel over the right edge of a phone,
+     and no anchor tweak fixes every case — so below 1100px every picker is a bottom
+     sheet, the same surface the chat composer's options and progress already use.
+     Stays last: it re-declares geometry and `display` the rules above set. */
+  @media (width < 1100px) {
+    .picker-popover {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: auto;
+      max-height: 72vh;
+      max-height: 72dvh;
+      overflow-y: auto;
+      margin: 0;
+      z-index: 60;
+      border-width: 1px 0 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
+      --surface-rise-from: 12px;
+    }
+
+    .picker-popover__head {
+      display: flex;
+    }
+  }
+
   .picker-popover__search {
     @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
   }
@@ -2427,6 +2501,7 @@ main:has(.chat-shell) {
     @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full
            bg-amber-500/20 text-[10px] font-semibold text-amber-300;
   }
+
 
   .agent-popover__section {
     @apply border-t border-white/[0.05] px-3 py-2 text-[12px];

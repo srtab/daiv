@@ -30,11 +30,7 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
        @click.outside="closeSheet()"
        role="dialog"
        aria-label="{% translate 'Session progress' %}">
-    <div class="composer-sheet__head">
-      <span class="composer-sheet__title">{% translate "Progress" %}</span>
-      <button type="button" class="composer-sheet__close" @click="closeSheet()"
-              aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
-    </div>
+    {% include "core/_sheet_head.html" with title=_("Progress") close_expr="closeSheet()" surface="composer-sheet" %}
 
     <div class="composer-sheet__body scrollbar-thin">
       <section class="composer-sheet__group">

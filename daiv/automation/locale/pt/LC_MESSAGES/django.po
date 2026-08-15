@@ -35,6 +35,12 @@ msgstr "Selecionar um modelo"
 msgid "This model is no longer available — pick another."
 msgstr "Este modelo já não está disponível — escolha outro."
 
+msgid "Model"
+msgstr "Modelo"
+
+msgid "Close"
+msgstr "Fechar"
+
 msgid "Provider"
 msgstr "Fornecedor"
 

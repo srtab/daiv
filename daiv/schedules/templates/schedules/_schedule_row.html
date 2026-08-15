@@ -14,11 +14,11 @@
 
     <div class="absolute right-3 top-3 z-10" x-data="{ open: false }">
         <button type="button" @click="open = !open" aria-label="Schedule actions"
-                class="rounded-lg p-2 text-gray-400 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
+                class="card__menu-btn">
             {% icon "ellipsis-horizontal" "h-4 w-4" %}
         </button>
-        <div x-show="open" @click.outside="open = false" x-transition x-cloak
-             class="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
+        <div x-show="open" @click.outside="open = false" x-cloak
+             class="card__menu-panel">
             {% if schedule.is_fired_one_off %}
             {% include "schedules/_schedule_duplicate_action.html" %}
             {% include "schedules/_schedule_delete_action.html" %}

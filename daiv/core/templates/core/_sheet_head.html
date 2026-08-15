@@ -1,0 +1,24 @@
+{% load i18n icon_tags %}
+{% comment %}
+Title + dismiss for a sheet — the surface covers the trigger that would otherwise dismiss
+it, so it has to carry its own.
+
+Parameters:
+- title (required)      — what the sheet holds, e.g. "Repository". Translate at the call
+                          site: this partial lives in ``core`` and the string belongs to
+                          the app whose sheet is rendering it.
+- close_expr (required) — Alpine expression that closes the surface, e.g. ``close()``.
+                          Callers name this differently (``closePopover()``,
+                          ``closePicker()``, ``closeSheet()``), so it can't be hardcoded.
+- surface (default      — BEM block the three elements belong to. The default suits a
+  "picker-popover")       ``.picker-popover``, which is a sheet only below 1100px and so
+                          hides its head above that; the chat composer's sheets pass
+                          ``composer-sheet``, being sheets at every width.
+{% endcomment %}
+{% firstof surface "picker-popover" as block %}
+<div class="{{ block }}__head">
+    <span class="{{ block }}__title">{{ title }}</span>
+    <button type="button" @click="{{ close_expr }}"
+            class="{{ block }}__close"
+            aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
+</div>

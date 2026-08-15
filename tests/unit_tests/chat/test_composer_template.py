@@ -16,6 +16,8 @@ from django.urls import reverse
 import pytest
 from sessions.models import Session, SessionOrigin
 
+from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
+
 
 def _create_session(user, **kwargs) -> Session:
     defaults = {
@@ -148,4 +150,4 @@ def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
     sheet_start = html.index('class="composer-sheet composer-sheet--options')
     sheet = html[sheet_start : html.index("composer-sheet composer-sheet--progress")]
     assert sheet.count("sheet-disclosure") >= 2
-    assert "picker-popover left-0" not in sheet
+    assert not POPOVER_CONTAINER.search(sheet)

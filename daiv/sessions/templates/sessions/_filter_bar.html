@@ -37,7 +37,7 @@
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!trigger" style="{% if current_trigger %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
-            <div class="filter-menu" x-show="open === 'type'" x-cloak x-transition.opacity>
+            <div class="filter-menu" x-show="open === 'type'" x-cloak>
                 <a href="?{% querystring_without 'trigger' 'page' %}"
                    class="filter-menu-item {% if not current_trigger %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTrigger()" :class="{ 'filter-menu-item--active': !trigger }">{% translate "All types" %}</a>
@@ -68,7 +68,7 @@
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
                 <span x-show="!timeActive" style="{% if current_range or current_from or current_to %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
             </button>
-            <div class="filter-menu" x-show="open === 'time'" x-cloak x-transition.opacity>
+            <div class="filter-menu" x-show="open === 'time'" x-cloak>
                 <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}"
                    class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}"
                    @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !range && !from && !to }">{% translate "All time" %}</a>

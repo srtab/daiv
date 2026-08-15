@@ -13,7 +13,7 @@
                         aria-label="{% translate 'Skill actions' %}" class="card__menu-btn">
                     {% icon "ellipsis-horizontal" "h-4 w-4" %}
                 </button>
-                <div x-show="open" @click.outside="open = false" x-transition x-cloak
+                <div x-show="open" @click.outside="open = false" x-cloak
                      class="card__menu-panel">
                     <a href="{% url 'skills:download' skill.name %}" class="card__menu-item">
                         {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
