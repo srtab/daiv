@@ -31,8 +31,10 @@ document.addEventListener("alpine:init", () => {
         branchLoading: false,
         conflictIndex: null,
         _conflictTimer: null,
+        _announceOpen: null,
 
         init() {
+            this._announceOpen = surfaceGroup.join(() => this.closePopover());
             this.$el.addEventListener("htmx:beforeRequest", (e) => {
                 if (e.target === this.$refs.repoSearch) this.repoLoading = true;
                 if (e.target === this.$refs.branchSearch) this.branchLoading = true;
@@ -71,6 +73,7 @@ document.addEventListener("alpine:init", () => {
             this.editingIndex = index;
             this.repoLoading = true;
             this.popover = "repo";
+            this._announceOpen();
             this.$nextTick(() => this._refresh(this.$refs.repoSearch));
         },
 
@@ -80,6 +83,7 @@ document.addEventListener("alpine:init", () => {
             this.editingIndex = index;
             this.branchLoading = true;
             this.popover = "branch";
+            this._announceOpen();
             // Slug goes into a <path:slug> Django converter that accepts '/', so we leave the
             // separator unencoded — nginx's default `allow_encoded_slashes off` would 404 on %2F.
             const url =

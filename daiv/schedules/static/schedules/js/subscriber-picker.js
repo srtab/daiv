@@ -12,8 +12,10 @@ document.addEventListener("alpine:init", () => {
         selected: [...initial],
         popover: false,
         loading: false,
+        _announceOpen: null,
 
         init() {
+            this._announceOpen = surfaceGroup.join(() => this.closePicker());
             this.$el.addEventListener("htmx:beforeRequest", (e) => {
                 if (e.target === this.$refs.userSearch) this.loading = true;
             });
@@ -49,6 +51,7 @@ document.addEventListener("alpine:init", () => {
 
         openPicker() {
             this.popover = true;
+            this._announceOpen();
             this.$nextTick(() => {
                 // Reset to a clean empty state — no server round-trip until the user
                 // types ≥ PICKER_USERS_MIN_QUERY chars and `input changed` fires.

@@ -12,6 +12,8 @@
   --chart-tooltip-fg: rgba(255, 255, 255, 0.92);
 }
 
+/* Entrance animations fill `backwards`, never `both`: a filling `transform` computes to an
+   identity matrix, which makes the element a containing block for `position: fixed` children. */
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -40,7 +42,7 @@
 .composer-sheet,
 .filter-menu,
 .card__menu-panel {
-  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out both;
+  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out backwards;
 }
 
 /* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
@@ -82,7 +84,7 @@ main:has(.chat-shell) {
 }
 
 .animate-fade-up {
-  animation: fade-up 0.5s ease-out both;
+  animation: fade-up 0.5s ease-out backwards;
 }
 
 @keyframes number-in {
@@ -93,7 +95,7 @@ main:has(.chat-shell) {
 }
 
 .animate-number {
-  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes bar-grow {
@@ -103,7 +105,7 @@ main:has(.chat-shell) {
 }
 
 .animate-bar {
-  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transform-origin: left;
 }
 
@@ -516,7 +518,7 @@ main:has(.chat-shell) {
     max-width: 34rem;
     margin: 10vh auto 0;
     padding: 2rem 1rem;
-    animation: fade-up 0.6s ease-out both;
+    animation: fade-up 0.6s ease-out backwards;
   }
 
   .chat-hero__eyebrow {
@@ -718,7 +720,7 @@ main:has(.chat-shell) {
 
   .chat-turn {
     padding: 0.5rem 0;
-    animation: fade-up 0.45s ease-out both;
+    animation: fade-up 0.45s ease-out backwards;
     /* Breathing room left above a turn the page scrolls to, so it reads as the
        top of a block rather than as content clipped by the viewport edge.
        Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
@@ -1308,7 +1310,7 @@ main:has(.chat-shell) {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    animation: fade-up 0.2s ease-out both;
+    animation: fade-up 0.2s ease-out backwards;
   }
 
   .chat-tool__block {
@@ -1793,7 +1795,7 @@ main:has(.chat-shell) {
     font-family: "JetBrains Mono", ui-monospace, monospace;
     cursor: pointer;
     backdrop-filter: blur(8px);
-    animation: fade-up 0.3s ease-out both;
+    animation: fade-up 0.3s ease-out backwards;
   }
 
   /* Context row — repo · branch (+ MR). Lives in the dock, above the composer box, so it
