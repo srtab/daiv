@@ -51,7 +51,7 @@
              @click.outside="closePicker()"
              @keydown.escape.window="closePicker()"
              class="picker-popover">
-            {% include "core/_picker_sheet_head.html" with title=_("Subscribers") close_expr="closePicker()" %}
+            {% include "core/_sheet_head.html" with title=_("Subscribers") close_expr="closePicker()" %}
             {% comment %} `hx-include` pulls in the hidden `exclude` CSV so the backend can filter out already-selected users. HTMX 2.x only sends the triggering input's value on GET by default, so without this the enclosing form's other inputs are *not* sent (which is what we want — the picker stays scoped to `q` and `exclude`). {% endcomment %}
             <input type="hidden" name="exclude" :value="excludeCsv">
             <input type="search" name="q" autofocus autocomplete="off"

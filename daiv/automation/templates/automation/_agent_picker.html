@@ -164,7 +164,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
          @keydown.escape.window="close()"
          class="picker-popover">
 
-        {% include "core/_picker_sheet_head.html" with title=_("Model") close_expr="close()" %}
+        {% include "core/_sheet_head.html" with title=_("Model") close_expr="close()" %}
 
         <div class="agent-popover__section">
             <div class="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">{% translate "Provider" %}</div>

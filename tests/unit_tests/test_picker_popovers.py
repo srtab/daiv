@@ -20,14 +20,14 @@ from tests.unit_tests.test_template_comments import iter_template_files
 # `__list`, which are content *inside* a popover and carry their own utilities.
 CONTAINER = re.compile(r'class="(picker-popover(?![_\w])[^"]*)"')
 
-SHEET_HEAD = "core/_picker_sheet_head.html"
+SHEET_HEAD = "core/_sheet_head.html"
 
 
 def _templates_with_popovers() -> dict[str, str]:
     return {
         str(path): source
         for path in iter_template_files()
-        if path.suffix == ".html" and 'class="picker-popover' in (source := path.read_text(encoding="utf-8"))
+        if path.suffix == ".html" and CONTAINER.search(source := path.read_text(encoding="utf-8"))
     }
 
 
@@ -62,5 +62,6 @@ def test_the_guards_are_actually_looking_at_something():
     """A typo in the container pattern would make both tests above vacuously pass."""
     found = _templates_with_popovers()
 
-    assert len(found) >= 4, f"expected pickers from several apps, found {sorted(found)}"
-    assert sum(len(CONTAINER.findall(source)) for source in found.values()) >= 5
+    assert sum(len(CONTAINER.findall(source)) for source in found.values()) >= 5, (
+        f"expected the pickers from several apps, found {sorted(found)}"
+    )

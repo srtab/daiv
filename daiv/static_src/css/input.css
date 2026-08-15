@@ -29,26 +29,25 @@
   }
 }
 
-/* The roster of floating surfaces, in one place. `.surface-rise` is the hook for the
-   dropdowns built from utilities alone; the rest already have a component class. Any new
-   one belongs here — a surface that appears without motion reads as a repaint glitch next
-   to these. Alpine's `x-transition` must not be used alongside: it drives `opacity` and
-   `transform` from inline styles and the two fight over the same 180ms. */
+/* The roster of floating surfaces — one rule, so enrolling a surface is one edit.
+   `.surface-rise` is the hook for the dropdowns built from utilities alone; the rest
+   already have a component class. Any new one belongs here — a surface that appears
+   without motion reads as a repaint glitch next to these. Alpine's `x-transition` must
+   not be used alongside: it drives `opacity` and `transform` from inline styles and the
+   two fight over the same frames. */
 .surface-rise,
 .picker-popover,
 .composer-sheet,
 .filter-menu,
 .card__menu-panel {
-  animation: surface-rise 180ms ease-out both;
+  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out both;
 }
 
+/* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
+   they just stop travelling. */
 @media (prefers-reduced-motion: reduce) {
-  .surface-rise,
-  .picker-popover,
-  .composer-sheet,
-  .filter-menu,
-  .card__menu-panel {
-    animation: none;
+  :root {
+    --surface-rise-duration: 0.01ms;
   }
 }
 
@@ -1806,18 +1805,18 @@ main:has(.chat-shell) {
   }
 
   /* Only above 1100px, where these are still anchored popovers rather than bottom sheets
-     (see `.picker-popover`). The dock is pinned to the viewport bottom, so a popover it
-     hosts has to open upward — `.picker-popover` anchors `top-full` by default — and the
-     model trigger sits at the right edge beside Send, so its popover opens inward. */
-  @media (min-width: 1100px) {
-    .chat-context .picker-popover,
-    .chat-composer__buttons .picker-popover {
+     (see `.picker-popover`). Scoped to the dock rather than to the two triggers that live
+     there today: the dock is pinned to the viewport bottom, so anything anchored
+     `top-full` inside it opens off the screen. */
+  @media (width >= 1100px) {
+    .chat-dock .picker-popover {
       top: auto;
       bottom: 100%;
       margin-top: 0;
       margin-bottom: 8px;
     }
 
+    /* Only this one — its trigger sits at the right edge, beside Send. */
     .chat-composer__buttons .picker-popover {
       left: auto;
       right: 0;
@@ -1908,7 +1907,10 @@ main:has(.chat-shell) {
     }
   }
 
-  .composer-sheet__head {
+  /* One head for every sheet, whether it opens from the composer or from a picker; the
+     pickers differ only in padding and in being hidden above 1100px (`.picker-popover__head`). */
+  .composer-sheet__head,
+  .picker-popover__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1916,7 +1918,8 @@ main:has(.chat-shell) {
     padding: 12px 14px 8px;
   }
 
-  .composer-sheet__title {
+  .composer-sheet__title,
+  .picker-popover__title {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
@@ -1924,8 +1927,10 @@ main:has(.chat-shell) {
     color: #64748b;
   }
 
-  .composer-sheet__close {
+  .composer-sheet__close,
+  .picker-popover__close {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
     height: 24px;
@@ -1934,7 +1939,8 @@ main:has(.chat-shell) {
     color: #94a3b8;
   }
 
-  .composer-sheet__close:hover {
+  .composer-sheet__close:hover,
+  .picker-popover__close:hover {
     background: rgba(255, 255, 255, 0.06);
     color: #fff;
   }
@@ -2356,54 +2362,37 @@ main:has(.chat-shell) {
   }
   .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
 
-  /* Shared shell for the repo / branch / env / subscriber pickers — see _repo_picker.html,
-     _env_picker.html, _subscriber_picker.html. Templates layer on left-* / w-* utilities
-     since position and width vary per call site. */
-  /* Geometry lives here, never as `left-*`/`w-*` utilities on the element: utilities
-     outrank every component rule whatever the selector, so a utility anchor survives into
-     widths where it doesn't fit. Below 1100px these stop floating altogether. */
+  /* Shared shell for the model / repo / branch / env / subscriber pickers. Geometry lives
+     here, never as `left-*`/`w-*` utilities on the element: utilities outrank every
+     component rule whatever the selector, so a utility anchor survives into widths where
+     it doesn't fit. Below 1100px these stop floating altogether. */
   .picker-popover {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
     background: #0d1117;
     border-color: rgba(255, 255, 255, 0.08);
     left: 0;
     width: 320px;
-    max-width: calc(100vw - 24px);
   }
   .picker-popover--wide { width: 340px; }
   .picker-popover--inset { left: 12px; }
 
-  /* Chrome for the sheet form only: a sheet covers its own trigger, so it has to carry a
-     dismiss. An anchored popover leaves the trigger visible and needs neither. */
-  .picker-sheet-head {
+  /* A picker's head exists only in its sheet form, which covers the trigger that would
+     otherwise dismiss it; the sheets in the composer are always sheets, so theirs is
+     always on. Everything but that and the padding is shared — see `.composer-sheet__head`. */
+  .picker-popover__head {
     display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
     padding: 4px 6px 8px;
-  }
-  .picker-sheet-head__title {
-    @apply text-[11px] font-semibold uppercase text-slate-500;
-    letter-spacing: 0.14em;
-  }
-  .picker-sheet-head__close {
-    @apply inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-slate-400;
-  }
-  .picker-sheet-head__close:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
   }
 
   /* A trigger anywhere but hard left puts a 320px panel over the right edge of a phone,
      and no anchor tweak fixes every case — so below 1100px every picker is a bottom
      sheet, the same surface the chat composer's options and progress already use.
-     Stays last: it re-declares `display` and geometry the rules above set. */
-  @media (max-width: 1099px) {
+     Stays last: it re-declares geometry and `display` the rules above set. */
+  @media (width < 1100px) {
     .picker-popover {
       position: fixed;
       inset: auto 0 0 0;
       width: auto;
-      max-width: none;
       max-height: 72vh;
       max-height: 72dvh;
       overflow-y: auto;
@@ -2415,7 +2404,7 @@ main:has(.chat-shell) {
       --surface-rise-from: 12px;
     }
 
-    .picker-sheet-head {
+    .picker-popover__head {
       display: flex;
     }
   }

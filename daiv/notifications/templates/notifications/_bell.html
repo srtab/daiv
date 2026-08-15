@@ -19,7 +19,8 @@
     {% endif %}
   </button>
 
-  <div x-show="open" @click.outside="open = false"
+  {# `x-cloak` keeps the 10s badge swap from re-running the open animation on a closed dropdown. #}
+  <div x-show="open" @click.outside="open = false" x-cloak
        class="surface-rise absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] shadow-xl">
     <div id="notifications-dropdown" class="max-h-96 overflow-y-auto">
       <!-- HTMX populates on open -->

@@ -7,6 +7,7 @@ import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
 
 from accounts.models import Role, User
+from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
 
 
 @pytest.fixture
@@ -570,7 +571,7 @@ def test_sheet_variant_expands_in_place_instead_of_floating():
     assert "sheet-disclosure" in html
     assert "sheet-panel__scroll" in html
     assert "picker-popover__search" in html  # the search input's styling is still shared
-    assert "picker-popover left-0" not in html  # ...but nothing floats
+    assert not POPOVER_CONTAINER.search(html)  # ...but nothing floats
 
 
 @pytest.mark.django_db

@@ -110,7 +110,7 @@ Parameters:
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
          class="picker-popover picker-popover--inset">
-        {% include "core/_picker_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}
+        {% include "core/_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="repoSearch"
                placeholder="{{ search_repos_placeholder }}"
@@ -147,7 +147,7 @@ Parameters:
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
          class="picker-popover picker-popover--inset">
-        {% include "core/_picker_sheet_head.html" with title=_("Branch") close_expr="closePopover()" %}
+        {% include "core/_sheet_head.html" with title=_("Branch") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="branchSearch"
                placeholder="{{ search_branches_placeholder }}"
