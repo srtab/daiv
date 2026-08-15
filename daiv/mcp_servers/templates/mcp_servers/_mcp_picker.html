@@ -59,5 +59,8 @@ Pool + selection are supplied by ``mcp_servers.selection.mcp_picker_context``.
         {% endif %}
     </div>
 
-    <input type="hidden" name="mcp_servers" :value="JSON.stringify(selected)">
+    {% comment %}Server-rendered `value` as well as `:value`: a page whose Alpine never ran would
+    otherwise submit an empty string, which reads as "every server off".{% endcomment %}
+    <input type="hidden" name="mcp_servers" value="{{ mcp_selected_json }}"
+           :value="JSON.stringify(selected)">
 </div>

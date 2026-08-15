@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from django import forms
 from django.http import QueryDict
+from django.template.loader import render_to_string
 
+import mcp_servers
 import pytest
 from mcp_servers.forms import MCPServerForm, ToolFilterItemsField
 from mcp_servers.models import MCPServer
+
+MCP_APP_DIR = Path(mcp_servers.__file__).parent
 
 
 @pytest.mark.django_db
@@ -615,3 +622,57 @@ def test_form_persists_status(admin_user):
     assert form.is_valid(), form.errors
     obj = form.save()
     assert obj.status == MCPServer.Status.ON_DEMAND
+
+
+# ---------------------------------------------------------------------------
+# Segmented controls must carry their value without JS
+# ---------------------------------------------------------------------------
+
+
+def _radio_for(html: str, value: str) -> str:
+    marker = f'value="{value}"'
+    start = html.index(marker)
+    return html[start : html.index(">", start)]
+
+
+@pytest.mark.django_db
+def test_segmented_control_renders_checked_for_the_stored_value():
+    """The radios are the only carrier of `status`, which is required with no blank choice.
+    Relying on Alpine alone to check one makes the form unsubmittable the moment the var
+    behind `x-model` is unavailable — which is exactly how it shipped."""
+    server = MCPServer.objects.create(
+        name="graded", transport=MCPServer.Transport.HTTP, url="http://g", status=MCPServer.Status.ON_DEMAND
+    )
+    html = render_to_string(
+        "mcp_servers/_segmented_control.html",
+        {"field": MCPServerForm(instance=server)["status"], "model": "serverStatus"},
+    )
+
+    assert "checked" in _radio_for(html, "on-demand")
+    assert "checked" not in _radio_for(html, "active")
+    assert "checked" not in _radio_for(html, "disabled")
+
+
+@pytest.mark.django_db
+def test_segmented_control_checks_the_field_default_on_a_create_form():
+    form = MCPServerForm(scope=MCPServer.Scope.GLOBAL)
+    html = render_to_string("mcp_servers/_segmented_control.html", {"field": form["status"], "model": "serverStatus"})
+
+    assert "checked" in _radio_for(html, "active")
+    assert "checked" not in _radio_for(html, "disabled")
+
+
+def test_form_template_passes_only_vars_the_alpine_component_destructures():
+    """`serverStatus` shipped in the template's `mcpTestConnection({...})` literal but not in the
+    factory's destructuring, so `x-model` bound to `undefined` and cleared every status radio."""
+    template = (MCP_APP_DIR / "templates/mcp_servers/form.html").read_text()
+    script = (MCP_APP_DIR / "static/mcp_servers/js/mcp-server-form.js").read_text()
+
+    init = template[template.index("mcpTestConnection({") : template.index('})">')]
+    passed = set(re.findall(r"^\s*(\w+):", init, re.MULTILINE))
+    factory = re.search(r'Alpine\.data\("mcpTestConnection",\s*\(\{([^}]*)\}\)', script)
+    destructured = set(re.findall(r"\w+", factory.group(1) if factory else ""))
+
+    assert passed, "could not parse the x-data init — did form.html change shape?"
+    assert destructured, "could not parse the factory signature — did mcp-server-form.js change shape?"
+    assert passed <= destructured, f"passed but never destructured: {sorted(passed - destructured)}"

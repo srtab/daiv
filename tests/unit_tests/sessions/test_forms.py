@@ -42,9 +42,12 @@ def test_repo_list_field_prepare_value_serializes_empty_as_bracket():
     assert field.prepare_value([]) == "[]"
 
 
-def test_mcp_selection_field_normalizes_empty_to_list():
+def test_mcp_selection_field_keeps_absent_distinct_from_deselect_all():
+    """`clean()` diffs a submitted selection against the pool, so "nothing was submitted" must not
+    arrive as the empty list — that reads as an explicit deselect-all and disables every server."""
     field = MCPSelectionField(required=False)
-    assert field.clean("") == []
+    assert field.clean("") is None
+    assert field.clean(None) is None
     assert field.clean("[]") == []
 
 
@@ -146,5 +149,42 @@ def test_run_form_untouched_selection_yields_empty_overrides(member_user):
         },
         user=member_user,
     )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["mcp_overrides"] == {}
+
+
+def test_run_form_empty_selection_turns_everything_off(member_user):
+    """`[]` is a real answer — the user unchecked every box — and must still diff."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://a",
+        status=MCPServer.Status.ACTIVE,
+    )
+    form = AgentRunCreateForm(data=_form_data(mcp_servers="[]"), user=member_user)
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["mcp_overrides"] == {"a": "off"}
+
+
+def test_run_form_absent_selection_leaves_the_stored_overrides_alone(member_user):
+    """A submit that never carried the picker — Alpine blocked, a scripted POST — must not read as
+    a deselect-all. Absent keeps what is stored; here that is the untouched default pool."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="a",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://a",
+        status=MCPServer.Status.ACTIVE,
+    )
+    form = AgentRunCreateForm(data=_form_data(), user=member_user)
+
     assert form.is_valid(), form.errors
     assert form.cleaned_data["mcp_overrides"] == {}

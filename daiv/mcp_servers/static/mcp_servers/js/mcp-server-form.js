@@ -14,12 +14,15 @@
  * the server is already synced, or a successful test reveals it.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, showFilter, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
+    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, serverStatus, showFilter, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
         state: "idle", // idle | testing | ok | error
         error: "",
         toolCount: 0,
         transport,
         filterMode,
+        // Every segmented control needs its var both destructured *and* returned — an
+        // unexposed one makes `x-model` clear the radio it is bound to.
+        serverStatus,
         showFilter,
         filterPlaceholder,
         notInListLabel,

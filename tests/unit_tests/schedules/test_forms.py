@@ -251,6 +251,28 @@ class TestScheduledJobFormIntent:
         assert not form.is_valid()
         assert "intent" in form.errors
 
+    def test_update_form_without_the_picker_keeps_the_stored_overrides(self, member_user):
+        """Editing a schedule from a page whose picker never rendered must leave its MCP
+        selection intact rather than silently rewriting it to "everything off"."""
+        from mcp_servers.models import MCPServer
+
+        MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+        MCPServer.objects.create(
+            name="a",
+            scope=MCPServer.Scope.GLOBAL,
+            transport=MCPServer.Transport.HTTP,
+            url="http://a",
+            status=MCPServer.Status.ON_DEMAND,
+        )
+        job = ScheduledJobCreateForm(data=_valid_data(mcp_servers='["a"]'), owner=member_user).save(commit=False)
+        job.user = member_user
+        job.save()
+        assert job.mcp_overrides == {"a": "on"}
+
+        form = ScheduledJobUpdateForm(data=_valid_data(), instance=job, owner=member_user)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["mcp_overrides"] == {"a": "on"}
+
 
 @pytest.mark.django_db
 class TestScheduleTemplateFormIntent:

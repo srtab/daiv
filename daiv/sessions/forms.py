@@ -63,8 +63,13 @@ class MCPSelectionField(forms.JSONField):
 
     def to_python(self, value):
         parsed = super().to_python(value)
+        # ``None`` ("nothing was submitted") must stay distinguishable from ``[]`` ("the user
+        # turned every server off"): collapsing them lets an unpopulated input — Alpine
+        # blocked, a scripted POST, a form that doesn't render the picker — read as an
+        # explicit deselect-all and silently disable every default server. ``clean()`` is
+        # what acts on the difference.
         if parsed in (None, ""):
-            return []
+            return None
         try:
             return parse_server_names(parsed)
         except ValueError as err:
@@ -75,7 +80,7 @@ class MCPSelectionField(forms.JSONField):
             # Bound-form re-render: BoundField.value() feeds the raw submitted string back through
             # prepare_value; parse it so callers always see a list, degrading a malformed value to [].
             try:
-                return self.to_python(value)
+                return self.to_python(value) or []
             except forms.ValidationError:
                 return []
         return list(value) if value else []
@@ -142,8 +147,14 @@ class AgentRunFieldsMixin(forms.Form):
             except RepositoryAccessDenied:
                 self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
 
-        selected = set(cleaned.get("mcp_servers") or [])
-        cleaned["mcp_overrides"] = diff_selection(selected, self.mcp_pool)
+        # Absent means "leave the stored selection alone", matching the chat endpoint
+        # (``chat/api/views.py``); only a selection that was actually submitted is diffed.
+        # An empty list is a real answer and still diffs to "everything off".
+        submitted = cleaned.get("mcp_servers")
+        if submitted is not None:
+            cleaned["mcp_overrides"] = diff_selection(set(submitted), self.mcp_pool)
+        else:
+            cleaned["mcp_overrides"] = getattr(getattr(self, "instance", None), "mcp_overrides", None) or {}
         return cleaned
 
 
