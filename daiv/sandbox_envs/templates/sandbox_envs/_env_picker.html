@@ -36,8 +36,10 @@ Parameters:
 {% endcomment %}
 
 {% if disabled %}
-{# `title` reveals what `.sheet-disclosure__title` truncates; the lock reason rides an `sr-only`
-   line instead, which is announced whether or not an env is named. #}
+{% comment %}
+``title`` reveals what ``.sheet-disclosure__title`` truncates; the lock reason rides an
+``sr-only`` line instead, which is announced whether or not an env is named.
+{% endcomment %}
 <div class="sheet-disclosure sheet-disclosure--locked"
      {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% endif %}
      aria-disabled="true">
