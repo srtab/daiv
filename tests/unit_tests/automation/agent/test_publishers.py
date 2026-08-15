@@ -62,7 +62,12 @@ def _make_merge_request(**overrides) -> MergeRequest:
     return MergeRequest(**defaults)
 
 
-def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_file_name: str | None = "AGENTS.md"):
+def _make_publisher(
+    *,
+    git_platform: GitPlatform = GitPlatform.GITLAB,
+    context_file_name: str | None = "AGENTS.md",
+    thread_id: str | None = None,
+):
     ctx = Mock()
     ctx.repository.slug = "owner/repo"
     ctx.repository.html_url = "https://gitlab.com/owner/repo"
@@ -75,7 +80,7 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
 
-    publisher = GitChangePublisher(ctx)
+    publisher = GitChangePublisher(ctx, thread_id=thread_id)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
     publisher.client.push_uses_ephemeral_token.return_value = False
@@ -246,6 +251,47 @@ class TestCreateMergeRequestDescription:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
+
+class TestCreateMergeRequestSessionLink:
+    """The MR description footer links back to the DAIV session that produced it."""
+
+    def _make_publisher(self, *, thread_id: str | None) -> GitChangePublisher:
+        publisher = _make_publisher(thread_id=thread_id)
+        publisher.ctx.issue = None
+        publisher.ctx.bot_username = "daiv"
+        return publisher
+
+    async def test_includes_session_link_when_thread_id_set(self, monkeypatch):
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
+        publisher = self._make_publisher(thread_id="abc123def")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "[view session](https://daiv.test/dashboard/sessions/abc123def/)" in description
+
+    async def test_omits_session_link_when_thread_id_missing(self, monkeypatch):
+        build_absolute_url = Mock()
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
+        publisher = self._make_publisher(thread_id=None)
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        build_absolute_url.assert_not_called()
+
+    async def test_empty_thread_id_behaves_as_missing(self, monkeypatch):
+        build_absolute_url = Mock()
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
+        publisher = self._make_publisher(thread_id="")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        build_absolute_url.assert_not_called()
 
 
 class TestCreateMergeRequestAssignee:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -57,6 +57,22 @@ class TestIssueAddressorManagerThreadId:
     def test_empty_string_rejected(self, stub_base_init):
         with pytest.raises(ValueError):
             IssueAddressorManager(issue=_issue(), runtime_ctx=_StubCtx(), thread_id="")
+
+
+class TestRecoverDraftThreadId:
+    async def test_recover_draft_passes_thread_id_from_config(self, stub_base_init):
+        manager = IssueAddressorManager(issue=_issue(), runtime_ctx=_StubCtx(), thread_id="explicit-id")
+        manager.ctx.sandbox = None
+        agent = Mock()
+        agent.aget_state = AsyncMock(return_value=Mock(values={"merge_request": None}))
+
+        with patch("codebase.managers.base.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
+            await manager._recover_draft(
+                agent, {"configurable": {"thread_id": "t-99"}}, entity_label="issue", entity_id=1
+            )
+
+        assert pub_cls.call_args.kwargs["thread_id"] == "t-99"
 
 
 class TestCommentsAddressorManagerThreadId:

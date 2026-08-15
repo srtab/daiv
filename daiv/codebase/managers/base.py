@@ -70,7 +70,9 @@ class BaseManager:
                 sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
                 sandbox_backend.bind_session(sid)
 
-            publisher = GitChangePublisher(self.ctx, sandbox_backend=sandbox_backend)
+            publisher = GitChangePublisher(
+                self.ctx, sandbox_backend=sandbox_backend, thread_id=(config.get("configurable") or {}).get("thread_id")
+            )
             outcome = await publisher.publish(
                 merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
             )

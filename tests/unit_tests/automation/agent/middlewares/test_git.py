@@ -100,6 +100,27 @@ class TestGitMiddleware:
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] is None
 
+    async def test_aafter_agent_passes_thread_id_to_publisher(self):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+            patch("automation.agent.middlewares.git.conversation_thread_id", return_value="t-1"),
+        ):
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert pub_cls.call_args.kwargs["thread_id"] == "t-1"
+
+    async def test_aafter_agent_thread_id_none_outside_runnable_context(self):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert pub_cls.call_args.kwargs["thread_id"] is None
+
     async def test_aafter_agent_surfaces_diff_stats_as_a_plain_dict(self):
         """``diff_stats`` streams to the chat composer through the same STATE_SNAPSHOT the MR
         rides on, so it is dumped to plain ints rather than checkpointed as a model."""

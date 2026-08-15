@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 
@@ -19,6 +20,7 @@ from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
+from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
@@ -63,10 +65,13 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None):
+    def __init__(
+        self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None, thread_id: str | None = None
+    ):
         self.ctx = ctx
         self.client = RepoClient.create_instance()
         self.sandbox_backend = sandbox_backend
+        self.thread_id = thread_id
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -392,6 +397,12 @@ class GitChangePublisher(ChangePublisher):
             else cast("str", self.ctx.config.default_branch)
         )
 
+        session_url = None
+        if self.thread_id:
+            session_url = await sync_to_async(build_absolute_url)(
+                reverse("session_detail", kwargs={"thread_id": self.thread_id})
+            )
+
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
@@ -410,6 +421,7 @@ class GitChangePublisher(ChangePublisher):
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
+                    "session_url": session_url,
                 },
             ),
         )
