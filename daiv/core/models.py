@@ -461,6 +461,14 @@ class SiteConfiguration(models.Model):
         null=True,
         help_text=_("Suggest creating a context file (e.g. AGENTS.md) on new merge requests."),
     )
+    session_link_enabled = models.BooleanField(
+        _("link sessions from merge requests"),
+        null=True,
+        help_text=_(
+            "Add a link to the DAIV session that produced the changes in the descriptions of merge requests DAIV opens."
+            " Disable to keep the DAIV URL off the git platform."
+        ),
+    )
 
     # -- Rate Limiting --
     jobs_throttle_rate = models.CharField(
@@ -531,7 +539,7 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled"),
+            match=("agent_*", "suggest_context_file_enabled", "session_link_enabled"),
             icon="agent",
             category="AI tasks",
         ),

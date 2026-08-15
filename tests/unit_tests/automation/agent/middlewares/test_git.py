@@ -112,11 +112,15 @@ class TestGitMiddleware:
             await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
         assert pub_cls.call_args.kwargs["thread_id"] == "t-1"
 
-    async def test_aafter_agent_thread_id_none_outside_runnable_context(self):
+    async def test_aafter_agent_passes_thread_id_none_through(self):
+        """No conversation thread (non-chat automation run) still publishes, just without a link."""
         mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
-        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+            patch("automation.agent.middlewares.git.conversation_thread_id", return_value=None),
+        ):
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
             await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
         assert pub_cls.call_args.kwargs["thread_id"] is None

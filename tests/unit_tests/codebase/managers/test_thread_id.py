@@ -60,7 +60,8 @@ class TestIssueAddressorManagerThreadId:
 
 
 class TestRecoverDraftThreadId:
-    async def test_recover_draft_passes_thread_id_from_config(self, stub_base_init):
+    async def test_recover_draft_uses_the_managers_thread_id(self, stub_base_init):
+        """The manager's validated thread_id is authoritative; the config is not re-parsed for it."""
         manager = IssueAddressorManager(issue=_issue(), runtime_ctx=_StubCtx(), thread_id="explicit-id")
         manager.ctx.sandbox = None
         agent = Mock()
@@ -68,11 +69,9 @@ class TestRecoverDraftThreadId:
 
         with patch("codebase.managers.base.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
-            await manager._recover_draft(
-                agent, {"configurable": {"thread_id": "t-99"}}, entity_label="issue", entity_id=1
-            )
+            await manager._recover_draft(agent, {}, entity_label="issue", entity_id=1)
 
-        assert pub_cls.call_args.kwargs["thread_id"] == "t-99"
+        assert pub_cls.call_args.kwargs["thread_id"] == "explicit-id"
 
 
 class TestCommentsAddressorManagerThreadId:

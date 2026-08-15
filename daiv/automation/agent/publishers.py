@@ -7,8 +7,9 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.template.loader import render_to_string
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 
 from asgiref.sync import sync_to_async
 
@@ -397,12 +398,6 @@ class GitChangePublisher(ChangePublisher):
             else cast("str", self.ctx.config.default_branch)
         )
 
-        session_url = None
-        if self.thread_id:
-            session_url = await sync_to_async(build_absolute_url)(
-                reverse("session_detail", kwargs={"thread_id": self.thread_id})
-            )
-
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
@@ -421,10 +416,27 @@ class GitChangePublisher(ChangePublisher):
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
-                    "session_url": session_url,
+                    "session_url": await self._session_url(),
                 },
             ),
         )
+
+    async def _session_url(self) -> str | None:
+        """Absolute URL of the session that produced the changes, or None when unavailable.
+
+        The link is cosmetic and rendered after the branch is already pushed, so an unroutable
+        thread_id or an unconfigured Sites row degrades to no link rather than losing the MR.
+        """
+        if not self.thread_id or not site_settings.session_link_enabled or not self.ctx.config.session_link:
+            return None
+
+        try:
+            return await sync_to_async(build_absolute_url)(
+                reverse("session_detail", kwargs={"thread_id": self.thread_id})
+            )
+        except NoReverseMatch, ObjectDoesNotExist:
+            logger.warning("Could not build a session link for thread_id %r; publishing without it", self.thread_id)
+            return None
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

@@ -119,7 +119,9 @@ These selections are fixed at session creation. To use a different model, effort
 
 ### Merge request awareness
 
-When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs. The MR/PR description also links back to the producing session, so reviewers can jump from the platform to the session transcript.
+When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
+
+When DAIV *opens* the request, its description links back to the producing session so reviewers can jump from the git platform to the session transcript. A request DAIV merely adopts keeps its existing description untouched, so it carries no link. Admins can turn the link off for the whole instance (**Settings > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
 
 !!! warning "Expired state"
     Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.

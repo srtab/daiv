@@ -165,6 +165,9 @@ class RepositoryConfig(BaseModel):
             "Suggest creating a context file (e.g. AGENTS.md) when DAIV opens a merge request and the file is missing."
         ),
     )
+    session_link: bool = Field(
+        default=True, description="Link the DAIV session that produced the changes from the merge requests DAIV opens."
+    )
 
     # Codebase restrictions
     omit_content_patterns: tuple[str, ...] = Field(

@@ -264,7 +264,7 @@ def conversation_thread_id() -> str | None:
         config = get_config()
     except RuntimeError:
         return None
-    return config.get("configurable", {}).get("thread_id")
+    return (config.get("configurable") or {}).get("thread_id")
 
 
 def build_langsmith_config(

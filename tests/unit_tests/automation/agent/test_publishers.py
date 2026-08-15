@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
+from django.contrib.sites.models import Site
+
 import pytest
 
 from automation.agent.git_manager import RepoStatus
@@ -74,6 +76,7 @@ def _make_publisher(
     ctx.repository.git_platform = git_platform
     ctx.config.context_file_name = context_file_name
     ctx.config.suggest_context_file = True
+    ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
 
@@ -256,7 +259,7 @@ class TestCreateMergeRequestDescription:
 class TestCreateMergeRequestSessionLink:
     """The MR description footer links back to the DAIV session that produced it."""
 
-    def _make_publisher(self, *, thread_id: str | None) -> GitChangePublisher:
+    def _publisher_with_thread(self, *, thread_id: str | None) -> GitChangePublisher:
         publisher = _make_publisher(thread_id=thread_id)
         publisher.ctx.issue = None
         publisher.ctx.bot_username = "daiv"
@@ -264,17 +267,28 @@ class TestCreateMergeRequestSessionLink:
 
     async def test_includes_session_link_when_thread_id_set(self, monkeypatch):
         monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
-        publisher = self._make_publisher(thread_id="abc123def")
+        publisher = self._publisher_with_thread(thread_id="abc123def")
 
         await publisher._create_merge_request("feature", "Title", "Body")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "[view session](https://daiv.test/dashboard/sessions/abc123def/)" in description
 
+    async def test_link_shares_the_warning_blockquote(self, monkeypatch):
+        """A blank line between the two would split the footer into two quote boxes."""
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
+        publisher = self._publisher_with_thread(thread_id="abc123def")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        lines = publisher.client.update_or_create_merge_request.call_args.kwargs["description"].splitlines()
+        warning_index = next(i for i, line in enumerate(lines) if "can make mistakes" in line)
+        assert "view session" in lines[warning_index + 1]
+
     async def test_omits_session_link_when_thread_id_missing(self, monkeypatch):
         build_absolute_url = Mock()
         monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
-        publisher = self._make_publisher(thread_id=None)
+        publisher = self._publisher_with_thread(thread_id=None)
 
         await publisher._create_merge_request("feature", "Title", "Body")
 
@@ -285,7 +299,55 @@ class TestCreateMergeRequestSessionLink:
     async def test_empty_thread_id_behaves_as_missing(self, monkeypatch):
         build_absolute_url = Mock()
         monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
-        publisher = self._make_publisher(thread_id="")
+        publisher = self._publisher_with_thread(thread_id="")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        build_absolute_url.assert_not_called()
+
+    async def test_unroutable_thread_id_still_publishes(self):
+        """A thread_id the URLconf can't reverse must not abort a publish whose branch is pushed."""
+        publisher = self._publisher_with_thread(thread_id="not a slug")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        assert "can make mistakes" in description
+
+    async def test_missing_site_row_still_publishes(self, monkeypatch):
+        monkeypatch.setattr(
+            "automation.agent.publishers.build_absolute_url", Mock(side_effect=Site.DoesNotExist("no site"))
+        )
+        publisher = self._publisher_with_thread(thread_id="abc123def")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        assert "can make mistakes" in description
+
+    async def test_disabled_site_wide(self, monkeypatch):
+        from core.site_settings import site_settings
+
+        build_absolute_url = Mock()
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
+        monkeypatch.setattr(site_settings, "session_link_enabled", False)
+        publisher = self._publisher_with_thread(thread_id="abc123def")
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view session" not in description
+        build_absolute_url.assert_not_called()
+
+    async def test_disabled_per_repository(self, monkeypatch):
+        build_absolute_url = Mock()
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
+        publisher = self._publisher_with_thread(thread_id="abc123def")
+        publisher.ctx.config.session_link = False
 
         await publisher._create_merge_request("feature", "Title", "Body")
 

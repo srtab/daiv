@@ -29,6 +29,9 @@ class BaseManager:
     _unable_note_posted: bool = False
     """ Backing flag for :meth:`_claim_unable_note`; see that method for the rationale. """
 
+    thread_id: str | None = None
+    """ LangGraph checkpoint key for the conversation; set by subclasses that run an agent. """
+
     def __init__(self, *, runtime_ctx: RuntimeCtx):
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
@@ -70,9 +73,7 @@ class BaseManager:
                 sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
                 sandbox_backend.bind_session(sid)
 
-            publisher = GitChangePublisher(
-                self.ctx, sandbox_backend=sandbox_backend, thread_id=(config.get("configurable") or {}).get("thread_id")
-            )
+            publisher = GitChangePublisher(self.ctx, sandbox_backend=sandbox_backend, thread_id=self.thread_id)
             outcome = await publisher.publish(
                 merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
             )
