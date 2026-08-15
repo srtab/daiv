@@ -140,6 +140,18 @@ def test_effort_word_yields_only_when_the_row_is_crowded(member_client, member_u
 
 
 @pytest.mark.django_db
+def test_model_popover_carries_no_positioning_utilities(member_client):
+    """The trigger sits at the right edge beside Send, so the popover has to open inward on
+    desktop and drop to a bottom sheet on a phone. A ``left-0 w-[320px]`` pair on the element
+    made both impossible: the utilities layer outranks the dock's component rules, so the
+    popover anchored left of a right-edge trigger and ran off screen."""
+    html = _render_new_chat(member_client)
+
+    assert "picker-popover agent-popover" in html
+    assert "picker-popover left-0 w-[320px]" not in html
+
+
+@pytest.mark.django_db
 def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
     """Environment and Tools share one interaction model, and neither escapes the sheet:
     a bottom sheet has nothing below it for a popover to open into."""

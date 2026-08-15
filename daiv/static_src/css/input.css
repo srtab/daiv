@@ -1789,6 +1789,34 @@ main:has(.chat-shell) {
     right: 0;
   }
 
+  /* The model popover is the one dock surface that isn't a sheet, and its trigger sits
+     beside Send at the right edge — 320px of popover had nowhere to go on a phone. Below
+     1100px it becomes the bottom sheet its neighbours in the action row already are. */
+  @media (max-width: 1099px) {
+    .chat-composer__buttons .agent-popover {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: auto;
+      max-width: none;
+      max-height: 72vh;
+      overflow-y: auto;
+      margin: 0;
+      z-index: 60;
+      border-width: 1px 0 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
+      animation: composer-sheet-in 180ms ease-out both;
+    }
+
+    .chat-composer__buttons .agent-popover__sheet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 6px 8px;
+    }
+  }
+
   /* Accent is reserved for "nothing picked yet" (the one state where the row is an
      instruction rather than a fact). A selected repo renders as the neutral chip the
      thread states use — only the chevron stays, marking it changeable. */
@@ -2334,6 +2362,9 @@ main:has(.chat-shell) {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
     background: #0d1117;
     border-color: rgba(255, 255, 255, 0.08);
+    /* Call sites size these in fixed px; the clamp keeps that from widening the page
+       on a phone. It can't fix an anchor pinned to a viewport edge — see the dock. */
+    max-width: calc(100vw - 24px);
   }
   .picker-popover__search {
     @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
@@ -2426,6 +2457,31 @@ main:has(.chat-shell) {
   .agent-pill__stale-marker {
     @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full
            bg-amber-500/20 text-[10px] font-semibold text-amber-300;
+  }
+
+  /* Geometry lives here rather than as `left-0 w-[320px]` utilities on the element:
+     utilities outrank every component rule whatever the selector, so a call site could
+     never re-anchor the popover away from a viewport edge. */
+  .agent-popover {
+    left: 0;
+    width: 320px;
+  }
+
+  /* Chrome for the sheet form only; an anchored popover dismisses on outside click with
+     its trigger still visible, so it needs neither title nor close button. */
+  .agent-popover__sheet-head {
+    display: none;
+  }
+  .agent-popover__sheet-title {
+    @apply text-[11px] font-semibold uppercase text-slate-500;
+    letter-spacing: 0.14em;
+  }
+  .agent-popover__sheet-close {
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-lg text-slate-400;
+  }
+  .agent-popover__sheet-close:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
   }
 
   .agent-popover__section {
