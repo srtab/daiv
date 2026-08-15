@@ -120,6 +120,26 @@ main:has(.chat-shell) {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
+/* -- Page header --------------------------------------------------------- */
+
+@layer components {
+  /* Title plus the actions at its top right — wraps on content, never at a
+     breakpoint. See DESIGN.md §Page Header for why a breakpoint can't work here. */
+  .page-header {
+    @apply flex flex-wrap items-center gap-4;
+  }
+
+  /* Takes whatever the actions leave and wraps its own text; the floor is what
+     drops the actions to a line of their own instead of squeezing them. */
+  .page-header__title {
+    @apply min-w-0 grow basis-64;
+  }
+
+  .page-header__actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+}
+
 /* -- Button component styles -------------------------------------------- */
 
 @layer components {

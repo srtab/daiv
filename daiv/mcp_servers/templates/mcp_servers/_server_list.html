@@ -5,10 +5,12 @@
 <div class="mt-3">
 {% if servers %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% comment %}Rows wrap like `.page-header` — Edit and Delete are conditional, so each
+       row drops its controls below the details at its own width.{% endcomment %}
     {% for s in servers %}
-    <div class="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.is_loadable %}opacity-60{% endif %}">
-        <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.is_loadable %}opacity-60{% endif %}">
+        <div class="min-w-0 grow basis-96">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 {% if not s.is_user_scoped or s.user_id == request.user.id %}
                 <a href="{% url 'mcp_servers:edit' s.pk %}"
                    class="text-[15px] font-medium text-white hover:text-violet-300">{{ s.name }}</a>
@@ -55,14 +57,14 @@
                 {% endif %}
             </div>
         </div>
-        <div class="flex shrink-0 items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
             <form method="post" action="{% url 'mcp_servers:refresh_tools' s.pk %}">
                 {% csrf_token %}
                 <button type="submit" title="{% translate 'Refresh tools' %}" class="btn-icon">
                     {% icon "arrow-path" "h-4 w-4" %}
                 </button>
             </form>
-            <div class="inline-flex items-center gap-1">
+            <div class="inline-flex flex-wrap items-center gap-1">
                 {% for value, label in s.Status.choices %}
                 <form method="post" action="{% url 'mcp_servers:set_status' s.pk %}">
                     {% csrf_token %}
