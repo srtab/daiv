@@ -50,6 +50,21 @@ def _marker(run: Run) -> dict[str, Any] | None:
     return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}
 
 
+def _stamp_run_times(seg_turns: list[dict[str, Any]], run: Run) -> None:
+    """Stamp run-level timings onto a segment's boundary turns (machine ISO-8601).
+
+    ``sent_at`` (creation time) lands on the owning user turn — the segment's first
+    turn when it is a user turn — and ``received_at`` (finish time) on the run's last
+    turn, only once the run has finished.
+    """
+    if not seg_turns:
+        return
+    if run.created_at is not None and seg_turns[0].get("role") == "user":
+        seg_turns[0]["sent_at"] = run.created_at.isoformat()
+    if run.finished_at is not None:
+        seg_turns[-1]["received_at"] = run.finished_at.isoformat()
+
+
 def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker; a non-failed run with no turn contributes nothing."""
@@ -58,7 +73,10 @@ def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
         return []
     out: list[dict[str, Any]] = []
     if run.prompt:
-        out.append({"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]})
+        user_turn = {"id": f"run-{run.id}", "role": "user", "segments": [{"type": "text", "content": run.prompt}]}
+        if run.created_at is not None:
+            user_turn["sent_at"] = run.created_at.isoformat()
+        out.append(user_turn)
     out.append(marker)
     return out
 
@@ -115,6 +133,9 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
         while cursor < matched:
             result.extend(segments[cursor]["turns"])
             cursor += 1
+        # received_at targets the segment's own turns; the run_status marker is appended
+        # to `result` separately below, so it never receives a timestamp.
+        _stamp_run_times(segments[matched]["turns"], run)
         result.extend(segments[matched]["turns"])
         cursor = matched + 1
         if (marker := _marker(run)) is not None:

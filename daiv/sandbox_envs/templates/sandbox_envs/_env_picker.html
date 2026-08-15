@@ -10,11 +10,13 @@ Parameters:
 - field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
                                   leave empty to use the picker as an event-only source (e.g. chat hero)
 - on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
-- disabled (default False)      — render a static, server-rendered pill (no Alpine, no popover, no caret).
-                                  Used where the env is locked for the current context (e.g. chat composer
-                                  on an existing thread, since the backend ignores env changes after the
-                                  first turn). Caller must pass `selected_env` (the resolved env object,
-                                  or None for Auto) since the locked render doesn't ship the envs list.
+- disabled (default False)      — render a static, server-rendered disclosure row (no Alpine, no list,
+                                  no caret). Used where the env is locked for the current context (the
+                                  chat composer's options sheet on an existing thread, since the backend
+                                  ignores env changes after the first turn). Wins over `variant` — locking
+                                  is about what the user may do, not about chrome. Caller must pass
+                                  `selected_env` (the resolved env object, or None for Auto) since the
+                                  locked render doesn't ship the envs list.
 - selected_env (default None)   — pre-resolved env object for the locked render only.
 - dynamic_label_expr (default "") — Alpine expression read via ``x-text`` to override the locked pill's
                                   name. Set by callers whose surrounding scope tracks the just-committed
@@ -25,35 +27,39 @@ Parameters:
 - dynamic_scope_expr (default "") — Alpine expression read via ``x-text``/``x-show``/``:class`` for the
                                   scope tag next to the name. Resolves to the env's scope ("user" /
                                   "shared" / "global"), or "" to hide the tag.
+- variant (default "pill")      — "sheet" renders the chat composer's options-sheet form: a full-width
+                                  disclosure row carrying the current selection, expanding in place into
+                                  the same searchable, contained-scroll list the Tools group uses. A
+                                  floating popover cannot work there — the sheet sits flush with the
+                                  viewport bottom, so there is nothing below it to open into. Any other
+                                  value renders the pill + popover, unchanged.
 {% endcomment %}
 
 {% if disabled %}
-<div class="relative inline-flex">
-    <span class="env-pill env-pill--locked"
-          {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Auto' %}"{% endif %}
-          aria-disabled="true">
-        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
-            <path d="M12 22.08V12"/>
-        </svg>
-        <span class="env-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
+{% comment %}
+``title`` reveals what ``.sheet-disclosure__title`` truncates; the lock reason rides an
+``sr-only`` line instead, which is announced whether or not an env is named.
+{% endcomment %}
+<div class="sheet-disclosure sheet-disclosure--locked"
+     {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% endif %}
+     aria-disabled="true">
+    {% icon "sandbox" "h-3.5 w-3.5 shrink-0 opacity-70" %}
+    <span class="sr-only">{% translate "Locked for this conversation" %}</span>
+    <span class="sheet-disclosure__title"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
+    <span class="sheet-disclosure__count">
         {% if dynamic_scope_expr %}
-        <span class="env-pill__scope-tag"
+        <span class="env-popover__scope-tag"
               x-show="{{ dynamic_scope_expr }}" x-cloak
-              :class="{{ dynamic_scope_expr }} ? 'env-pill__scope-tag--' + {{ dynamic_scope_expr }} : ''"
+              :class="'env-popover__scope-tag--' + ({{ dynamic_scope_expr }} === 'global' ? 'global' : 'user')"
               x-text="{{ dynamic_scope_expr }}"></span>
         {% elif selected_env %}
-        <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
+        <span class="env-popover__scope-tag env-popover__scope-tag--{% if selected_env.scope == 'global' %}global{% else %}user{% endif %}">{{ selected_env.scope }}</span>
         {% endif %}
-        <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <title>{% translate "Locked for this conversation" %}</title>
-            <rect x="5" y="11" width="14" height="9" rx="2"/>
-            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-        </svg>
     </span>
+    {% icon "lock-closed" "h-3 w-3 shrink-0 opacity-60" %}
 </div>
 {% else %}
+{# One live component for both variants; ``variant`` selects only the trigger + list chrome. #}
 <div x-data='envPicker({
         envs: [
             {% for env in envs %}
@@ -70,8 +76,84 @@ Parameters:
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
         createUrl: "{{ env_create_url|escapejs }}"
      })'
-     class="relative inline-flex">
+     class="{% if variant == 'sheet' %}w-full{% else %}relative inline-flex{% endif %}">
 
+    {% if variant == "sheet" %}
+    <button type="button"
+            class="sheet-disclosure"
+            :class="open ? 'sheet-disclosure--open' : ''"
+            @click="toggle()"
+            :aria-expanded="open">
+        {% icon "sandbox" "h-3.5 w-3.5 shrink-0 opacity-70" %}
+        <span class="sheet-disclosure__title" x-text="pillLabel.name"></span>
+        <span class="sheet-disclosure__count">
+            <span x-show="pillLabel.scopeTag" x-cloak
+                  class="env-popover__scope-tag"
+                  :class="'env-popover__scope-tag--' + (pillLabel.scopeTag === 'global' ? 'global' : 'user')"
+                  x-text="pillLabel.scopeTag"></span>
+        </span>
+        {% icon "chevron-down" "sheet-disclosure__chev h-3.5 w-3.5 shrink-0" %}
+    </button>
+
+    <div class="sheet-panel" x-show="open" x-cloak>
+        <div class="sheet-panel__bar">
+            <input type="search" x-ref="search" x-model="query"
+                   @keydown.enter.prevent.stop="selectHighlighted()"
+                   @keydown.arrow-down.prevent.stop="moveHighlight(1)"
+                   @keydown.arrow-up.prevent.stop="moveHighlight(-1)"
+                   placeholder="{% translate 'Search environments…' %}"
+                   class="picker-popover__search sheet-panel__search"
+                   aria-label="{% translate 'Search environments' %}">
+        </div>
+
+        <div class="sheet-panel__scroll scrollbar-thin">
+            <button type="button"
+                    @click="select('')"
+                    @mouseenter="highlightIndex = -1"
+                    title="{% translate 'Resolved at runtime from the selected repo.' %}"
+                    class="sheet-row"
+                    :class="{ 'sheet-row--selected': _isAutoSelected() }">
+                <span class="sheet-row__check" :class="_isAutoSelected() ? '' : 'sheet-row__check--off'">
+                    {% icon "check" "h-3.5 w-3.5" %}
+                </span>
+                <span class="sheet-row__body">
+                    <span class="sheet-row__head"><span class="sheet-row__name">{% translate "Auto" %}</span></span>
+                    <span class="sheet-row__meta">{% translate "Resolves to a matching env (else global default)" %}</span>
+                </span>
+            </button>
+            <template x-for="(env, idx) in filteredEnvs" :key="env.id">
+                <button type="button"
+                        @click="select(env.id)"
+                        @mouseenter="highlightIndex = idx"
+                        class="sheet-row"
+                        :class="{ 'sheet-row--selected': _isSelected(env) }">
+                    <span class="sheet-row__check" :class="_isSelected(env) ? '' : 'sheet-row__check--off'">
+                        {% icon "check" "h-3.5 w-3.5" %}
+                    </span>
+                    <span class="sheet-row__body">
+                        <span class="sheet-row__head">
+                            <span class="sheet-row__name" x-text="env.name"></span>
+                            <span class="env-popover__scope-tag"
+                                  :class="'env-popover__scope-tag--' + (env.scope === 'global' ? 'global' : 'user')"
+                                  x-text="env.scope"></span>
+                        </span>
+                        <span class="sheet-row__meta" x-show="env.summary" x-text="env.summary"></span>
+                    </span>
+                </button>
+            </template>
+            <p class="composer-sheet__empty" x-show="filteredEnvs.length === 0">
+                {% translate "No environments match" %}
+            </p>
+        </div>
+
+        <div class="sheet-panel__footer">
+            <button type="button" @click="openCreate()" class="env-popover__create">
+                {% icon "plus" "h-3.5 w-3.5" %}
+                {% translate "New environment" %}
+            </button>
+        </div>
+    </div>
+    {% else %}
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
@@ -96,7 +178,9 @@ Parameters:
          @keydown.arrow-down.prevent="moveHighlight(1)"
          @keydown.arrow-up.prevent="moveHighlight(-1)"
          @keydown.enter.prevent="selectHighlighted()"
-         class="picker-popover left-0 w-[340px]">
+         class="picker-popover picker-popover--wide">
+
+        {% include "core/_sheet_head.html" with title=_("Environment") close_expr="close()" %}
 
         <input type="search" x-ref="search" x-model="query"
                @keydown.arrow-down.prevent.stop="moveHighlight(1)"
@@ -176,9 +260,12 @@ Parameters:
             </button>
         </div>
     </div>
+    {% endif %}
 
+    {% comment %}Server-rendered `value` as well as `:value`, for the same reason the MCP picker
+    carries one: without it a page whose Alpine never ran submits an empty env.{% endcomment %}
     {% if field_name %}
-    <input type="hidden" name="{{ field_name }}" :value="selectedId">
+    <input type="hidden" name="{{ field_name }}" value="{{ selected_id|default:'' }}" :value="selectedId">
     {% endif %}
 </div>
 {% endif %}

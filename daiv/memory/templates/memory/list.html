@@ -1,9 +1,14 @@
 {% extends "base_app.html" %}
-{% load humanize i18n %}
+{% load dashboard_tags i18n icon_tags static %}
 
 {% block title %}{% translate "Memory" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-6xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'core/js/results-swap.js' %}"></script>
+<script defer src="{% static 'memory/js/memory-filters.js' %}"></script>
+{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -19,37 +24,30 @@
 </div>
 {% endif %}
 
-<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
-  {% if repos %}
-  <ul class="divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
-    {% for repo in repos %}
-    <li class="flex items-center justify-between gap-4 px-4 py-3">
-      <div class="min-w-0">
-        <a href="{% url 'memory:detail' repo.repo_id %}" class="block truncate font-mono text-sm text-gray-200 hover:text-white">{{ repo.repo_id }}</a>
-        <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-          {% if repo.has_document %}
-          <span class="status-badge status-badge-success">{% translate "Document" %}</span>
-          {% else %}
-          <span class="status-badge status-badge-pending">{% translate "No document" %}</span>
-          {% endif %}
-          {% if repo.last_consolidated_at %}
-          <span>{% translate "Consolidated" %} {{ repo.last_consolidated_at|naturaltime }}</span>
-          {% else %}
-          <span>{% translate "Never consolidated" %}</span>
-          {% endif %}
-        </div>
-      </div>
-      <div class="flex shrink-0 items-center gap-2 text-xs">
-        <span class="status-badge status-badge-pending">{% blocktranslate with n=repo.pending %}{{ n }} pending{% endblocktranslate %}</span>
-        <span class="text-gray-500">{% blocktranslate count n=repo.total %}{{ n }} observation{% plural %}{{ n }} observations{% endblocktranslate %}</span>
-      </div>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="rounded-2xl border border-white/[0.06] px-4 py-12 text-center text-sm text-gray-500">
-    {% translate "No repository memory yet. Memory is captured automatically as agent runs finish." %}
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms" x-data="memoryFilters()">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="relative min-w-[240px] flex-1 sm:max-w-sm">
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+        {% icon "magnifying-glass" "h-4 w-4" %}
+      </span>
+      <input type="text" class="filter-search" x-model="q"
+             placeholder="{% translate 'Search by repository' %}"
+             @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
+    </div>
+    <div class="filter-seg">
+      <a href="?{% querystring_without 'status' 'page' %}"
+         class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
+         @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
+      {% for value, label in statuses %}
+      <a href="?{% querystring_without 'status' 'page' %}status={{ value }}"
+         class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
+         @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">{{ label }}</a>
+      {% endfor %}
+    </div>
   </div>
-  {% endif %}
+
+  <div id="memory-results" class="mt-6">
+    {% include "memory/_list_results.html" %}
+  </div>
 </section>
 {% endblock app_content %}

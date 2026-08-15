@@ -389,10 +389,9 @@ def test_effort_dots_for_level_normalisation(level, expected):
 
 @pytest.mark.parametrize(("dots", "expected_on_count"), [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
 def test_locked_partial_renders_static_effort_dots(providers, dots, expected_on_count):
-    """The locked-pill static branch (no ``dynamic_effort_dots_expr``) emits exactly
-    five dot spans and lights the leading ``initial_effort_dots`` of them. Used by
-    any caller that omits the Alpine expression — typically the env-locked settings
-    widget; the chat composer takes the Alpine branch instead."""
+    """The locked pill emits exactly five dot spans and lights the leading
+    ``initial_effort_dots`` of them. Its only caller is the env-locked settings widget —
+    the chat composer uses the ``label`` variant, which carries the effort word instead."""
     from django.template.loader import render_to_string
 
     html = render_to_string(
@@ -436,3 +435,54 @@ def test_locked_partial_renders_effort_dots_alongside_stale_marker(providers):
     # Stale variant suppresses the cpu-chip icon (the model is unreachable) but keeps the
     # effort meter — the effort row is independent of model validity.
     assert "agent-pill__icon" not in html
+
+
+def test_label_variant_renders_plain_text_instead_of_a_pill(providers):
+    """``variant="label"`` is the chat composer's model affordance: the name and the effort
+    word as plain text next to Send, no border, background, icon or dot meter. Everything
+    else — the popover, the hidden inputs — is unchanged."""
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "automation/_agent_picker.html",
+        {
+            "variant": "label",
+            "disabled": True,
+            "initial_agent_model": "openrouter:z-ai/glm-5.2",
+            "initial_model_display": "glm-5.2",
+            "initial_thinking_level": "high",
+            "initial_effort_dots": 4,
+            "providers": "[]",
+        },
+    )
+    assert "model-label--locked" in html
+    assert "glm-5.2" in html
+    assert ">high<" in html
+    assert "agent-pill" not in html
+    assert "agent-pill__effort-dot" not in html
+
+
+def test_label_variant_locked_render_keeps_the_locked_tooltip(providers):
+    """The model stays pinned for the life of a thread (the API rejects a changed
+    ``agent_model``), so the composer's label must say so rather than look clickable."""
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "automation/_agent_picker.html",
+        {"variant": "label", "disabled": True, "initial_model_display": "glm-5.2", "providers": "[]"},
+    )
+    assert "Locked for this conversation" in html
+    assert 'aria-disabled="true"' in html
+
+
+def test_pill_variant_is_the_default(providers):
+    """Callers that pass no variant (the Run form's labeled fields, the activity list)
+    keep the pill exactly as it was."""
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "automation/_agent_picker.html",
+        {"disabled": True, "initial_model_display": "glm-5.2", "initial_effort_dots": 2, "providers": "[]"},
+    )
+    assert "agent-pill--locked" in html
+    assert "model-label" not in html

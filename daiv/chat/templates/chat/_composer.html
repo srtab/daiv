@@ -1,7 +1,62 @@
 {% load i18n icon_tags %}
-<div class="chat-dock"
-     x-show="thread || draftRepoId"
-     x-transition.opacity.duration.300ms>
+{% comment %}
+Chat composer.
+
+Anatomy, top to bottom inside the sticky dock:
+
+- **Context row** — repo · branch, plus the MR pill once one exists. It lives outside the
+  composer box so it stays pinned with the dock and can never scroll away. Locked once a
+  thread exists (the backend snapshots repo/ref on the first turn); before that it *is* the
+  repo picker, and picking a repo is what ungates Send.
+- **Composer** — textarea, then one action row: the options trigger (``+``), the progress
+  trigger (a pill that only renders when there is something to show), the model as plain
+  text, and an icon-only Send / Stop.
+
+Everything that isn't acted on lives one tap away in a sheet, and nothing appears twice:
+env and MCP servers in the options sheet, todos and files changed in the progress sheet.
+Both sheets are bottom sheets below 1100px and popovers anchored above their trigger at or
+above it — same markup, only the container differs (see ``.composer-sheet`` in input.css).
+{% endcomment %}
+<div class="chat-dock" @keydown.escape.window="closeSheet()">
+
+  <div class="chat-context">
+    {# Locked once the thread exists: the backend pins repo + ref on the first turn. #}
+    <template x-if="thread">
+      <span class="repo-chip">
+        <span class="repo-chip__btn">
+          {% icon "repo" "h-3.5 w-3.5" %}
+          <span x-text="thread?.repo_id"></span>
+        </span>
+        <span class="repo-chip__btn"
+              :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
+          {% icon "branch" "h-3.5 w-3.5" %}
+          <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
+        </span>
+      </span>
+    </template>
+
+    <div x-show="!thread" class="chat-context__picker">
+      {% include "codebase/_repo_picker.html" with variant="context" max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+    </div>
+
+    {# MR pill — only renders once the agent's commit has produced a merge request. #}
+    <template x-if="thread?.merge_request">
+      <a class="repo-chip repo-chip--mr"
+         :href="thread.merge_request.url || '#'"
+         :target="thread.merge_request.url ? '_blank' : '_self'"
+         rel="noopener noreferrer"
+         :title="thread.merge_request.title || ''">
+        <span class="repo-chip__btn">
+          {% icon "merge-request" "h-3.5 w-3.5" %}
+          <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
+          <span x-show="thread.merge_request.draft"
+                class="repo-chip__badge"
+                x-cloak>{% translate "draft" %}</span>
+        </span>
+      </a>
+    </template>
+  </div>
+
   <form @submit.prevent="submit()"
         class="chat-composer"
         :class="{ 'chat-composer--sending': (streaming || resuming) }">
@@ -24,60 +79,47 @@
               placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 
-    <div class="chat-composer__actions">
-      {% comment %}
-      Meta is suppressed while the user is still composing their first prompt — the picker's
-      own chip in the hero already advertises the selection. Once the first message is sent
-      the hero unmounts and `thread` becomes truthy, so the chips take over here.
-
-      The picker renders locked: the backend snapshots the env at thread creation and
-      discards the X-Sandbox-Env header on subsequent turns (chat/api/views.py), so allowing
-      edits here would silently mislead the user.
-      {% endcomment %}
-      <div class="chat-composer__meta" x-show="thread" x-cloak>
-        {# Dynamic-label hooks let the locked pills mirror the user's just-committed selection #}
-        {# during the hero→composer transition, before any page refresh has re-rendered the #}
-        {# partial with the now-persisted thread row. The parent ``chat()`` Alpine scope owns #}
-        {# the ``locked*`` fields these expressions resolve against. #}
-        {% include "sandbox_envs/_env_picker.html" with disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
-        {% include "automation/_agent_picker.html" with disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking initial_effort_dots=agent_picker_initial_effort_dots stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" dynamic_effort_dots_expr="lockedAgentEffortDots" %}
-        <span class="repo-chip">
-          <span class="repo-chip__btn">
-            {% icon "repo" "h-3.5 w-3.5" %}
-            <span x-text="thread?.repo_id"></span>
-          </span>
-          <span class="repo-chip__btn"
-                :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
-            {% icon "branch" "h-3.5 w-3.5" %}
-            <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
-          </span>
-        </span>
-
-        {# MR pill — only renders once the agent's commit has produced a merge request. #}
-        <template x-if="thread?.merge_request">
-          <a class="repo-chip repo-chip--mr"
-             :href="thread.merge_request.url || '#'"
-             :target="thread.merge_request.url ? '_blank' : '_self'"
-             rel="noopener noreferrer"
-             :title="thread.merge_request.title || ''">
-            <span class="repo-chip__btn">
-              {% icon "merge-request" "h-3.5 w-3.5" %}
-              <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
-              <span x-show="thread.merge_request.draft"
-                    class="repo-chip__badge"
-                    x-cloak>{% translate "draft" %}</span>
-            </span>
-          </a>
-        </template>
+    {% comment %}
+    ``--crowded`` is what makes the effort word yield first: it drops only when a
+    progress pill is actually sharing the row, not at every phone width.
+    {% endcomment %}
+    <div class="chat-composer__actions"
+         :class="{ 'chat-composer__actions--crowded': progressPill }">
+      <div class="chat-composer__tools">
+        {% include "chat/_options_sheet.html" %}
+        {% include "chat/_progress_sheet.html" %}
       </div>
 
       <div class="chat-composer__buttons">
-        <button type="button" x-show="(streaming || resuming)" @click="stop()"
-                class="chat-composer__btn chat-composer__btn--stop">{% translate "Stop" %}</button>
-        <button type="submit" :disabled="(streaming || resuming) || !canSend()"
-                class="chat-composer__btn chat-composer__btn--send">
-          <span x-text="(streaming || resuming) ? '{% translate 'Sending…' %}' : '{% translate 'Send' %}'"></span>
-          <span x-show="!(streaming || resuming)">{% icon "arrow-right" "h-3.5 w-3.5" %}</span>
+        {% comment %}
+        Model as plain text, immediately before Send — no pill chrome. Locked in a thread:
+        the backend rejects a changed ``agent_model`` after the first turn.
+        {% endcomment %}
+        <span x-show="thread" x-cloak>
+          {% include "automation/_agent_picker.html" with variant="label" disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" dynamic_thinking_expr="lockedAgentThinking" %}
+        </span>
+        {% comment %}
+        ``x-if``, not ``x-show``: the live picker seeds a hidden ``agent_model`` input and
+        dispatches its selection on init. Left mounted in a thread it would overwrite the
+        pinned label and make ``submit()`` forward the site default, which the API rejects
+        with a 409 (the model is pinned on the first turn).
+        {% endcomment %}
+        <template x-if="!thread">
+          {% include "automation/_agent_picker.html" with variant="label" required=False providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
+        </template>
+
+        <button type="button" x-show="(streaming || resuming)" x-cloak @click="stop()"
+                class="composer-send composer-send--stop"
+                title="{% translate 'Stop' %}">
+          {% icon "stop" "h-3.5 w-3.5" %}
+          <span class="sr-only">{% translate "Stop" %}</span>
+        </button>
+        <button type="submit" x-show="!(streaming || resuming)"
+                :disabled="!canSend()"
+                class="composer-send"
+                title="{% translate 'Send' %}">
+          {% icon "arrow-up" "h-4 w-4" %}
+          <span class="sr-only">{% translate "Send" %}</span>
         </button>
       </div>
     </div>
@@ -86,4 +128,7 @@
   <p class="chat-dock__disclaimer">
     {% translate "DAIV can make mistakes. Verify important information." %}
   </p>
+
+  {# Dims the transcript behind a bottom sheet; the desktop popover uses @click.outside instead. #}
+  <div class="composer-sheet__backdrop" x-show="sheet" x-cloak @click="closeSheet()" aria-hidden="true"></div>
 </div>

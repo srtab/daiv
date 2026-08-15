@@ -6,7 +6,7 @@ from mcp_server.oauth import oauth_metadata
 from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from accounts.views import homepage
-from core.views import HealthCheckView
+from core.views import HealthCheckView, VersionView
 from daiv.api import api
 
 
@@ -43,5 +43,6 @@ urlpatterns = [
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
     path("-/alive/", HealthCheckView.as_view(), name="health_check"),
+    path("-/version/", VersionView.as_view(), name="version"),
     path("sitemap.xml", sitemap, {"sitemaps": {"static": StaticSitemap}}, name="sitemap"),
 ]

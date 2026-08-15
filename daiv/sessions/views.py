@@ -22,6 +22,7 @@ from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
+from mcp_servers.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
@@ -266,20 +267,24 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             )
         )
 
+        ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
+
         if session is None:
             ctx.update({
                 "turns": [],
                 "expired": False,
                 "active_run_id": "",
                 "chat_active_run_id": "",
+                "chat_active_run_started_at": "",
                 "merge_request": None,
+                "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
             })
             return ctx
 
-        messages_history, expired, merge_request = async_to_sync(ahydrate_thread)(session.thread_id)
+        messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
@@ -305,6 +310,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = no_state and not ctx["turns"]
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
+        ctx["diff_stats"] = diff_stats
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a
@@ -316,6 +322,13 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             and session.active_run_id
             and all(r.trigger_type == SessionOrigin.CHAT for r in non_terminal)
             else ""
+        )
+        # Seeds the working timer on resume so it counts from when the run actually
+        # started server-side, not from when this page loaded. ``created_at`` covers a
+        # run still queued, which has no ``started_at`` yet.
+        active_run = non_terminal[-1] if ctx["chat_active_run_id"] else None
+        ctx["chat_active_run_started_at"] = (
+            (active_run.started_at or active_run.created_at).isoformat() if active_run else ""
         )
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
@@ -409,7 +422,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not source_id:
             return None
         try:
-            source = Run.objects.visible_to(self.request.user).filter(pk=source_id).first()
+            source = Run.objects.visible_to(self.request.user).select_related("session").filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             raise Http404("Invalid run id.") from err
         # A visible run on a repo the caller can no longer run on must not prefill a
@@ -435,11 +448,17 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
+        ctx.update(mcp_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["user"] = self.request.user
+        # Hand the retry source's stored overrides to the form rather than resolving them here:
+        # the mixin already builds the pool this seeding has to be relative to.
+        source = self.source_run
+        if source is not None and source.session_id:
+            kwargs["mcp_overrides"] = source.session.mcp_overrides
         return kwargs
 
     def form_valid(self, form):
@@ -455,6 +474,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
+                mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise

@@ -183,7 +183,7 @@ Old bookmarks to `/dashboard/activity/<id>/` and `/dashboard/chat/<thread_id>/` 
 
 ---
 
-## Related
+## Related pages
 
 <div class="grid cards" markdown>
 

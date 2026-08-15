@@ -139,6 +139,21 @@
         {% icon "code-bracket" "h-3.5 w-3.5" %}
         <span>{% translate "API documentation" %}</span>
       </a>
+      <div data-testid="build-info" class="flex items-center gap-1.5 px-3 pt-1 pb-2 text-[11px] text-gray-600">
+        <span>v{{ build_info.version }}</span>
+        {% if build_info.sha_short %}
+          <span aria-hidden="true">&middot;</span>
+          <a href="{{ build_info.commit_url }}"
+             target="_blank"
+             rel="noopener"
+             class="font-mono transition-colors hover:text-gray-400"
+             title="{{ build_info.sha }}">{{ build_info.sha_short }}</a>
+          {% if build_info.build_date %}
+            <span aria-hidden="true">&middot;</span>
+            <span title="{{ build_info.build_date|date:'c' }}">{{ build_info.build_date|date:"Y-m-d" }}</span>
+          {% endif %}
+        {% endif %}
+      </div>
     </div>
   </nav>
 </aside>

@@ -6,18 +6,25 @@ DAIV turns issues into working code. You create an issue, DAIV analyzes your cod
 
 - License: Apache 2.0
 - Source: https://github.com/srtab/daiv
-- Documentation: https://srtab.github.io/daiv/latest/
-- Documentation for LLMs: https://srtab.github.io/daiv/latest/llms.txt
+- Documentation: https://srtab.github.io/daiv/dev/
+- Documentation for LLMs: https://srtab.github.io/daiv/dev/llms.txt
 
 ## Capabilities
 
 - Issue-to-merge-request automation with human-in-the-loop approval
+- Merge/pull request assistant that answers review comments and repairs failing CI/CD pipelines
 - Slash commands and custom skills invoked from issues and merge requests
+- MCP endpoint exposing DAIV to editors and CLIs such as Claude Code, Cursor, and Codex CLI
+- Jobs API for programmatic agent triggering and CI/CD integration
+- Sessions dashboard for live chat, background runs, and unified run history with retries
+- Scheduled jobs on cron for dependency audits, code-quality scans, and recurring maintenance
+- Sandbox environments with configurable base image, resources, network egress policy, and encrypted secrets
+- Notifications on run completion via in-app bell, email, or Rocket Chat
+- Merge metrics with commit-level DAIV-vs-human attribution
 - Secure sandboxed code execution in isolated Docker containers
 - MCP (Model Context Protocol) tool integrations for external services
 - Specialized subagents for exploration and execution
 - Multi-provider LLM support (OpenRouter, Anthropic, OpenAI, Google Gemini)
-- Jobs API for programmatic agent triggering and CI/CD integration
 - Per-repository configuration and custom skill authoring
 
 ## How It Works

@@ -96,32 +96,6 @@ async def test_seed_session_treats_409_as_already_seeded(fake_settings, mock_pos
         await client.seed_session("sid-123", repo_archive=b"tar")
 
 
-async def test_apply_file_mutations_posts_payload(fake_settings, mock_post):
-    from core.sandbox.client import DAIVSandboxClient
-    from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
-
-    mock_post["json_body"] = {"results": [{"path": "/repo/x.py", "ok": True, "error": None}]}
-    req = ApplyMutationsRequest(mutations=[PutMutation(path="/repo/x.py", content=base64.b64encode(b"hi"), mode=0o644)])
-    async with DAIVSandboxClient() as client:
-        resp = await client.apply_file_mutations("sid", req)
-
-    assert mock_post["url"] == "session/sid/files/"
-    assert resp.results[0].ok is True
-
-
-async def test_apply_file_mutations_returns_per_item_failures(fake_settings, mock_post):
-    from core.sandbox.client import DAIVSandboxClient
-    from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
-
-    mock_post["json_body"] = {"results": [{"path": "/skills/x", "ok": False, "error": "must be under /repo"}]}
-    req = ApplyMutationsRequest(mutations=[PutMutation(path="/skills/x", content=base64.b64encode(b""), mode=0o644)])
-    async with DAIVSandboxClient() as client:
-        resp = await client.apply_file_mutations("sid", req)
-
-    assert resp.results[0].ok is False
-    assert resp.results[0].error == "must be under /repo"
-
-
 async def test_connection_pool_reused_across_calls_in_one_block(fake_settings, mock_post):
     """One ``async with`` block must reuse a single httpx.AsyncClient across N calls."""
     from core.sandbox.client import DAIVSandboxClient

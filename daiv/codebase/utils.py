@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from git import Repo
     from langchain_core.messages import AnyMessage
 
-    from codebase.base import Discussion, Note, Scope, User
+    from codebase.base import Discussion, MergeRequestDiffStats, Note, Scope, User
 
 logger = logging.getLogger("daiv.codebase")
 
@@ -108,6 +108,38 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
         else:
             messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
     return messages
+
+
+def diff_line_stats(diff: str) -> MergeRequestDiffStats:
+    """Count added/removed lines and touched files in a unified diff.
+
+    The same arithmetic ``git diff --numstat`` does. Position, not prefix, decides what a
+    line is: only inside a hunk (after its ``@@`` header) does a leading ``+``/``-`` mean
+    content. Testing the prefix alone would read the ``+++``/``---`` file headers as
+    content — and, worse, would then have to skip every real line that happens to start
+    with ``++`` or ``--`` to compensate, silently losing ``++i;`` and ``-- comment``.
+
+    Kept as a plain scan rather than a ``unidiff`` parse so it cannot raise on a truncated
+    diff: it feeds a status pill, and a parse error must never abort a publish.
+    """
+    from codebase.base import MergeRequestDiffStats
+
+    added = removed = 0
+    files: set[str] = set()
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            files.add(line)
+            in_hunk = False
+        elif line.startswith("@@"):
+            in_hunk = True
+        elif not in_hunk:
+            continue
+        elif line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return MergeRequestDiffStats(lines_added=added, lines_removed=removed, files_changed=len(files))
 
 
 def redact_diff_content(diff: str, omit_content_patterns: tuple[str, ...]) -> str:

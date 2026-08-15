@@ -1,20 +1,24 @@
-import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from deepagents.middleware import SummarizationMiddleware
-from deepagents.middleware.filesystem import FilesystemMiddleware, FilesystemPermission
+from deepagents.middleware.filesystem import FilesystemPermission
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
+from langchain_core.messages import AIMessage
+
+# Runtime (not TYPE_CHECKING) imports: RunnableLambda inspects the signatures of the callables it
+# wraps (`accepts_config` -> `inspect.signature`), which evaluates their annotations, so `Runnable`
+# and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
+from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agent import BaseAgent
-from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, SUBAGENT_OUTPUT_PATH, WORKSPACE_PATH
-from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -23,6 +27,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FENCE_SUBTREES,
     WORKSPACE_FS_TOOLS,
+    DAIVFilesystemMiddleware,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -45,6 +50,8 @@ if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
     from core.sandbox.client import DAIVSandboxClient
 
+logger = logging.getLogger("daiv.agent")
+
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
 
@@ -52,24 +59,7 @@ CODE_REVIEW_DETECTOR_NAMES = ("cr-correctness", "cr-security", "cr-performance",
 
 _CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
 CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
-CODE_REVIEW_FINDING_SCHEMA_PATH = _CODE_REVIEW_SKILL_PATH / "scripts" / "finding.schema.json"
 
-# Prepended to every cr-* detector's charter at compile time (load_builtin_code_review_detectors).
-# Holds the parts that are identical across all detectors — how the change is delivered and read,
-# the read-only contract, and the archetype enum — so each charter file carries only its own
-# dimension (the "You are the X detector" line, its principles slice, its Signal-filter nuance, and
-# its `detector` value). One source instead of five copies. The read-only contract is prompt-layer
-# enforcement: the detector sandbox is a full bash shell with no per-subagent command policy, so this
-# is the only thing stopping a detector from mutating the shared workspace via bash — keep it here.
-SHARED_DETECTOR_PREAMBLE = """You are one of DAIV's code-review fan-out detectors. The procedure below is shared by every detector; the dimension you own — and the findings you may report — are defined after it.
-
-You will be given the change's scope: source/target refs, the SHA triplet, the new-side path scope, and the path to a pre-computed unified diff file. **Read that diff file** to see the change. If no diff path was provided or the file is unreadable, fall back to reconstructing the change yourself — run `git diff <target>...<source>`, or, when `bash` is unavailable (a disk-backed run with no sandbox), read the changed files directly with `read_file`/`grep` over the new-side path scope. Either way, read surrounding code for context before deciding; context is what keeps false positives down.
-
-**You are read-only.** Use `bash` only for read-only inspection: `git diff`/`show`/`log`/`status`, `grep`, `find`, `cat`, and read-mode `sed`/`awk` (never `sed -i`). Never mutate the workspace — no output redirects (`>`, `>>`, `tee`), no `sed -i` / `python -c` writes, no formatters, tests, builds, or package managers, and no `git add`/`commit`/`checkout`/`reset`/`restore`/`clean`. If confirming a finding would need code execution, raise it as a `question` finding instead of running it.
-
-Set `archetype` to one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else."""  # noqa: E501
-
-logger = logging.getLogger("daiv.agent")
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
 
@@ -87,12 +77,11 @@ def _general_purpose_system_prompt(working_directory: str) -> str:
 """  # noqa: E501
 
 
-# Tools kept eagerly bound on a subagent's model; web search/fetch, git-platform, and the MCP toolset
-# are all deferred behind tool_search — the same policy as the main agent. This mirrors
-# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool stays
-# loaded for the rest of the subagent's session once loaded, so a delegate that needs web/git pays at
-# most one tool_search. DAIV-owned tool names reference their canonical constant; deepagents-provided
-# names (filesystem, write_todos) stay as literals.
+# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool
+# stays loaded for the rest of the subagent's session once loaded; a delegate discovers needs
+# incrementally, so expect several tool_search calls across a session. DAIV-owned tool names
+# reference their canonical constant; deepagents-provided names (filesystem, write_todos) stay as
+# literals.
 SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
     "ls",
     "read_file",
@@ -111,7 +100,7 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
     Shared by the general-purpose, explore, and code-review detector builders: context
     summarization, loop-break detection, prompt caching, tool-call logging, and tool-call
     patching, in that order. Callers prepend their own head (todos / filesystem permissions /
-    git-platform / web tools) and append the conditional sandbox + fallback middleware (plus,
+    git-platform) and append the conditional web tools + sandbox + fallback middleware (plus,
     for the general-purpose and custom builders, a deferred-tools middleware exposing the
     parent's MCP toolset).
     """
@@ -125,12 +114,6 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
             trim_tokens_to_summarize=None,
             truncate_args_settings=summarization_defaults["truncate_args_settings"],
         ),
-        # Subagents (incl. cr-* detectors) are forced to tool_choice="any" by structured output,
-        # so they have no natural stop; a stuck model loops to recursion_limit. On a stuck loop the
-        # breaker finalizes the subagent with an explicit ERROR message (NOT a raise — a raised
-        # exception would propagate out of the task tool's ToolNode and abort the whole parent run).
-        # The error message flows back as the task result / deferred-output text so the orchestrator
-        # sees a failed subagent, not "no findings".
         LoopBreakerMiddleware(terminal="error"),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
@@ -164,7 +147,7 @@ def _build_general_purpose_middleware(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=WORKSPACE_FS_TOOLS,
@@ -194,28 +177,22 @@ def _build_general_purpose_middleware(
 
 
 def _build_detector_middleware(
-    model: BaseChatModel,
-    backend: BackendProtocol,
-    sandbox_enabled: bool = True,
-    fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
-    *,
-    name: str,
+    model: BaseChatModel, backend: BackendProtocol, fallback_models: list[BaseChatModel] | None = None
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
-    Narrower than the general-purpose stack: filesystem is read-only (detectors only
-    read the diff + surrounding code), the sandbox is kept so detectors can run ``git``
-    reads (it's a full bash sandbox, not git-restricted), and there is no git-platform
-    middleware (detectors never post), no web tools, and no ``TodoListMiddleware``.
+    The narrowest stack DAIV builds: a read-only filesystem restricted to ``READ_ONLY_FS_TOOLS``
+    (detectors only read the canonical diff and surrounding code for context) plus the shared
+    subagent middleware. No sandbox, no git-platform middleware (detectors never post), no web
+    tools, and no ``TodoListMiddleware``.
 
-    Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
-    and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
-    parent's session (``close_session=False``).
+    Having no sandbox is what makes the read-only contract structural rather than prompt-level: with
+    no shell reachable, a detector cannot mutate the shared workspace even if its charter is ignored
+    or overridden by injected repository content. Each detector returns its markdown report as its
+    final message directly to the review orchestrator.
     """
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=READ_ONLY_FS_TOOLS,
@@ -224,77 +201,45 @@ def _build_detector_middleware(
         *_shared_subagent_middleware(model, backend),
     ]
 
-    if sandbox_enabled:
-        middleware.append(
-            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
-        )
-
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
-    # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
-    # run first in the exit chain. The detector's SandboxMiddleware is built with close_session=False,
-    # so it never closes the (parent-owned) shared session itself — the point of running first is to
-    # complete the backend write within the subagent's own after_agent pass, while the session is still
-    # alive, before control returns to the parent (which alone tears the session down, at parent END).
-    middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=SUBAGENT_OUTPUT_PATH))
-
     return middleware
-
-
-def _load_detector_response_format(schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH) -> dict:
-    """Wrap the canonical per-finding schema into the object schema a detector returns.
-
-    Detectors emit ``{"findings": [<finding>, ...]}``; deepagents serializes the
-    ``structured_response`` into the task ToolMessage for the orchestrator.
-    """
-    finding_schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    return {
-        "type": "object",
-        "title": "DetectorFindings",
-        "properties": {"findings": {"type": "array", "items": finding_schema}},
-        "required": ["findings"],
-        "additionalProperties": False,
-    }
 
 
 def load_builtin_code_review_detectors(
     model: BaseChatModel,
     backend: BackendProtocol,
-    runtime: RuntimeCtx,
     working_directory: str,
-    sandbox_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
     *,
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
-    schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH,
+    expected_names: tuple[str, ...] = CODE_REVIEW_DETECTOR_NAMES,
 ) -> list[CompiledSubAgent]:
     """Compile the code-review detector subagents from their charter markdown files.
 
     Each ``*.md`` under ``agents_dir`` (shipped inside the code-review skill) becomes a
-    detector subagent whose body is its system prompt, with a read-only middleware stack
-    and a ``response_format`` derived from the canonical finding schema. A charter that
-    fails to parse (or names an invalid model) is skipped and logged — the review then
-    runs with the detectors that loaded. The loaded detectors appear in the ``task``
-    tool's available-agents list, which the skill reconciles against its expected set to
-    report a truthful "loaded/expected detectors" status; any shortfall is logged at
-    ERROR here with the missing names so a degraded deploy is visible server-side too.
+    detector subagent whose body is its system prompt, with a read-only middleware stack;
+    each returns its markdown report as its final message to the review orchestrator. A
+    charter that fails to parse (or names an invalid model) is skipped and logged — the
+    review then runs with the detectors that loaded. The loaded detectors appear in the
+    ``task`` tool's available-agents list, and the skill reports any applicable detector
+    missing from it as an uncovered dimension in the review body. Any shortfall against
+    ``expected_names`` — whether a charter failed to compile or was never there — is logged at ERROR
+    with the names, so a degraded deploy is visible server-side too. Note that ``expected_names`` is
+    only the roster the load is reconciled against for that log; it does not affect which charters
+    compile (``agents_dir`` decides that), so a test overriding one should override both.
+
+    There is deliberately no ``runtime`` parameter: unlike the general-purpose and custom subagent
+    builders, the detector stack has no ``GitPlatformMiddleware`` — detectors never post — so it
+    needs nothing from the run context.
     """
     if not agents_dir.is_dir():
-        logger.warning("Code-review detector dir %s not found; skipping detector subagents", agents_dir)
+        # Louder than a single failed charter: this is the whole capability gone, every dimension
+        # uncovered, and a review would run with no detectors at all.
+        logger.error("Code-review detector dir %s not found; skipping all detector subagents", agents_dir)
         return []
 
-    try:
-        response_format = _load_detector_response_format(schema_path)
-    except OSError, json.JSONDecodeError:
-        # Same graceful-degradation contract as the missing-dir guard above: a missing or corrupt
-        # finding schema must disable code-review detectors only, never abort the whole agent build.
-        # This loader runs inside create_daiv_agent on every run (chat, jobs, issues) — not just
-        # reviews — so an unguarded read here would take down all agent invocations over one asset.
-        logger.exception("Code-review finding schema %s missing or invalid; skipping detector subagents", schema_path)
-        return []
     detectors: list[CompiledSubAgent] = []
     failed: list[str] = []  # charter file stems that were present but didn't compile
 
@@ -306,9 +251,7 @@ def load_builtin_code_review_detectors(
             failed.append(md_file.stem)
             continue
 
-        parsed = _parse_subagent_frontmatter(
-            content, str(md_file), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
-        )
+        parsed = _parse_subagent_frontmatter(content, str(md_file))
         if parsed is None:
             failed.append(md_file.stem)
             continue
@@ -333,32 +276,34 @@ def load_builtin_code_review_detectors(
                 failed.append(md_file.stem)
                 continue
 
-        middleware = _build_detector_middleware(
-            detector_model, backend, sandbox_enabled, fallback_models, client, sandbox_backend, name=frontmatter["name"]
-        )
+        middleware = _build_detector_middleware(detector_model, backend, fallback_models)
         detectors.append(
             _compile_subagent(
                 name=frontmatter["name"],
                 description=frontmatter["description"],
                 model=detector_model,
-                # Every charter shares the same scope/read-only/archetype preamble; it lives in one
-                # constant and is prepended here so the charter files carry only their per-dimension
-                # slice (see SHARED_DETECTOR_PREAMBLE).
-                body=f"{SHARED_DETECTOR_PREAMBLE}\n\n{body}",
+                body=body,
                 middleware=middleware,
                 working_directory=working_directory,
-                response_format=response_format,
+                # A detector that crashes must cost one dimension, not the whole review.
+                crash_guard=True,
             )
         )
         logger.info("Loaded code-review detector '%s' from %s", frontmatter["name"], md_file)
 
-    # Ground-truth reconciliation: a charter that was present but didn't compile is a degraded
-    # review (a whole dimension silently absent). Surface the shortfall at ERROR with names so
-    # it's actionable from logs, independent of the model-authored status line.
-    if failed:
-        total = len(detectors) + len(failed)
+    # Ground-truth reconciliation against the expected roster, not against the directory listing:
+    # a charter that is present but doesn't compile lands in `failed`, while one that was renamed,
+    # deleted, or never packaged leaves no trace in this loop at all. Both are a degraded review (a
+    # whole dimension silently absent), so both are surfaced at ERROR with names — actionable from
+    # logs and independent of what the model reports in the review body.
+    missing = sorted(set(expected_names) - {detector["name"] for detector in detectors} - set(failed))
+    if failed or missing:
         logger.error(
-            "Code-review detectors failed to load: %s (loaded %d/%d)", ", ".join(failed), len(detectors), total
+            "Code-review detectors unavailable: failed=%s absent=%s (loaded %d/%d expected)",
+            ", ".join(failed) or "-",
+            ", ".join(missing) or "-",
+            len(detectors),
+            len(expected_names),
         )
 
     return detectors
@@ -484,7 +429,7 @@ def create_explore_subagent(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=READ_ONLY_FS_TOOLS,
@@ -518,18 +463,18 @@ BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLOR
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
-def _parse_subagent_frontmatter(
-    content: str, file_path: str, *, permitted_reserved_names: frozenset[str] = frozenset()
-) -> tuple[dict, str] | None:
+def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
     """
     Parse YAML frontmatter and body from a subagent markdown file.
+
+    Pure format validation — it deliberately does not enforce ``BUILTIN_SUBAGENT_NAMES``. Whether a
+    reserved name is allowed depends on who is loading, not on the file: the builtin loaders compile
+    reserved names by definition, while per-repo sources must not shadow them. That check therefore
+    lives in ``load_custom_subagents``, the only caller reading untrusted definitions.
 
     Args:
         content: The full file content.
         file_path: Path to the file (for logging).
-        permitted_reserved_names: Built-in subagent names this caller is allowed to load
-            despite the reservation. Empty by default (per-repo subagents reject every
-            reserved name); the builtin detector loader passes the cr-* names.
 
     Returns:
         Tuple of (frontmatter dict, body string), or None if parsing fails.
@@ -555,10 +500,6 @@ def _parse_subagent_frontmatter(
         logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
         return None
 
-    if name in BUILTIN_SUBAGENT_NAMES - permitted_reserved_names:
-        logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
-        return None
-
     frontmatter["name"] = name
     frontmatter["description"] = description
 
@@ -570,6 +511,54 @@ def _parse_subagent_frontmatter(
     return frontmatter, body
 
 
+def _guard_subagent_crash(runnable: Runnable, name: str) -> Runnable:
+    """Turn a subagent crash into an ``ERROR:`` report instead of aborting the parent run.
+
+    deepagents' ``task`` tool awaits the subagent's ``ainvoke`` with no error handling, and
+    ``create_agent`` builds its ``ToolNode`` without ``handle_tool_errors``, so whatever a subagent
+    raises — a ``GraphRecursionError`` from a loop ``LoopBreakerMiddleware`` missed (it only fires on
+    byte-identical consecutive calls), an exhausted ``ModelFallbackMiddleware`` chain, a sandbox
+    transport error — propagates out of the ToolNode and kills the whole parent run, discarding
+    every sibling detector's completed work.
+
+    Catching it here makes a crash look exactly like the LoopBreaker's ``terminal="error"`` path:
+    deepagents forwards the last non-empty ``AIMessage`` text as the ``task`` result, and this one
+    opens with ``ERROR:`` — the sentinel the code-review orchestrator classifies as a failed
+    detector (an uncovered dimension, so the review is marked ``partial`` and the next run re-covers
+    the span) rather than a clean pass. That is what makes the skill's "if a detector's ``task`` call
+    errors, continue with the rest" contract enforceable.
+
+    ``BaseException`` is deliberately not caught: ``asyncio.CancelledError`` and ``KeyboardInterrupt``
+    must stay fatal.
+    """
+
+    def _failure(exc: Exception) -> dict:
+        # exc_info is passed explicitly rather than using logger.exception: this helper is called
+        # from the except blocks below, but ruff (LOG004) can only see that it is not itself one.
+        logger.error("Subagent '%s' crashed; returning it to the parent as a failed subagent", name, exc_info=exc)
+        return {
+            "messages": [
+                AIMessage(
+                    content=(f"ERROR: subagent '{name}' crashed and produced no report ({type(exc).__name__}: {exc}).")
+                )
+            ]
+        }
+
+    def _invoke(state: dict, config: RunnableConfig | None = None) -> dict:
+        try:
+            return runnable.invoke(state, config)
+        except Exception as exc:
+            return _failure(exc)
+
+    async def _ainvoke(state: dict, config: RunnableConfig | None = None) -> dict:
+        try:
+            return await runnable.ainvoke(state, config)
+        except Exception as exc:
+            return _failure(exc)
+
+    return RunnableLambda(_invoke, afunc=_ainvoke, name=f"{name}-crash-guarded")
+
+
 def _compile_subagent(
     *,
     name: str,
@@ -578,15 +567,19 @@ def _compile_subagent(
     body: str,
     middleware: list,
     working_directory: str,
-    response_format: dict | type | None = None,
     tools: list[BaseTool] | None = None,
+    crash_guard: bool = False,
 ) -> CompiledSubAgent:
     """Compile a system-prompt body + middleware stack into a ``CompiledSubAgent``.
 
     Shared by ``load_custom_subagents`` (per-repo markdown subagents) and
     ``load_builtin_code_review_detectors`` (skill-shipped detector charters). ``tools`` binds
     extra tools directly on the model (used by custom subagents to eagerly bind MCP tools when
-    deferral is off); detectors pass none.
+    deferral is off); detectors pass none. This helper deliberately exposes no ``response_format``:
+    both kinds of subagent are prose reporters, and a schema would force ``tool_choice="any"`` and
+    remove their natural text stop. ``crash_guard`` wraps the compiled graph so a raise becomes an
+    ``ERROR:`` report instead of aborting the parent run (see ``_guard_subagent_crash``); detectors
+    opt in because the review must survive one failed dimension.
     """
     runnable = create_agent(
         model=model,
@@ -594,8 +587,9 @@ def _compile_subagent(
         system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
         middleware=middleware,
         name=name,
-        response_format=response_format,
     )
+    if crash_guard:
+        runnable = _guard_subagent_crash(runnable, name)
     return CompiledSubAgent(name=name, description=description, runnable=runnable)
 
 
@@ -670,6 +664,16 @@ async def load_custom_subagents(
                 continue
 
             frontmatter, body = parsed
+
+            # These definitions come from the repository under review, so a name collision here
+            # would let a repo shadow a built-in — swapping out `general-purpose` or a `cr-*`
+            # detector for its own prompt. The builtin loaders compile reserved names on purpose,
+            # which is why this guard sits on the untrusted path rather than in the shared parser.
+            if frontmatter["name"] in BUILTIN_SUBAGENT_NAMES:
+                logger.warning(
+                    "Skipping %s: name '%s' conflicts with a built-in subagent", file_path, frontmatter["name"]
+                )
+                continue
 
             subagent_model = model
             if frontmatter_model := str(frontmatter.get("model", "")).strip():

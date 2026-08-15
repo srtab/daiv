@@ -5,9 +5,11 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
@@ -15,6 +17,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemBackend,
+    DAIVFilesystemMiddleware,
     build_disk_workspace_backend,
 )
 
@@ -32,11 +35,11 @@ def working_repo(tmp_path) -> Path:
 
 @pytest.fixture
 def setup(working_repo):
-    """Disk-backed repo backend + the upstream filesystem tool map."""
+    """Disk-backed repo backend + DAIV's filesystem middleware and its tool map."""
     backend = DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
+    fs = DAIVFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
-    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo)
+    return SimpleNamespace(backend=backend, tools=tools, repo=working_repo, middleware=fs)
 
 
 def _runtime(*, state: dict[str, Any], working_dir: Path) -> SimpleNamespace:
@@ -673,8 +676,9 @@ class TestSandboxGrepTruncation:
 
 
 class TestSandboxReadPagination:
-    """`SandboxFileBackend.aread` must populate deepagents' read-window fields so the middleware
-    emits its truncation notice on sandbox reads (see `_sandbox_read_window`)."""
+    """`SandboxFileBackend.aread` maps the sandbox's reported line window onto deepagents'
+    read-window fields, so the middleware's pagination notice is server-side truth rather than a
+    count of the returned text (which would also count the truncation banner's rows)."""
 
     def _bound_backend(self, fs_read_response):
         from unittest.mock import AsyncMock
@@ -685,89 +689,96 @@ class TestSandboxReadPagination:
         client.fs_read = AsyncMock(return_value=fs_read_response)
         return SandboxFileBackend(client=client, session_id="sess-1")
 
-    async def test_full_window_advertises_more_lines(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(1, 101))  # exactly `limit` lines
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line == 1
-        assert result.end_line == 100
-        assert result.next_offset == 100, "a filled window signals more lines may remain"
-        assert result.total_lines is None, "the sandbox never reports a total line count"
-
-    async def test_partial_window_reports_end_of_file(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(1, 43))  # fewer than `limit` lines
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line == 1
-        assert result.end_line == 42
-        assert result.next_offset is None, "an unfilled window means EOF was reached"
-
-    async def test_window_is_anchored_at_the_requested_offset(self):
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(51, 101))  # 50 lines starting at source line 51
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=50)
-
-        assert result.start_line == 51
-        assert result.end_line == 100
-        assert result.next_offset == 100
-
-    async def test_partial_window_at_a_nonzero_offset_reports_eof(self):
-        """A later page that comes back unfilled must report EOF with `end_line` anchored at the
-        offset — the arithmetic where an offset-ignoring bug would hide."""
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        content = "".join(f"line {i}\n" for i in range(51, 81))  # 30 lines from source line 51
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=50, limit=100)
-
-        assert result.start_line == 51
-        assert result.end_line == 80
-        assert result.next_offset is None
-
-    async def test_contentless_read_carries_no_window(self):
-        """Empty content (the `resp.content or ""` coercion can reach the helper) must never
-        advertise a window — a zero-line window has nothing to paginate."""
-        from automation.agent.constants import REPO_PATH
-        from core.sandbox.schemas import FsReadResponse
-
-        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8"))
-
-        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
-
-        assert result.start_line is None
-        assert result.end_line is None
-        assert result.next_offset is None
-
-    async def test_notice_tells_the_model_more_lines_remain(self):
-        """End-to-end: the window fields must drive deepagents' actual truncation notice — the
-        behaviour the trace showed missing on sandbox reads."""
+    async def test_mid_file_page_reports_the_exact_remainder(self):
+        """The notice names the window and the exact number of lines left, which only the sandbox's
+        `total_lines` makes possible."""
         from deepagents.middleware.filesystem import _remaining_lines_notice
 
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
 
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=150))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line == 101
+        assert result.end_line == 150
+        assert result.total_lines == 400
+        assert result.next_offset == 150
+        assert "lines 101-150 of 400 total" in _remaining_lines_notice(result)
+        assert "250 lines remaining from offset 150" in _remaining_lines_notice(result)
+
+    async def test_final_page_emits_no_notice(self):
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(351, 401))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=400))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=350, limit=50)
+
+        assert result.end_line == 400
+        assert result.next_offset is None, "the window reached EOF"
+        assert _remaining_lines_notice(result) == ""
+
+    async def test_file_length_that_is_an_exact_multiple_of_limit_has_no_next_offset(self):
+        """A window ending exactly at `total_lines` is EOF, not a full page — advertising a resume
+        offset here would name an offset the next read rejects as invalid."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
         content = "".join(f"line {i}\n" for i in range(1, 101))
-        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=100, end_line=100))
 
         result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
 
-        assert "More lines remain from offset 100" in _remaining_lines_notice(result)
+        assert result.end_line == 100
+        assert result.next_offset is None
+
+    async def test_byte_capped_page_resumes_at_the_partial_line(self):
+        """A capped page ends mid-line and carries a banner. The window must exclude both, so the
+        resume offset points *at* the partial line and re-reads it whole."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        # The banner text is illustrative; `aread` never parses `content`.
+        content = "".join(f"line {i}\n" for i in range(1, 98)) + "line 98 is cut he"
+        content += "\n\n[Output truncated: exceeded the 512000-byte read limit.]"
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=400, end_line=97, truncated=True)
+        )
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line == 1
+        assert result.end_line == 97, "the banner rows and the cut line are not source lines"
+        assert result.total_lines == 400
+        assert result.next_offset == 97, "0-indexed 97 is 1-indexed line 98 — the line that was cut"
+
+    async def test_byte_capped_single_huge_line_carries_no_window(self, caplog):
+        """A page whose first line alone exceeds the byte cap holds zero complete lines. deepagents
+        cannot express an empty window, so the model gets none — and no resume offset, which is a
+        dead end worth an operator warning."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(
+            FsReadResponse(content="x" * 100, encoding="utf-8", total_lines=1, end_line=0, truncated=True)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
+        assert "no complete line" in caplog.text
 
     async def test_binary_read_carries_no_window(self):
         from automation.agent.constants import REPO_PATH
@@ -782,8 +793,8 @@ class TestSandboxReadPagination:
         assert result.next_offset is None
 
     async def test_empty_file_sentinel_carries_no_window(self):
-        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it must
-        not be line-windowed, even when `limit` is small enough to trip the full-window heuristic."""
+        """The sandbox returns a sentinel string (not the file's bytes) for an empty file; it is not
+        file content, so it is not line-windowed."""
         from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
 
         from automation.agent.constants import REPO_PATH
@@ -796,3 +807,251 @@ class TestSandboxReadPagination:
         assert result.start_line is None
         assert result.end_line is None
         assert result.next_offset is None
+
+    async def test_sandbox_without_line_metadata_drops_the_window_and_warns(self, caplog):
+        """A sandbox predating the wire fields returns them unset. Losing the notice is acceptable;
+        guessing a window is not — but the version skew must be visible to operators."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 101))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8"))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.start_line is None
+        assert result.end_line is None
+        assert result.total_lines is None
+        assert result.next_offset is None
+        assert "no read-window metadata" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("response_kwargs", "expected"),
+        [({}, "no read-window metadata"), ({"total_lines": 9999, "end_line": 9000}, "outside the requested window")],
+        ids=["version-skew", "malformed-window"],
+    )
+    async def test_read_faults_are_reported_once_per_run(self, caplog, response_kwargs, expected):
+        """Every cause here is systematic — a version skew or a sandbox arithmetic slip repeats on
+        every read — and each ERROR is a Sentry event, so one per run is the whole point."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", **response_kwargs))
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            for _ in range(5):
+                await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert caplog.text.count(expected) == 1
+
+    async def test_total_lines_below_end_line_degrades_instead_of_raising(self, caplog):
+        """deepagents' `ReadResult` rejects this pair outright, and `aread` is called unguarded, so
+        passing it through would abort the run over a sandbox arithmetic slip."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(101, 151))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", total_lines=120, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.file_data is not None, "the content still reaches the model"
+        assert result.total_lines is None, "an impossible total is dropped, not clamped"
+        assert result.next_offset == 150
+        assert "total_lines=120 below end_line=150" in caplog.text
+
+    async def test_end_line_past_the_requested_window_drops_the_window(self, caplog):
+        """`end_line` cannot exceed `offset + limit`. Trusting a larger one hands the model a resume
+        offset past source lines it was never shown."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 11))
+        backend = self._bound_backend(
+            FsReadResponse(content=content, encoding="utf-8", total_lines=9999, end_line=9000)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.next_offset is None
+        assert result.start_line is None
+        assert "outside the requested window" in caplog.text
+
+    async def test_window_over_empty_content_drops_the_window(self, caplog):
+        """A window with no text behind it would page the model forward over lines it never read."""
+        import logging
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        backend = self._bound_backend(FsReadResponse(content="", encoding="utf-8", total_lines=400, end_line=150))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            result = await backend.aread(f"{REPO_PATH}/f.py", offset=100, limit=50)
+
+        assert result.start_line is None
+        assert result.next_offset is None
+        assert "over empty content" in caplog.text
+
+    async def test_window_without_a_total_still_advertises_a_resume_offset(self):
+        """Half-populated metadata must not read as EOF: an over-advertised offset self-corrects on
+        the next read, a missing one silently drops the rest of the file."""
+        from deepagents.middleware.filesystem import _remaining_lines_notice
+
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsReadResponse
+
+        content = "".join(f"line {i}\n" for i in range(1, 51))
+        backend = self._bound_backend(FsReadResponse(content=content, encoding="utf-8", end_line=50))
+
+        result = await backend.aread(f"{REPO_PATH}/f.py", offset=0, limit=100)
+
+        assert result.total_lines is None
+        assert result.next_offset == 50
+        assert "More lines remain from offset 50" in _remaining_lines_notice(result)
+
+
+# ---------------------------------------------------------------------------
+# grep output-mode legibility
+# ---------------------------------------------------------------------------
+
+
+def test_daiv_filesystem_middleware_replaces_upstream_in_the_merge(setup):
+    """``create_deep_agent`` auto-adds its own ``FilesystemMiddleware`` and merges ours in by
+    ``.name`` — which defaults to the class name. A subclass under a new name is therefore
+    APPENDED rather than substituted, leaving two filesystem middlewares and restoring the
+    ``delete``/``execute`` tools that ``WORKSPACE_FS_TOOLS`` deliberately withholds from the main
+    agent. ``profile.py`` documents the same ``__name__``-collision requirement for the prompt-cache
+    subclass.
+    """
+    merged = _apply_custom_middleware(
+        [UpstreamFilesystemMiddleware(backend=setup.backend)], [DAIVFilesystemMiddleware(backend=setup.backend)]
+    )
+
+    assert [type(m) for m in merged] == [DAIVFilesystemMiddleware], (
+        "DAIV's subclass must take upstream's slot, not sit alongside it"
+    )
+
+
+async def test_grep_label_does_not_disable_large_tool_result_eviction(setup):
+    """Upstream's ``awrap_tool_call`` evicts oversized results for every tool outside
+    ``TOOLS_EXCLUDED_FROM_EVICTION`` — bash, task, MCP. Overriding it to add the grep label must
+    delegate to ``super()``, or one huge bash result blows up the context.
+    """
+    fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=10)
+    oversized = "x" * 20_000
+    request = ToolCallRequest(
+        tool_call={"name": "bash", "args": {}, "id": "call_bash"},
+        tool=None,
+        state={"messages": []},
+        runtime=_runtime(state={}, working_dir=setup.repo),
+    )
+
+    async def handler(req: ToolCallRequest):
+        return ToolMessage(content=oversized, tool_call_id=req.tool_call["id"], name="bash")
+
+    result = await fs.awrap_tool_call(request, handler)
+
+    assert oversized not in str(result.content), "oversized result was not evicted — super() was bypassed"
+
+
+async def _grep_via_middleware(setup, **kwargs) -> str:
+    """Run the real grep tool through the DAIV filesystem middleware and return the text."""
+    runtime = _runtime(state={}, working_dir=setup.repo)
+    request = ToolCallRequest(
+        tool_call={"name": "grep", "args": dict(kwargs), "id": "call_grep"},
+        tool=setup.tools["grep"],
+        state={"messages": []},
+        runtime=runtime,
+    )
+
+    async def handler(req: ToolCallRequest):
+        content = await setup.tools["grep"].coroutine(runtime=runtime, **req.tool_call["args"])
+        if isinstance(content, ToolMessage):
+            return content
+        return ToolMessage(content=content, tool_call_id=req.tool_call["id"], name="grep")
+
+    result = await setup.middleware.awrap_tool_call(request, handler)
+    return result.content if isinstance(result, ToolMessage) else result
+
+
+class TestGrepOutputMode:
+    """A grep result must name the mode that produced it."""
+
+    async def _grep(self, setup, **kwargs):
+        return await _grep_via_middleware(setup, **kwargs)
+
+    async def test_default_mode_result_names_the_mode_and_the_remedy(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert text.startswith("Mode: files_with_matches")
+        assert 'output_mode="content"' in text
+        assert "a.py" in text
+
+    async def test_content_mode_result_names_content_and_does_not_nag(self, setup):
+        (setup.repo / "a.py").write_text("needle here\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="content")
+
+        assert text.startswith("Mode: content")
+        assert 'output_mode="content"' not in text, "should not suggest a mode already in use"
+        assert "needle here" in text
+
+    async def test_no_match_is_not_told_to_retry_in_content_mode(self, setup):
+        (setup.repo / "a.py").write_text("nothing relevant\n")
+
+        text = await self._grep(setup, pattern="needle")
+
+        assert 'output_mode="content"' not in text
+
+    async def test_count_mode_result_names_count(self, setup):
+        (setup.repo / "a.py").write_text("needle\nneedle\n")
+
+        text = await self._grep(setup, pattern="needle", output_mode="count")
+
+        assert text.startswith("Mode: count")
+        assert "a.py: 2" in text
+
+
+def test_regex_literal_hint_patch_is_live():
+    """Catches what the behavioural test below cannot: if upstream renames the symbol AND rewords
+    the hint in one bump, the patch targets a dead attribute and the reworded hint reaches the
+    model with both assertions still green.
+    """
+    assert fs_module._REGEX_HINT_PATCH_APPLIED, "upstream no longer exposes regex_literal_hint here"
+
+
+async def test_no_match_does_not_claim_grep_is_literal(setup):
+    """deepagents appends a "grep matches literal text, not regex" note on a zero-match
+    regex-looking pattern, telling the caller to "run a separate search per alternative".
+
+    Both DAIV backends grep by regex, so the note is false here and drives alternation fan-out.
+    """
+    (setup.repo / "a.py").write_text("nothing relevant\n")
+
+    text = await _grep_via_middleware(setup, pattern="alpha|beta")
+
+    assert "literal text, not regex" not in text
+    assert "separate search per alternative" not in text
+
+
+def test_grep_description_states_the_default_output_mode():
+    """The tool description must say what a bare ``grep(pattern=...)`` returns."""
+    desc = fs_module.GREP_TOOL_DESCRIPTION
+
+    assert "files_with_matches" in desc, "description must name the default output mode"
+    assert 'output_mode="content"' in desc

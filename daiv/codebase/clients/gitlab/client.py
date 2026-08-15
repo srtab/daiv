@@ -28,6 +28,7 @@ from codebase.base import (
     NotePosition,
     NotePositionLineRange,
     NoteType,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -43,9 +44,17 @@ from daiv import USER_AGENT
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from gitlab.v4.objects import ProjectHook, ProjectMergeRequest
+    from gitlab.v4.objects import (
+        ProjectHook,
+        ProjectIssue,
+        ProjectIssueNote,
+        ProjectMergeRequest,
+        ProjectMergeRequestNote,
+    )
 
     from codebase.clients.base import Emoji, WebhookSetupResult
+
+    AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
 
 logger = logging.getLogger("daiv.clients")
 
@@ -91,6 +100,24 @@ def _is_source_branch_missing_error(error: GitlabCreateError) -> bool:
         return False
     body = str(error.error_message).lower()
     return "source_branch" in body and "does not exist" in body
+
+
+def _is_award_emoji_taken_error(error: GitlabCreateError) -> bool:
+    """True when GitLab rejected the award because this user already made it.
+
+    Reported as `404 Award Emoji Name has already been taken`. Stringifies the body so it matches
+    whether python-gitlab surfaced ``error_message`` as the parsed dict or as a str.
+    """
+    return error.response_code == 404 and "Award Emoji Name has already been taken" in str(error.error_message)
+
+
+def _create_award_emoji(target: AwardEmojiTarget, emoji: Emoji):
+    """Award `emoji` on an issue, MR or note, idempotently — an award already made is a success."""
+    try:
+        target.awardemojis.create({"name": emoji})
+    except GitlabCreateError as e:
+        if not _is_award_emoji_taken_error(e):
+            raise
 
 
 class GitLabClient(RepoClient):
@@ -531,6 +558,11 @@ class GitLabClient(RepoClient):
         :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
         return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints
+        # another ephemeral token, so this boolean stays stable even when the value differs.
+        return get_ephemeral_clone_token(self.client, repository.pk) is not None
+
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
@@ -634,11 +666,8 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        if note_id is not None:
-            note = issue.notes.get(note_id, lazy=True)
-            note.awardemojis.create({"name": emoji})
-        else:
-            issue.awardemojis.create({"name": emoji})
+        target = issue.notes.get(note_id, lazy=True) if note_id is not None else issue
+        _create_award_emoji(target, emoji)
 
     def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
         """
@@ -896,6 +925,20 @@ class GitLabClient(RepoClient):
 
         return to_return
 
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+        """Create an MR pipeline (``POST .../merge_requests/:iid/pipelines``). Runs as the PAT user
+        (the DAIV service account), so cross-project CI includes resolve with its permissions."""
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        pipeline = merge_request.pipelines.create()
+        return Pipeline(
+            id=pipeline.id,
+            iid=getattr(pipeline, "iid", None),
+            sha=pipeline.sha,
+            status=pipeline.status,
+            web_url=pipeline.web_url,
+        )
+
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
         Get diff statistics for a merge request by parsing the diff content.
@@ -1020,14 +1063,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        note = merge_request.notes.get(note_id, lazy=True)
-        try:
-            note.awardemojis.create({"name": emoji})
-        except GitlabCreateError as e:
-            if e.response_code == 404 and "Award Emoji Name has already been taken" in e.error_message:
-                pass
-            else:
-                raise e
+        _create_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji)
 
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):
         """

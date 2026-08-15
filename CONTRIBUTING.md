@@ -6,6 +6,7 @@ Thank you for your interest in contributing to DAIV! This document provides guid
 
 - [Code of Conduct](#code-of-conduct)
 - [Development Environment](#development-environment)
+  - [Testing against a local GitLab](#testing-against-a-local-gitlab)
 - [Development Guidelines](#development-guidelines)
   - [Code Style](#code-style)
   - [Testing](#testing)
@@ -23,22 +24,79 @@ We expect all contributors to be respectful and constructive. Please ensure that
 
 ## Development Environment
 
-To get started quickly:
+**Prerequisites:** Docker and Docker Compose.
 
-```bash
-git clone https://github.com/srtab/daiv.git && cd daiv
-make setup                    # creates config files from templates
-docker compose up --build     # starts core services (db, redis, app, worker, scheduler)
-```
+1. **Clone and configure**
 
-Optional services are available via Docker Compose profiles:
+   ```bash
+   git clone https://github.com/srtab/daiv.git && cd daiv
+   make setup
+   ```
 
-- `--profile gitlab` — local GitLab instance and runner
-- `--profile sandbox` — sandbox code executor
-- `--profile mcp` — MCP proxy
-- `--profile full` — all services
+   `make setup` creates `docker/local/app/config.secrets.env` and `docker/local/gitlab-runner/config.toml` from their templates. Edit `docker/local/app/config.secrets.env` and add your API keys — at minimum one LLM provider key (Anthropic, OpenAI, Google, or OpenRouter), plus `CODEBASE_GITLAB_AUTH_TOKEN` if you are using GitLab.
 
-See the [README](README.md) for full setup details.
+2. **Install dependencies**
+
+   DAIV uses [uv](https://docs.astral.sh/uv/) for dependency management. Required if you run `make test` or `make lint*` on the host:
+
+   ```bash
+   uv sync
+   ```
+
+   Skip this step if you run all commands inside the Docker container (`docker compose exec -it app bash`).
+
+3. **Start core services**
+
+   ```bash
+   docker compose up --build
+   ```
+
+   Starts db, redis, app, worker, and scheduler. SSL certificates are generated on first run. The API docs are then at <https://localhost:8000/api/docs/>.
+
+4. **Start optional services** as needed
+
+   ```bash
+   docker compose --profile gitlab up     # local GitLab instance + runner
+   docker compose --profile sandbox up    # sandbox code executor
+   docker compose --profile github up     # smee webhook forwarder for GitHub deliveries
+   docker compose --profile full up       # gitlab + runner + sandbox (not smee)
+   ```
+
+   Profiles combine: `docker compose --profile gitlab --profile sandbox up`.
+
+### Testing against a local GitLab
+
+1. **Start GitLab**
+
+   ```bash
+   docker compose --profile gitlab up
+   ```
+
+2. **Get the root password**
+
+   ```bash
+   docker compose exec -it gitlab grep 'Password:' /etc/gitlab/initial_root_password
+   ```
+
+3. **Create a personal access token** at <http://localhost:8929> and add it to `docker/local/app/config.secrets.env` as `CODEBASE_GITLAB_AUTH_TOKEN`.
+
+4. **Create a test project** and push some code to it.
+
+   To import an existing repository: `Admin Area` → `Settings` → `General` → `Import and export settings`, and enable `Repository by URL`.
+
+5. **Set up webhooks**
+
+   ```bash
+   docker compose exec -it app django-admin setup_webhooks
+   ```
+
+   If this fails with `Invalid url given`, go to `Admin Area` → `Settings` → `Network` → `Outbound requests` and enable `Allow requests to the local network from webhooks and integrations`.
+
+6. **Try it** — create an issue labelled `daiv`. DAIV will respond with a plan.
+
+For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials. To receive webhook deliveries locally, start the `github` profile — it runs a [smee](https://smee.io/) client that forwards GitHub events to the local app.
+
+Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/).
 
 ## Development Guidelines
 

@@ -36,7 +36,11 @@ class GeneratedTitle(BaseModel):
 
 
 def _build_structured_llm():
-    """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured."""
+    """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured.
+
+    One of three deliberately separate copies — ``sessions.classification`` and ``memory.llm`` have
+    their own, with divergent retry policies; read those before reconciling them.
+    """
     from automation.agent.base import BaseAgent
 
     def _structured(model_name: str):

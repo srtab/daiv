@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-08-14 13:14+0000\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -25,6 +25,12 @@ msgstr "GitLab"
 
 msgid "GitHub"
 msgstr "GitHub"
+
+msgid "Read"
+msgstr "Leitura"
+
+msgid "Write"
+msgstr "Escrita"
 
 msgid "repository ID"
 msgstr "ID do repositório"
@@ -80,13 +86,81 @@ msgstr "Métrica de Merge"
 msgid "Merge Metrics"
 msgstr "Métricas de Merge"
 
+msgid "provider"
+msgstr "fornecedor"
+
+msgid "platform user ID"
+msgstr "ID do utilizador na plataforma"
+
+msgid "platform username"
+msgstr "nome de utilizador na plataforma"
+
+msgid "access level"
+msgstr "nível de acesso"
+
+msgid "synced at"
+msgstr "sincronizado em"
+
+msgid "Repository Access"
+msgstr "Acesso a Repositório"
+
+msgid "Repository Accesses"
+msgstr "Acessos a Repositórios"
+
+msgid "Never synced"
+msgstr "Nunca sincronizado"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Failed"
+msgstr "Falhou"
+
+msgid "last started at"
+msgstr "último início em"
+
+msgid "last success at"
+msgstr "último sucesso em"
+
+msgid "status"
+msgstr "estado"
+
+msgid "Repository Access Sync State"
+msgstr "Estado de Sincronização de Acessos a Repositórios"
+
+msgid "Repository Access Sync States"
+msgstr "Estados de Sincronização de Acessos a Repositórios"
+
+msgid "repository slug"
+msgstr "slug do repositório"
+
+msgid "name"
+msgstr "nome"
+
+msgid "default branch"
+msgstr "branch predefinido"
+
+msgid "HTML URL"
+msgstr "URL HTML"
+
+msgid "topics"
+msgstr "tópicos"
+
+msgid "Repository Catalog"
+msgstr "Catálogo de Repositórios"
+
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "Branch"
+msgstr "Ramo"
+
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
 
 msgid "No branches found."
 msgstr "Nenhum ramo encontrado."
 
-#| msgid "repository ID"
 msgid "Choose repository"
 msgstr "Escolher repositório"
 
@@ -102,12 +176,14 @@ msgstr "predefinição"
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
-#| msgid "repository ID"
+msgid "Pick a repository"
+msgstr "Selecionar um repositório"
+
 msgid "Add repository"
 msgstr "Adicionar repositório"
 
-msgid "Could not load repositories."
-msgstr "Não foi possível carregar os repositórios."
-
 msgid "No repositories found."
 msgstr "Nenhum repositório encontrado."
+
+#~ msgid "Could not load repositories."
+#~ msgstr "Não foi possível carregar os repositórios."

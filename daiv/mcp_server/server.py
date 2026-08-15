@@ -31,7 +31,7 @@ from codebase.authorization import (
 )
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
-from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
+from mcp_server.auth import DjangoTokenVerifier, get_current_user
 from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
@@ -75,7 +75,7 @@ continue polling with `get_job_status` if the result is not yet available.\
     stateless_http=True,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     auth=AuthSettings(issuer_url=_external_url, resource_server_url=f"{_external_url}/mcp", required_scopes=["mcp"]),
-    token_verifier=DjangoOAuthTokenVerifier(),
+    token_verifier=DjangoTokenVerifier(),
 )
 
 _THREAD_NOT_FOUND = "thread_id not found"
@@ -417,9 +417,9 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
     """
-    mcp_user = await get_current_user()
-    if mcp_user is None:
-        return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return json.dumps(auth_error)
 
     try:
         run_uuid = uuid_mod.UUID(job_id)
@@ -443,11 +443,11 @@ async def get_job_status(
 
 
 async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
-    """Resolve the authenticated user for the dict-returning tools.
+    """Resolve the authenticated user for a tool call.
 
     Returns ``(user, None)`` on success, or ``(None, error_dict)`` when the user can't be
-    resolved. Mirrors ``submit_job``'s auth handling (log + friendly message) but returns a
-    dict, since these tools return dicts rather than JSON strings.
+    resolved. Mirrors ``submit_job``'s auth handling (log + friendly message); dict-returning
+    tools return the error dict as-is, JSON-string tools ``json.dumps`` it.
     """
     try:
         mcp_user = await get_current_user()
@@ -716,7 +716,9 @@ async def get_environment(
     """
     from core.encryption import DecryptionError
 
-    user = await get_current_user()
+    user, auth_error = await _resolve_mcp_user()
+    if auth_error:
+        return auth_error
     try:
         env = await resolve_env_for_user(user, name_or_id)
     except LookupError as err:

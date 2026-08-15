@@ -7,10 +7,13 @@ import pytest
 
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
-from codebase.base import GitPlatform, MergeRequest, User
+from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+
+# The fake ``"diff"`` body has no hunks, so counting it yields zeros.
+_LOCAL_STATS = MergeRequestDiffStats()
 
 
 def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=(), has_unpushed: bool = True) -> Mock:
@@ -75,7 +78,18 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     publisher = GitChangePublisher(ctx)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
+    publisher.client.push_uses_ephemeral_token.return_value = False
     return publisher
+
+
+def _metadata_stub():
+    commit = Mock()
+    commit.commit_message = "msg"
+    pr = Mock()
+    pr.branch = "feature"
+    pr.title = "Title"
+    pr.description = "Body"
+    return {"commit_message": commit, "pr_metadata": pr}
 
 
 def _make_sandbox_publisher(*, egress="default"):
@@ -234,6 +248,47 @@ class TestCreateMergeRequestDescription:
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
 
 
+class TestCreateMergeRequestAssignee:
+    """_create_merge_request assigns the MR to the issue assignee, falling back to the author."""
+
+    def _issue(self, *, assignee, author):
+        return Issue(iid=5, title="t", description="d", assignee=assignee, author=author)
+
+    async def test_uses_issue_assignee_when_present_gitlab(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = self._issue(
+            assignee=User(id=7, username="assignee"), author=User(id=9, username="author")
+        )
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 7
+
+    async def test_falls_back_to_author_when_unassigned_gitlab(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 9
+
+    async def test_falls_back_to_author_username_on_github(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
+        publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == "author"
+
+    async def test_no_assignee_when_no_issue(self):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.ctx.issue = None
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+
+
 class TestBuildIssueCreationUrl:
     def test_gitlab_url_format(self):
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
@@ -346,7 +401,7 @@ class TestPublishSandboxEgressRefresh:
         with caplog.at_level("ERROR", logger="daiv.tools"):
             outcome = await publisher.publish(merge_request=None)
 
-        assert outcome == PublishOutcome(merge_request=None, published=False)
+        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
         assert "Could not refresh the sandbox egress token" in caplog.text
 
     async def test_refresh_skips_delivery_when_nothing_to_refresh(self, monkeypatch):
@@ -408,9 +463,9 @@ class TestPublishSuggestsContextFile:
 
             gm.commit_all.assert_awaited_once()
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True)
+            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -437,9 +492,9 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=None)
 
         gm.commit_all.assert_awaited_once()
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
         mock_suggest.assert_not_called()
-        assert result == PublishOutcome(merge_request=None, published=True)
+        assert result == PublishOutcome(merge_request=None, published=True, diff_stats=_LOCAL_STATS)
         assert "MR pending" in caplog.text
 
     async def test_degrade_preserves_protected_branch_fallback_source(self, publisher, monkeypatch):
@@ -465,7 +520,9 @@ class TestPublishSuggestsContextFile:
         ):
             result = await publisher.publish(merge_request=existing_mr)
 
-        assert result == PublishOutcome(merge_request=None, published=True, protected_branch_fallback_source="dev")
+        assert result == PublishOutcome(
+            merge_request=None, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+        )
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
         existing_mr = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
@@ -494,7 +551,7 @@ class TestPublishSuggestsContextFile:
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
             # Fresh unique branch generated + pushed for the fallback MR (no remote work to integrate).
             gm.unique_branch_name.assert_called_once_with("feature-fix", [])
-            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False)
+            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False, skip_ci=False)
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
@@ -506,7 +563,7 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev"
+                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
@@ -586,7 +643,7 @@ class TestPublishSuggestsContextFile:
 
             # Existing MR: push to its source branch, integrating remote work on a non-ff rejection
             # (the branch may have moved under the run, e.g. a concurrent push).
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True)
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
             mock_suggest.assert_not_called()
 
 
@@ -601,7 +658,7 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=None)
 
-        assert outcome == PublishOutcome(merge_request=None, published=False)
+        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -614,7 +671,7 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=mr)
 
-        assert outcome == PublishOutcome(merge_request=mr, published=False)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -631,7 +688,7 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         assert gm.status_snapshot.await_args.kwargs["mr_source_branch"] == "feat/x"
         # Clean tree already on its MR → no duplicate MR, no metadata call.
-        assert outcome == PublishOutcome(merge_request=mr, published=False)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
         meta.assert_not_called()
 
     async def test_diffs_against_existing_mr_target_branch_on_dirty_tree(self, monkeypatch):
@@ -657,8 +714,8 @@ class TestPublishDecision:
 
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
-        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True)
-        assert outcome == PublishOutcome(merge_request=mr, published=True)
+        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
+        assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
 
     async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
         publisher = _make_publisher()
@@ -674,3 +731,162 @@ class TestPublishDecision:
 def test_create_merge_request_and_suggest_are_async():
     assert inspect.iscoroutinefunction(GitChangePublisher._create_merge_request)
     assert inspect.iscoroutinefunction(GitChangePublisher._suggest_context_file)
+
+
+class TestTriggerServiceAccountPipeline:
+    async def test_triggers_pipeline_via_client(self):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=Mock(id=5))
+        mr = _make_merge_request()
+
+        await publisher._trigger_service_account_pipeline(mr)
+
+        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42)
+        publisher.client.create_merge_request_comment.assert_not_called()
+
+    async def test_logs_and_notes_on_failure(self, caplog):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
+        mr = _make_merge_request()
+
+        with caplog.at_level("ERROR"):
+            await publisher._trigger_service_account_pipeline(mr)
+
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        publisher.client.create_merge_request_comment.assert_called_once()
+        body = publisher.client.create_merge_request_comment.call_args[0][2]
+        assert "pipeline" in body.lower()
+
+    async def test_does_not_raise_when_note_also_fails(self):
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
+        publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
+
+        await publisher._trigger_service_account_pipeline(_make_merge_request())  # must not raise
+
+
+class TestPublishPipelineHeal:
+    """GitLab ephemeral-token pushes skip the bot pipeline and trigger it as the service account."""
+
+    async def test_ephemeral_push_skips_ci_and_triggers_pipeline(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
+        trigger.assert_awaited_once_with(mr)
+
+    async def test_pat_push_does_not_skip_ci_or_trigger(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = False
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()
+
+    async def test_github_never_heals(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
+        # GitHub's client reports no ephemeral token (base default), so the polymorphic heal never
+        # fires — the publisher special-cases no platform.
+        publisher.client.push_uses_ephemeral_token.return_value = False
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()
+
+    async def test_skip_ci_flag_disables_heal(self, monkeypatch):
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish(skip_ci=True)
+
+        # explicit skip_ci means "no CI at all" — no bot pipeline, no service-account trigger
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        trigger.assert_not_awaited()
+
+
+class TestPublishDiffStats:
+    """``+x −y`` for the composer's progress pill: counted from the snapshot the publish
+    already took, never fetched back from the platform."""
+
+    async def test_counts_the_snapshot_diff(self, monkeypatch):
+        publisher = _make_publisher()
+        mr = _make_merge_request()
+        gm = _fake_git_manager(diff="diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n+one\n+two\n-three\n")
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=None)
+
+        assert outcome.diff_stats == MergeRequestDiffStats(lines_added=2, lines_removed=1, files_changed=1)
+
+    async def test_never_asks_the_platform_for_the_numbers(self, monkeypatch):
+        """The snapshot diff is the merge-base delta for the branch the MR is built from,
+        so it already is what the MR page shows. Fetching it back costs a full MR-diff
+        download on GitLab, truncates past a size cap, and answers zero while a
+        just-created MR is still being prepared."""
+        publisher = _make_publisher()
+        mr = _make_merge_request()
+        _patch_open_git_manager(monkeypatch, _fake_git_manager())
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None)
+
+        publisher.client.get_merge_request_diff_stats.assert_not_called()
+
+    async def test_no_changes_reports_zeros(self, monkeypatch):
+        """State 02 — the composer renders zeros as no pill; ``None`` would leave a previous
+        turn's numbers standing."""
+        publisher = _make_publisher()
+        _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff="", has_unpushed=False))
+
+        outcome = await publisher.publish(merge_request=None)
+
+        assert outcome.diff_stats == _LOCAL_STATS

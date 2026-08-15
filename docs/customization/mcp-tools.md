@@ -155,3 +155,10 @@ servers, but cannot edit them or view their header values.
   filter does.
 - **Network** — MCP connections originate from the DAIV app/worker containers; the sandbox egress
   proxy does not apply to them. Restrict outbound access at your network layer if needed.
+
+## Related pages
+
+- [MCP Endpoint](../features/mcp-endpoint.md) — the inverse direction: exposing DAIV *itself* as an MCP server, so Claude Code, Cursor, or Codex CLI can delegate to it
+- [Request Tracker Triage](../integrations/rt/index.md) — a worked example of DAIV driven from an external system
+- [Agent Architecture](../reference/agent-architecture.md) — how MCP tools are loaded into the agent's tool set
+- [Environment Variables](../reference/env-variables.md) — the MCP-related settings

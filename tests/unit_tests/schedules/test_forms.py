@@ -4,12 +4,14 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from mcp_servers.models import MCPServer
 from notifications.choices import NotifyOn
 
 from accounts.models import User
 from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import Frequency, Intent
+from tests.unit_tests.mcp_servers.helpers import only_servers
 
 
 @pytest.fixture
@@ -251,6 +253,19 @@ class TestScheduledJobFormIntent:
         assert not form.is_valid()
         assert "intent" in form.errors
 
+    def test_update_form_without_the_picker_keeps_the_stored_overrides(self, member_user):
+        """Editing a schedule from a page whose picker never rendered must leave its MCP
+        selection intact rather than silently rewriting it to "everything off"."""
+        only_servers(("a", MCPServer.Status.ON_DEMAND))
+        job = ScheduledJobCreateForm(data=_valid_data(mcp_servers='["a"]'), owner=member_user).save(commit=False)
+        job.user = member_user
+        job.save()
+        assert job.mcp_overrides == {"a": "on"}
+
+        form = ScheduledJobUpdateForm(data=_valid_data(), instance=job, owner=member_user)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["mcp_overrides"] == {"a": "on"}
+
 
 @pytest.mark.django_db
 class TestScheduleTemplateFormIntent:
@@ -265,3 +280,22 @@ class TestScheduleTemplateFormIntent:
         form = ScheduleTemplateForm(data=_valid_template_data(intent="bogus"))
         assert not form.is_valid()
         assert "intent" in form.errors
+
+
+@pytest.mark.django_db
+def test_schedule_form_pool_uses_owner_not_editing_admin(member_user, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    # A USER server owned by member_user (only visible in member_user's pool).
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine",
+        status=MCPServer.Status.ON_DEMAND,
+    )
+    form = ScheduledJobCreateForm(owner=member_user, user=admin_user)
+    names = {e.name for e in form.mcp_pool}
+    assert "mine" in names  # owner's server, though the editor is the admin

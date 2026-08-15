@@ -605,6 +605,36 @@ class TestSessionContinuation:
 
 
 # ---------------------------------------------------------------------------
+# mcp_overrides stamp tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_session_stamps_mcp_overrides():
+    from sessions.models import SessionOrigin
+    from sessions.services import aget_or_create_session
+
+    s = await aget_or_create_session(
+        thread_id="t-ov", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
+    )
+    assert s.mcp_overrides == {"a": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_submit_does_not_clobber_stored_overrides():
+    from sessions.models import SessionOrigin
+    from sessions.services import aget_or_create_session
+
+    await aget_or_create_session(
+        thread_id="t-keep", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"a": "off"}
+    )
+    again = await aget_or_create_session(
+        thread_id="t-keep", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"b": "on"}
+    )
+    assert again.mcp_overrides == {"a": "off"}
+
+
+# ---------------------------------------------------------------------------
 # notify_on tests (ported from TestCreateActivityNotifyOn / TestEffectiveNotifyOn)
 # ---------------------------------------------------------------------------
 

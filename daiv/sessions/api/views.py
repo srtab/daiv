@@ -33,7 +33,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript for live background runs (the detail page polls this
     while a non-chat run holds the session slot)."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
-    messages, expired, _mr = await ahydrate_thread(thread_id)
+    messages, expired, _mr, _stats = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     return {
         "turns": [] if expired else annotate_transcript(build_turns(messages), runs),

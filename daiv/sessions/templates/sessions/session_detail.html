@@ -33,6 +33,9 @@
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
+  {{ diff_stats|json_script:"chat-initial-diff-stats" }}
+  {{ mcp_server_rows|json_script:"chat-mcp-servers" }}
+  {{ mcp_servers_selected|json_script:"chat-mcp-selected" }}
 
   {% if poll_transcript %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
@@ -52,11 +55,24 @@
   {% translate "Show more" as show_more_label %}
   {% translate "Show less" as show_less_label %}
 
+  {# Composer wording. The progress pill and the MCP rows are assembled in JS from live #}
+  {# counts, so the pieces are translated here and handed over rather than built from an #}
+  {# English template. #}
+  {% translate "file" as file_word %}
+  {% translate "files" as files_word %}
+  {% translate "stopped" as stopped_word %}
+  {% translate "tool" as tool_word %}
+  {% translate "tools" as tools_word %}
+  {% translate "filtered to" as filtered_to_word %}
+  {% translate "not synced yet" as not_synced_word %}
+  {% translate "MCP servers" as mcp_servers_word %}
+
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
          activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
+         activeRunStartedAt: "{{ chat_active_run_started_at|default:''|escapejs }}",
          {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
          {# background run the transcript poller follows — so the load-time scroll can #}
          {# tell "still working" from "finished" without duplicating that logic in JS. #}
@@ -70,18 +86,27 @@
          }{% else %}null{% endif %},
          selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
          initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
-         initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
+         initialAgentThinking: "{{ agent_picker_initial_thinking|default:''|escapejs }}",
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
-         envAutoLabel: "{{ locked_env_fallback|escapejs }}"
+         envAutoLabel: "{{ locked_env_fallback|escapejs }}",
+         labels: {
+           file: "{{ file_word|escapejs }}",
+           files: "{{ files_word|escapejs }}",
+           stopped: "{{ stopped_word|escapejs }}",
+           tool: "{{ tool_word|escapejs }}",
+           tools: "{{ tools_word|escapejs }}",
+           filteredTo: "{{ filtered_to_word|escapejs }}",
+           notSynced: "{{ not_synced_word|escapejs }}",
+           mcpServers: "{{ mcp_servers_word|escapejs }}"
+         }
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
        x-cloak
-       class="chat-shell"
-       :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">
+       class="chat-shell">
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
@@ -91,19 +116,6 @@
           <a href="{% url 'session_new' %}" class="btn-primary">{% translate "New session" %}</a>
         </div>
       {% endif %}
-
-      {# Responsive summary strip shown below 1100px #}
-      <div class="chat-summary" x-show="turns.length > 0 || thread">
-        <span x-show="thread"><span x-text="thread ? thread.repo_id : ''"></span> <span class="chat-summary__sep">·</span> <span x-text="thread ? thread.ref : ''" style="color:#93c5fd;"></span></span>
-        <span class="chat-summary__sep">·</span>
-        <span x-text="runStatus.label"></span>
-        <template x-if="latestTodos.length">
-          <span><span class="chat-summary__sep">·</span> <span x-text="`${todosDone}/${latestTodos.length} todos`"></span></span>
-        </template>
-        <template x-if="filesTouched.length">
-          <span><span class="chat-summary__sep">·</span> <span x-text="`${filesTouched.length} files`"></span></span>
-        </template>
-      </div>
 
       <div class="chat-transcript">
         {# Empty state — pick a repo first, then the composer fades in. #}
@@ -118,11 +130,13 @@
               <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
                 {% translate "Ready when you are — describe the change, the bug, or what to explore." %}
               </p>
-            </div>
-            <div class="chat-hero__picker">
-              {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
-              {% include "automation/_agent_picker.html" with providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
-              {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+              {% comment %}
+              Hero-only: what the first turn will run with, and the way into the options
+              sheet before a thread exists. Disappears the moment a thread does.
+              {% endcomment %}
+              <button type="button" class="chat-hero__selection"
+                      @click="openSheet('options')"
+                      x-text="heroSelectionLabel"></button>
             </div>
           </div>
         </template>
@@ -151,21 +165,8 @@
                   <p class="mt-1 text-sm text-gray-400">{% translate "This page refreshes automatically when the run finishes." %}</p>
                   {% if latest_run.started_at %}
                     <p class="mt-3 font-mono text-sm text-blue-300"
-                       x-data="{
-                           elapsed: 0,
-                           tickId: null,
-                           fmt(s) { const m = Math.floor(s/60); const r = s%60; return m ? `${m}m ${r}s` : `${r}s`; },
-                           init() {
-                               const startedMs = new Date('{{ latest_run.started_at|date:"c" }}').getTime();
-                               if (!Number.isFinite(startedMs)) return;
-                               this.elapsed = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
-                               this.tickId = setInterval(() => this.elapsed++, 1000);
-                           },
-                           destroy() {
-                               if (this.tickId) clearInterval(this.tickId);
-                           }
-                       }"
-                       x-text="'⏱ ' + fmt(elapsed) + ' elapsed'">⏱ elapsed</p>
+                       x-data="elapsed('{{ latest_run.started_at|date:"c" }}')"
+                       x-text="'⏱ ' + label + ' elapsed'">⏱ elapsed</p>
                   {% endif %}
                 </div>
               </div>
@@ -255,6 +256,37 @@
                       </div>
                     </template>
                   </div>
+
+                  <template x-if="turnHasActions(turn, ti)">
+                    <div class="chat-turn__actions">
+                      {# Icon-only: the labels stay as sr-only text so the shown span still names #}
+                      {# the button (x-show=display:none drops the hidden ones from the a11y #}
+                      {# tree), which also announces the outcome without a live region. #}
+                      <button type="button" class="chat-turn__action-btn" x-show="canCopyTurn(turn, ti)"
+                              title="{% translate 'Copy' %}"
+                              x-data="{ state: '', _t: null, async copy() { this.state = await copyFinalText(turn) ? 'copied' : 'failed'; clearTimeout(this._t); this._t = setTimeout(() => { this.state = ''; }, 1500); } }"
+                              @click="copy()">
+                        <span x-show="!state" class="chat-turn__action-inner">
+                          {% icon "clipboard-document" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copy" %}</span>
+                        </span>
+                        <span x-show="state === 'copied'" x-cloak class="chat-turn__action-inner">
+                          {% icon "check" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copied" %}</span>
+                        </span>
+                        <span x-show="state === 'failed'" x-cloak class="chat-turn__action-inner">
+                          {% icon "x-mark" "chat-turn__action-icon" %}
+                          <span class="sr-only">{% translate "Copy failed" %}</span>
+                        </span>
+                      </button>
+                      <template x-if="turn.sent_at || turn.received_at">
+                        <time class="chat-turn__time"
+                              :datetime="turn.sent_at || turn.received_at"
+                              :title="absoluteTime(turn.sent_at || turn.received_at)"
+                              x-text="relativeTime(turn.sent_at || turn.received_at)"></time>
+                      </template>
+                    </div>
+                  </template>
                 </article>
               </template>
             </div>
@@ -263,6 +295,12 @@
 
         <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
           <span class="chat-thinking__dot"></span>
+          {# aria-hidden: the region is live, and a per-second timer would make it announce nonstop. #}
+          <span class="chat-thinking__timer"
+                x-data="elapsed"
+                x-effect="track(runStartedAt)"
+                x-text="label"
+                aria-hidden="true"></span>
           <span x-text="runStatus.label"></span>
         </div>
       </div>
@@ -271,46 +309,6 @@
         {% include "chat/_composer.html" %}
       {% endif %}
     </div>
-
-    {# Session rail: todos + files from chat. #}
-    <aside class="chat-rail" aria-label="{% translate 'Session context' %}">
-      <div class="chat-rail__block">
-        <div class="chat-rail__label">
-          {% translate "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
-        </div>
-        <template x-if="!latestTodos.length">
-          <div style="color: #64748b;">—</div>
-        </template>
-        <template x-for="t in latestTodos" :key="t.content">
-          <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
-            <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
-            <span x-text="t.content"></span>
-          </div>
-        </template>
-      </div>
-
-      <div class="chat-rail__block">
-        <div class="chat-rail__label">{% translate "Files changed" %}</div>
-        <template x-if="!filesTouched.length">
-          <div style="color: #64748b;">—</div>
-        </template>
-        <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
-          <button type="button" class="chat-rail__file"
-                  :class="{ 'chat-rail__file--new': f.isNew, [`chat-rail__file--${f.op || 'modified'}`]: true }"
-                  @click="jumpToTool(f.segmentId)"
-                  :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
-            <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>
-            <span class="chat-rail__file-path" x-text="f.path"></span>
-          </button>
-        </template>
-        <button type="button" class="chat-rail__file"
-                style="color: #64748b; padding-top: 6px;"
-                x-show="filesTouched.length > filesTouchedLimit"
-                @click="filesTouchedLimit = filesTouched.length">
-          {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
-        </button>
-      </div>
-    </aside>
   </div>
 
   {% include "sandbox_envs/_env_drawer.html" %}

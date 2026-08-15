@@ -3,10 +3,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 from git import GitCommandError
-from github import Consts, UnknownObjectException
+from github import Consts
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
-from github.PullRequestComment import PullRequestComment
+from github.NamedUser import NamedUser
+from github.Repository import Repository as GhRepository
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
@@ -30,6 +31,20 @@ class TestGitHubClient:
 
         client = GitHubClient(integration=integration, installation_id=67890)
         yield client
+
+    @pytest.fixture
+    def lazy_requester(self, github_client):
+        """Wire ``get_repo`` to a real Repository over a requester that mirrors production's
+        ``get_repo(lazy=True)``, so URL building is exercised without any lookup being fetched."""
+        requester = Mock()
+        # base_url is read to derive full_name; is_not_lazy=False keeps every getter request-free.
+        requester.base_url = "https://api.github.com"
+        requester.is_not_lazy = False
+        requester.requestJsonAndCheck.return_value = ({}, {"id": 1, "content": "eyes"})
+        github_client.client.get_repo.return_value = GhRepository(
+            requester, {}, {"url": "https://api.github.com/repos/owner/repo"}, completed=True
+        )
+        return requester
 
     @patch("codebase.clients.github.client.async_download_url")
     async def test_get_project_uploaded_file_success(self, mock_download, github_client):
@@ -98,47 +113,30 @@ class TestGitHubClient:
         result = github_client.has_issue_reaction("owner/repo", 123, emoji)
         assert result is expected
 
-    def test_create_merge_request_note_emoji_review_comment(self, github_client):
-        """Test that create_merge_request_note_emoji converts string note_id to int for review comments."""
-        mock_repo = Mock()
-        mock_pr = Mock()
-        mock_comment = Mock()
+    def test_create_merge_request_note_emoji_targets_issue_comment_endpoint(self, github_client, lazy_requester):
+        """A PR conversation comment id resolves only on the issue-comment endpoint, so the reaction
+        must be POSTed there rather than to the pull-request review-comment endpoint."""
+        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.EYES, 5172158906)
 
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_pull.return_value = mock_pr
-        mock_pr.get_review_comment.return_value = mock_comment
+        lazy_requester.requestJsonAndCheck.assert_called_once()
+        call = lazy_requester.requestJsonAndCheck.call_args
+        assert call.args[:2] == ("POST", "https://api.github.com/repos/owner/repo/issues/comments/5172158906/reactions")
+        assert call.kwargs["input"] == {"content": "eyes"}
 
-        # Pass note_id as a string
-        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, 3645723306)
+    def test_create_issue_emoji_targets_issue_endpoint(self, github_client, lazy_requester):
+        """Without a note id the reaction goes on the issue itself."""
+        github_client.create_issue_emoji("owner/repo", 42, Emoji.EYES)
 
-        # Verify that get_review_comment was called with an integer
-        mock_pr.get_review_comment.assert_called_once_with(3645723306)
-        mock_comment.create_reaction.assert_called_once_with("+1")
-
-    def test_create_merge_request_note_emoji_issue_comment_fallback(self, github_client):
-        """Test that create_merge_request_note_emoji falls back to issue comment when review comment not found."""
-        mock_repo = Mock()
-        mock_pr = Mock()
-        mock_comment = Mock()
-
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_pull.return_value = mock_pr
-        # Simulate review comment not found
-        mock_pr.get_review_comment.side_effect = UnknownObjectException(404, {}, {})
-        mock_pr.get_issue_comment.return_value = mock_comment
-
-        # Pass note_id as a string
-        github_client.create_merge_request_note_emoji("owner/repo", 712, Emoji.THUMBSUP, 3645723306)
-
-        # Verify that both methods were called with an integer
-        mock_pr.get_review_comment.assert_called_once_with(3645723306)
-        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
-        mock_comment.create_reaction.assert_called_once_with("+1")
+        lazy_requester.requestJsonAndCheck.assert_called_once()
+        assert lazy_requester.requestJsonAndCheck.call_args.args[:2] == (
+            "POST",
+            "https://api.github.com/repos/owner/repo/issues/42/reactions",
+        )
 
     def test_get_merge_request_comment_converts_comment_id_to_int_issue_comment(self, github_client):
         """Test that get_merge_request_comment converts string comment_id to int for issue comments."""
         mock_repo = Mock()
-        mock_pr = Mock()
+        mock_issue = Mock()
         mock_user = Mock()
         mock_user.id = 1
         mock_user.login = "testuser"
@@ -150,50 +148,15 @@ class TestGitHubClient:
         mock_comment.user = mock_user
 
         github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_pull.return_value = mock_pr
-        mock_pr.get_issue_comment.return_value = mock_comment
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_comment.return_value = mock_comment
 
         # Pass comment_id as a string
         result = github_client.get_merge_request_comment("owner/repo", 712, "3645723306")
 
-        # Verify that get_issue_comment was called with an integer
-        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
-        assert result.id == "3645723306"
-        assert len(result.notes) == 1
-
-    def test_get_merge_request_comment_converts_comment_id_to_int_review_comment(self, github_client):
-        """Test that get_merge_request_comment converts string comment_id to int for review comments."""
-        mock_repo = Mock()
-        mock_pr = Mock()
-        mock_user = Mock()
-        mock_user.id = 1
-        mock_user.login = "testuser"
-        mock_user.name = "Test User"
-
-        mock_comment = Mock(spec=PullRequestComment)
-        mock_comment.id = 3645723306
-        mock_comment.body = "Test review comment"
-        mock_comment.user = mock_user
-        mock_comment.path = "test.py"
-        mock_comment.commit_id = "abc123"
-        mock_comment.line = 10
-        mock_comment.start_line = None
-        mock_comment.side = "RIGHT"
-        mock_comment.start_side = None
-        mock_comment.subject_type = "line"
-
-        github_client.client.get_repo.return_value = mock_repo
-        mock_repo.get_pull.return_value = mock_pr
-        # Simulate issue comment not found
-        mock_pr.get_issue_comment.side_effect = UnknownObjectException(404, {}, {})
-        mock_pr.get_review_comment.return_value = mock_comment
-
-        # Pass comment_id as a string
-        result = github_client.get_merge_request_comment("owner/repo", 712, "3645723306")
-
-        # Verify that both methods were called with an integer
-        mock_pr.get_issue_comment.assert_called_once_with(3645723306)
-        mock_pr.get_review_comment.assert_called_once_with(3645723306)
+        # The PR is reached as an issue, so the whole PR payload is never fetched.
+        mock_repo.get_pull.assert_not_called()
+        mock_issue.get_comment.assert_called_once_with(3645723306)
         assert result.id == "3645723306"
         assert len(result.notes) == 1
 
@@ -485,6 +448,72 @@ class TestGitHubClient:
 
         mock_repo.get_pull.return_value = _pr(merged)
         assert github_client.get_merge_request("owner/repo", 7).merged is merged
+
+    @staticmethod
+    def _create_path_pr(assignees):
+        """A mock PR on the create path, wired with the concrete attributes ``MergeRequest`` reads
+        plus real ``add_to_labels``/``add_to_assignees`` spies and the given ``assignees`` list."""
+        mock_pr = Mock()
+        mock_pr.number = 7
+        mock_pr.head = Mock(ref="feat-x", sha="abc123")
+        mock_pr.base = Mock(ref="main")
+        mock_pr.title = "feat: add x"
+        mock_pr.body = "details"
+        mock_pr.labels = []
+        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_pr.draft = False
+        user = Mock(id=1, login="alice")
+        user.name = "Alice"
+        mock_pr.user = user
+        mock_pr.assignees = assignees
+        return mock_pr
+
+    def test_update_or_create_merge_request_skips_assignee_when_already_assigned(self, github_client):
+        """The dedup guard matches usernames: ``assignee_id`` is a login on the GitHub path, so an
+        already-assigned author must not be re-added. Regression guard for the int-vs-str comparison
+        (``assignee.id == assignee_id``) that made this branch unreachable."""
+        requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
+        assignee = NamedUser(requester, {}, {"login": "daiv", "id": 123}, completed=True)
+        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_repo = Mock()
+        mock_repo.create_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.update_or_create_merge_request(
+            "owner/repo", "feat-x", "main", "feat: add x", "details", assignee_id="daiv"
+        )
+
+        mock_pr.add_to_assignees.assert_not_called()
+
+    def test_update_or_create_merge_request_adds_assignee_when_not_assigned(self, github_client):
+        """A login not already present is added exactly once."""
+        requester = Mock(base_url="https://api.github.com", is_not_lazy=False)
+        assignee = NamedUser(requester, {}, {"login": "someone-else", "id": 123}, completed=True)
+        mock_pr = self._create_path_pr(assignees=[assignee])
+        mock_repo = Mock()
+        mock_repo.create_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.update_or_create_merge_request(
+            "owner/repo", "feat-x", "main", "feat: add x", "details", assignee_id="daiv"
+        )
+
+        mock_pr.add_to_assignees.assert_called_once_with("daiv")
+
+    def test_push_uses_ephemeral_token_is_false(self, github_client):
+        """GitHub pushes with a long-lived installation token, not a project-scoped ephemeral one, so
+        the publisher's cross-project-CI heal never fires. This is the guarantee the polymorphic
+        publish path relies on instead of a platform check."""
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+        assert github_client.push_uses_ephemeral_token(repository) is False
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()

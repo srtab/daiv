@@ -317,6 +317,20 @@ class TestScheduleRunNowView:
         run = Run.objects.get(session__scheduled_job=schedule)
         assert run.sandbox_environment_id == env.id
 
+    def test_run_now_stamps_schedule_mcp_overrides_onto_session(self, member_client, member_user, schedule):
+        schedule.mcp_overrides = {"tool-x": "off"}
+        schedule.save(update_fields=["mcp_overrides"])
+
+        with mock.patch("sessions.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
+        assert response.status_code == 302
+        from sessions.models import Session
+
+        session = Session.objects.get(scheduled_job=schedule)
+        assert session.mcp_overrides == {"tool-x": "off"}
+
     def test_run_now_auto_resolves_against_schedule_owner_not_request_user(
         self, member_client, member_user, schedule, admin_user
     ):
@@ -745,6 +759,34 @@ class TestScheduleDuplicateFlow:
         assert response.status_code == 200
         assert response.context["form"].initial["intent"] == Intent.DO_CHANGE
 
+    def test_create_view_from_param_carries_the_mcp_selection_and_env(self, member_client, member_user):
+        """Duplicating dropped both silently: the copy came up with the default server pool and
+        Auto, which reads as "same schedule" right up until it runs against different tooling."""
+        from mcp_servers.models import MCPServer
+        from sandbox_envs.models import SandboxEnvironment, Scope
+
+        from tests.unit_tests.mcp_servers.helpers import only_servers
+
+        only_servers(("opt-in", MCPServer.Status.ON_DEMAND))
+        env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            sandbox_environment=env,
+            mcp_overrides={"opt-in": "on"},
+        )
+
+        response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
+
+        assert response.status_code == 200
+        form = response.context["form"]
+        assert form.fields["mcp_servers"].initial == ["opt-in"]
+        assert form.initial["sandbox_environment"] == env
+
     def test_create_view_with_unknown_from_pk_falls_back_to_blank(self, member_client):
         response = member_client.get(reverse("schedule_create") + "?from=999999")
         assert response.status_code == 200
@@ -752,7 +794,7 @@ class TestScheduleDuplicateFlow:
     def test_create_view_from_param_for_other_user_falls_back_to_blank_form(self, member_user):
         """``?from=<other_user_pk>`` on the create view does NOT 404; it silently degrades.
 
-        The owner-scoped ``_get_source_schedule`` returns ``None`` so the form renders
+        The owner-scoped ``_source_schedule`` returns ``None`` so the form renders
         empty, preventing information leaks via the create form. The hard 404 boundary
         lives on ``ScheduleDuplicateView`` (see sibling test).
         """

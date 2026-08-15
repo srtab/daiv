@@ -4,7 +4,18 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# anyio arrives only transitively (via langchain-mcp-adapters/mcp/httpx); guard the import so a
+# resolver/lockfile change that drops it degrades the transient-error classifier to "no match"
+# rather than crashing at startup.
+try:
+    import anyio
+
+    _BrokenResourceError: type[BaseException] | None = anyio.BrokenResourceError
+except ImportError:  # pragma: no cover - anyio is present in the pinned lockfile
+    _BrokenResourceError = None
 
 from automation.agent.toolkits import BaseToolkit
 
@@ -23,6 +34,29 @@ def _get_connection_url(conn) -> str:
     return getattr(conn, "url", "unknown")
 
 
+def _is_transient_mcp_error(exc: BaseException) -> bool:
+    """True for anticipated, transient MCP-server failures that warrant the same soft treatment as a
+    timeout — warn without a traceback so an external outage (e.g. an upstream 503) doesn't mint a
+    Sentry error event on every agent run. Covers:
+
+    * ``httpx.HTTPStatusError`` with a 5xx response — an upstream server error, not a config bug.
+    * ``anyio.BrokenResourceError`` (matched only when anyio is importable — it's a transitive
+      dependency) — the in-memory stream broke, typically the downstream symptom of that same upstream
+      failure (the MCP client's writer task died and the reader's ``send()`` finds the stream closed).
+    * ``BaseExceptionGroup`` whose leaves are *all* transient — anyio surfaces TaskGroup failures this
+      way, so the real exception arrives wrapped. A group mixing in anything non-transient (notably
+      ``CancelledError``, a ``BaseException`` that forces a ``BaseExceptionGroup`` ``except Exception``
+      never catches anyway) is left for the broad handler so outer cancellation keeps propagating.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    if _BrokenResourceError is not None and isinstance(exc, _BrokenResourceError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return bool(exc.exceptions) and all(_is_transient_mcp_error(sub) for sub in exc.exceptions)
+    return False
+
+
 async def _load_server_tools(server_name: str, connection, timeout: float) -> list[BaseTool]:
     """
     Load tools from a single MCP server through its own client. Bounded by ``timeout`` and never raises:
@@ -36,23 +70,35 @@ async def _load_server_tools(server_name: str, connection, timeout: float) -> li
         # Anticipated degradation (server didn't answer within the timeout) — warning, no traceback.
         logger.warning("Timed out loading tools from MCP server %r after %ss; skipping it", server_name, timeout)
         return []
-    except Exception:
+    except Exception as exc:
         # Catch Exception, never BaseException: CancelledError (a BaseException) must propagate so outer
-        # cancellation/shutdown isn't swallowed. logger.exception logs at error level with the traceback,
-        # setting unexpected failures apart from the routine timeouts above.
-        logger.exception(
-            "Error getting tools from MCP server %r (%s); skipping it", server_name, _get_connection_url(connection)
-        )
+        # cancellation/shutdown isn't swallowed.
+        if _is_transient_mcp_error(exc):
+            # Anticipated degradation (upstream 5xx / broken MCP stream, possibly wrapped in an
+            # ExceptionGroup by anyio's TaskGroup teardown) — warning, no traceback, same treatment as a
+            # timeout. Keeps an external outage off Sentry (see DAIV-22/23).
+            logger.warning(
+                "Transient error loading tools from MCP server %r (%s): %s; skipping it",
+                server_name,
+                _get_connection_url(connection),
+                type(exc).__name__,
+            )
+        else:
+            # logger.exception logs at error level with the traceback, setting unexpected failures apart
+            # from the routine timeouts/transient outages above.
+            logger.exception(
+                "Error getting tools from MCP server %r (%s); skipping it", server_name, _get_connection_url(connection)
+            )
         return []
 
 
 class MCPToolkit(BaseToolkit):
     @classmethod
-    async def get_tools(cls, user_id: int | None = None) -> list[BaseTool]:
+    async def get_tools(cls, user_id: int | None = None, overrides: dict | None = None) -> list[BaseTool]:
         from asgiref.sync import sync_to_async
         from mcp_servers.services import build_runtime_servers
 
-        servers = await sync_to_async(build_runtime_servers)(user_id)
+        servers = await sync_to_async(build_runtime_servers)(user_id, overrides)
         connections, tool_filters = build_connections_and_filters(servers)
 
         if not connections:

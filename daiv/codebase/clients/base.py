@@ -20,6 +20,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -261,6 +262,19 @@ class RepoClient(abc.ABC):
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
 
+    def push_uses_ephemeral_token(self, repository: Repository) -> bool:
+        """True when the git push authenticates with a short-lived, project-scoped token whose bot
+        user cannot read other projects — so the resulting pipeline cannot resolve cross-project CI
+        includes and must be re-triggered as the service account. Base default: ``False``."""
+        return False
+
+    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+        """Create a CI pipeline for the merge request as the service account, so it runs with the
+        service account's permissions (e.g. reading private cross-project CI includes). GitLab-only
+        capability: the publish path calls this only when :meth:`push_uses_ephemeral_token` is true,
+        so reaching the base implementation means a mis-wired caller, not a supported no-op."""
+        raise NotImplementedError
+
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
@@ -314,7 +328,10 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
-        pass
+        """React on an issue, or on one of its notes when `note_id` is given.
+
+        Idempotent: a reaction this user already made is not an error.
+        """
 
     @abc.abstractmethod
     def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
@@ -446,7 +463,11 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
-        pass
+        """React on a merge request note. Idempotent, as for `create_issue_emoji`.
+
+        `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
+        here, since DAIV receives none.
+        """
 
     @abc.abstractmethod
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):

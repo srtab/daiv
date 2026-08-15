@@ -1,0 +1,83 @@
+{% load i18n icon_tags %}
+{% comment %}
+Progress trigger + sheet: todos and files changed for the current ask.
+
+The trigger is suppressed on *content*, not on run state — no todos, no files and no diff
+means no button at all, because an empty sheet is worse than no way in. ``progressPill``
+(chat-stream.js) owns that decision and the label.
+{% endcomment %}
+<div class="composer-sheet-anchor" x-show="progressPill" x-cloak>
+  <button type="button"
+          class="composer-trigger composer-trigger--pill"
+          :class="progressPill ? 'composer-trigger--' + progressPill.tone : ''"
+          @click.stop="toggleSheet('progress')"
+          :aria-expanded="sheet === 'progress'"
+          aria-haspopup="dialog"
+          title="{% translate 'Session progress' %}">
+    <span class="composer-trigger__live" x-show="progressPill && progressPill.tone === 'live'" x-cloak aria-hidden="true"></span>
+    <template x-if="progressPill && progressPill.diff">
+      <span class="diff-stat">
+        <span class="diff-stat__plus" x-text="`+${progressPill.diff.added}`"></span>
+        <span class="diff-stat__minus" x-text="`−${progressPill.diff.removed}`"></span>
+      </span>
+    </template>
+    <span x-text="progressPill ? progressPill.label : ''"></span>
+  </button>
+
+  <div class="composer-sheet composer-sheet--progress"
+       x-show="sheet === 'progress'"
+       x-cloak
+       @click.outside="closeSheet()"
+       role="dialog"
+       aria-label="{% translate 'Session progress' %}">
+    {% include "core/_sheet_head.html" with title=_("Progress") close_expr="closeSheet()" surface="composer-sheet" %}
+
+    <div class="composer-sheet__body scrollbar-thin">
+      <section class="composer-sheet__group">
+        <h3 class="composer-sheet__label">
+          {% translate "Todos" %}
+          <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+        </h3>
+        <p class="composer-sheet__empty" x-show="!latestTodos.length">{% translate "Nothing planned yet." %}</p>
+        <template x-for="t in latestTodos" :key="t.content">
+          <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+            <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+            <span x-text="t.content"></span>
+          </div>
+        </template>
+      </section>
+
+      <section class="composer-sheet__group">
+        <h3 class="composer-sheet__label">
+          {% translate "Files changed" %}
+          <span x-show="filesTouched.length" x-text="`· ${filesTouched.length}`"></span>
+          {% comment %}
+          Whole-run totals from the publisher. There is no per-file breakdown to show
+          beside each row: the diff is measured once, not file by file.
+          {% endcomment %}
+          <template x-if="diffStats">
+            <span class="diff-stat">·
+              <span class="diff-stat__plus" x-text="`+${diffStats.added}`"></span>
+              <span class="diff-stat__minus" x-text="`−${diffStats.removed}`"></span>
+            </span>
+          </template>
+        </h3>
+        <p class="composer-sheet__empty" x-show="!filesTouched.length">{% translate "No files touched yet." %}</p>
+        <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
+          <button type="button" class="composer-sheet__file"
+                  :class="`composer-sheet__file--${f.op || 'modified'}`"
+                  @click="jumpToTool(f.segmentId); closeSheet()"
+                  :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
+            <span class="composer-sheet__file-op" x-text="fileOpMark(f.op)"></span>
+            <span class="composer-sheet__file-path" x-text="f.path"></span>
+          </button>
+        </template>
+        <button type="button" class="composer-sheet__more"
+                x-show="filesTouched.length > filesTouchedLimit"
+                @click="filesTouchedLimit = filesTouched.length">
+          {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
+        </button>
+      </section>
+    </div>
+  </div>
+</div>

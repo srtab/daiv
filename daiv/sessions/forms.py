@@ -11,6 +11,7 @@ from __future__ import annotations
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from mcp_servers.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
 from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
 
@@ -50,9 +51,41 @@ class RepoListField(forms.JSONField):
         return super().prepare_value(value)
 
 
+class MCPSelectionField(forms.JSONField):
+    """Hidden JSON list of checked MCP server names. ``required=False``; ``to_python`` rejects
+    non-list-of-str and returns ``None`` for an absent value, which ``clean()`` reads as "leave the
+    stored selection alone" — collapsing it to ``[]`` would let an unpopulated input (Alpine
+    blocked, a scripted POST, a surface that doesn't render the picker) disable every server.
+    ``prepare_value`` returns the list itself, not a JSON string: ``mcp_picker_context`` reads
+    ``BoundField.value()`` and expects a list."""
+
+    widget = forms.HiddenInput
+    default_error_messages = {"invalid": _("Malformed MCP selection.")}
+
+    def to_python(self, value):
+        parsed = super().to_python(value)
+        if parsed in (None, ""):
+            return None
+        try:
+            return parse_server_names(parsed)
+        except ValueError as err:
+            raise forms.ValidationError(self.error_messages["invalid"], code="invalid") from err
+
+    def prepare_value(self, value):
+        if isinstance(value, str):
+            # Bound-form re-render: BoundField.value() feeds the raw submitted string back through
+            # prepare_value; parse it so callers always see a list, degrading a malformed value to [].
+            try:
+                value = self.to_python(value)
+            except forms.ValidationError:
+                value = None
+        return list(value) if value else []
+
+
 class AgentRunFieldsMixin(forms.Form):
     prompt = forms.CharField(label=_("Prompt"), required=True)
     repos = RepoListField(required=True)
+    mcp_servers = MCPSelectionField(required=False)
     agent_model = forms.CharField(
         label=_("Agent model"),
         required=False,
@@ -72,11 +105,22 @@ class AgentRunFieldsMixin(forms.Form):
         label=_("Sandbox environment"),
     )
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, owner=None, mcp_overrides=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         if "sandbox_environment" in self.fields and user is not None:
             self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
+
+        # Pool is scoped to the run/schedule OWNER, not the editing admin, so an admin
+        # editing a member's schedule sees the member's USER-scoped servers.
+        self.mcp_owner = owner or user
+        self.mcp_pool = build_selection_pool(getattr(self.mcp_owner, "pk", None))
+        # ``mcp_overrides`` is for the instance-less forms (a retry prefills from the source run's
+        # session); ``ModelForm`` subclasses fall back to the row being edited. Resolved once and
+        # unconditionally: ``clean()`` reads it too, and a bound form has to agree with an unbound one.
+        self.stored_mcp_overrides = mcp_overrides or getattr(getattr(self, "instance", None), "mcp_overrides", {}) or {}
+        if "mcp_servers" in self.fields and not self.is_bound:
+            self.fields["mcp_servers"].initial = sorted(effective_selection(self.stored_mcp_overrides, self.mcp_pool))
 
     def clean(self):
         cleaned = super().clean() or {}
@@ -99,6 +143,13 @@ class AgentRunFieldsMixin(forms.Form):
                 assert_can_run(self.user, [entry["repo_id"] for entry in repos])
             except RepositoryAccessDenied:
                 self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+
+        # Absent leaves the stored selection alone, matching the chat endpoint
+        # (``chat/api/views.py``); an empty list is a real answer and still diffs.
+        submitted = cleaned.get("mcp_servers")
+        cleaned["mcp_overrides"] = (
+            diff_selection(set(submitted), self.mcp_pool) if submitted is not None else self.stored_mcp_overrides
+        )
         return cleaned
 
 

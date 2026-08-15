@@ -17,6 +17,5 @@ Use [GitHub Issues](https://github.com/srtab/daiv/issues) for bug reports, featu
 ## Resources
 
 - [GitHub Repository](https://github.com/srtab/daiv)
-- [Documentation](https://srtab.github.io/daiv/)
 - [Issue Tracker](https://github.com/srtab/daiv/issues)
 - [CONTRIBUTING.md](https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md)

@@ -15,25 +15,30 @@
         {% icon session.origin|origin_icon "h-4 w-4" %}
     </span>
 
-    <div class="flex min-w-0 flex-1 items-center gap-2.5">
+    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden sm:flex-row sm:items-center sm:gap-2.5">
         <span class="truncate text-[14px] font-medium text-white">
             {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
         </span>
-        {% if session.repo_id %}
-        <span class="session-repo shrink-0" title="{{ session.repo_id }}">
-            {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[220px] truncate">{{ session.repo_id }}</span>
-        </span>
-        {% endif %}
-        {% if session.ref %}
-        <span class="session-branch shrink-0">{% icon "branch" "h-3 w-3" %}{{ session.ref }}</span>
-        {% endif %}
-        {% if session.merge_request_iid %}
-            {% if latest.merge_request_web_url %}
-            <a href="{{ latest.merge_request_web_url }}" target="_blank" rel="noopener"
-               class="mr-pill relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</a>
-            {% else %}
-            <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
+        {% if session.repo_id or session.ref or session.merge_request_iid %}
+        {# sm:contents dissolves this wrapper above mobile so the meta items keep shrinking against the title itself #}
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 overflow-hidden sm:contents">
+            {% if session.repo_id %}
+            <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+                {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
+            </span>
             {% endif %}
+            {% if session.ref %}
+            <span class="session-branch min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
+            {% endif %}
+            {% if session.merge_request_iid %}
+                {% if latest.merge_request_web_url %}
+                <a href="{{ latest.merge_request_web_url }}" target="_blank" rel="noopener"
+                   class="mr-pill relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</a>
+                {% else %}
+                <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
+                {% endif %}
+            {% endif %}
+        </div>
         {% endif %}
     </div>
 

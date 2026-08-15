@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-15 17:39+0100\n"
+"POT-Creation-Date: 2026-08-14 22:29+0000\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -31,6 +31,9 @@ msgstr "Últimos 30 dias"
 
 msgid "Malformed repository list."
 msgstr "Lista de repositórios inválida."
+
+msgid "Malformed MCP selection."
+msgstr "Seleção de MCP inválida."
 
 msgid "Prompt"
 msgstr "Prompt"
@@ -133,6 +136,9 @@ msgstr "modelo do agente"
 
 msgid "agent thinking level"
 msgstr "nível de raciocínio do agente"
+
+msgid "MCP overrides"
+msgstr "substituições de MCP"
 
 msgid "sandbox environment"
 msgstr "ambiente sandbox"
@@ -242,6 +248,9 @@ msgstr "Envelope de execução"
 msgid "Run Envelopes"
 msgstr "Envelopes de execução"
 
+msgid "Run failed."
+msgstr "A execução falhou."
+
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
@@ -323,6 +332,36 @@ msgstr "a gerar título…"
 msgid "Auto"
 msgstr "Automático"
 
+msgid "Show more"
+msgstr "Mostrar mais"
+
+msgid "Show less"
+msgstr "Mostrar menos"
+
+msgid "file"
+msgstr "ficheiro"
+
+msgid "files"
+msgstr "ficheiros"
+
+msgid "stopped"
+msgstr "parada"
+
+msgid "tool"
+msgstr "ferramenta"
+
+msgid "tools"
+msgstr "ferramentas"
+
+msgid "filtered to"
+msgstr "filtrado para"
+
+msgid "not synced yet"
+msgstr "ainda não sincronizado"
+
+msgid "MCP servers"
+msgstr "servidores MCP"
+
 msgid "This session's state has expired. Start a new session to continue."
 msgstr "O estado desta sessão expirou. Inicie uma nova sessão para continuar."
 
@@ -356,17 +395,14 @@ msgstr "O agente está a trabalhar"
 msgid "This page refreshes automatically when the run finishes."
 msgstr "Esta página atualiza automaticamente quando a execução terminar."
 
-msgid "Session context"
-msgstr "Contexto da sessão"
+msgid "Copy"
+msgstr "Copiar"
 
-msgid "Todos"
-msgstr "Tarefas"
+msgid "Copied"
+msgstr "Copiado"
 
-msgid "Files changed"
-msgstr "Ficheiros alterados"
-
-msgid "Show all"
-msgstr "Mostrar tudo"
+msgid "Copy failed"
+msgstr "Falha ao copiar"
 
 msgid "Agent sessions"
 msgstr "Sessões do agente"
@@ -417,8 +453,17 @@ msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
 msgid "Some repositories failed to submit: %(ids)s"
 msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
-msgid "Run failed."
-msgstr "A execução falhou."
+#~ msgid "Session context"
+#~ msgstr "Contexto da sessão"
+
+#~ msgid "Todos"
+#~ msgstr "Tarefas"
+
+#~ msgid "Files changed"
+#~ msgstr "Ficheiros alterados"
+
+#~ msgid "Show all"
+#~ msgstr "Mostrar tudo"
 
 #~ msgid "Markdown"
 #~ msgstr "Markdown"
@@ -437,9 +482,3 @@ msgstr "A execução falhou."
 
 #~ msgid "You stopped this run."
 #~ msgstr "Parou esta execução."
-
-msgid "Show more"
-msgstr "Mostrar mais"
-
-msgid "Show less"
-msgstr "Mostrar menos"

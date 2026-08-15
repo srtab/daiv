@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -75,7 +75,7 @@ async def finalize_chat_run(
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
 # chat client through STATE_SNAPSHOT events.
-STREAMED_STATE_KEYS = ("merge_request",)
+STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0
@@ -184,6 +184,7 @@ class ChatRunStreamer:
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
+    mcp_overrides: dict = field(default_factory=dict)
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -230,6 +231,7 @@ class ChatRunStreamer:
                     ref=self.ref,
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
+                    mcp_overrides=self.mcp_overrides,
                     fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):

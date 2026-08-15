@@ -1,7 +1,10 @@
+import logging
 from unittest.mock import Mock
 
 import pytest
+from github.GithubException import GithubException
 
+from codebase.clients.base import Emoji
 from codebase.clients.github.api.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback
 from codebase.clients.github.api.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 from codebase.repo_config import RepositoryConfig
@@ -320,7 +323,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -349,7 +352,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -382,7 +385,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
@@ -408,7 +411,7 @@ class TestProcessCallbackSandboxEnvironment:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
@@ -437,7 +440,7 @@ class TestProcessCallbackSandboxEnvironment:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
@@ -464,9 +467,76 @@ class TestProcessCallbackSandboxEnvironment:
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
-            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
             mock_activity.side_effect = AsyncMock(return_value=None)
             await callback.process_callback()
 
         assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+
+
+class TestReactionFailureVisibility:
+    """The 👀 reaction is best-effort, but its failure must be visible and must not lose the run."""
+
+    @pytest.mark.parametrize("exc", [GithubException(403, {}, {}), ConnectionError("dns")], ids=["api", "transport"])
+    async def test_pr_comment_reaction_failure_logs_error_and_still_enqueues(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client, caplog, exc
+    ):
+        from unittest.mock import AsyncMock, patch
+
+        mock_repo_config.pull_request_assistant.enabled = True
+        mock_repo_client.create_merge_request_note_emoji.side_effect = exc
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
+        )
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_mr_comments_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_run") as mock_run,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            # Capture below ERROR so the level assertion below can actually fail.
+            caplog.at_level(logging.WARNING, logger="daiv.webhooks"),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            mock_run.side_effect = AsyncMock(return_value=None)
+            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
+            await callback.process_callback()
+
+        mock_repo_client.create_merge_request_note_emoji.assert_called_once_with("owner/repo", 99, Emoji.EYES, 300)
+        mock_task.aenqueue.assert_awaited_once()
+        record = next(r for r in caplog.records if "reaction" in r.message)
+        assert record.levelno == logging.ERROR
+        assert record.exc_info is not None
+
+    async def test_issue_comment_reaction_is_attempted(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        from unittest.mock import AsyncMock, patch
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=7, title="Bug", state="open", labels=[]),
+            comment=Comment(id=301, body="@daiv fix", user=User(**{"id": 10, "login": "alice"})),
+        )
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_run") as mock_run,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-2"))
+            mock_run.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)

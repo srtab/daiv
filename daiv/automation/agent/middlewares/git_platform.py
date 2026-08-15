@@ -684,8 +684,8 @@ async def _run_gitlab_subcommand(
     if not output:
         # This branch is reached only after returncode == 0 (failures return an `error: ...`
         # string above), so "no file was written" provably means a genuinely empty result, not a
-        # failed command. The code-review skill's `gitlab-delivery.md` Step 1 keys its
-        # empty-listing handling off this exact "no file was written" phrasing — keep them in sync.
+        # failed command. The substrings `empty result` and `no file was written` are asserted in
+        # tests/unit_tests/automation/agent/middlewares/test_git_platform.py; the rest is free prose.
         empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
         if to_file:
             empty += "\n(note: no file was written — the command produced no output.)"

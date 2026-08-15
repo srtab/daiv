@@ -82,10 +82,13 @@ class RunClassification(BaseModel):
 
 
 def _build_structured_llm(schema: type, model_names: Sequence[str]):
-    """Structured-output chain with retry + model fallbacks (local copy of the titling/memory pattern).
+    """Structured-output chain with retry + model fallbacks (local copy of the titling pattern).
 
     No ``max_tokens`` cap: reasoning models count reasoning tokens toward the budget,
     so a tight cap starves the structured-output JSON.
+
+    Memory's ``build_structured_llm`` deliberately dropped the retry — see ``memory/llm.py`` before
+    reconciling these two shapes in either direction.
     """
 
     def _structured(model_name: str):

@@ -16,6 +16,7 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -193,10 +194,30 @@ class TestGeneralPurposeMiddleware:
         assert breakers[0].terminal == "error"
 
     def test_detector_stack_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend):
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend)
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
+
+    def test_detector_stack_uses_daiv_filesystem_middleware(self, mock_model, mock_backend):
+        """The grep output-mode label lives on DAIV's filesystem subclass, so wiring the plain
+        upstream middleware would hand the detectors grep tools with no label.
+        """
+        middleware = _build_detector_middleware(mock_model, mock_backend)
+        fs = [m for m in middleware if isinstance(m, FilesystemMiddleware)]
+        assert fs and all(isinstance(m, DAIVFilesystemMiddleware) for m in fs)
+
+    def test_general_purpose_stack_uses_daiv_filesystem_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
+        )
+        fs = [m for m in middleware if isinstance(m, FilesystemMiddleware)]
+        assert fs and all(isinstance(m, DAIVFilesystemMiddleware) for m in fs)
 
     def test_subagents_loop_breaker_registered_before_prompt_caching(self):
         import inspect
@@ -836,85 +857,41 @@ class TestDetectorMiddleware:
         return Mock()
 
     def test_filesystem_is_read_only(self, mock_model, mock_backend):
-        from deepagents.middleware.filesystem import FilesystemMiddleware
-
+        from automation.agent.middlewares.file_system import READ_ONLY_FS_TOOLS
         from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend)
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == READ_ONLY_PERMISSIONS
+        # No sandbox means no shell, so the filesystem layer is now the *whole* write fence rather
+        # than one half of it: a detector must not even be handed a write tool to be denied.
+        exposed = {tool.name for tool in fs.tools}
+        assert exposed == set(READ_ONLY_FS_TOOLS)
+        assert not exposed & {"write_file", "edit_file"}
 
-    def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend):
+    def test_excludes_sandbox_git_platform_web_and_todos(self, mock_model, mock_backend):
+        # Detectors review a pre-computed diff and read source for context, so the stack is
+        # filesystem-only. The sandbox was removed along with the read-only-bash prompt contract:
+        # no shell is reachable, so there is nothing left for a charter to promise not to mutate.
         from langchain.agents.middleware import TodoListMiddleware
 
-        from automation.agent.middlewares.git_platform import GitPlatformMiddleware
-        from automation.agent.middlewares.sandbox import SandboxMiddleware
-        from automation.agent.middlewares.web_fetch import WebFetchMiddleware
-        from automation.agent.middlewares.web_search import WebSearchMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
-        assert any(isinstance(m, SandboxMiddleware) for m in middleware)
+        middleware = _build_detector_middleware(mock_model, mock_backend)
+        assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
         assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
         assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
         assert not any(isinstance(m, TodoListMiddleware) for m in middleware)
 
-    def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend):
-        from automation.agent.middlewares.sandbox import SandboxMiddleware
+    def test_no_deferred_output_middleware(self, mock_model, mock_backend):
+        # Detectors return their prose report inline as the task result; nothing may divert the
+        # final message to a file. Guards against reintroducing DeferredOutputMiddleware (removed
+        # with the structured-findings pipeline).
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=False, name="cr-correctness")
-        assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
-
-    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(self, mock_model, mock_backend):
-        # Detectors reuse the run's bound client/sandbox_backend so their bash runs in the parent's
-        # session (close_session=False). A dropped/flipped kwarg would make every detector's bash
-        # raise "SandboxFileBackend is not bound to a sandbox session" at runtime — guard the
-        # threading exactly like the general-purpose builder's equivalent test does.
-        from automation.agent.subagents import _build_detector_middleware
-
-        sentinel_client = Mock()
-        sentinel_backend = Mock()
-        middleware = _build_detector_middleware(
-            mock_model,
-            mock_backend,
-            sandbox_enabled=True,
-            client=sentinel_client,
-            sandbox_backend=sentinel_backend,
-            name="cr-correctness",
-        )
-        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
-        assert sandbox_mw._client is sentinel_client
-        assert sandbox_mw._sandbox_backend is sentinel_backend
-        assert sandbox_mw.close_session is False
-
-    def test_includes_deferred_output_middleware(self, mock_model, mock_backend):
-        from automation.agent.constants import SUBAGENT_OUTPUT_PATH
-        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
-        from automation.agent.subagents import _build_detector_middleware
-
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
-        deferred = [m for m in middleware if isinstance(m, DeferredOutputMiddleware)]
-        assert len(deferred) == 1
-        assert deferred[0]._name == "cr-correctness"
-        assert deferred[0]._output_dir == SUBAGENT_OUTPUT_PATH
-
-    def test_deferred_output_runs_before_sandbox_teardown(self, mock_model, mock_backend):
-        # The detector defers its findings file in DeferredOutputMiddleware.aafter_agent, which must
-        # complete while the shared sandbox session is still alive. after_agent hooks fire in reverse
-        # append order, so DeferredOutputMiddleware must be appended AFTER SandboxMiddleware to run
-        # first on the way out. Lock both halves of that guard: the relative order, and that the
-        # detector's SandboxMiddleware never closes the (parent-owned) session itself.
-        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
-        from automation.agent.middlewares.sandbox import SandboxMiddleware
-        from automation.agent.subagents import _build_detector_middleware
-
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
-        sandbox_idx = next(i for i, m in enumerate(middleware) if isinstance(m, SandboxMiddleware))
-        deferred_idx = next(i for i, m in enumerate(middleware) if isinstance(m, DeferredOutputMiddleware))
-        assert deferred_idx > sandbox_idx, "DeferredOutputMiddleware must be appended after SandboxMiddleware"
-        assert middleware[sandbox_idx].close_session is False
+        middleware = _build_detector_middleware(mock_model, mock_backend)
+        assert not any(type(m).__name__ == "DeferredOutputMiddleware" for m in middleware)
 
 
 class TestShippedDetectorCharters:
@@ -930,9 +907,7 @@ class TestShippedDetectorCharters:
         md_files = sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md"))
         names = set()
         for md in md_files:
-            parsed = _parse_subagent_frontmatter(
-                md.read_text(encoding="utf-8"), str(md), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
-            )
+            parsed = _parse_subagent_frontmatter(md.read_text(encoding="utf-8"), str(md))
             assert parsed is not None, f"{md.name} failed frontmatter parse"
             frontmatter, body = parsed
             assert frontmatter["description"].strip()
@@ -940,45 +915,136 @@ class TestShippedDetectorCharters:
             names.add(frontmatter["name"])
         assert names == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_shared_preamble_carries_read_only_bash_directive(self):
-        # The detector sandbox is a full bash shell — no read-only mount and no per-subagent
-        # command policy (SandboxMiddleware.__init__ takes no policy arg; _check_command_policy
-        # reads only global settings + repo config). So read-only is enforced at the prompt layer:
-        # the SHARED_DETECTOR_PREAMBLE prepended to every charter (load_builtin_code_review_detectors)
-        # must carry the read-only bash directive. Locked so an edit can't silently drop it and let a
-        # detector mutate the shared workspace via bash.
-        from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE
-
-        body = SHARED_DETECTOR_PREAMBLE.lower()
-        assert "read-only" in body, "shared preamble is missing the read-only directive"
-        assert "sed -i" in body, "shared preamble is missing the no-mutation command guidance"
-
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
-        # review-workflow.md's inline-detection fallback tells the parent to read
-        # `agents/cr-*.md`. Lock that this literal glob resolves to exactly the five detector
-        # charters, so renaming the dir or a file (silently breaking that reference) is caught.
+        # The loader globs `*.md`, not `cr-*.md`; this test additionally locks that the `cr-`
+        # prefix convention holds, so a renamed or added charter — silently dropping a dimension or
+        # inventing one — is caught.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_DETECTOR_NAMES
 
         stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
         assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_principle_citations_resolve_to_existing_sections(self):
-        # The charters cite principles.md sections as ``§N``; those numbers are coupled to the
-        # ``## N.`` headings by convention only. Reordering/inserting a section in principles.md
-        # would silently invalidate the citations with no other test failing — so guard the
-        # coupling here: every cited ``§N`` must resolve to a ``## N.`` heading that exists.
-        import re
-
+    def test_charters_carry_precision_gate_and_report_contract(self):
+        # The charters are self-contained, so the precision blocks live inside each file: the >=80
+        # gate, the severity subset for that dimension, the read-only and scope rules, and the report
+        # sentinels. Each charter now owns its own dimension-specific wording, so this is the only
+        # test standing between a charter edit and a detector whose output the orchestrator cannot
+        # classify.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
-        principles = (CODE_REVIEW_AGENTS_PATH.parent / "references" / "principles.md").read_text(encoding="utf-8")
-        existing = {int(n) for n in re.findall(r"^##\s+(\d+)\.", principles, re.MULTILINE)}
-        assert existing, "no numbered sections found in principles.md"
+        expected_severities = {
+            "cr-correctness.md": {"Critical", "Important"},
+            "cr-security.md": {"Critical", "Important"},
+            "cr-performance.md": {"Critical", "Important"},
+            "cr-structure.md": {"Important", "Suggestion"},
+            "cr-custom-rules.md": {"Critical", "Important", "Suggestion"},
+        }
 
-        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
-            cited = {int(n) for n in re.findall(r"§(\d+)", md.read_text(encoding="utf-8"))}
-            missing = cited - existing
-            assert not missing, f"{md.name} cites principles.md sections that don't exist: {sorted(missing)}"
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
+            body = md.read_text(encoding="utf-8")
+            # Each charter names its own finding noun before the threshold clause, so only the
+            # clause itself is common across the five.
+            assert "confidence 80 or higher." in body, f"{md.name} lost the >=80 reporting threshold sentence"
+            assert "## Severity" in body, f"{md.name} lost the severity rubric"
+
+            present = {label for label in ("Critical", "Important", "Suggestion") if f"- **{label}**" in body}
+            assert present == expected_severities[md.name], (
+                f"{md.name} severity grades {present} != expected {expected_severities[md.name]}"
+            )
+            # A question is an entry shape, not a fourth severity grade: the orchestrator sections
+            # questions separately and exempts them from the confidence gate. `- **Question:**` is a
+            # legitimate field *inside* a `### Question:` entry, so the grade check is the severity
+            # subset above plus the graded-label assertion in the shared-lines test — not the absence
+            # of the string.
+            assert "### Question: <one-line subject>" in body, f"{md.name} lost the question entry format"
+            assert "**Verify:**" not in body, f"{md.name} still carries the removed Verify field"
+            assert "- **Ask:**" not in body, f"{md.name} still carries the removed Question Ask variant"
+
+            # Prompt-layer read-only contract. With the sandbox gone this is belt to the filesystem
+            # layer's braces (READ_ONLY_FS_TOOLS), and it is what keeps the charter honest if a shell
+            # is ever wired back in. The forbidden-verb list is dimension-specific, so only the
+            # read-only preamble is pinned.
+            assert "Use only filesystem read and search tools. Do not " in body, (
+                f"{md.name} lost the read-only tool contract"
+            )
+            # Widening scope is what turns a five-way fan-out over one diff into five reviews of
+            # different changes, which no amount of deduplication can reconcile. The charters bound
+            # this by forbidding repository fishing rather than by naming diff reconstruction.
+            assert "Do not inspect repository files" in body or "Do not discover other rule files" in body, (
+                f"{md.name} lost the do-not-widen-scope rule"
+            )
+            assert "Return only the report." in body, f"{md.name} lost the report-only instruction"
+            assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
+            assert "`ERROR: could not read the complete canonical diff.`" in body, (
+                f"{md.name} lost the unreadable-diff ERROR contract"
+            )
+            assert "**Confidence:**" in body, f"{md.name} lost the confidence field in the report format"
+            assert "- **Location:**" in body, f"{md.name} lost the location anchor field"
+
+        custom = (CODE_REVIEW_AGENTS_PATH / "cr-custom-rules.md").read_text(encoding="utf-8")
+        assert "**Rule:**" in custom, "cr-custom-rules lost the rule-citation field"
+        assert "ERROR: could not read rule source" in custom, (
+            "cr-custom-rules lost the unreadable-rule-source ERROR contract"
+        )
+
+    def test_charters_share_the_lines_the_aggregator_keys_on(self):
+        # Every charter section is dimension-specific prose now, so nothing is byte-identical
+        # between them — but the aggregator still reads five reports on one scale. What has to stay
+        # common is the machine-readable surface: the 0-100/>=80 gate sentence, the entry headers,
+        # the fields the orchestrator strips or sections on, and the two terminal sentinels it
+        # classifies results by. Asserted as an intersection over all five so a charter rewrite that
+        # rewords any of them for one dimension alone fails here instead of silently producing a
+        # report the orchestrator scores as a crash.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        charters = {
+            md.name: {line.strip() for line in md.read_text(encoding="utf-8").splitlines() if line.strip()}
+            for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md"))
+        }
+        assert len(charters) == 5
+        shared = set.intersection(*charters.values())
+
+        # The >=80 gate sentence is shared, but neither its step number nor its lead-in is:
+        # cr-custom-rules carries an extra rule-source protocol step, and each charter names
+        # its own finding noun ("Report only regressions introduced by the change and
+        # confidence 80 or higher"). Assert the threshold clause, not the whole line.
+        gate = "confidence 80 or higher."
+        for name, lines in charters.items():
+            assert any(line.endswith(gate) for line in lines), f"{name} lost the >=80 reporting threshold gate sentence"
+
+        for line in (
+            # Section headings the charters are structured by.
+            "## Review discipline",
+            "## Severity",
+            "## Output",
+            # Entry headers SKILL.md step 5 recognises findings and questions by.
+            "### <Severity>: <one-line title>",
+            "### Question: <one-line subject>",
+            # Fields the orchestrator strips (Confidence) or anchors on (Location).
+            "- **Confidence:** <80–100>",
+            "- **Location:** `path/to/file.py:42` or `path/to/file.py:42 (deleted)`",
+            "- **Location:** `path/to/file.py:42`",
+            # The two terminal sentinels step 5 classifies a detector's result by, each with the
+            # exact-response preamble that makes the model emit it alone.
+            "2. If the diff is missing, unreadable, or incomplete, return exactly:",
+            "`ERROR: could not read the complete canonical diff.`",
+            "If nothing qualifies, return exactly:",
+            "`No findings.`",
+        ):
+            assert line in shared, f"contract line is no longer shared by all five charters: {line!r}"
+
+        # No charter may invent a grade outside the three the orchestrator can order: its
+        # keep-the-higher pass on a deduplicated finding has no place to put a fourth label, and
+        # SKILL.md's report template has no section to print it under.
+        import re
+
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
+            severity = re.search(r"^## Severity\n(.*?)(?=^## |\Z)", md.read_text(encoding="utf-8"), re.S | re.M)
+            assert severity, f"{md.name} lost its '## Severity' section"
+            graded = {line.split("**")[1] for line in severity.group(1).splitlines() if line.startswith("- **")}
+            assert graded <= {"Critical", "Important", "Suggestion"}, (
+                f"{md.name} grades severities the orchestrator cannot order: {graded}"
+            )
 
 
 class TestBuiltinCodeReviewDetectors:
@@ -990,31 +1056,7 @@ class TestBuiltinCodeReviewDetectors:
     def mock_model(self):
         return Mock()
 
-    @pytest.fixture
-    def mock_runtime_ctx(self, tmp_path):
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        ctx = Mock()
-        ctx.gitrepo.working_dir = str(repo_dir)
-        return ctx
-
-    def test_response_format_wraps_finding_schema(self):
-        from automation.agent.subagents import _load_detector_response_format
-
-        rf = _load_detector_response_format()
-        assert rf["type"] == "object"
-        assert rf["required"] == ["findings"]
-        assert rf["properties"]["findings"]["type"] == "array"
-        item = rf["properties"]["findings"]["items"]
-        assert item["properties"]["detector"]["enum"] == [
-            "correctness",
-            "security",
-            "performance",
-            "structure",
-            "custom-rules",
-        ]
-
-    def test_loads_detectors_from_dir(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+    def test_loads_detectors_from_dir(self, tmp_path, mock_model, mock_backend):
         from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
@@ -1027,32 +1069,22 @@ class TestBuiltinCodeReviewDetectors:
         )
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
         )
 
         names = {s["name"] for s in result}
         assert names == {"cr-correctness", "cr-security"}
         assert all("runnable" in s for s in result)
 
-    def test_returns_empty_when_dir_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+    def test_returns_empty_when_dir_missing(self, tmp_path, mock_model, mock_backend):
         from automation.agent.subagents import load_builtin_code_review_detectors
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=tmp_path / "missing",
+            mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=tmp_path / "missing"
         )
         assert result == []
 
-    def test_skips_invalid_model_detector(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
+    def test_skips_invalid_model_detector(self, tmp_path, mock_model, mock_backend, caplog):
         # A ValueError from get_model is a charter config typo (unknown/empty model spec). The
         # narrowed handler logs it at WARNING as "invalid model" — NOT via logger.exception — which
         # is the other half of the env-vs-typo split asserted in the environmental-error test.
@@ -1072,12 +1104,7 @@ class TestBuiltinCodeReviewDetectors:
             patch("automation.agent.subagents.BaseAgent.get_model", side_effect=ValueError("unknown provider")),
         ):
             result = load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
+                mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
             )
         assert {s["name"] for s in result} == {"cr-security"}
 
@@ -1087,15 +1114,13 @@ class TestBuiltinCodeReviewDetectors:
         assert invalid_records[0].exc_info is None  # logger.warning, not logger.exception
         assert not any("failed to initialize" in r.message for r in caplog.records)
 
-    def test_real_shipped_charters_load_all_five(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_real_shipped_charters_load_all_five(self, mock_model, mock_backend):
         from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES, load_builtin_code_review_detectors
 
-        result = load_builtin_code_review_detectors(
-            mock_model, mock_backend, mock_runtime_ctx, working_directory="/workspace/repo/", sandbox_enabled=False
-        )
+        result = load_builtin_code_review_detectors(mock_model, mock_backend, working_directory="/workspace/repo/")
         assert {s["name"] for s in result} == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_skips_unreadable_charter_loads_rest(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+    def test_skips_unreadable_charter_loads_rest(self, tmp_path, mock_model, mock_backend):
         # An unreadable charter must degrade the review to the detectors that loaded, never abort
         # the synchronous graph build. A directory named ``*.md`` is matched by the glob but raises
         # IsADirectoryError (an OSError subclass) on read_text — exercising the except OSError skip.
@@ -1107,16 +1132,11 @@ class TestBuiltinCodeReviewDetectors:
         (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
         )
         assert {s["name"] for s in result} == {"cr-security"}
 
-    def test_skips_malformed_charter_loads_rest(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+    def test_skips_malformed_charter_loads_rest(self, tmp_path, mock_model, mock_backend):
         # A charter with no parseable frontmatter (``_parse_subagent_frontmatter`` -> None) is skipped
         # while siblings load. The detector loader has its own ``parsed is None: continue`` branch.
         from automation.agent.subagents import load_builtin_code_review_detectors
@@ -1127,18 +1147,11 @@ class TestBuiltinCodeReviewDetectors:
         (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
         )
         assert {s["name"] for s in result} == {"cr-security"}
 
-    def test_environmental_model_error_skips_detector_not_aborts(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog
-    ):
+    def test_environmental_model_error_skips_detector_not_aborts(self, tmp_path, mock_model, mock_backend, caplog):
         # A non-ValueError from get_model (disabled provider, missing key, SDK init failure) is an
         # environment problem, not a charter typo: skip just that detector and load the rest, rather
         # than aborting the whole agent build. The narrowed handler logs it via logger.exception
@@ -1161,12 +1174,7 @@ class TestBuiltinCodeReviewDetectors:
             patch("automation.agent.subagents.BaseAgent.get_model", side_effect=RuntimeError("provider disabled")),
         ):
             result = load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
+                mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
             )
         assert {s["name"] for s in result} == {"cr-security"}
 
@@ -1176,9 +1184,7 @@ class TestBuiltinCodeReviewDetectors:
         assert init_records[0].exc_info is not None  # logger.exception captured the traceback
         assert not any("invalid model" in r.message for r in caplog.records)  # not mislabeled
 
-    def test_logs_error_with_missing_names_when_some_fail(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog
-    ):
+    def test_logs_error_with_missing_names_when_some_fail(self, tmp_path, mock_model, mock_backend, caplog):
         # Ground-truth reconciliation: a charter present-but-not-compiled is a silently-absent
         # review dimension, so the shortfall is surfaced at ERROR with the failed file stems.
         import logging
@@ -1194,73 +1200,18 @@ class TestBuiltinCodeReviewDetectors:
             result = load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
-                sandbox_enabled=False,
                 agents_dir=agents_dir,
+                expected_names=("cr-correctness", "cr-security"),
             )
 
         assert {s["name"] for s in result} == {"cr-security"}
-        assert any("cr-correctness" in r.message and "loaded 1/2" in r.message for r in caplog.records)
+        assert any("failed=cr-correctness" in r.message and "loaded 1/2 expected" in r.message for r in caplog.records)
 
-    def test_no_error_logged_when_all_load(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
-        import logging
-
-        from automation.agent.subagents import load_builtin_code_review_detectors
-
-        agents_dir = tmp_path / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
-
-        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-            load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
-            )
-        assert not [r for r in caplog.records if "failed to load" in r.message]
-
-    def test_detectors_compiled_with_structured_response_format(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
-    ):
-        # The whole fan-out depends on each detector emitting {"findings": [...]} via structured
-        # output — the orchestrator parses that envelope in Stage 2. _load_detector_response_format
-        # builds the schema once; assert it actually reaches EVERY compiled detector. A dropped
-        # response_format= kwarg would silently return free-form prose and break the merge, and no
-        # other test would fail (test_response_format_wraps_finding_schema only checks the builder).
-        from automation.agent.subagents import _load_detector_response_format, load_builtin_code_review_detectors
-
-        agents_dir = tmp_path / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "cr-correctness.md").write_text(
-            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
-        )
-        (agents_dir / "cr-security.md").write_text(
-            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
-        )
-
-        expected_rf = _load_detector_response_format()
-        with patch("automation.agent.subagents.create_agent") as mock_create:
-            mock_create.return_value = Mock()
-            load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
-            )
-
-        assert mock_create.call_count == 2
-        assert all(call.kwargs["response_format"] == expected_rf for call in mock_create.call_args_list)
-
-    def test_returns_empty_when_schema_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
-        # A missing finding schema must degrade code-review to no detectors, NOT abort the whole
-        # agent build (this loader runs inside create_daiv_agent on every run). Mirrors the
-        # missing-dir guard: return [] and surface the cause at ERROR.
+    def test_logs_error_when_an_expected_charter_is_absent(self, tmp_path, mock_model, mock_backend, caplog):
+        # The likeliest deploy shortfall is a charter that isn't there at all — renamed, deleted, or
+        # not packaged. It never enters the compile loop, so reconciling against the *directory* saw
+        # nothing wrong and happily reported "loaded 1/1". Reconcile against the expected roster.
         import logging
 
         from automation.agent.subagents import load_builtin_code_review_detectors
@@ -1273,37 +1224,105 @@ class TestBuiltinCodeReviewDetectors:
             result = load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
-                sandbox_enabled=False,
                 agents_dir=agents_dir,
-                schema_path=tmp_path / "missing.json",
+                expected_names=("cr-correctness", "cr-security"),
             )
-        assert result == []
-        assert any("missing or invalid" in r.message for r in caplog.records)
 
-    def test_returns_empty_when_schema_corrupt(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
-        # A malformed schema (JSONDecodeError) degrades the same way as a missing one.
+        assert {s["name"] for s in result} == {"cr-security"}
+        assert any("absent=cr-correctness" in r.message and "loaded 1/2 expected" in r.message for r in caplog.records)
+
+    def test_logs_error_when_agents_dir_is_missing(self, tmp_path, mock_model, mock_backend, caplog):
+        # A missing dir is the whole capability gone (every dimension uncovered), so it logs louder
+        # than one bad charter, not quieter.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = load_builtin_code_review_detectors(
+                mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=tmp_path / "does-not-exist"
+            )
+
+        assert result == []
+        assert any(r.levelno == logging.ERROR and "not found" in r.message for r in caplog.records)
+
+    def test_no_error_logged_when_all_load(self, tmp_path, mock_model, mock_backend, caplog):
+        import logging
+
         from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
         (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
-        bad_schema = tmp_path / "bad.json"
-        bad_schema.write_text("{ not valid json")
 
-        result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
-            schema_path=bad_schema,
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                working_directory="/workspace/repo/",
+                agents_dir=agents_dir,
+                expected_names=("cr-security",),
+            )
+        assert not [r for r in caplog.records if "unavailable" in r.message]
+
+    def test_detectors_compiled_without_response_format(self, tmp_path, mock_model, mock_backend):
+        # Detectors are prose reporters: a response_format would force tool_choice="any", remove
+        # the natural text stop, and re-open the runaway-loop failure mode the structured pipeline
+        # had. Assert no compiled detector carries one.
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
         )
-        assert result == []
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
+        )
 
-    def test_detector_model_override_used_when_valid(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        with patch("automation.agent.subagents.create_agent") as mock_create:
+            mock_create.return_value = Mock()
+            load_builtin_code_review_detectors(
+                mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
+            )
+
+        assert mock_create.call_count == 2
+        assert all(call.kwargs.get("response_format") is None for call in mock_create.call_args_list)
+
+    async def test_detector_crash_becomes_an_error_report_instead_of_aborting_the_run(self):
+        # deepagents' `task` tool awaits the subagent's ainvoke with no error handling, and
+        # create_agent builds its ToolNode without handle_tool_errors — so anything a detector
+        # raises would propagate out of the ToolNode and kill the parent review, discarding every
+        # sibling detector's completed work. The guard converts it into the same `ERROR:` final
+        # message the LoopBreaker produces, which SKILL.md Step 5 classifies as an uncovered
+        # dimension. Without this, the skill's "continue with the rest" contract is unenforceable.
+        from langgraph.errors import GraphRecursionError
+
+        from automation.agent.subagents import _guard_subagent_crash
+
+        inner = Mock()
+        inner.ainvoke = AsyncMock(side_effect=GraphRecursionError("recursion limit reached"))
+
+        result = await _guard_subagent_crash(inner, "cr-correctness").ainvoke({"messages": []})
+
+        assert result["messages"][-1].content.startswith("ERROR:")
+        assert "cr-correctness" in result["messages"][-1].content
+
+    async def test_crash_guard_does_not_swallow_cancellation(self):
+        # Cancellation must stay fatal: swallowing CancelledError would turn a cancelled review into
+        # a report of five failed detectors and keep the run alive past its own teardown.
+        import asyncio
+
+        from automation.agent.subagents import _guard_subagent_crash
+
+        inner = Mock()
+        inner.ainvoke = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await _guard_subagent_crash(inner, "cr-security").ainvoke({"messages": []})
+
+    def test_detector_model_override_used_when_valid(self, tmp_path, mock_model, mock_backend):
         # A charter `model:` override must actually replace the default for that detector. The two
         # failure branches (config typo / env error) are tested; pin the happy path so a regression
         # that ignored the override (always compiling with the parent model) would be caught.
@@ -1322,12 +1341,7 @@ class TestBuiltinCodeReviewDetectors:
         ):
             mock_create.return_value = Mock()
             load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
+                mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
             )
 
         get_model.assert_called_once_with(model="some:override")
