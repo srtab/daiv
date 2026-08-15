@@ -128,15 +128,13 @@ def mcp_picker_context(form) -> dict:
     """Context for ``_mcp_picker.html``. Empty when the form has no ``mcp_servers`` field.
     Reads the pool the form computed in ``__init__`` (``form.mcp_pool``) and the field's
     current effective selection."""
-    if "mcp_servers" not in form.fields:
-        return {"mcp_pool_global": [], "mcp_pool_user": [], "mcp_selected_names": [], "mcp_selected_json": "[]"}
-    pool = getattr(form, "mcp_pool", [])
-    selected = list(form["mcp_servers"].value() or [])
+    has_field = "mcp_servers" in form.fields
+    pool = getattr(form, "mcp_pool", []) if has_field else []
+    selected = list(form["mcp_servers"].value() or []) if has_field else []
     return {
         "mcp_pool_global": [e for e in pool if e.scope == MCPServer.Scope.GLOBAL],
         "mcp_pool_user": [e for e in pool if e.scope == MCPServer.Scope.USER],
-        "mcp_selected_names": selected,
-        # The hidden input's server-rendered fallback. Autoescaping turns the quotes into
-        # `&quot;` inside the attribute, which the browser hands back as valid JSON.
+        # Autoescaping turns the quotes into `&quot;` inside the attribute, which the
+        # browser hands back as valid JSON.
         "mcp_selected_json": json.dumps(selected),
     }

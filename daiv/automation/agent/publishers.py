@@ -122,9 +122,7 @@ class GitChangePublisher(ChangePublisher):
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
-            # Measured once so every return reports the same numbers, and measured before the
-            # empty-diff return so a turn that reverts its predecessor's work publishes zeros —
-            # withholding them would leave the previous turn's `+x −y` standing in state.
+            # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
             diff_stats = diff_line_stats(snapshot.diff)
 
             if not snapshot.dirty and not snapshot.diff.strip():

@@ -141,6 +141,5 @@ def test_mcp_picker_context_empty_when_field_absent():
     assert mcp_picker_context(_StubForm()) == {
         "mcp_pool_global": [],
         "mcp_pool_user": [],
-        "mcp_selected_names": [],
         "mcp_selected_json": "[]",
     }

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from django.urls import reverse
 
@@ -573,9 +574,15 @@ def test_sheet_variant_expands_in_place_instead_of_floating():
 
 
 @pytest.mark.django_db
-def test_locked_sheet_variant_states_the_env_rather_than_offering_it():
-    html = _render_picker(variant="sheet", disabled=True)
+@pytest.mark.parametrize("selected_env", [None, SimpleNamespace(name="ci-heavy", scope="user")])
+def test_locked_sheet_variant_states_the_env_rather_than_offering_it(selected_env):
+    """The lock reason rides an `sr-only` line rather than `title`, which the env name would
+    otherwise overwrite — `aria-disabled` on a div and the greyed styling are weak on their own."""
+    html = _render_picker(variant="sheet", disabled=True, selected_env=selected_env)
 
     assert "sheet-disclosure--locked" in html
     assert 'aria-disabled="true"' in html
     assert "sheet-panel" not in html
+    assert "Locked for this conversation" in html
+    if selected_env is not None:
+        assert "ci-heavy" in html

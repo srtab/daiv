@@ -10,11 +10,8 @@ def backfill(mcp_server_model) -> None:
 
 def unbackfill(mcp_server_model) -> None:
     """Reverse of :func:`backfill`. Reversing 0010 re-adds ``enabled`` at its field default
-    (``True``), so leaving this a no-op turns every deliberately-disabled server — the ``sentry``
-    builtin among them — back on during a rollback.
-
-    ``on-demand`` has no pre-``status`` equivalent and maps to ``True``: it was reachable by a run,
-    which is what ``enabled`` meant. That lossiness is one-way, and re-running 0009 forward would
-    then read those rows as ``active``."""
+    (``True``), so leaving this a no-op turns every deliberately-disabled server back on.
+    ``on-demand`` has no pre-``status`` equivalent and maps to ``True`` — it was reachable by a
+    run, which is what ``enabled`` meant."""
     mcp_server_model.objects.filter(status="disabled").update(enabled=False)
     mcp_server_model.objects.exclude(status="disabled").update(enabled=True)

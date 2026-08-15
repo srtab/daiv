@@ -4,12 +4,14 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from mcp_servers.models import MCPServer
 from notifications.choices import NotifyOn
 
 from accounts.models import User
 from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import Frequency, Intent
+from tests.unit_tests.mcp_servers.helpers import only_servers
 
 
 @pytest.fixture
@@ -254,16 +256,7 @@ class TestScheduledJobFormIntent:
     def test_update_form_without_the_picker_keeps_the_stored_overrides(self, member_user):
         """Editing a schedule from a page whose picker never rendered must leave its MCP
         selection intact rather than silently rewriting it to "everything off"."""
-        from mcp_servers.models import MCPServer
-
-        MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-        MCPServer.objects.create(
-            name="a",
-            scope=MCPServer.Scope.GLOBAL,
-            transport=MCPServer.Transport.HTTP,
-            url="http://a",
-            status=MCPServer.Status.ON_DEMAND,
-        )
+        only_servers(("a", MCPServer.Status.ON_DEMAND))
         job = ScheduledJobCreateForm(data=_valid_data(mcp_servers='["a"]'), owner=member_user).save(commit=False)
         job.user = member_user
         job.save()

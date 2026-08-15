@@ -765,14 +765,9 @@ class TestScheduleDuplicateFlow:
         from mcp_servers.models import MCPServer
         from sandbox_envs.models import SandboxEnvironment, Scope
 
-        MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-        MCPServer.objects.create(
-            name="opt-in",
-            scope=MCPServer.Scope.GLOBAL,
-            transport=MCPServer.Transport.HTTP,
-            url="http://o",
-            status=MCPServer.Status.ON_DEMAND,
-        )
+        from tests.unit_tests.mcp_servers.helpers import only_servers
+
+        only_servers(("opt-in", MCPServer.Status.ON_DEMAND))
         env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)
         source = ScheduledJob.objects.create(
             user=member_user,
@@ -799,7 +794,7 @@ class TestScheduleDuplicateFlow:
     def test_create_view_from_param_for_other_user_falls_back_to_blank_form(self, member_user):
         """``?from=<other_user_pk>`` on the create view does NOT 404; it silently degrades.
 
-        The owner-scoped ``_get_source_schedule`` returns ``None`` so the form renders
+        The owner-scoped ``_source_schedule`` returns ``None`` so the form renders
         empty, preventing information leaks via the create form. The hard 404 boundary
         lives on ``ScheduleDuplicateView`` (see sibling test).
         """

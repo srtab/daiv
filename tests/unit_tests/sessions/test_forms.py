@@ -9,9 +9,11 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 
 import pytest
+from mcp_servers.models import MCPServer
 from sessions.forms import AgentRunCreateForm, MCPSelectionField, RepoListField
 
 from automation.agent.validators import AgentOverrideError
+from tests.unit_tests.mcp_servers.helpers import only_servers
 
 pytestmark = pytest.mark.django_db
 
@@ -94,97 +96,23 @@ def test_clean_passes_when_agent_model_available(member_user):
         assert form.is_valid(), form.errors
 
 
-def test_run_form_diffs_selection_to_overrides(member_user):
-    from mcp_servers.models import MCPServer
+@pytest.mark.parametrize(
+    ("submitted", "expected"),
+    [
+        pytest.param('["b"]', {"a": "off", "b": "on"}, id="retuned"),
+        pytest.param('["a"]', {}, id="matches-the-defaults"),
+        # `[]` is a real answer — the user unchecked every box — and must still diff.
+        pytest.param("[]", {"a": "off"}, id="deselect-all"),
+        # Absent (Alpine blocked, a scripted POST) must not read as a deselect-all; with no
+        # instance and no `mcp_overrides` kwarg, "what is stored" is the untouched pool.
+        pytest.param(None, {}, id="absent"),
+    ],
+)
+def test_run_form_diffs_only_a_submitted_selection(member_user, submitted, expected):
+    only_servers(("a", MCPServer.Status.ACTIVE), ("b", MCPServer.Status.ON_DEMAND))
+    extra = {} if submitted is None else {"mcp_servers": submitted}
 
-    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(
-        name="a",
-        scope=MCPServer.Scope.GLOBAL,
-        transport=MCPServer.Transport.HTTP,
-        url="http://a",
-        status=MCPServer.Status.ACTIVE,
-    )
-    MCPServer.objects.create(
-        name="b",
-        scope=MCPServer.Scope.GLOBAL,
-        transport=MCPServer.Transport.HTTP,
-        url="http://b",
-        status=MCPServer.Status.ON_DEMAND,
-    )
-    form = AgentRunCreateForm(
-        data={
-            "prompt": "p",
-            "repos": '[{"repo_id": "g/r", "ref": ""}]',
-            "notify_on": "never",
-            "agent_model": "",
-            "agent_thinking_level": "",
-            "mcp_servers": '["b"]',
-        },
-        user=member_user,
-    )
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["mcp_overrides"] == {"a": "off", "b": "on"}
-
-
-def test_run_form_untouched_selection_yields_empty_overrides(member_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(
-        name="a",
-        scope=MCPServer.Scope.GLOBAL,
-        transport=MCPServer.Transport.HTTP,
-        url="http://a",
-        status=MCPServer.Status.ACTIVE,
-    )
-    form = AgentRunCreateForm(
-        data={
-            "prompt": "p",
-            "repos": '[{"repo_id": "g/r", "ref": ""}]',
-            "notify_on": "never",
-            "agent_model": "",
-            "agent_thinking_level": "",
-            "mcp_servers": '["a"]',
-        },
-        user=member_user,
-    )
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["mcp_overrides"] == {}
-
-
-def test_run_form_empty_selection_turns_everything_off(member_user):
-    """`[]` is a real answer — the user unchecked every box — and must still diff."""
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(
-        name="a",
-        scope=MCPServer.Scope.GLOBAL,
-        transport=MCPServer.Transport.HTTP,
-        url="http://a",
-        status=MCPServer.Status.ACTIVE,
-    )
-    form = AgentRunCreateForm(data=_form_data(mcp_servers="[]"), user=member_user)
+    form = AgentRunCreateForm(data=_form_data(**extra), user=member_user)
 
     assert form.is_valid(), form.errors
-    assert form.cleaned_data["mcp_overrides"] == {"a": "off"}
-
-
-def test_run_form_absent_selection_leaves_the_stored_overrides_alone(member_user):
-    """A submit that never carried the picker — Alpine blocked, a scripted POST — must not read as
-    a deselect-all. Absent keeps what is stored; here that is the untouched default pool."""
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(
-        name="a",
-        scope=MCPServer.Scope.GLOBAL,
-        transport=MCPServer.Transport.HTTP,
-        url="http://a",
-        status=MCPServer.Status.ACTIVE,
-    )
-    form = AgentRunCreateForm(data=_form_data(), user=member_user)
-
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["mcp_overrides"] == {}
+    assert form.cleaned_data["mcp_overrides"] == expected

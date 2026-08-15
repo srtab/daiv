@@ -1,16 +1,12 @@
 {% load i18n icon_tags %}
 {% comment %}
 Collapsible MCP-server selector. Two groups (Global / Your servers) of checkboxes bound to
-an Alpine ``selected`` array; a hidden ``mcp_servers`` input serializes that array on submit.
-Initial checked names come from ``mcp_selected_names`` (the form's effective selection).
-Pool + selection are supplied by ``mcp_servers.selection.mcp_picker_context``.
+an Alpine ``selected`` array; a hidden ``mcp_servers`` input carries that array on submit and is
+the single server-rendered copy of the selection, seeding ``x-data`` as well as standing in when
+Alpine never runs. Pool + selection come from ``mcp_servers.selection.mcp_picker_context``.
 {% endcomment %}
-{{ mcp_selected_names|json_script:'mcp-initial' }}
 <div class="mt-6"
-     x-data="{
-         open: false,
-         selected: JSON.parse(document.getElementById('mcp-initial').textContent),
-     }">
+     x-data="{ open: false, selected: {{ mcp_selected_json }} }">
     <button type="button" @click="open = !open"
             class="flex w-full items-center justify-between text-[15px] font-medium text-gray-400 hover:text-gray-300">
         <span class="flex items-center gap-2">
