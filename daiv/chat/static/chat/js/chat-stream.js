@@ -45,16 +45,37 @@
     CommitMetadata: { label: "Committing changes" },
   };
 
-  const loadInitialMergeRequest = () => {
-    const el = document.getElementById("chat-initial-merge-request");
-    if (!el) return null;
+  // Reads a Django ``json_script`` payload. Returns `fallback` when the element is
+  // absent or its content isn't valid JSON, so a missing block degrades rather than
+  // taking the whole component down at init.
+  const loadJSONScript = (id, fallback) => {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
     try {
-      const v = JSON.parse(el.textContent);
-      return v && typeof v === "object" ? v : null;
-    } catch {
-      return null;
+      return JSON.parse(el.textContent);
+    } catch (err) {
+      console.error("chat: failed to parse %s", id, err);
+      return fallback;
     }
   };
+
+  const loadInitialMergeRequest = () => {
+    const v = loadJSONScript("chat-initial-merge-request", null);
+    return v && typeof v === "object" ? v : null;
+  };
+
+  // ``{lines_added, lines_removed, files_changed}`` as the publisher measured it — never
+  // summed client-side from edit tool calls, which double-counts repeat edits and scores
+  // bash-driven changes as zero.
+  const normalizeDiffStats = (raw) => {
+    if (!raw || typeof raw !== "object") return null;
+    const added = Number(raw.lines_added);
+    const removed = Number(raw.lines_removed);
+    if (!Number.isFinite(added) || !Number.isFinite(removed)) return null;
+    return { added, removed };
+  };
+
+  const loadInitialDiffStats = () => normalizeDiffStats(loadJSONScript("chat-initial-diff-stats", null));
 
   // Tools whose args directly name a file the agent *modified*. Read-only tools
   // (read_file, grep, glob, ls) and search patterns don't qualify — they're
@@ -82,15 +103,34 @@
     return `Request failed (status ${resp.status}). Please retry.`;
   };
 
-  const loadInitialTurns = () => {
-    const el = document.getElementById("chat-initial-turns");
-    if (!el) return [];
-    try {
-      return JSON.parse(el.textContent);
-    } catch (err) {
-      console.error("chat: failed to parse server-embedded turns", err);
-      return [];
-    }
+  const loadInitialTurns = () => loadJSONScript("chat-initial-turns", []);
+
+  // Every MCP server this user could load, one row per server, `is_default` marking the
+  // ``active`` ones. Rows the health check already knows are broken carry
+  // `available: false`: they stay in the selection (so the thread keeps them once the
+  // outage is fixed) but their switch is inert.
+  const loadMcpCatalog = () => {
+    const rows = loadJSONScript("chat-mcp-servers", []);
+    return Array.isArray(rows) ? rows : [];
+  };
+
+  // The thread's stored overrides, already resolved against the live pool server-side.
+  const loadMcpSelection = () => {
+    const stored = loadJSONScript("chat-mcp-selected", null);
+    return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
+  };
+
+  // English fallbacks for the fragments the composer assembles counts from. The page
+  // passes translated ones through ``chat({labels: …})``; these only apply if it doesn't.
+  const DEFAULT_LABELS = {
+    file: "file",
+    files: "files",
+    stopped: "stopped",
+    tool: "tool",
+    tools: "tools",
+    filteredTo: "filtered to",
+    notSynced: "not synced yet",
+    mcpServers: "MCP servers",
   };
 
   const THINKING_LABELS = [
@@ -124,7 +164,37 @@
   const bashFilesChanged = (resultStr) =>
     (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
 
-  const chat = (config) => ({
+  // Only consider write_todos calls from the current ask. Walking backwards and bailing at
+  // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
+  // from a finished run don't linger.
+  const findLatestTodos = (turns) => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      if (turn.role === "run_status") continue;
+      if (turn.role === "user") return [];
+      for (let j = turn.segments.length - 1; j >= 0; j--) {
+        const s = turn.segments[j];
+        if (s.type === "tool_call" && s.name === "write_todos") {
+          try {
+            const args = JSON.parse(s.args || "{}");
+            return Array.isArray(args.todos) ? args.todos : [];
+          } catch {
+            return [];
+          }
+        }
+      }
+    }
+    return [];
+  };
+
+  // These caches live here, not on the returned data object: Alpine makes every own
+  // property reactive, so a cache read inside the getter would subscribe each reader to it
+  // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
+  // this factory once per component.
+  const chat = (config) => {
+  let filesCache = null;
+  let todosCache = null;
+  return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
@@ -145,7 +215,6 @@
     // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
     // pill stays in sync without re-deriving the label from the raw model spec.
     lockedAgentLabel: config.initialAgentLabel || "",
-    lockedAgentEffortDots: config.initialAgentEffortDots || 0,
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
@@ -154,19 +223,13 @@
     // picker's hidden inputs so a no-touch submit still carries the seeded spec.
     _agentModel: "",
     _agentThinkingLevel: "",
-    // MCP server names selected in the picker, kept in sync via ``daiv:mcp-changed``.
-    // Forwarded in forwardedProps.mcp_servers on the first turn only; null until the
-    // picker dispatches (pool may still be loading).
-    _mcpServers: null,
-    lockedMcpCount: config.initialMcpCount || 0,
-    // Derived label for the locked composer pill; the count is the single source of truth.
-    get lockedMcpLabel() {
-      return this.lockedMcpCount > 0 ? `MCP · ${this.lockedMcpCount}` : "MCP";
-    },
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
+    // Server-measured diff for the work published so far, refreshed by every
+    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    diffStats: loadInitialDiffStats(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
@@ -177,7 +240,6 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
-    _filesSeen: new Set(),
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
@@ -191,6 +253,24 @@
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
+    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
+    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    sheet: "",
+    // Translated fragments the JS composes counts out of; the server owns the wording.
+    _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
+    // Tools group. The catalog is every server this user could load; the selection is a
+    // subset of the *available* ones. A never-touched thread carries no stored selection,
+    // which means "all of them" — and keeps meaning that as servers are added later.
+    mcpCatalog: loadMcpCatalog(),
+    mcpSelected: [],
+    mcpExpanded: false,
+    mcpQuery: "",
+    // Frozen row order for as long as the list stays open, so a row the user just toggled
+    // never slides out from under their finger. Recomputed on each expand.
+    mcpOrder: [],
+    // Whether the user changed the selection in this page session. Only then does submit()
+    // send one — otherwise an untouched thread keeps its NULL and picks up new servers.
+    _mcpTouched: false,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -207,17 +287,110 @@
     },
 
     applyAgentSelection(detail) {
-      // The agent picker is the single source of truth for the pill label, effort
-      // dots, and the spec submit() forwards — we just stamp whatever it dispatched.
+      // The agent picker is the single source of truth for the pill label and the spec
+      // submit() forwards — we just stamp whatever it dispatched.
       this._agentModel = detail?.model || "";
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
-      this.lockedAgentEffortDots = detail?.effort_dots || 0;
     },
 
-    applyMcpSelection(detail) {
-      this._mcpServers = detail?.servers ?? null;
-      this.lockedMcpCount = (this._mcpServers || []).length;
+    // Effort word after the model name in the composer's label. Derived rather than a
+    // second stored copy of ``_agentThinkingLevel``, which drifts the moment one of the
+    // two assignments is missed; the seed covers the render before the picker dispatches.
+    get lockedAgentThinking() {
+      return this._agentThinkingLevel || config.initialAgentThinking || "";
+    },
+
+    // ---------- Composer sheets ---------------------------------------
+
+    openSheet(name) {
+      this.sheet = name;
+    },
+
+    closeSheet() {
+      this.sheet = "";
+    },
+
+    toggleSheet(name) {
+      this.sheet = this.sheet === name ? "" : name;
+    },
+
+    // ---------- Tools (MCP servers) -----------------------------------
+
+    // One ordered list for every row the sheet draws — switchable first, then enabled,
+    // then by name. Order is computed once per expand and held in ``mcpOrder`` so toggling
+    // never reshuffles the list; search filters that order rather than replacing it.
+    // Unavailable servers sort last and render inert, but stay listed: dropping them here
+    // would drop them from the next selection this page posts, and keep them out of the
+    // thread long after the outage was fixed.
+    get mcpVisible() {
+      const byName = new Map(this.mcpCatalog.map((s) => [s.name, s]));
+      const ordered = this.mcpOrder.map((n) => byName.get(n)).filter(Boolean);
+      const q = this.mcpQuery.trim().toLowerCase();
+      return q ? ordered.filter((s) => s.name.toLowerCase().includes(q)) : ordered;
+    },
+
+    // Drives the badge dot on the options trigger. The env can't change mid-thread, so a
+    // selection that deviates from the pool defaults is the only thing the dot can ever be
+    // reporting — the same deviation the server stores as ``Session.mcp_overrides``.
+    get mcpDirty() {
+      const defaults = this._defaultMcpNames();
+      return this.mcpSelected.length !== defaults.length
+        || defaults.some((name) => !this.isMcpOn(name));
+    },
+
+    _defaultMcpNames() {
+      return this.mcpCatalog.filter((s) => s.is_default).map((s) => s.name);
+    },
+
+    isMcpOn(name) {
+      return this.mcpSelected.includes(name);
+    },
+
+    toggleMcp(name) {
+      // A broken server (undecryptable headers, a missing env-var reference) loads zero
+      // tools whatever the switch says, so its row is inert rather than silently useless.
+      if (!this.mcpCatalog.some((s) => s.name === name && s.available)) return;
+      this.mcpSelected = this.isMcpOn(name)
+        ? this.mcpSelected.filter((n) => n !== name)
+        : [...this.mcpSelected, name];
+      this._mcpTouched = true;
+    },
+
+    selectNoMcp() {
+      this.mcpSelected = [];
+      this._mcpTouched = true;
+    },
+
+    // Back to the pool defaults — the ``active`` servers, not every server in the list.
+    // An ``on-demand`` server is loadable but opt-in, so reset turns it back off; the
+    // server stores the resulting empty diff, which keeps tracking the admin's defaults.
+    resetMcp() {
+      this.mcpSelected = this._defaultMcpNames();
+      this._mcpTouched = true;
+    },
+
+    toggleMcpList() {
+      this.mcpExpanded = !this.mcpExpanded;
+      if (this.mcpExpanded) this._freezeMcpOrder();
+    },
+
+    _freezeMcpOrder() {
+      this.mcpOrder = [...this.mcpCatalog]
+        .sort((a, b) => {
+          const availDelta = Number(b.available) - Number(a.available);
+          const onDelta = Number(this.isMcpOn(b.name)) - Number(this.isMcpOn(a.name));
+          return availDelta || onDelta || a.name.localeCompare(b.name);
+        })
+        .map((s) => s.name);
+    },
+
+    // "31 tools · filtered to 6" — the effect of MCPServer.tool_filter_mode, not a
+    // second copy of the control.
+    mcpToolsLabel(server) {
+      if (!server.synced) return this._labels.notSynced;
+      const base = `${server.tools} ${server.tools === 1 ? this._labels.tool : this._labels.tools}`;
+      return server.filtered ? `${base} · ${this._labels.filteredTo} ${server.exposed}` : base;
     },
 
     applyPolledTurns(turns) {
@@ -266,22 +439,23 @@
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
 
-      // Seed _filesSeen with any paths already present in hydrated history so
-      // the "new row pulse" animation does not fire on initial load.
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const p = pickPath(seg.args);
-            if (p) this._filesSeen.add(`${seg.name}::${p}`);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              if (entry.path) this._filesSeen.add(`bash::${entry.path}`);
-            }
-          }
-        }
-      }
+      // The server already resolved the thread's stored overrides against the live pool,
+      // so this is the effective selection, not a raw list to re-interpret. It is still
+      // intersected with the catalog — and with the whole pool rather than just the
+      // servers that are healthy right now, since a broken one dropped here would be
+      // dropped from the next selection this page posts and would stay out of the thread
+      // long after the outage was fixed.
+      const stored = loadMcpSelection();
+      this.mcpSelected = stored
+        ? this.mcpCatalog.filter((s) => stored.includes(s.name)).map((s) => s.name)
+        : this._defaultMcpNames();
+      this._freezeMcpOrder();
+
+      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
+      // and files) would otherwise stay "open" and pop back into view on the next turn.
+      this.$watch("!progressPill", (gone) => {
+        if (gone && this.sheet === "progress") this.sheet = "";
+      });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
       // never scrolls; main holds overflow-y-auto and is the page surface.
@@ -475,26 +649,13 @@
     },
 
     get latestTodos() {
-      // Only consider write_todos calls from the current ask. Walking backwards
-      // and bailing at the most recent user turn clears the rail on follow-up,
-      // so stale "all complete" lists from a finished run don't linger.
-      for (let i = this.turns.length - 1; i >= 0; i--) {
-        const turn = this.turns[i];
-        if (turn.role === "run_status") continue;
-        if (turn.role === "user") return [];
-        for (let j = turn.segments.length - 1; j >= 0; j--) {
-          const s = turn.segments[j];
-          if (s.type === "tool_call" && s.name === "write_todos") {
-            try {
-              const args = JSON.parse(s.args || "{}");
-              return Array.isArray(args.todos) ? args.todos : [];
-            } catch {
-              return [];
-            }
-          }
-        }
-      }
-      return [];
+      // Cached for the rest of the microtask like ``filesTouched``, for the same reason:
+      // the progress pill and sheet read this a dozen-plus times per Alpine flush, and
+      // each read re-walked the transcript and re-parsed the todo args.
+      if (todosCache) return todosCache;
+      todosCache = findLatestTodos(this.turns);
+      queueMicrotask(() => { todosCache = null; });
+      return todosCache;
     },
 
     get todosDone() {
@@ -502,20 +663,17 @@
     },
 
     get filesTouched() {
-      // path -> { path, op, fromPath?, segmentId, isNew }
+      // Alpine re-evaluates every binding that reads this in a single flush — the pill,
+      // its class, the crowded modifier, the sheet's rows, the $watch. Caching for the
+      // rest of the current microtask collapses those into one transcript walk; releasing
+      // it there means no mutation can ever be observed through a stale cache, since
+      // `turns` only changes between events.
+      if (filesCache) return filesCache;
+      // path -> { path, op, fromPath?, segmentId }
       const map = new Map();
-      const seenKeys = [];
       const record = (path, op, seg, extra = {}) => {
         if (!path) return;
-        const key = `${seg.name}::${path}`;
-        seenKeys.push(key);
-        map.set(path, {
-          path,
-          op,
-          segmentId: `tool-${seg.id}`,
-          isNew: !this._filesSeen.has(key),
-          ...extra,
-        });
+        map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
       };
       for (const t of this.turns) {
         if (t.role === "run_status") continue;
@@ -533,16 +691,61 @@
         }
       }
       // Reverse so most-recent comes first.
-      const arr = [...map.values()].reverse();
-      // Promote everything we just yielded into _filesSeen under the SAME
-      // composite key shape used by the `isNew` lookup so the pulse animation
-      // only fires once per (tool, path) pair.
-      for (const key of seenKeys) this._filesSeen.add(key);
-      return arr;
+      filesCache = [...map.values()].reverse();
+      queueMicrotask(() => { filesCache = null; });
+      return filesCache;
     },
 
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
+    },
+
+    // ---------- Progress trigger --------------------------------------
+
+    // The composer's progress pill, or ``null`` when there is nothing behind it. The
+    // decision is made on *content*, never on run state: no todos, no files and no diff
+    // means no button, because an empty sheet is worse than no way into one.
+    //
+    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
+    // numbers would be a guess. A cancelled turn is the one state where work can sit
+    // uncommitted for good, so it keeps counts too.
+    get progressPill() {
+      const todos = this.latestTodos;
+      const files = this.filesTouched;
+      const parts = [];
+      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      if (files.length) parts.push(this._filesLabel(files.length));
+
+      if (this.streaming || this.resuming) {
+        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
+      }
+      // A cancelled turn can leave work uncommitted for good, so counts stay the only
+      // truth there — a line total would describe something that was never published.
+      if (this._lastRunAborted()) {
+        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
+      }
+      // ``diff`` rather than a joined label: added and removed are tinted separately,
+      // the way they are everywhere else a diff is reported.
+      const stats = this.diffStats;
+      if (stats && (stats.added || stats.removed)) {
+        return { tone: "idle", label: "", diff: stats };
+      }
+      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+    },
+
+    // What the hero's selection line shows before a thread exists: the two things the
+    // first turn will run with that aren't already on screen.
+    get heroSelectionLabel() {
+      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
+    },
+
+    _filesLabel(n) {
+      return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
+    },
+
+    _lastRunAborted() {
+      const last = this.turns[this.turns.length - 1];
+      return last?.role === "run_status" && last.status === "aborted";
     },
 
     // ---------- Rendering helpers used inline by x-html ---------------
@@ -655,20 +858,22 @@
       return `Thought for ${formatElapsed(s)}`;
     },
 
+    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {
-        case "added": return "+";
-        case "deleted": return "−";
-        case "renamed": return "→";
-        default: return "~";
+        case "added": return "A";
+        case "deleted": return "D";
+        case "renamed": return "R";
+        default: return "M";
       }
     },
 
     todoIcon(status) {
       const s = (status || "pending").toLowerCase();
-      if (s === "completed") return "☑";
-      if (s === "in_progress") return "◐";
-      return "☐";
+      if (s === "completed") return "✓";
+      if (s === "in_progress") return "▸";
+      return "·";
     },
 
     // ---------- User actions ------------------------------------------
@@ -689,7 +894,18 @@
     async submit() {
       if (!this.canSend() || this.streaming || this.resuming) return;
 
-      const isFirstTurn = !this.thread;
+      // Read the picker's selection before creating the thread: the live picker is
+      // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
+      // and the hidden-input fallback below would race Alpine's DOM flush.
+      // ``_agentModel`` is normally already set (the picker dispatches on init); the
+      // inputs cover a submit that beats that first dispatch.
+      const agentModel = this._agentModel
+        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
+        || "";
+      const agentThinkingLevel = this._agentThinkingLevel
+        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
+        || "";
+
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
@@ -735,25 +951,15 @@
         }))
         .filter((m) => m.content);
 
-      // Use whatever the agent picker last dispatched (it dispatches both on user change
-      // and once on init for the seeded default). The hidden-input fallback covers the
-      // edge case where the picker hasn't dispatched yet at submit time (very fast first
-      // click). The server pins these to ``ChatThread.agent_model`` / ``agent_thinking_level``
-      // on first sight of the thread and ignores them on subsequent turns.
-      const agentModel = this._agentModel
-        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
-        || "";
-      const agentThinkingLevel = this._agentThinkingLevel
-        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
-        || "";
+      // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
+      // first sight of the thread and rejects a divergent value afterwards.
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only forward MCP selection on the first turn. The server pins the overrides on
-      // first sight and 409s a divergent list on subsequent turns.
-      if (this._mcpServers !== null && isFirstTurn) {
-        forwardedProps.mcp_servers = this._mcpServers;
-      }
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const body = {
         threadId: this.thread.thread_id,
@@ -987,6 +1193,12 @@
         // unchanged merge_request. Dedupe on identity so we don't churn
         // Alpine reactivity (and the publish-phase chip sweep) per node.
         const snap = evt.snapshot || {};
+        if ("diff_stats" in snap) {
+          const stats = normalizeDiffStats(snap.diff_stats);
+          if (stats && (this.diffStats?.added !== stats.added || this.diffStats?.removed !== stats.removed)) {
+            this.diffStats = stats;
+          }
+        }
         if ("merge_request" in snap) {
           const raw = snap.merge_request;
           const key = raw ? `${raw.merge_request_id}:${raw.source_branch}:${raw.draft}` : "null";
@@ -1105,7 +1317,8 @@
         if (force) this._autoFollow = true;
       });
     },
-  });
+  };
+  };
 
   // Collapse tall user-message bubbles. Measures the rendered height once on
   // init: user text is immutable after creation, and Alpine's keyed x-for reuses

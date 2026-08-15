@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any, Literal, TypedDict
 
+from django.db.models import Q
 from django.utils import timezone
 
 import anyio
@@ -17,6 +18,7 @@ from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
+from mcp_servers.selection import effective_selection, pool_from_rows
 
 logger = logging.getLogger("daiv.mcp_servers")
 
@@ -40,38 +42,40 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def deduped_pool_rows(user_id: int | None = None) -> list[MCPServer]:
+def deduped_pool_rows(user_id: int | None = None, *, warn_shadowed: bool = False) -> list[MCPServer]:
     """Non-``disabled`` servers visible to ``user_id``, name-deduped with GLOBAL winning.
 
     A user-scoped row whose name matches ANY non-disabled global (active or on-demand) is
     dropped: an admin publishing a name — even on demand — controls it. Order is globals
     then user rows, each sorted by name; the returned rows carry full ``status`` for callers
-    to split default vs. opt-in."""
-    globals_ = list(
-        MCPServer.objects
-        .exclude(status=MCPServer.Status.DISABLED)
-        .filter(scope=MCPServer.Scope.GLOBAL)
-        .order_by("name")
-    )
-    user_rows: list[MCPServer] = []
+    to split default vs. opt-in.
+
+    ``warn_shadowed`` logs each dropped personal row. Only the runtime path sets it: the
+    display paths (composer sheet, run/schedule pickers) run this on every page render,
+    where the same warning would say nothing new once per navigation and drown the log it
+    is meant to stand out in."""
+    scoped = Q(scope=MCPServer.Scope.GLOBAL)
     if user_id is not None:
-        user_rows = list(
-            MCPServer.objects
-            .exclude(status=MCPServer.Status.DISABLED)
-            .filter(scope=MCPServer.Scope.USER, user_id=user_id)
-            .order_by("name")
-        )
-    global_names = {r.name for r in globals_}
-    pool: list[MCPServer] = list(globals_)
-    for row in user_rows:
-        if row.name in global_names:
-            logger.warning(
-                "MCP server '%s' (pk=%s, user_id=%s) is shadowed by a non-disabled global server of the "
-                "same name; excluding the user-scoped row",
-                row.name,
-                row.pk,
-                row.user_id,
-            )
+        scoped |= Q(scope=MCPServer.Scope.USER, user_id=user_id)
+    # ``Scope.GLOBAL`` ("global") sorts before ``Scope.USER`` ("user"), so one ordered query
+    # yields the documented globals-then-user-rows order and lets the shadow check run in a
+    # single forward pass — every global is seen before the first user row.
+    rows = MCPServer.objects.exclude(status=MCPServer.Status.DISABLED).filter(scoped).order_by("scope", "name")
+
+    global_names: set[str] = set()
+    pool: list[MCPServer] = []
+    for row in rows:
+        if row.scope == MCPServer.Scope.GLOBAL:
+            global_names.add(row.name)
+        elif row.name in global_names:
+            if warn_shadowed:
+                logger.warning(
+                    "MCP server '%s' (pk=%s, user_id=%s) is shadowed by a non-disabled global server of the "
+                    "same name; excluding the user-scoped row",
+                    row.name,
+                    row.pk,
+                    row.user_id,
+                )
             continue
         pool.append(row)
     return pool
@@ -86,27 +90,12 @@ def build_runtime_servers(user_id: int | None = None, overrides: dict | None = N
     than the exact strings ``"on"``/``"off"`` is ignored and logged. Empty/omitted ``overrides``
     reproduce the pure-default behavior. Header resolution and tool-filter conversion are unchanged.
     """
-    overrides = overrides or {}
-    pool = {row.name: row for row in deduped_pool_rows(user_id)}
-    selected = {name for name, row in pool.items() if row.is_default}
-    for name, value in overrides.items():
-        if value == "off":
-            selected.discard(name)
-        elif value == "on":
-            if name in pool:
-                selected.add(name)
-            else:
-                logger.warning(
-                    "MCP override '%s'='on' refers to a server absent from the pool "
-                    "(disabled/deleted/shadowed); dropping from the run (user_id=%s)",
-                    name,
-                    user_id,
-                )
-        else:
-            logger.warning("MCP override for '%s' has unrecognized value %r; ignoring", name, value)
+    rows = deduped_pool_rows(user_id, warn_shadowed=True)
+    selected = effective_selection(overrides or {}, pool_from_rows(rows), warn=True)
 
     out: list[tuple[str, UserMcpServer]] = []
-    for name, row in pool.items():
+    for row in rows:
+        name = row.name
         if name not in selected:
             continue
         try:
@@ -330,6 +319,42 @@ def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
         return discovered
     tool_filter = ToolFilter(mode=server.tool_filter_mode, items=list(server.tool_filter_items or []))
     return [tool for tool in discovered if tool_filter.allows(tool.get("name", ""))]
+
+
+def composer_server_rows(rows: list[MCPServer]) -> list[dict[str, Any]]:
+    """One row per MCP *server* for the chat composer's Tools group — never one per tool.
+    Takes an already-resolved pool (``deduped_pool_rows``) so the caller can derive the
+    catalog and the effective selection from one read.
+
+    Per-tool selection already exists as ``MCPServer.tool_filter_mode``; the composer
+    displays its effect (``exposed`` < ``tools``) instead of duplicating the control.
+
+    ``available`` is :func:`server_health`, the network-free check for headers that cannot
+    be decrypted or reference a missing env var. Those servers degrade to zero tools at
+    runtime (``_load_server_tools`` swallows the failure), so the composer greys them out
+    rather than offering a switch that silently does nothing. Only the *fact* travels: the
+    health reason names the missing environment variables of global servers, which the
+    admin-gated server list exists to hold, and this payload is read by every member who
+    opens a session page.
+
+    ``is_default`` splits the pool the way ``build_runtime_servers`` does: ``active`` rows
+    are on unless a turn says otherwise, ``on-demand`` rows are off until one does. The
+    sheet renders both — an on-demand server the user can never see is a server they can
+    never opt into.
+    """
+    out: list[dict[str, Any]] = []
+    for server in rows:
+        out.append({
+            "name": server.name,
+            "scope": server.scope,
+            "tools": len(server.discovered_tools or []),
+            "exposed": len(exposed_tools(server)),
+            "filtered": server.tool_filter_mode != MCPServer.FilterMode.NONE,
+            "synced": server.tools_synced_at is not None,
+            "available": server_health(server)["ok"],
+            "is_default": server.is_default,
+        })
+    return out
 
 
 def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:

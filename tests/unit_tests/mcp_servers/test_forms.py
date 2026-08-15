@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django import forms
 from django.http import QueryDict
+from django.template.loader import render_to_string
 
 import pytest
 from mcp_servers.forms import MCPServerForm, ToolFilterItemsField
@@ -615,3 +616,41 @@ def test_form_persists_status(admin_user):
     assert form.is_valid(), form.errors
     obj = form.save()
     assert obj.status == MCPServer.Status.ON_DEMAND
+
+
+# ---------------------------------------------------------------------------
+# Segmented controls must carry their value without JS
+# ---------------------------------------------------------------------------
+
+
+def _radio_for(html: str, value: str) -> str:
+    marker = f'value="{value}"'
+    start = html.index(marker)
+    return html[start : html.index(">", start)]
+
+
+@pytest.mark.django_db
+def test_segmented_control_renders_checked_for_the_stored_value():
+    """The radios are the only carrier of `status`, which is required with no blank choice.
+    Relying on Alpine alone to check one makes the form unsubmittable the moment the var
+    behind `x-model` is unavailable — which is exactly how it shipped."""
+    server = MCPServer.objects.create(
+        name="graded", transport=MCPServer.Transport.HTTP, url="http://g", status=MCPServer.Status.ON_DEMAND
+    )
+    html = render_to_string(
+        "mcp_servers/_segmented_control.html",
+        {"field": MCPServerForm(instance=server)["status"], "model": "serverStatus"},
+    )
+
+    assert "checked" in _radio_for(html, "on-demand")
+    assert "checked" not in _radio_for(html, "active")
+    assert "checked" not in _radio_for(html, "disabled")
+
+
+@pytest.mark.django_db
+def test_segmented_control_checks_the_field_default_on_a_create_form():
+    form = MCPServerForm(scope=MCPServer.Scope.GLOBAL)
+    html = render_to_string("mcp_servers/_segmented_control.html", {"field": form["status"], "model": "serverStatus"})
+
+    assert "checked" in _radio_for(html, "active")
+    assert "checked" not in _radio_for(html, "disabled")

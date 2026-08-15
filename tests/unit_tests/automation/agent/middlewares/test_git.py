@@ -8,7 +8,7 @@ from automation.agent.git_manager import GitPushPermissionError, SandboxGitProto
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
-from codebase.base import MergeRequest, Scope, User
+from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 
 
 def _fake_open_git_manager(gm, calls: dict):
@@ -100,14 +100,57 @@ class TestGitMiddleware:
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] is None
 
-    async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
-        """A no-op outcome (no MR at all) returns None — nothing to surface in state."""
+    async def test_aafter_agent_surfaces_diff_stats_as_a_plain_dict(self):
+        """``diff_stats`` streams to the chat composer through the same STATE_SNAPSHOT the MR
+        rides on, so it is dumped to plain ints rather than checkpointed as a model."""
         mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
-            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
-            assert await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime) is None
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(
+                    merge_request=_mr(),
+                    published=True,
+                    diff_stats=MergeRequestDiffStats(lines_added=182, lines_removed=41, files_changed=6),
+                )
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result["diff_stats"] == {"lines_added": 182, "lines_removed": 41, "files_changed": 6}
+
+    async def test_aafter_agent_omits_diff_stats_when_there_are_none(self):
+        """A turn that published nothing leaves the key out entirely, so the composer keeps
+        showing counts instead of a stale line total."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert "diff_stats" not in result
+
+    @pytest.mark.parametrize(
+        ("stats", "expected"),
+        [
+            pytest.param(None, None, id="nothing-measured"),
+            # A turn that reverts its predecessor's work publishes zeros, and those have to reach
+            # state or the earlier turn's numbers stand after a reload.
+            pytest.param(
+                MergeRequestDiffStats(),
+                {"diff_stats": {"lines_added": 0, "lines_removed": 0, "files_changed": 0}},
+                id="measured-zero",
+            ),
+        ],
+    )
+    async def test_aafter_agent_surfaces_a_no_op_publish_only_when_it_measured(self, stats, expected):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=None, published=False, diff_stats=stats)
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result == expected
 
     async def test_aafter_agent_records_code_changes_on_pending_mr_degrade(self):
         """The branch-visibility degrade (published + no MR) must flip ``code_changes`` so a pushed

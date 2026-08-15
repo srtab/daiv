@@ -14,17 +14,13 @@
  * the server is already synced, or a successful test reveals it.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, showFilter, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
+    // Spread rather than name each key: an init value that isn't re-exposed becomes an
+    // `undefined` the bound `x-model` writes back, silently clearing its own control.
+    Alpine.data("mcpTestConnection", ({ testUrl, ...init }) => ({
         state: "idle", // idle | testing | ok | error
         error: "",
         toolCount: 0,
-        transport,
-        filterMode,
-        showFilter,
-        filterPlaceholder,
-        notInListLabel,
-        readonlyLabel,
-        writableLabel,
+        ...init,
         async test() {
             this.state = "testing";
             this.error = "";

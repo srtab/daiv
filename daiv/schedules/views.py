@@ -1,5 +1,6 @@
 import json
 import logging
+from functools import cached_property
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -84,6 +85,14 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
         return context
 
 
+def _int_or_none(raw: str | None) -> int | None:
+    """A non-numeric ``?template=``/``?from=`` degrades to a blank form rather than a 500."""
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
 class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, CreateView):
     model = ScheduledJob
     form_class = ScheduledJobCreateForm
@@ -92,48 +101,45 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     success_message = "Schedule '%(name)s' created."
     breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "New schedule", "url": None}]
 
-    def _get_template(self) -> ScheduleTemplate | None:
-        pk = self.request.GET.get("template")
-        if not pk:
-            return None
-        try:
-            pk_int = int(pk)
-        except ValueError:
-            return None
-        return ScheduleTemplate.objects.filter(pk=pk_int).first()
+    # Both are read from several of the request's hooks (``get_initial`` runs inside
+    # ``get_form_kwargs``), so resolve each once per request rather than per caller.
+    @cached_property
+    def _template(self) -> ScheduleTemplate | None:
+        pk = _int_or_none(self.request.GET.get("template"))
+        return None if pk is None else ScheduleTemplate.objects.filter(pk=pk).first()
 
-    def _get_source_schedule(self) -> ScheduledJob | None:
-        pk = self.request.GET.get("from")
-        if not pk:
+    @cached_property
+    def _source_schedule(self) -> ScheduledJob | None:
+        pk = _int_or_none(self.request.GET.get("from"))
+        if pk is None:
             return None
-        try:
-            pk_int = int(pk)
-        except ValueError:
-            return None
-        return self.get_queryset().filter(pk=pk_int).first()
+        # ``select_related``: ``DUPLICABLE_FIELDS`` reads ``sandbox_environment``, which would
+        # otherwise be a second round trip for a row the env picker loads again anyway.
+        return self.get_queryset().select_related("sandbox_environment").filter(pk=pk).first()
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
         kwargs["user"] = self.request.user
+        # Not an `initial` key: `mcp_overrides` is a pool-relative diff, and the form field holds
+        # names, so only ``AgentRunFieldsMixin`` can resolve one into the other.
+        if self._source_schedule is not None:
+            kwargs["mcp_overrides"] = self._source_schedule.mcp_overrides
         return kwargs
 
     def get_initial(self):
         initial = super().get_initial()
-        tpl = self._get_template()
-        if tpl is not None:
-            initial.update(tpl.to_schedule_kwargs())
-        source = self._get_source_schedule()
-        if source is not None:
-            initial.update(source.to_schedule_kwargs())
+        if self._template is not None:
+            initial.update(self._template.to_schedule_kwargs())
+        if self._source_schedule is not None:
+            initial.update(self._source_schedule.to_schedule_kwargs())
         return initial
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = "[]"
         context["schedule_templates"] = _template_picker_payload()
-        tpl = self._get_template()
-        context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
+        context["selected_template_id"] = str(self._template.pk) if self._template is not None else ""
         context.update(env_picker_context(context["form"]))
         context.update(agent_picker_context(context["form"]))
         context.update(mcp_picker_context(context["form"]))
@@ -141,9 +147,8 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
 
     def form_valid(self, form):
         form.instance.user = self.request.user
-        tpl = self._get_template()
-        if tpl is not None:
-            form.instance.source_template = tpl
+        if self._template is not None:
+            form.instance.source_template = self._template
         return super().form_valid(form)
 
 

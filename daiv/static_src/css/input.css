@@ -432,26 +432,11 @@ main:has(.chat-shell) {
     flex: 1 1 auto;
   }
 
+  /* One anatomy at every width — the composer carries todos, files and options in
+     sheets, so there is no rail column to reserve. The column is centred at the
+     width the transcript reads best at. */
   @media (min-width: 1100px) {
-    .chat-shell {
-      grid-template-columns: minmax(0, 1fr) 280px;
-      column-gap: 1.5rem;
-    }
-
-    /* Drop the rail column entirely and re-center the chat-column at the
-       same width it has on the chat detail page (1fr − 280px rail − 1.5rem
-       gap of a 72rem container ≈ 848px). Avoids the off-center look you'd
-       get from just hiding the rail with its column still reserved. */
-    .chat-shell--empty {
-      grid-template-columns: 1fr;
-      column-gap: 0;
-    }
-
-    .chat-shell--empty .chat-rail {
-      display: none;
-    }
-
-    .chat-shell--empty .chat-column {
+    .chat-column {
       max-width: 53rem;
       margin-inline: auto;
       width: 100%;
@@ -463,151 +448,6 @@ main:has(.chat-shell) {
     display: flex;
     flex-direction: column;
     min-width: 0;
-  }
-
-  .chat-rail {
-    display: none;
-  }
-
-  @media (min-width: 1100px) {
-    .chat-rail {
-      display: block;
-      position: sticky;
-      top: 0;
-      align-self: start;
-      padding: 1.5rem 1rem;
-      border-left: 1px solid rgba(255, 255, 255, 0.04);
-      font-size: 12.5px;
-      color: #cbd5e1;
-      max-height: 100vh;
-      overflow-y: auto;
-    }
-  }
-
-  .chat-rail__block + .chat-rail__block {
-    margin-top: 20px;
-  }
-
-  .chat-rail__label {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #64748b;
-    margin-bottom: 6px;
-  }
-
-  .chat-rail__repo {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 12px;
-    color: #cbd5e1;
-  }
-
-  .chat-rail__repo-ref {
-    color: #93c5fd;
-  }
-
-  .chat-rail__status {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    border: 1px solid transparent;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
-
-  .chat-rail__status--idle {
-    background: rgba(52, 211, 153, 0.08);
-    border-color: rgba(52, 211, 153, 0.18);
-    color: #34d399;
-  }
-
-  .chat-rail__status--running {
-    background: rgba(251, 191, 36, 0.08);
-    border-color: rgba(251, 191, 36, 0.18);
-    color: #fbbf24;
-  }
-
-  .chat-rail__status--thinking {
-    background: rgba(167, 139, 250, 0.08);
-    border-color: rgba(167, 139, 250, 0.18);
-    color: #c4b5fd;
-  }
-
-  .chat-rail__status--error {
-    background: rgba(248, 113, 113, 0.08);
-    border-color: rgba(248, 113, 113, 0.18);
-    color: #fca5a5;
-  }
-
-  .chat-rail__status-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 999px;
-    background: currentColor;
-  }
-
-  .chat-rail__file {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    width: 100%;
-    text-align: left;
-    padding: 3px 4px;
-    color: #cbd5e1;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11.5px;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    background: transparent;
-    cursor: pointer;
-  }
-
-  .chat-rail__file-op {
-    flex: 0 0 10px;
-    text-align: center;
-    font-weight: 600;
-    color: #64748b;
-  }
-
-  .chat-rail__file-path {
-    flex: 1 1 auto;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .chat-rail__file--added .chat-rail__file-op   { color: #34d399; }
-  .chat-rail__file--deleted .chat-rail__file-op { color: #f87171; }
-  .chat-rail__file--deleted .chat-rail__file-path { color: #94a3b8; text-decoration: line-through; }
-  .chat-rail__file--renamed .chat-rail__file-op { color: #60a5fa; }
-
-  .chat-rail__file:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .chat-rail__file--new {
-    animation: rail-file-in 300ms ease-out both, rail-file-pulse 800ms ease-out 300ms both;
-    border-left: 1px solid transparent;
-  }
-
-  @keyframes rail-file-in {
-    from {
-      opacity: 0;
-      transform: translateX(-6px);
-    }
-  }
-
-  @keyframes rail-file-pulse {
-    0%, 100% {
-      border-left-color: transparent;
-    }
-    40% {
-      border-left-color: #34d399;
-    }
   }
 
   /* Transcript */
@@ -680,12 +520,28 @@ main:has(.chat-shell) {
     pointer-events: none;
   }
 
-  .chat-hero__picker {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-top: 18px;
+  /* Third child of the subtitle stack: the two subtitles share cell 1/1, so this
+     auto-places on the row below them. Quiet and dashed — it reports what the first
+     turn will run with, and is the way into the options sheet before a thread exists. */
+  .chat-hero__selection {
+    justify-self: start;
+    margin-top: 14px;
+    padding: 2px 1px;
+    font-size: 12.5px;
+    color: #64748b;
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .chat-hero__selection:hover {
+    color: #cbd5e1;
+    border-bottom-color: rgba(203, 213, 225, 0.6);
+  }
+
+  .chat-hero__selection:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 3px;
   }
 
   /* New-chat empty state: collapse the transcript so the composer docks right
@@ -694,14 +550,6 @@ main:has(.chat-shell) {
   .chat-column--empty .chat-transcript {
     flex: 0 0 auto;
     padding-bottom: 0;
-  }
-
-  /* Lift the hero (and its repo/branch popovers) above the composer's
-     backdrop-filter stacking context — otherwise the popover that anchors
-     `top-full` from the picker visually slides under the composer below it. */
-  .chat-column--empty .chat-hero {
-    position: relative;
-    z-index: 20;
   }
 
   .chat-column--empty .chat-dock {
@@ -1633,14 +1481,6 @@ main:has(.chat-shell) {
     opacity: 0.72;
   }
 
-  .chat-composer__meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    min-width: 0;
-  }
-
   .chat-composer__textarea {
     width: 100%;
     background: transparent !important;
@@ -1674,53 +1514,205 @@ main:has(.chat-shell) {
     margin-top: 6px;
   }
 
-  .chat-composer__buttons {
-    display: inline-flex;
-    flex-shrink: 0;
-    margin-left: auto;
-    gap: 6px;
-  }
-
-  .chat-composer__btn {
+  .chat-composer__tools {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 4px 10px;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 12.5px;
-    font-family: "Outfit", system-ui, sans-serif;
-    letter-spacing: 0.01em;
-    transition: transform 0.15s ease, background 0.15s ease;
+    gap: 6px;
+    min-width: 0;
   }
 
-  .chat-composer__btn--send {
+  /* `min-width: 0` lets the model label be the part that gives when the row is
+     tight; the two icon buttons keep their intrinsic size. */
+  .chat-composer__buttons {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: auto;
+    gap: 8px;
+  }
+
+  /* Icon-only Send. Dropping the word is what buys the width the model label needs. */
+  .composer-send {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
     background: linear-gradient(180deg, #fff, #e2e8f0);
     color: #030712;
+    transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
   }
 
-  .chat-composer__btn--send:hover:not(:disabled) {
+  .composer-send:hover:not(:disabled) {
     transform: translateY(-1px);
     background: #fff;
   }
 
-  .chat-composer__btn--send:disabled {
-    opacity: 0.45;
+  .composer-send:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
   }
 
-  .chat-composer__btn--stop {
-    background: rgba(248, 113, 113, 0.08);
-    border: 1px solid rgba(248, 113, 113, 0.25);
+  .composer-send:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.6);
+    outline-offset: 2px;
+  }
+
+  .composer-send--stop {
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.3);
     color: #fca5a5;
   }
 
-  .chat-composer__btn--stop::before {
-    content: "";
+  .composer-send--stop:hover {
+    background: rgba(248, 113, 113, 0.2);
+  }
+
+  /* Model as plain text — no border, no background. Truncates before anything else in
+     the row does; the effort word is dropped first (see the narrow-viewport rule). */
+  .model-label {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    padding: 2px 2px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #94a3b8;
+    background: none;
+    border: none;
+  }
+
+  .model-label__name {
+    min-width: 0;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-label__effort {
+    flex: 0 0 auto;
+    font-size: 11.5px;
+    color: #64748b;
+  }
+
+  .model-label__lock {
+    align-self: center;
+    height: 11px;
+    width: 11px;
+    opacity: 0.5;
+  }
+
+  .model-label--button {
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .model-label--button:hover {
+    color: #e2e8f0;
+  }
+
+  .model-label--button:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  .model-label--stale {
+    color: #fcd34d;
+  }
+
+  /* The effort word yields before the model name does, but only once the row is genuinely
+     tight: a progress pill sharing it on the narrowest phones. A 390px phone has room for
+     `glm-5.2 high` even beside a pill, and dropping it there would cost the reader the
+     effort for no gain. Past this the name is what truncates. */
+  @media (max-width: 380px) {
+    .chat-composer__actions--crowded .model-label__effort {
+      display: none;
+    }
+
+    .chat-composer__actions--crowded .model-label__name {
+      max-width: 14ch;
+    }
+  }
+
+  /* Composer triggers: the options `+` and the progress pill. */
+
+  .composer-trigger {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .composer-trigger:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  .composer-trigger:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 2px;
+  }
+
+  .composer-trigger--icon {
+    width: 26px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .composer-trigger--pill {
+    padding: 0 10px;
+  }
+
+  .composer-trigger--warn {
+    border-color: rgba(251, 191, 36, 0.28);
+    background: rgba(251, 191, 36, 0.1);
+    color: #fcd34d;
+  }
+
+  .composer-trigger--live {
+    border-color: rgba(96, 165, 250, 0.28);
+    background: rgba(96, 165, 250, 0.1);
+    color: #bfdbfe;
+  }
+
+  .composer-trigger__live {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    animation: composer-trigger-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes composer-trigger-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  /* Selection differs from the defaults — currently only MCP servers can cause it,
+     since the env is pinned for the life of the thread. */
+  .composer-trigger__dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
     width: 7px;
     height: 7px;
-    background: #fca5a5;
-    border-radius: 2px;
+    border-radius: 999px;
+    background: #a78bfa;
+    border: 1.5px solid #0c0e1e;
   }
 
   /* Jump-to-latest pill */
@@ -1742,29 +1734,483 @@ main:has(.chat-shell) {
     animation: fade-up 0.3s ease-out both;
   }
 
-  /* Responsive summary strip */
+  /* Context row — repo · branch (+ MR). Lives in the dock, above the composer box, so it
+     is sticky and cannot scroll away. It is the repo *picker* until a thread exists. */
 
-  .chat-summary {
+  .chat-context {
     display: flex;
     align-items: center;
-    gap: 10px;
     flex-wrap: wrap;
-    padding: 10px 0;
-    margin-bottom: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11.5px;
-    color: #94a3b8;
+    gap: 6px;
+    padding: 0 2px 8px;
+    min-width: 0;
+  }
+
+  .chat-context__picker {
+    min-width: 0;
+  }
+
+  /* Branch names are the one part of the row with no length ceiling. Letting the chip
+     shrink and ellipsizing the branch keeps the context row one line down to 320px,
+     where it would otherwise wrap inside the chip. */
+  .chat-context .repo-chip {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chat-context .repo-chip__btn {
+    min-width: 0;
+  }
+
+  .chat-context .repo-chip__btn--branch {
+    display: inline-block;
+    min-width: 0;
+    max-width: 24ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  /* The dock is pinned to the viewport bottom, so every popover it hosts has to open
+     upward — `.picker-popover` anchors `top-full` by default. (Sheet contents don't need
+     this: they expand in place rather than floating, precisely because a sheet flush with
+     the viewport bottom has nowhere below it to open into.) */
+  .chat-context .picker-popover,
+  .chat-composer__buttons .picker-popover {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 8px;
+  }
+
+  .chat-composer__buttons .picker-popover {
+    left: auto;
+    right: 0;
+  }
+
+  /* Accent is reserved for "nothing picked yet" (the one state where the row is an
+     instruction rather than a fact). A selected repo renders as the neutral chip the
+     thread states use — only the chevron stays, marking it changeable. */
+  .repo-context-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(167, 139, 250, 0.35);
+    background: rgba(167, 139, 250, 0.12);
+    color: #ddd6fe;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .repo-context-trigger:hover {
+    background: rgba(167, 139, 250, 0.2);
+    border-color: rgba(167, 139, 250, 0.5);
+  }
+
+  .repo-chip__caret {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0 5px;
+    color: #6b7280;
+  }
+
+  .repo-chip__caret:hover {
+    color: #e5e7eb;
+  }
+
+  /* Sheets. Same markup at every width: a bottom sheet below 1100px, an anchored
+     popover above the trigger at or above it. */
+
+  .composer-sheet-anchor {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .composer-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px 18px 0 0;
+    background: #0d1117;
+    box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
+    animation: composer-sheet-in 180ms ease-out both;
+  }
+
+  @keyframes composer-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+
+  .composer-sheet__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(3, 7, 18, 0.6);
   }
 
   @media (min-width: 1100px) {
-    .chat-summary {
+    .composer-sheet {
+      position: absolute;
+      left: 0;
+      right: auto;
+      bottom: calc(100% + 8px);
+      width: 380px;
+      max-width: min(380px, 92vw);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
+    }
+
+    .composer-sheet__backdrop {
       display: none;
     }
   }
 
-  .chat-summary__sep {
-    color: #334155;
+  .composer-sheet__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 14px 8px;
+  }
+
+  .composer-sheet__title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .composer-sheet__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    width: 24px;
+    border-radius: 8px;
+    color: #94a3b8;
+  }
+
+  .composer-sheet__close:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+  }
+
+  /* The `overflow` is safe now that no sheet hosts a floating popover: every list inside
+     one expands in place, so an `overflow` ancestor has nothing left to clip. The per-list
+     contained scrolls still bound the common case; this bounds the sheet itself when
+     several are open at once or the viewport is short. */
+  .composer-sheet__body {
+    padding: 0 14px 16px;
+    max-height: min(60vh, 460px);
+    overflow-y: auto;
+  }
+
+  .composer-sheet__group + .composer-sheet__group {
+    margin-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 12px;
+  }
+
+  .composer-sheet__label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 8px;
+  }
+
+  .composer-sheet__empty {
+    font-size: 12.5px;
+    color: #64748b;
+  }
+
+  .composer-sheet__file {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    padding: 3px 4px;
+    color: #cbd5e1;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .composer-sheet__file:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .composer-sheet__file-op {
+    flex: 0 0 12px;
+    text-align: center;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  /* Added / removed line counts, tinted the same everywhere they appear. */
+  .diff-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diff-stat__plus { color: #34d399; }
+  .diff-stat__minus { color: #fca5a5; }
+
+  .composer-sheet__file-path {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .composer-sheet__file--added .composer-sheet__file-op { color: #34d399; }
+  .composer-sheet__file--deleted .composer-sheet__file-op { color: #f87171; }
+  .composer-sheet__file--deleted .composer-sheet__file-path {
+    color: #94a3b8;
+    text-decoration: line-through;
+  }
+  .composer-sheet__file--renamed .composer-sheet__file-op { color: #60a5fa; }
+
+  .composer-sheet__more {
+    padding: 6px 4px 0;
+    font-size: 11.5px;
+    color: #64748b;
+    cursor: pointer;
+  }
+
+  .composer-sheet__more:hover {
+    color: #cbd5e1;
+  }
+
+  /* Sheet groups that hold a list: a disclosure row carrying the current selection,
+     expanding in place into a searchable, contained-scroll list. Shared by Environment
+     (single-select) and Tools (multi-select) so the sheet reads as one surface — and so
+     neither has to escape it as a floating popover, which a sheet flush with the viewport
+     bottom has nowhere to open into. */
+
+  .sheet-disclosure {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    color: #cbd5e1;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .sheet-disclosure:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .sheet-disclosure:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 2px;
+  }
+
+  /* Locked (the env, once a thread pins it): same row, stated as a fact rather than a
+     control — no chevron, no hover, a lock where the chevron would be. */
+  .sheet-disclosure--locked {
+    cursor: default;
+    opacity: 0.75;
+  }
+
+  .sheet-disclosure--locked:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* Open: accent tint, and square off the bottom so trigger + list read as one control. */
+  .sheet-disclosure--open {
+    border-color: rgba(167, 139, 250, 0.3);
+    background: rgba(167, 139, 250, 0.1);
+    color: #ddd6fe;
+    border-bottom-color: transparent;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .sheet-disclosure__title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sheet-disclosure__count {
+    margin-left: auto;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+
+  .sheet-disclosure__sep {
+    color: #475569;
+  }
+
+  .sheet-disclosure__chev {
+    transition: transform 0.15s ease;
+  }
+
+  .sheet-disclosure--open .sheet-disclosure__chev {
+    transform: rotate(180deg);
+  }
+
+  .sheet-panel {
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 8px;
+  }
+
+  .sheet-panel__bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sheet-panel__search {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 12.5px !important;
+  }
+
+  .sheet-panel__bulk {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11.5px;
+    color: #94a3b8;
+    cursor: pointer;
+  }
+
+  .sheet-panel__bulk:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+  }
+
+  /* Contained scroll: the groups above the Tools list stay reachable no matter how many
+     servers there are. */
+  .sheet-panel__scroll {
+    margin-top: 6px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  .sheet-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 4px;
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .sheet-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .sheet-row__switch {
+    margin-top: 3px;
+    flex: 0 0 auto;
+  }
+
+  .sheet-row__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .sheet-row__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .sheet-row__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: #e2e8f0;
+  }
+
+  .sheet-row__meta {
+    font-size: 11.5px;
+    color: #64748b;
+  }
+
+  /* Single-select rows (Environment) mark the current value instead of switching it. */
+  .sheet-row--selected {
+    background: rgba(167, 139, 250, 0.12);
+  }
+
+  .sheet-row__check {
+    flex: 0 0 14px;
+    margin-top: 3px;
+    height: 14px;
+    width: 14px;
+    color: #c4b5fd;
+  }
+
+  .sheet-row__check--off {
+    visibility: hidden;
+  }
+
+  .sheet-panel__footer {
+    margin-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 4px;
+  }
+
+  .sheet-row--unavailable {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  .sheet-row--unavailable:hover {
+    background: transparent;
+  }
+
+  .sheet-row--unavailable .sheet-row__meta {
+    color: #fcd34d;
   }
 }
 
@@ -1880,12 +2326,6 @@ main:has(.chat-shell) {
     color: #d4b7ff;
   }
   .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
-
-  .env-pill--locked {
-    @apply opacity-75 pointer-events-none;
-    background-color: rgba(120, 120, 200, 0.10);
-  }
-  .env-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
 
   /* Shared shell for the repo / branch / env / subscriber pickers — see _repo_picker.html,
      _env_picker.html, _subscriber_picker.html. Templates layer on left-* / w-* utilities
@@ -2003,45 +2443,6 @@ main:has(.chat-shell) {
 
   .repo-id-chip {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
-  }
-
-  /* MCP chat picker pill — tinted teal to distinguish it from env (dark) and agent (grey-blue). */
-  .mcp-pill {
-    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1
-           text-[13px] font-medium text-[#c8dcd8];
-    background-color: rgba(80, 160, 150, 0.12);
-    border: 1px solid rgba(80, 160, 150, 0.28);
-    transition: background-color 150ms ease, border-color 150ms ease;
-  }
-  .mcp-pill:hover {
-    background-color: rgba(80, 160, 150, 0.20);
-  }
-  .mcp-pill:focus-visible {
-    outline: 2px solid rgba(100, 190, 180, 0.5);
-    outline-offset: 2px;
-  }
-  .mcp-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
-  .mcp-pill__name { @apply max-w-[18ch] truncate; }
-  .mcp-pill__count {
-    @apply rounded-full bg-white/[0.12] px-1.5 text-[11px] text-gray-300;
-  }
-  .mcp-pill__caret { @apply h-2.5 w-2.5 opacity-50 ml-px; }
-  .mcp-pill--locked {
-    @apply opacity-75 pointer-events-none;
-    background-color: rgba(80, 160, 150, 0.07);
-  }
-  .mcp-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
-  .mcp-pill--error {
-    background-color: rgba(220, 80, 80, 0.12);
-    border-color: rgba(220, 80, 80, 0.40);
-    color: #f3b4b4;
-  }
-  .mcp-pill--error:hover {
-    background-color: rgba(220, 80, 80, 0.20);
-  }
-  .mcp-pill__error {
-    @apply rounded-full px-1.5 text-[11px] font-semibold text-red-300;
-    background-color: rgba(220, 80, 80, 0.20);
   }
 
   /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).

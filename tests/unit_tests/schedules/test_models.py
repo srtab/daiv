@@ -240,6 +240,7 @@ class TestScheduledJobToScheduleKwargs:
             "agent_thinking_level": "high",
             "notify_on": NotifyOn.ALWAYS,
             "intent": Intent.WATCH_FIND,
+            "sandbox_environment": None,
         }
 
 

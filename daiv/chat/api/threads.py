@@ -114,6 +114,17 @@ class ChatSessionService:
         return session, created
 
     @staticmethod
+    async def set_mcp_overrides(thread_id: str, overrides: dict) -> None:
+        """Store the composer's Tools selection for ``thread_id``, overwriting any previous one.
+
+        Unlike the model and the env this is not pinned on the first turn: the composer can
+        retune it per turn, so a reload shows what the last turn actually ran with. Callers
+        must only reach this when the client actually sent a selection — an empty dict means
+        "the pool defaults", not "no selection sent".
+        """
+        await Session.objects.filter(thread_id=thread_id).aupdate(mcp_overrides=overrides)
+
+    @staticmethod
     async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:
         """Sync ``Session.ref`` with the agent's final ``merge_request``.
 

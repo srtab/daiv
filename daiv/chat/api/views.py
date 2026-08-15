@@ -185,7 +185,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except AgentOverrideError as err:
         raise HttpError(400, str(err)) from err
 
-    # Absent key = "no override supplied" (never diverges); present = diff against the owner's pool.
+    # Absent key = "no selection sent", which leaves the thread's stored one alone;
+    # a present one is diffed against the owner's live pool.
     raw_selection = forwarded.get("mcp_servers")
     submitted_overrides = None
     if raw_selection is not None:
@@ -267,19 +268,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             " from forwarded_props or start a new thread to change it.",
         )
 
-    # MCP selection is pinned at creation; an omitted payload (submitted_overrides is None)
-    # never diverges. A divergent submitted selection is rejected rather than run silently.
-    # Both sides are pool-relative diffs: if an admin flips a server's status between turns,
-    # an unchanged visual selection produces a different diff, triggering this guard.
-    if not created and submitted_overrides is not None and submitted_overrides != session.mcp_overrides:
-        raise HttpError(
-            409,
-            "MCP server selection is pinned for this thread; remove mcp_servers from forwarded_props "
-            "or start a new thread to change it.",
-        )
-
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
+
+    # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
+    # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
+    effective_overrides = session.mcp_overrides
+    if submitted_overrides is not None and not created and submitted_overrides != effective_overrides:
+        effective_overrides = submitted_overrides
+        await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
 
     # Only emit the resolved-env hint when:
     # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
@@ -302,7 +299,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
-        mcp_overrides=session.mcp_overrides,
+        mcp_overrides=effective_overrides,
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

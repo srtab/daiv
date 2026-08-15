@@ -766,3 +766,89 @@ def test_on_demand_user_server_resolves_only_for_owner(member_user, admin_user):
     )
     assert [n for n, _ in build_runtime_servers(user_id=member_user.id, overrides={"mine": "on"})] == ["mine"]
     assert [n for n, _ in build_runtime_servers(user_id=admin_user.id, overrides={"mine": "on"})] == []
+
+
+# ---------------------------------------------------------------------------
+# Composer Tools group (chat options sheet)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_composer_rows_report_the_tool_filter_effect():
+    """The row shows what ``tool_filter_mode`` already does; it does not offer a second
+    per-tool control."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="filtered",
+        transport=MCPServer.Transport.HTTP,
+        url="http://f",
+        discovered_tools=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["a"],
+    )
+
+    [row] = services.composer_server_rows(services.deduped_pool_rows(None))
+    assert row["name"] == "filtered"
+    assert row["scope"] == "global"
+    assert row["tools"] == 3
+    assert row["exposed"] == 1
+    assert row["filtered"] is True
+    assert row["available"] is True
+    assert row["is_default"] is True
+
+
+@pytest.mark.django_db
+def test_composer_rows_list_on_demand_servers_as_non_default():
+    """An on-demand server the sheet never showed is a server nobody could opt into."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="opt-in", transport=MCPServer.Transport.HTTP, url="http://o", status=MCPServer.Status.ON_DEMAND
+    )
+    MCPServer.objects.create(
+        name="off", transport=MCPServer.Transport.HTTP, url="http://x", status=MCPServer.Status.DISABLED
+    )
+
+    rows = services.composer_server_rows(services.deduped_pool_rows(None))
+    assert [(row["name"], row["is_default"]) for row in rows] == [("opt-in", False)]
+
+
+@pytest.mark.django_db
+def test_composer_rows_flag_a_server_that_cannot_resolve_its_headers(monkeypatch):
+    """``_load_server_tools`` degrades such a server to zero tools, so the composer greys
+    it out instead of offering a switch that silently does nothing. Only the fact travels:
+    the health reason names a global server's missing env vars, and this payload is read by
+    every member who opens a session page — the server list that shows it is admin-gated."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    monkeypatch.delenv("ABSENT_TOKEN", raising=False)
+    MCPServer.objects.create(
+        name="broken",
+        description="internal ops server",
+        transport=MCPServer.Transport.HTTP,
+        url="http://b",
+        headers=[{"name": "X-Token", "mode": "env_ref", "value": "ABSENT_TOKEN"}],
+    )
+
+    [row] = services.composer_server_rows(services.deduped_pool_rows(None))
+    assert row["available"] is False
+    assert "ABSENT_TOKEN" not in str(row)
+    assert "internal ops server" not in str(row)
+
+
+@pytest.mark.django_db
+def test_shadow_warning_is_runtime_only(caplog, member_user):
+    """``deduped_pool_rows`` now feeds the composer sheet and both form pickers as well as
+    the runtime, so warning unconditionally would say nothing new once per navigation and
+    drown the log it is meant to stand out in."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="dup", transport=MCPServer.Transport.HTTP, url="http://g")
+    MCPServer.objects.create(
+        name="dup", scope=MCPServer.Scope.USER, user=member_user, transport=MCPServer.Transport.HTTP, url="http://u"
+    )
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        services.deduped_pool_rows(member_user.pk)
+    assert "shadowed by a non-disabled global" not in caplog.text
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        build_runtime_servers(member_user.pk)
+    assert "shadowed by a non-disabled global" in caplog.text

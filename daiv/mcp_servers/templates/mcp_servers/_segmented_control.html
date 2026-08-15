@@ -7,7 +7,10 @@
         {% if value %}
         <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                :class="{{ model }} === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-            <input type="radio" name="{{ field.html_name }}" value="{{ value }}" x-model="{{ model }}" class="sr-only">
+            {% comment %}Server-rendered `checked` as well as `x-model`: the field is required with no
+            blank choice, so an unavailable Alpine var would leave the form unsubmittable.{% endcomment %}
+            <input type="radio" name="{{ field.html_name }}" value="{{ value }}" x-model="{{ model }}" class="sr-only"
+                   {% if field.value|stringformat:"s" == value|stringformat:"s" %}checked{% endif %}>
             {{ label }}
         </label>
         {% endif %}

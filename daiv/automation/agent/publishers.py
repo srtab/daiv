@@ -13,10 +13,10 @@ from asgiref.sync import sync_to_async
 
 from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
-from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.utils import redact_diff_content
+from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -45,6 +45,17 @@ class PublishOutcome:
     merge_request: MergeRequest | None
     published: bool
     protected_branch_fallback_source: str | None = None
+    diff_stats: MergeRequestDiffStats | None = None
+    """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
+    pill. ``None`` only when no publish was attempted; a publish that found nothing reports
+    zeros, because the pill has to be able to go back down.
+
+    Counted from ``status_snapshot``'s diff — the merge-base delta for the very branch the
+    MR is built from, so it already *is* what the MR page shows, computed for free from a
+    string that is in memory anyway. Asking the platform instead reads worse on both
+    counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
+    (truncating it past a size cap), and a freshly-created MR whose diff is still being
+    prepared answers zero."""
 
 
 class ChangePublisher:
@@ -111,13 +122,16 @@ class GitChangePublisher(ChangePublisher):
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
-            if not snapshot.dirty:
-                if not snapshot.diff.strip():
-                    logger.info("No changes to publish.")
-                    return PublishOutcome(merge_request=None, published=False)
-                if merge_request is not None and not snapshot.has_unpushed:
-                    logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-                    return PublishOutcome(merge_request=merge_request, published=False)
+            # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
+            diff_stats = diff_line_stats(snapshot.diff)
+
+            if not snapshot.dirty and not snapshot.diff.strip():
+                logger.info("No changes to publish.")
+                return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+
+            if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+                logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
+                return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
             fallback_from_mr: MergeRequest | None = None
             if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -199,6 +213,7 @@ class GitChangePublisher(ChangePublisher):
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    diff_stats=diff_stats,
                 )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
@@ -225,6 +240,7 @@ class GitChangePublisher(ChangePublisher):
             merge_request=merge_request,
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
+            diff_stats=diff_stats,
         )
 
     async def _refresh_sandbox_egress(self) -> None:

@@ -1,12 +1,15 @@
 import pytest
 from mcp_servers.models import MCPServer
 from mcp_servers.selection import (
+    MAX_SERVER_NAME_LENGTH,
+    MAX_SERVER_NAMES,
     PoolEntry,
     build_selection_pool,
     default_names,
     diff_selection,
     effective_selection,
     mcp_picker_context,
+    parse_server_names,
 )
 
 POOL = [
@@ -18,6 +21,31 @@ POOL = [
 
 def test_default_names():
     assert default_names(POOL) == {"a", "mine"}
+
+
+def test_parse_server_names_strips_and_dedupes():
+    assert parse_server_names([" a ", "a", "b"]) == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "a",
+        123,
+        [["a"]],
+        [1],
+        [""],
+        ["   "],
+        list(range(MAX_SERVER_NAMES + 1)),
+        ["a"] * (MAX_SERVER_NAMES + 1),
+        ["x" * (MAX_SERVER_NAME_LENGTH + 1)],
+    ],
+)
+def test_parse_server_names_rejects_malformed_and_unbounded_payloads(raw):
+    """Both callers parse client JSON straight into a column, and ``diff_selection`` drops
+    an unknown name only after it has been held — so shape *and* bounds are checked here."""
+    with pytest.raises(ValueError):
+        parse_server_names(raw)
 
 
 def test_diff_selection_emits_only_deviations():
@@ -110,4 +138,4 @@ def test_mcp_picker_context_empty_when_field_absent():
     class _StubForm:
         fields: dict = {}
 
-    assert mcp_picker_context(_StubForm()) == {"mcp_pool_global": [], "mcp_pool_user": [], "mcp_selected_names": []}
+    assert mcp_picker_context(_StubForm()) == {"mcp_pool_global": [], "mcp_pool_user": [], "mcp_selected_json": "[]"}

@@ -52,7 +52,9 @@ class Intent(models.TextChoices):
         return frozenset({cls.WATCH_FIND, cls.DO_CHANGE})
 
 
-_USER_FACING_FIELDS = (
+# The template→job copy set. ``ScheduledJob.DUPLICABLE_FIELDS`` is the job→job one, and is a
+# superset: templates have no ``run_at`` or ``sandbox_environment`` column.
+_TEMPLATE_SHARED_FIELDS = (
     "name",
     "prompt",
     "repos",
@@ -221,7 +223,7 @@ class ScheduledJob(TimeStampedModel):
             models.CheckConstraint(condition=models.Q(intent__in=Intent.values), name="sched_intent_valid"),
         ]
 
-    DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at")
+    DUPLICABLE_FIELDS = (*_TEMPLATE_SHARED_FIELDS, "run_at", "sandbox_environment")
 
     def to_schedule_kwargs(self) -> dict:
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
@@ -319,7 +321,7 @@ class ScheduleTemplate(TimeStampedModel):
     so editing or deleting a template never affects existing schedules.
     """
 
-    SCHEDULE_FIELDS = _USER_FACING_FIELDS
+    SCHEDULE_FIELDS = _TEMPLATE_SHARED_FIELDS
     # Coupled to ``to_picker_dict()``: every field read there must be in this
     # tuple or ``.only(*PICKER_FIELDS)`` queries will trigger a deferred-field
     # fetch per row. ``prompt`` is deliberately excluded.

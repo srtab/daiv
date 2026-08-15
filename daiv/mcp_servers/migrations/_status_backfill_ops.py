@@ -6,3 +6,12 @@ def backfill(mcp_server_model) -> None:
     Behavior-preserving: previously-off servers stay off and are not silently made opt-in-able."""
     mcp_server_model.objects.filter(enabled=True).update(status="active")
     mcp_server_model.objects.filter(enabled=False).update(status="disabled")
+
+
+def unbackfill(mcp_server_model) -> None:
+    """Reverse of :func:`backfill`. Reversing 0010 re-adds ``enabled`` at its field default
+    (``True``), so leaving this a no-op turns every deliberately-disabled server back on.
+    ``on-demand`` has no pre-``status`` equivalent and maps to ``True`` — it was reachable by a
+    run, which is what ``enabled`` meant."""
+    mcp_server_model.objects.filter(status="disabled").update(enabled=False)
+    mcp_server_model.objects.exclude(status="disabled").update(enabled=True)

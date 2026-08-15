@@ -1,0 +1,120 @@
+{% load i18n icon_tags %}
+{% comment %}
+Options trigger + sheet: Environment, then Tools (MCP servers).
+
+Deliberately holds nothing that is already on screen — no model row, no effort row, no
+repo/branch row. The env is locked once a thread exists (the backend snapshots it on the
+first turn and discards the header afterwards), so the badge dot on the trigger can only
+ever mean "MCP server selection differs from the defaults".
+{% endcomment %}
+<div class="composer-sheet-anchor">
+  <button type="button"
+          class="composer-trigger composer-trigger--icon"
+          @click.stop="toggleSheet('options')"
+          :aria-expanded="sheet === 'options'"
+          aria-haspopup="dialog"
+          title="{% translate 'Session options' %}">
+    {% icon "plus" "h-4 w-4" %}
+    <span class="sr-only">{% translate "Session options" %}</span>
+    <span class="composer-trigger__dot" x-show="mcpDirty" x-cloak
+          title="{% translate 'MCP server selection differs from the default' %}"></span>
+  </button>
+
+  <div class="composer-sheet composer-sheet--options"
+       x-show="sheet === 'options'"
+       x-cloak
+       @click.outside="closeSheet()"
+       role="dialog"
+       aria-label="{% translate 'Session options' %}">
+    <div class="composer-sheet__head">
+      <span class="composer-sheet__title">{% translate "Options" %}</span>
+      <button type="button" class="composer-sheet__close" @click="closeSheet()"
+              aria-label="{% translate 'Close' %}">{% icon "x-mark" "h-4 w-4" %}</button>
+    </div>
+
+    <div class="composer-sheet__body scrollbar-thin">
+      <section class="composer-sheet__group">
+        <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
+        <div x-show="thread" x-cloak>
+          {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
+        </div>
+        {% comment %}
+        ``x-if``: the live picker announces its selection on the window, which in a
+        thread would fight the server-rendered locked row for the same value.
+        {% endcomment %}
+        <template x-if="!thread">
+          {% include "sandbox_envs/_env_picker.html" with variant="sheet" envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
+        </template>
+      </section>
+
+      {% comment %}
+      Tools = MCP servers, one row per server and never one per tool. There can be
+      dozens, so the group collapses to a single disclosure row and the sheet's height
+      stops depending on how many servers exist.
+      {% endcomment %}
+      <section class="composer-sheet__group" x-show="mcpCatalog.length" x-cloak>
+        <h3 class="composer-sheet__label">{% translate "Tools" %}</h3>
+
+        <button type="button"
+                class="sheet-disclosure"
+                :class="mcpExpanded ? 'sheet-disclosure--open' : ''"
+                @click="toggleMcpList()"
+                :aria-expanded="mcpExpanded">
+          {% icon "plug" "h-3.5 w-3.5 shrink-0 opacity-70" %}
+          <span class="sheet-disclosure__title">{% translate "MCP servers" %}</span>
+          <span class="sheet-disclosure__count">
+            <span x-text="mcpSelected.length"></span> {% translate "on" %}
+            <span class="sheet-disclosure__sep">·</span>
+            <span x-text="mcpCatalog.length"></span> {% translate "available" %}
+          </span>
+          {% icon "chevron-down" "sheet-disclosure__chev h-3.5 w-3.5 shrink-0" %}
+        </button>
+
+        <div class="sheet-panel" x-show="mcpExpanded" x-cloak>
+          <div class="sheet-panel__bar">
+            <input type="search" x-model="mcpQuery"
+                   @keydown.enter.prevent
+                   placeholder="{% translate 'Filter servers…' %}"
+                   class="picker-popover__search sheet-panel__search"
+                   aria-label="{% translate 'Filter servers by name' %}">
+            <button type="button" class="sheet-panel__bulk" @click="selectNoMcp()">{% translate "none" %}</button>
+            <button type="button" class="sheet-panel__bulk" @click="resetMcp()">{% translate "reset" %}</button>
+          </div>
+
+          {# Contained scroll so the groups above stay reachable however many servers exist. #}
+          <div class="sheet-panel__scroll scrollbar-thin">
+            {% comment %}
+            One row for every server. A server whose headers can't be resolved loads zero
+            tools whatever a switch says, so its switch is disabled — a `label` whose
+            control is disabled doesn't toggle. It stays *in* the selection: dropping it
+            here would drop it from the next selection this sheet posts, and keep it out
+            of the thread long after the outage is fixed.
+            {% endcomment %}
+            <template x-for="server in mcpVisible" :key="server.name">
+              <label class="sheet-row" :class="server.available ? '' : 'sheet-row--unavailable'">
+                <input type="checkbox" class="sheet-row__switch"
+                       :disabled="!server.available"
+                       :checked="isMcpOn(server.name)"
+                       @change="toggleMcp(server.name)">
+                <span class="sheet-row__body">
+                  <span class="sheet-row__head">
+                    <span class="sheet-row__name" x-text="server.name"></span>
+                    <span class="env-popover__scope-tag"
+                          :class="'env-popover__scope-tag--' + (server.scope === 'global' ? 'global' : 'user')"
+                          x-text="server.scope === 'global' ? '{% translate "global" %}' : '{% translate "mine" %}'"></span>
+                  </span>
+                  <span class="sheet-row__meta" x-show="server.available" x-text="mcpToolsLabel(server)"></span>
+                  <span class="sheet-row__meta" x-show="!server.available">{% translate "needs authorization — unavailable this run" %}</span>
+                </span>
+              </label>
+            </template>
+
+            <p class="composer-sheet__empty" x-show="!mcpVisible.length && mcpQuery.trim()">
+              {% translate "No servers match" %}
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>

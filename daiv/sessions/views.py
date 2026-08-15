@@ -22,7 +22,7 @@ from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
-from mcp_servers.selection import build_selection_pool, effective_selection, mcp_picker_context
+from mcp_servers.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
@@ -267,12 +267,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             )
         )
 
-        if session is not None:
-            ctx["initial_mcp_count"] = len(
-                effective_selection(session.mcp_overrides, build_selection_pool(session.user_id))
-            )
-        else:
-            ctx["initial_mcp_count"] = 0
+        ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         if session is None:
             ctx.update({
@@ -282,13 +277,14 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
                 "merge_request": None,
+                "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
             })
             return ctx
 
-        messages_history, expired, merge_request = async_to_sync(ahydrate_thread)(session.thread_id)
+        messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
@@ -314,6 +310,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = no_state and not ctx["turns"]
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
+        ctx["diff_stats"] = diff_stats
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a
@@ -425,7 +422,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not source_id:
             return None
         try:
-            source = Run.objects.visible_to(self.request.user).filter(pk=source_id).first()
+            source = Run.objects.visible_to(self.request.user).select_related("session").filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             raise Http404("Invalid run id.") from err
         # A visible run on a repo the caller can no longer run on must not prefill a
@@ -444,9 +441,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 "agent_model": source.agent_model,
                 "agent_thinking_level": source.agent_thinking_level,
             })
-            pool = build_selection_pool(self.request.user.pk)
-            source_overrides = source.session.mcp_overrides if source.session_id else {}
-            initial["mcp_servers"] = sorted(effective_selection(source_overrides, pool))
         return initial
 
     def get_context_data(self, **kwargs):
@@ -460,6 +454,11 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["user"] = self.request.user
+        # Hand the retry source's stored overrides to the form rather than resolving them here:
+        # the mixin already builds the pool this seeding has to be relative to.
+        source = self.source_run
+        if source is not None and source.session_id:
+            kwargs["mcp_overrides"] = source.session.mcp_overrides
         return kwargs
 
     def form_valid(self, form):
