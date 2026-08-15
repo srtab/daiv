@@ -15,13 +15,13 @@
 <div x-data="sessionStream('{% url "session_stream" %}', '{{ in_flight_ids }}')"
      @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'session-results') reconnect()">
     <div class="animate-fade-up page-header">
-        <div>
+        <div class="page-header__title">
             <h1 class="text-2xl font-bold tracking-tight">{% translate "Agent sessions" %}</h1>
             <p class="mt-1.5 text-[15px] font-light text-gray-400">
                 {% translate "Every agent thread across jobs, schedules, webhooks, and chat." %}
             </p>
         </div>
-        <a href="{% url 'session_new' %}" class="btn-primary inline-flex shrink-0 items-center gap-2">
+        <a href="{% url 'session_new' %}" class="btn-primary gap-2">
             {% icon "plus" "h-4 w-4" %}{% translate "New" %}
         </a>
     </div>

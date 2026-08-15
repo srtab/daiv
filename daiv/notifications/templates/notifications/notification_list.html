@@ -7,8 +7,8 @@
 
 {% block app_content %}
 <div class="page-header">
-  <h1 class="text-2xl font-bold tracking-tight">{% translate "Notifications" %}</h1>
-  <div class="page-header__actions gap-4">
+  <h1 class="page-header__title text-2xl font-bold tracking-tight">{% translate "Notifications" %}</h1>
+  <div class="page-header__actions">
     {% if unread_count %}
       <form method="post" action="{% url 'notifications:mark_all_read' %}">
         {% csrf_token %}

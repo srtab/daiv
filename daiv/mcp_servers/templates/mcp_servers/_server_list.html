@@ -5,12 +5,11 @@
 <div class="mt-3">
 {% if servers %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% comment %}Rows wrap like `.page-header` — Edit and Delete are conditional, so each
+       row drops its controls below the details at its own width.{% endcomment %}
     {% for s in servers %}
-    {% comment %}The controls are ~460px wide on their own, so the row only goes
-       side-by-side at xl — below that the sidebar leaves the content area too narrow
-       to hold them next to the server details.{% endcomment %}
-    <div class="flex flex-col gap-3 border-b border-white/[0.06] px-6 py-4 last:border-b-0 xl:flex-row xl:items-center xl:justify-between xl:gap-4 {% if not s.is_loadable %}opacity-60{% endif %}">
-        <div class="min-w-0 xl:flex-1">
+    <div class="flex flex-wrap items-center gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.is_loadable %}opacity-60{% endif %}">
+        <div class="min-w-0 grow basis-96">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 {% if not s.is_user_scoped or s.user_id == request.user.id %}
                 <a href="{% url 'mcp_servers:edit' s.pk %}"
@@ -58,7 +57,7 @@
                 {% endif %}
             </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2 xl:shrink-0 xl:gap-3">
+        <div class="flex flex-wrap items-center gap-3">
             <form method="post" action="{% url 'mcp_servers:refresh_tools' s.pk %}">
                 {% csrf_token %}
                 <button type="submit" title="{% translate 'Refresh tools' %}" class="btn-icon">

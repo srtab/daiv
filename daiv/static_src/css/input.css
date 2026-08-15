@@ -123,19 +123,16 @@ main:has(.chat-shell) {
 /* -- Page header --------------------------------------------------------- */
 
 @layer components {
-  /* Title block plus the actions that sit at its top right. It wraps instead of
-     squeezing: the sidebar takes 240px out of the viewport, so no breakpoint
-     tracks the width the content area really has — the two halves' own widths
-     do, and the actions drop to their own line exactly when they stop fitting. */
+  /* Title plus the actions at its top right — wraps on content, never at a
+     breakpoint. See DESIGN.md §Page Header for why a breakpoint can't work here. */
   .page-header {
-    @apply flex flex-wrap items-center justify-between gap-4;
+    @apply flex flex-wrap items-center gap-4;
   }
 
-  /* The title block takes whatever the actions leave and wraps its own text; only
-     once it would go below the floor do the actions drop to a line of their own. */
-  .page-header > :first-child {
-    flex: 1 1 16rem;
-    min-width: 0;
+  /* Takes whatever the actions leave and wraps its own text; the floor is what
+     drops the actions to a line of their own instead of squeezing them. */
+  .page-header__title {
+    @apply min-w-0 grow basis-64;
   }
 
   .page-header__actions {

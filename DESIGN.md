@@ -78,7 +78,7 @@ Use Tailwind's default spacing scale. Common values:
 
 - **Max content width**: `max-w-5xl` (consistent across all pages)
 - **Horizontal padding**: `px-6`
-- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px)
+- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px)
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
 ## Component Library
@@ -138,12 +138,14 @@ Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
 
 ### Page Header
 
-Every page title with actions at its top right uses `.page-header` (and
-`.page-header__actions` when there is more than one action):
+Every page title with actions at its top right is a `.page-header` holding exactly two
+children: the title block, which must carry `.page-header__title` (that class is what
+holds it open), and the action — a single control, or a `.page-header__actions` cluster
+when there is more than one:
 
 ```html
 <div class="animate-fade-up page-header">
-    <div>
+    <div class="page-header__title">
         <h1 class="text-2xl font-bold tracking-tight">Skills</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">Description.</p>
     </div>
@@ -151,9 +153,13 @@ Every page title with actions at its top right uses `.page-header` (and
 </div>
 ```
 
-The actions drop below the title on their own line when both no longer fit — never
-add a breakpoint for this: the sidebar takes 240px out of the viewport, so `sm:`
-(640px) fires when the content area is only ~350px wide, narrower than a phone.
+The title block takes whatever the actions leave and wraps its own text; the actions
+drop to a line of their own once it would go below `16rem`. **Never add a breakpoint
+for this**: the sidebar takes 240px out of the viewport, so `sm:` (640px) fires when
+the content area is only ~350px wide, narrower than a phone. The same wrap — grow the
+details, floor them, let the controls fall below — is how list rows with trailing
+controls stack (`mcp_servers/_server_list.html`), and it adapts per row when the
+controls are conditional.
 
 ### Badges / Pills
 
@@ -350,6 +356,12 @@ Mobile-first approach. Common patterns:
 <!-- Stack on mobile, row on sm -->
 <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
 ```
+
+Breakpoints are viewport-relative, but dashboard pages sit next to a fixed `w-60`
+sidebar, so `sm:` fires when the content area is only ~350px — narrower than the phone
+layout it replaces. Where the switch depends on whether two blocks still fit (a title
+and its actions, a list row and its controls), wrap on content instead: see
+§Page Header.
 
 ## File Paths Reference
 

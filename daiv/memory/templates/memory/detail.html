@@ -11,7 +11,7 @@
 
 {% block app_content %}
 <div class="animate-fade-up page-header">
-  <div class="min-w-0">
+  <div class="page-header__title">
     <h1 class="truncate font-mono text-2xl font-bold tracking-tight">{{ repo_id }}</h1>
     <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
       {% if memory and memory.last_consolidated_at %}
@@ -24,7 +24,7 @@
     </div>
   </div>
   {% if user.is_admin and memory_enabled %}
-  <form method="post" action="{% url 'memory:consolidate' repo_id %}" class="shrink-0">
+  <form method="post" action="{% url 'memory:consolidate' repo_id %}">
     {% csrf_token %}
     <button type="submit" class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
       {% icon "arrow-path" "h-4 w-4 shrink-0" %}
