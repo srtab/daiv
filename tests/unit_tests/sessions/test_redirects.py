@@ -74,6 +74,19 @@ def test_activity_detail_requires_login(run_fixture):
     assert "login" in resp["Location"].lower()
 
 
+def _several_requests(session, run):
+    session.merge_request_iid = 42
+    session.save(update_fields=["merge_request_iid"])
+    run.merge_request_iid = 99
+    run.save(update_fields=["merge_request_iid"])
+
+
+def _no_repository(session, run):
+    session.merge_request_iid = 42
+    session.repo_id = ""
+    session.save(update_fields=["merge_request_iid", "repo_id"])
+
+
 class TestSessionMergeRequestRedirect:
     """The URL DAIV writes into merge request descriptions resolves to every session on that MR."""
 
@@ -98,39 +111,24 @@ class TestSessionMergeRequestRedirect:
 
         assert resp["Location"].endswith("mr=7")
 
-    def test_falls_back_to_the_transcript_before_the_iid_is_known(self, client, session_fixture):
-        """A reviewer clicking before the run finishes still lands somewhere useful."""
-        resp = self._get(client, session_fixture)
-
-        assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
-
-    def test_falls_back_to_the_transcript_when_the_thread_produced_several_requests(
-        self, client, session_fixture, run_fixture
-    ):
-        """thread_id cannot say which request the reader came from, so guessing one would send
-        them to a list that excludes the request they were reading."""
-        session_fixture.merge_request_iid = 42
-        session_fixture.save(update_fields=["merge_request_iid"])
-        run_fixture.merge_request_iid = 99
-        run_fixture.save(update_fields=["merge_request_iid"])
+    @pytest.mark.parametrize(
+        "setup",
+        [
+            pytest.param(lambda session, run: None, id="before-backfill"),
+            pytest.param(_several_requests, id="several-requests"),
+            pytest.param(_no_repository, id="no-repository"),
+        ],
+    )
+    def test_falls_back_to_the_transcript(self, client, session_fixture, run_fixture, setup):
+        """Anything the link cannot resolve to exactly one scoped request lands on the transcript:
+        guessing would send the reader to a list excluding the request they came from."""
+        setup(session_fixture, run_fixture)
 
         resp = self._get(client, session_fixture)
 
+        # 302, never 301 — a browser would cache the pre-backfill fallback forever.
+        assert resp.status_code == 302
         assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
-
-    def test_falls_back_to_the_transcript_without_a_repository(self, client, session_fixture):
-        """An unscoped ?mr= would pool every repository's request of that number."""
-        session_fixture.merge_request_iid = 42
-        session_fixture.repo_id = ""
-        session_fixture.save(update_fields=["merge_request_iid", "repo_id"])
-
-        resp = self._get(client, session_fixture)
-
-        assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
-
-    def test_redirect_is_temporary(self, client, session_fixture):
-        """A 301 would let browsers cache the pre-backfill fallback forever."""
-        assert self._get(client, session_fixture).status_code == 302
 
     def test_unknown_thread_returns_404(self, client):
         resp = client.get(reverse("session_merge_request", kwargs={"thread_id": "nope"}))

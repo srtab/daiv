@@ -35,6 +35,19 @@ def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) ->
     return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
 
 
+def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
+    """Return ``thread_id``, computing the deterministic default when it is None.
+
+    An explicit empty string is a caller bug, not a request for the default: the managers hand
+    this to the publisher, where an empty value silently drops the session link and trailer.
+    """
+    if thread_id is None:
+        return compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
+    if not thread_id:
+        raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
+    return thread_id
+
+
 def get_repo_ref(repo: Repo) -> str:
     """
     Get the current reference (branch name or commit SHA) from a repository.

@@ -261,28 +261,31 @@ class TestCreateMergeRequestDescription:
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
 
 
-def _disable_site_wide(publisher):  # noqa: ARG001
-    # patch.object, not monkeypatch.setattr: SiteSettings serves this through __getattr__, so
-    # monkeypatch's undo would leave a permanent instance attribute shadowing it process-wide.
-    return patch.object(site_settings, "session_link_enabled", False)
-
-
-def _disable_per_repository(publisher):
-    publisher.ctx.config.session_link = False
+def _session_link_disabled(publisher, where: str | None):
+    """Turn the session link off site-wide or per-repository; ``None`` leaves it on."""
+    if where == "site":
+        # patch.object, not monkeypatch.setattr: SiteSettings serves this through __getattr__, so
+        # monkeypatch's undo would leave a permanent instance attribute shadowing it process-wide.
+        return patch.object(site_settings, "session_link_enabled", False)
+    if where == "repo":
+        publisher.ctx.config.session_link = False
     return nullcontext()
+
+
+@pytest.fixture
+def stub_site_url(monkeypatch):
+    """Resolve session links against a known domain instead of the Sites table."""
+    monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
 
 
 class TestCreateMergeRequestSessionLink:
     """The MR description footer links back to the DAIV session that produced it."""
 
     @pytest.fixture
-    def linked_description(self, monkeypatch):
+    def linked_description(self, stub_site_url):
         """Render a description with the link resolver stubbed to a known domain."""
 
         async def _render(thread_id: str = "abc123def") -> str:
-            monkeypatch.setattr(
-                "automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}"
-            )
             publisher = _publisher_no_issue(thread_id=thread_id)
             await publisher._create_merge_request("feature", "Title", "Body")
             return publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
@@ -308,8 +311,8 @@ class TestCreateMergeRequestSessionLink:
         [
             pytest.param(None, None, id="no-thread-id"),
             pytest.param("", None, id="empty-thread-id"),
-            pytest.param("abc123def", _disable_site_wide, id="disabled-site-wide"),
-            pytest.param("abc123def", _disable_per_repository, id="disabled-per-repository"),
+            pytest.param("abc123def", "site", id="disabled-site-wide"),
+            pytest.param("abc123def", "repo", id="disabled-per-repository"),
         ],
     )
     async def test_omits_session_link_without_resolving_a_url(self, monkeypatch, thread_id, disable):
@@ -318,7 +321,7 @@ class TestCreateMergeRequestSessionLink:
         monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
         publisher = _publisher_no_issue(thread_id=thread_id)
 
-        with disable(publisher) if disable is not None else nullcontext():
+        with _session_link_disabled(publisher, disable):
             await publisher._create_merge_request("feature", "Title", "Body")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
@@ -378,23 +381,15 @@ class TestCommitSessionTrailer:
     """Commits carry the producing session as a git trailer."""
 
     @pytest.fixture
-    def trailered(self, monkeypatch):
+    def trailered(self, stub_site_url):
         async def _build(message: str = "msg", thread_id: str = "abc123def"):
-            monkeypatch.setattr(
-                "automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}"
-            )
             return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
 
         return _build
 
     async def test_appends_trailer_referencing_the_session(self, trailered):
+        """Placement itself is pinned by TestAppendTrailer; this is the composed token+URL."""
         assert await trailered() == "msg\n\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
-
-    async def test_trailer_opens_a_paragraph_after_prose(self, trailered):
-        """A trailer sharing a prose paragraph is not parsed by `git interpret-trailers`."""
-        body, _, trailer = (await trailered("subject\n\nbody paragraph")).rpartition("\n\n")
-        assert body == "subject\n\nbody paragraph"
-        assert trailer.startswith("DAIV-Session: ")
 
     async def test_trailer_joins_an_existing_trailer_block(self, trailered):
         """git parses only the last paragraph, so a new one would strip Co-authored-by of its
@@ -405,21 +400,18 @@ class TestCommitSessionTrailer:
             "Co-authored-by: A <a@x>\nCloses: #12\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
         )
 
-    async def test_collapses_trailing_whitespace_before_the_trailer(self, trailered):
-        assert await trailered("msg\n\n") == "msg\n\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
-
     @pytest.mark.parametrize(
         ("thread_id", "disable"),
         [
             pytest.param(None, None, id="no-thread-id"),
-            pytest.param("abc123def", _disable_site_wide, id="disabled-site-wide"),
-            pytest.param("abc123def", _disable_per_repository, id="disabled-per-repository"),
+            pytest.param("abc123def", "site", id="disabled-site-wide"),
+            pytest.param("abc123def", "repo", id="disabled-per-repository"),
         ],
     )
     async def test_message_untouched_when_unavailable(self, thread_id, disable):
         publisher = _publisher_no_issue(thread_id=thread_id)
 
-        with disable(publisher) if disable is not None else nullcontext():
+        with _session_link_disabled(publisher, disable):
             assert await publisher._with_session_trailer("msg") == "msg"
 
     async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
@@ -623,10 +615,7 @@ class TestPublishCommitMessage:
     """What publish() actually hands to ``commit_all`` — the trailer and the skip-ci prefix."""
 
     async def _commit_message(self, monkeypatch, *, thread_id, skip_ci=False) -> str:
-        publisher = _make_publisher(thread_id=thread_id)
-        publisher.ctx.issue = None
-        publisher.ctx.bot_username = "daiv"
-        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
+        publisher = _publisher_no_issue(thread_id=thread_id)
         gm = _fake_git_manager()
         _patch_open_git_manager(monkeypatch, gm)
 
@@ -646,12 +635,12 @@ class TestPublishCommitMessage:
 
         return gm.commit_all.await_args.args[0]
 
-    async def test_commit_carries_the_session_trailer(self, monkeypatch):
+    async def test_commit_carries_the_session_trailer(self, monkeypatch, stub_site_url):
         message = await self._commit_message(monkeypatch, thread_id="abc123def")
 
         assert message == f"commit msg\n\n{SESSION_TRAILER}: https://daiv.test/dashboard/sessions/abc123def/"
 
-    async def test_skip_ci_stays_on_the_subject_line(self, monkeypatch):
+    async def test_skip_ci_stays_on_the_subject_line(self, monkeypatch, stub_site_url):
         """The prefix belongs to the subject; a trailer appended around it would strand it."""
         message = await self._commit_message(monkeypatch, thread_id="abc123def", skip_ci=True)
 

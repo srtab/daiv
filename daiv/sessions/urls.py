@@ -1,10 +1,10 @@
 from django.urls import path
 
-from sessions.redirect_views import SessionMergeRequestRedirectView
 from sessions.views import (
     RunDownloadMarkdownView,
     SessionDetailView,
     SessionListView,
+    SessionMergeRequestRedirectView,
     SessionNewView,
     SessionStreamView,
 )

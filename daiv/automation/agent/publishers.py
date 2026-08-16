@@ -38,7 +38,7 @@ logger = logging.getLogger("daiv.tools")
 SESSION_TRAILER = "DAIV-Session"
 
 # A trailer line ("Token: value") or its folded continuation (leading whitespace).
-_TRAILER_LINE_RE = re.compile(r"^([A-Za-z0-9-]+:\s|\s+\S)")
+_TRAILER_LINE_RE = re.compile(r"[A-Za-z0-9-]+:\s|\s+\S")
 
 
 def append_trailer(commit_message: str, trailer: str) -> str:
@@ -49,9 +49,8 @@ def append_trailer(commit_message: str, trailer: str) -> str:
     """
     body = commit_message.rstrip()
     _, blank_line, last_paragraph = body.rpartition("\n\n")
-    lines = last_paragraph.splitlines() if blank_line else []
-    joiner = "\n" if lines and all(_TRAILER_LINE_RE.match(line) for line in lines) else "\n\n"
-    return f"{body}{joiner}{trailer}"
+    joins_block = blank_line and all(_TRAILER_LINE_RE.match(line) for line in last_paragraph.splitlines())
+    return f"{body}{'\n' if joins_block else '\n\n'}{trailer}"
 
 
 @dataclass(frozen=True)
@@ -93,7 +92,6 @@ class ChangePublisher:
         self.client = RepoClient.create_instance()
         self.sandbox_backend = sandbox_backend
         self.thread_id = thread_id
-        self._site_base_url: str | None = None
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -454,9 +452,7 @@ class GitChangePublisher(ChangePublisher):
             return None
 
         try:
-            if self._site_base_url is None:
-                self._site_base_url = await sync_to_async(build_absolute_url)("")
-            return f"{self._site_base_url}{reverse(route, kwargs={'thread_id': self.thread_id})}"
+            return await sync_to_async(build_absolute_url)(reverse(route, kwargs={"thread_id": self.thread_id}))
         except Exception:
             logger.warning(
                 "Could not build a session link for thread_id %r; publishing without it", self.thread_id, exc_info=True

@@ -7,6 +7,7 @@ import time
 import uuid
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -216,6 +217,30 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+
+class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
+    """Target of the session link DAIV writes into merge request descriptions.
+
+    Resolving the merge request here rather than at publish time is what lets the description
+    carry a stable URL: the IID does not exist yet when the description is rendered, and later
+    sessions keep attaching to the same request. Redirects are deliberately temporary — the
+    same thread resolves to the session list once its run backfills the IID.
+    """
+
+    def get(self, request, thread_id):
+        session = Session.objects.visible_to(request.user).filter(pk=thread_id).first()
+        if session is None:
+            raise Http404
+
+        # thread_id alone cannot say *which* request the reader came from, so a thread that
+        # produced several resolves to the session itself rather than guessing one.
+        iids = session.merge_request_iids()
+        if len(iids) != 1 or not session.repo_id:
+            return redirect(reverse("session_detail", kwargs={"thread_id": session.pk}))
+
+        query = urlencode({"repo": session.repo_id, "mr": iids.pop()})
+        return redirect(f"{reverse('session_list')}?{query}")
 
 
 class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):

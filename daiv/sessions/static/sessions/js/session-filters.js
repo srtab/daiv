@@ -109,15 +109,8 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this._apply();
         },
-        clearParam(key) {
-            this[key] = "";
-            this._apply();
-        },
-        // MR IIDs are per-project, so the repository filter cannot outlive an MR filter that
-        // depends on it for scope — dropping the repo drops both.
-        clearRepo() {
-            this.repo = "";
-            this.mr = "";
+        clearParam(...keys) {
+            keys.forEach((key) => (this[key] = ""));
             this._apply();
         },
         clearAll() {
