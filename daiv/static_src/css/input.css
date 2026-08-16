@@ -3,6 +3,11 @@
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
 
+  /* The width where floating surfaces stop being bottom sheets — see `.picker-popover`.
+     A layout that swaps with them (`popover:` / default) must use this, not `lg`: `lg` is
+     64rem and reorders against a fixed 1100px once the root font-size passes 17.19px. */
+  --breakpoint-popover: 1100px;
+
   /* Skill usage chart palette — tuned for the dark body background (#030712). */
   --chart-bar: rgba(255, 255, 255, 0.18);
   --chart-bar-hover: rgba(255, 255, 255, 0.42);
@@ -2419,7 +2424,8 @@ main:has(.chat-shell) {
   /* A trigger anywhere but hard left puts a 320px panel over the right edge of a phone,
      and no anchor tweak fixes every case — so below 1100px every picker is a bottom
      sheet, the same surface the chat composer's options and progress already use.
-     Stays last: it re-declares geometry and `display` the rules above set. */
+     Stays last: it re-declares geometry and `display` the rules above set.
+     `--breakpoint-popover` is this number as a variant; keep the two in step. */
   @media (width < 1100px) {
     .picker-popover {
       position: fixed;

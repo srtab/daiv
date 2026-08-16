@@ -26,14 +26,20 @@ SURFACE_SCRIPTS = (
     "sessions/static/sessions/js/prompt-box.js",
     "schedules/static/schedules/js/subscriber-picker.js",
     "chat/static/chat/js/chat-stream.js",
+    "core/static/core/js/config-section-picker.js",
 )
-EXPECTED_SURFACES = 7
+EXPECTED_SURFACES = 8
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
 CONTAINER = re.compile(r'class="(picker-popover(?![_\w])[^"]*)"')
 
 SHEET_HEAD = "core/_sheet_head.html"
+
+INPUT_CSS = DAIV_DIR / "static_src" / "css" / "input.css"
+BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
+# Steps nest one level (the rules the media query re-declares), so one alternation is enough.
+SHEET_MEDIA = re.compile(r"@media \(width < (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
 
 def _templates_with_popovers() -> dict[str, str]:
@@ -69,6 +75,23 @@ def test_every_popover_carries_a_sheet_dismiss():
     ]
 
     assert not failures, "Every .picker-popover needs its own sheet head:\n" + "\n".join(failures)
+
+
+def test_the_sheet_breakpoint_is_a_single_number():
+    """A layout that swaps with the surface — a sidebar giving way to the sheet that
+    replaces it — spells the switch `popover:`, which Tailwind compiles from
+    `--breakpoint-popover`. Let that drift from the media query below and a band opens where
+    the trigger is showing while the surface is still an anchored, headless popover."""
+    source = INPUT_CSS.read_text(encoding="utf-8")
+    token = BREAKPOINT_TOKEN.search(source)
+
+    assert token, "`@theme` no longer declares --breakpoint-popover"
+
+    widths = {width for width, body in SHEET_MEDIA.findall(source) if ".picker-popover {" in body}
+
+    assert widths == {token.group(1)}, (
+        f"--breakpoint-popover is {token.group(1)}px but .picker-popover becomes a sheet at {widths or 'nowhere'}"
+    )
 
 
 def test_the_guards_are_actually_looking_at_something():

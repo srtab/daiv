@@ -124,6 +124,45 @@ class TestGetContent:
         assert 'placeholder="10240"' in content  # memory_max_bytes default
 
 
+class TestSectionPicker:
+    """The section list as a sheet, at the widths where the sidebar is hidden."""
+
+    def test_trigger_names_where_you_are(self, client, admin_user, group_url):
+        # The sidebar marks the current section with a highlight, which says nothing until
+        # you have scrolled to it. The trigger is the only thing on the first screen that
+        # states it, so it carries the category as well as the title — and both strings also
+        # render in the sidebar and the card header, so this has to read the trigger itself.
+        client.force_login(admin_user)
+        content = client.get(group_url("web_search")).content.decode()
+        trigger = content.partition('aria-haspopup="dialog"')[2].partition("</button>")[0]
+        assert "Agent tools" in trigger
+        assert "Web Search" in trigger
+
+    def test_offers_every_section(self, client, admin_user, url):
+        # Both lists render every group: a sheet holding a subset would strand the missing
+        # sections at widths where the sidebar is hidden.
+        client.force_login(admin_user)
+        content = client.get(url).content.decode()
+        for group in SiteConfiguration.get_field_groups():
+            target = reverse("site_configuration", kwargs={"group_key": group.key})
+            assert content.count(f'href="{target}"') == 2, f"{group.key} is missing from a section list"
+
+    def test_the_two_lists_switch_on_the_surface_breakpoint(self, client, admin_user, url):
+        # Not `lg`: that is 64rem, and it crosses `--breakpoint-popover`'s fixed 1100px once
+        # the root font-size passes 17.19px, opening a band where the trigger is showing but
+        # `.picker-popover` is still an anchored, headless, unbounded popover.
+        client.force_login(admin_user)
+        content = client.get(url).content.decode()
+        assert 'class="popover:hidden"' in content
+        assert 'class="hidden popover:flex flex-col"' in content
+
+    def test_loads_the_component_that_opens_it(self, client, admin_user, url):
+        # Without the script the trigger still renders and still looks pressable, so a
+        # dropped `<script>` is invisible until someone taps it.
+        client.force_login(admin_user)
+        assert "core/js/config-section-picker.js" in client.get(url).content.decode()
+
+
 class TestBooleanCheckboxField:
     def test_checked_returns_true(self):
         from core.forms import _BooleanCheckboxField

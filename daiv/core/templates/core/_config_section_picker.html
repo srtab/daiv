@@ -1,0 +1,59 @@
+{% load i18n icon_tags %}
+{% comment %}
+Section switcher for the configuration page, rendered only where the sidebar is not.
+
+Stacked above the form instead of beside it, that sidebar pushes the first field off the
+screen — and again after every switch, each section being a full page load. Same list, as
+the sheet the pickers already use.
+
+The visibility switch is `popover:` (`--breakpoint-popover`), the width where
+`.picker-popover` stops being a bottom sheet: this surface only ever exists below it.
+
+Context (from `SiteConfigurationView`): `all_groups`, `active_group`.
+`core/js/config-section-picker.js` must be loaded for the Alpine state to bind.
+{% endcomment %}
+<div class="popover:hidden" x-data="configSectionPicker()">
+    <button type="button"
+            @click.stop="toggle()"
+            :aria-expanded="open"
+            aria-haspopup="dialog"
+            class="flex w-full items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5
+                   text-left transition-colors duration-200 hover:border-white/[0.12] hover:bg-white/[0.06]">
+        <span class="flex h-7 w-7 flex-none items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+            {% icon active_group.icon "h-3.5 w-3.5 text-gray-400" %}
+        </span>
+        <span class="min-w-0 flex-1">
+            <span class="block text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">{{ active_group.category }}</span>
+            <span class="block truncate text-[15px] font-medium text-white">{{ active_group.title }}</span>
+        </span>
+        {% icon "chevron-down" "h-4 w-4 flex-none text-gray-400" %}
+    </button>
+
+    <div x-show="open" x-cloak
+         @click.outside="close()"
+         @keydown.escape.window="close()"
+         role="dialog"
+         aria-label="{% translate 'Configuration section' %}"
+         class="picker-popover">
+        {% include "core/_sheet_head.html" with title=_("Section") close_expr="close()" %}
+        {% regroup all_groups by category as grouped %}
+        {% for category in grouped %}
+        <div class="{% if not forloop.first %}mt-3 {% endif %}mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+            {{ category.grouper }}
+        </div>
+        {% for group in category.list %}
+        <a href="{% url 'site_configuration' group_key=group.key %}"
+           {% if group.key == active_group.key %}x-ref="current" aria-current="page"{% endif %}
+           class="env-popover__row{% if group.key == active_group.key %} env-popover__row--selected{% endif %}">
+            {% icon group.icon "mt-1 h-3.5 w-3.5 shrink-0 text-gray-500" %}
+            <span class="env-popover__row-body">
+                <span class="env-popover__row-head">
+                    <span class="env-popover__row-name">{{ group.title }}</span>
+                </span>
+            </span>
+            {% if group.key == active_group.key %}{% icon "check" "env-popover__check" %}{% endif %}
+        </a>
+        {% endfor %}
+        {% endfor %}
+    </div>
+</div>
