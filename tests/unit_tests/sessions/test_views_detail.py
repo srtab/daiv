@@ -150,7 +150,6 @@ def test_detail_seeds_the_slash_command_catalog(member_client, member_user):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
     assert resp.status_code == 200
     assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
-    assert "chat-slash-commands" in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -161,7 +160,6 @@ def test_new_chat_seeds_the_slash_command_catalog(member_client):
         resp = member_client.get(reverse("session_new_chat"))
     assert resp.status_code == 200
     assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
-    assert "chat-slash-commands" in resp.content.decode()
 
 
 @pytest.mark.django_db

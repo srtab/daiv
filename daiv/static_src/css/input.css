@@ -1932,11 +1932,6 @@ main:has(.chat-shell) {
     @apply h-3.5 w-3.5 mt-1 shrink-0 opacity-70;
   }
 
-  .composer-autocomplete__kind {
-    @apply text-[10px] uppercase rounded px-1 py-px shrink-0 bg-white/[0.08] text-gray-300;
-    letter-spacing: 0.04em;
-  }
-
   /* Sheets. Same markup at every width: a bottom sheet below 1100px, an anchored
      popover above the trigger at or above it. */
 

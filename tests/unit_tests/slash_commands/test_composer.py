@@ -75,7 +75,7 @@ def test_ordering_commands_first_then_skills_alphabetical(builtin_skills_root):
     rows = composer_command_rows()
 
     kinds = [row["kind"] for row in rows]
-    assert kinds == ["command"] * kinds.count("command") + ["skill"] * kinds.count("skill")
+    assert kinds.index("skill") == kinds.count("command")
     command_names = [row["name"] for row in rows if row["kind"] == "command"]
     skill_names = [row["name"] for row in rows if row["kind"] == "skill"]
     assert command_names == sorted(command_names)

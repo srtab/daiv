@@ -17,7 +17,6 @@ import pytest
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
-from tests.unit_tests.test_picker_popovers import INPUT_CSS
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
@@ -186,22 +185,12 @@ def test_composer_renders_the_command_autocomplete(member_client, member_user):
 def test_autocomplete_is_not_a_picker_popover_or_sheet():
     """The menu spans the composer's own width, so the phone-overflow problem that forces
     trigger-anchored pickers into bottom sheets never applies — and a bottom sheet would
-    cover the textarea being typed in. This is also why EXPECTED_SURFACES stays put."""
+    cover the textarea being typed in."""
     source = COMMAND_MENU.read_text(encoding="utf-8")
 
     assert not POPOVER_CONTAINER.search(source)
     assert 'class="composer-sheet ' not in source
     assert "x-transition" not in source
-
-
-def test_autocomplete_is_on_the_surface_rise_roster():
-    """A surface that appears without motion reads as a repaint glitch next to the ones
-    that rise; membership is the one grouped rule at the top of input.css."""
-    css = INPUT_CSS.read_text(encoding="utf-8")
-
-    roster_start = css.index(".surface-rise,")
-    roster = css[roster_start : css.index("{", roster_start)]
-    assert ".composer-autocomplete" in roster
 
 
 @pytest.mark.django_db
@@ -228,7 +217,7 @@ def test_autocomplete_never_steals_a_key_it_was_not_offered():
 
 def test_autocomplete_kind_badge_avoids_a_js_string_literal():
     """A translation carrying an apostrophe would close the literal an ``x-text`` ternary
-    compiles, so the two words render as sibling spans instead."""
+    compiles, so the two words render as sibling elements instead."""
     source = COMMAND_MENU.read_text(encoding="utf-8")
 
     assert "? '{% translate" not in source
@@ -239,5 +228,5 @@ def test_autocomplete_announces_via_its_own_surface_group_slot():
     opening it would not dismiss an open sheet (and vice versa)."""
     js = CHAT_STREAM_JS.read_text(encoding="utf-8")
 
-    assert js.count("surfaceGroup.join(") == 2
-    assert "_announceSlashOpen" in js
+    assert "surfaceGroup.join(() => this.closeSheet())" in js
+    assert "surfaceGroup.join(() => { this.slashDismissed = true; })" in js

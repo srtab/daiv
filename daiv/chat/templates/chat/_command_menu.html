@@ -1,13 +1,8 @@
 {% load i18n icon_tags %}
 {% comment %}
 "/" autocomplete: slash commands + global skills, filtered as the user types the leading
-token. Visibility mirrors the bare-command regex in ``slash_commands/parser.py`` — the menu
-lives while the draft is still just ``/token`` and closes once a space follows.
-
-Deliberately not a ``.picker-popover`` and not a bottom sheet: it spans the composer's own
-width, so the phone-overflow problem that forces trigger-anchored pickers into sheets never
-applies, and a bottom sheet would cover the textarea being typed in. One geometry at every
-width, anchored above the composer box (``.chat-composer`` is the positioned ancestor).
+token. See AGENTS.md ("Chat composer anatomy") for why this is neither a `.picker-popover`
+nor a bottom sheet, and for the pairing between its trigger regex and the backend parser.
 {% endcomment %}
 <div class="composer-autocomplete"
      x-show="slashMenuOpen"
@@ -33,17 +28,21 @@ width, anchored above the composer box (``.chat-composer`` is the positioned anc
               @mousedown.prevent
               @click="selectSlashCommand(row)"
               @mouseenter="slashIndex = idx">
-        <span x-show="row.kind === 'command'">{% icon "command-line" "composer-autocomplete__icon" %}</span>
-        <span x-show="row.kind === 'skill'">{% icon "puzzle-piece" "composer-autocomplete__icon" %}</span>
+        <template x-if="row.kind === 'command'">{% icon "command-line" "composer-autocomplete__icon" %}</template>
+        <template x-if="row.kind === 'skill'">{% icon "puzzle-piece" "composer-autocomplete__icon" %}</template>
         <div class="env-popover__row-body">
           <div class="env-popover__row-head">
             <span class="env-popover__row-name" x-text="'/' + row.name"></span>
             {% comment %}
-            Two spans rather than a ternary: a translation carrying an apostrophe would
-            close the JS string literal an x-text expression compiles.
+            Two elements rather than an x-text ternary: a translation carrying an
+            apostrophe would close the JS string literal that expression compiles to.
             {% endcomment %}
-            <span class="composer-autocomplete__kind" x-show="row.kind === 'command'">{% translate "command" %}</span>
-            <span class="composer-autocomplete__kind" x-show="row.kind === 'skill'">{% translate "skill" %}</span>
+            <template x-if="row.kind === 'command'">
+              <span class="env-popover__scope-tag env-popover__scope-tag--global">{% translate "command" %}</span>
+            </template>
+            <template x-if="row.kind === 'skill'">
+              <span class="env-popover__scope-tag env-popover__scope-tag--global">{% translate "skill" %}</span>
+            </template>
           </div>
           <div class="env-popover__row-subtitle" x-show="row.description" x-text="row.description"></div>
         </div>
