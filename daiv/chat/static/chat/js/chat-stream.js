@@ -128,9 +128,12 @@
   // a space or newline after the token breaks the match and closes the menu.
   const SLASH_TOKEN_RE = /^\s*\/([\w-]*)$/;
 
+  // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
+  // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
   const loadSlashCatalog = () => {
     const rows = loadJSONScript("chat-slash-commands", []);
-    return Array.isArray(rows) ? rows : [];
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row) => row && typeof row.name === "string");
   };
 
   // English fallbacks for the fragments the composer assembles counts from. The page
@@ -445,7 +448,9 @@
     },
 
     onPromptInput() {
-      this.slashDismissed = false;
+      // Escape holds until the draft leaves the "/token" shape. Clearing it on the next
+      // keystroke would re-arm the menu and hijack the Enter the user pressed it for.
+      if (this.slashToken === null) this.slashDismissed = false;
       this.slashIndex = 0;
     },
 
@@ -453,6 +458,8 @@
     // preventDefault unconditionally, and plain Enter must keep inserting newlines
     // whenever the menu is closed.
     onPromptKeydown(e) {
+      // Enter commits an IME candidate; stealing it would cancel the composition.
+      if (e.isComposing || e.keyCode === 229) return;
       if (!this.slashMenuOpen) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();

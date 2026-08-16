@@ -13,11 +13,23 @@ width, anchored above the composer box (``.chat-composer`` is the positioned anc
      x-show="slashMenuOpen"
      x-cloak
      @click.outside="slashDismissed = true">
-  <div class="composer-autocomplete__list scrollbar-thin" x-ref="slashList">
+  {% comment %}
+  Rows are options, not tab stops: the textarea keeps focus and drives them through
+  aria-activedescendant, so Shift+Tab can't land inside a menu never announced.
+  {% endcomment %}
+  <div class="composer-autocomplete__list scrollbar-thin"
+       x-ref="slashList"
+       id="chat-command-menu"
+       role="listbox"
+       aria-label="{% translate 'Commands and skills' %}">
     <template x-for="(row, idx) in slashMatches" :key="row.kind + ':' + row.name">
       <button type="button"
               class="env-popover__row"
               :class="{ 'env-popover__row--highlighted': slashIndex === idx }"
+              role="option"
+              tabindex="-1"
+              :id="'chat-command-option-' + idx"
+              :aria-selected="slashIndex === idx"
               @mousedown.prevent
               @click="selectSlashCommand(row)"
               @mouseenter="slashIndex = idx">
@@ -26,8 +38,12 @@ width, anchored above the composer box (``.chat-composer`` is the positioned anc
         <div class="env-popover__row-body">
           <div class="env-popover__row-head">
             <span class="env-popover__row-name" x-text="'/' + row.name"></span>
-            <span class="composer-autocomplete__kind"
-                  x-text="row.kind === 'command' ? '{% translate "command" %}' : '{% translate "skill" %}'"></span>
+            {% comment %}
+            Two spans rather than a ternary: a translation carrying an apostrophe would
+            close the JS string literal an x-text expression compiles.
+            {% endcomment %}
+            <span class="composer-autocomplete__kind" x-show="row.kind === 'command'">{% translate "command" %}</span>
+            <span class="composer-autocomplete__kind" x-show="row.kind === 'skill'">{% translate "skill" %}</span>
           </div>
           <div class="env-popover__row-subtitle" x-show="row.description" x-text="row.description"></div>
         </div>

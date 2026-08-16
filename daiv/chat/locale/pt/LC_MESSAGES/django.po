@@ -27,6 +27,9 @@ msgstr "rascunho"
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
 
+msgid "Commands and skills"
+msgstr "Comandos e competências"
+
 msgid "command"
 msgstr "comando"
 

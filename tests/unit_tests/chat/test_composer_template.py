@@ -204,6 +204,36 @@ def test_autocomplete_is_on_the_surface_rise_roster():
     assert ".composer-autocomplete" in roster
 
 
+@pytest.mark.django_db
+def test_autocomplete_rows_are_options_the_textarea_drives(member_client):
+    """Enter rewrites the field, so the field has to say what it is bound to. Rows are
+    options rather than tab stops — Shift+Tab must not land inside the menu."""
+    html = _render_new_chat(member_client)
+
+    assert 'role="listbox"' in html
+    assert 'role="option"' in html
+    assert 'aria-controls="chat-command-menu"' in html
+    assert ':aria-activedescendant="slashMenuOpen ?' in html
+    assert 'tabindex="-1"' in html
+
+
+def test_autocomplete_never_steals_a_key_it_was_not_offered():
+    """Two ways the menu could eat a keystroke meant for the draft: an IME committing a
+    candidate with Enter, and a re-armed menu after the user dismissed it."""
+    js = CHAT_STREAM_JS.read_text(encoding="utf-8")
+
+    assert "e.isComposing" in js
+    assert "if (this.slashToken === null) this.slashDismissed = false;" in js
+
+
+def test_autocomplete_kind_badge_avoids_a_js_string_literal():
+    """A translation carrying an apostrophe would close the literal an ``x-text`` ternary
+    compiles, so the two words render as sibling spans instead."""
+    source = COMMAND_MENU.read_text(encoding="utf-8")
+
+    assert "? '{% translate" not in source
+
+
 def test_autocomplete_announces_via_its_own_surface_group_slot():
     """One slot per surface: the menu must not share the sheets' close callback, or
     opening it would not dismiss an open sheet (and vice versa)."""

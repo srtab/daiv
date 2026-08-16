@@ -1914,9 +1914,18 @@ main:has(.chat-shell) {
     --surface-rise-from: 6px;
   }
 
+  /* `dvh` and a low cap because the panel grows *upward* from a dock pinned to the
+     bottom: overflow leaves the top rows above the visible area, which the list's own
+     scrollbar cannot reach, and a software keyboard is what makes that space scarce. */
   .composer-autocomplete__list {
-    max-height: min(40vh, 320px);
+    max-height: min(30dvh, 280px);
     overflow-y: auto;
+  }
+
+  /* Skill descriptions are written to trigger a model, so several open with the same
+     40-odd characters — one truncated line renders them identically. */
+  .composer-autocomplete .env-popover__row-subtitle {
+    @apply whitespace-normal line-clamp-2;
   }
 
   .composer-autocomplete__icon {

@@ -9,9 +9,12 @@ from slash_commands.registry import slash_command_registry
 
 def composer_command_rows() -> list[dict[str, str]]:
     """Catalog for the chat composer's "/" autocomplete: the GLOBAL-scope slash commands
-    followed by the global skills — the same set ``/help`` prints. Custom global skills
-    shadow built-ins of the same name. Per-repo skills live in the sandbox and cannot be
-    listed at page render, matching ``/help``.
+    followed by the global skills, custom shadowing built-ins of the same name.
+
+    Skills are sourced as the skills dashboard sources them — ``list_builtins()`` plus the
+    ``GlobalSkill`` rows — not from ``CUSTOM_SKILLS_PATH``, so a row whose disk tree went
+    missing is listed here while ``/help``, which reads that tree, omits it. Per-repo
+    skills live in the sandbox and cannot be listed at page render, as with ``/help``.
     """
     commands = sorted(
         (

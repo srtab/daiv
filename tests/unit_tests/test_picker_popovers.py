@@ -28,7 +28,12 @@ SURFACE_SCRIPTS = (
     "chat/static/chat/js/chat-stream.js",
     "core/static/core/js/config-section-picker.js",
 )
-EXPECTED_SURFACES = 8
+EXPECTED_SURFACES = 9
+
+# Every class the count below recognises as a floating surface. A new kind of surface that
+# isn't listed here slips past the tripwire, so it belongs in this tuple, not just in the
+# `surface-rise` roster.
+SURFACE_CLASSES = ('class="composer-sheet ', 'class="composer-autocomplete"')
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
@@ -123,7 +128,8 @@ def test_a_new_surface_forces_a_look_at_the_group():
     found = sum(len(CONTAINER.findall(source)) for source in _templates_with_popovers().values())
     for path in iter_template_files():
         if path.suffix == ".html":
-            found += path.read_text(encoding="utf-8").count('class="composer-sheet ')
+            source = path.read_text(encoding="utf-8")
+            found += sum(source.count(surface) for surface in SURFACE_CLASSES)
 
     assert found == EXPECTED_SURFACES, (
         f"floating surfaces went from {EXPECTED_SURFACES} to {found} — enrol the new one in "
