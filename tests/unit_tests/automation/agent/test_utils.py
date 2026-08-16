@@ -6,6 +6,7 @@ import pytest
 from automation.agent.schemas import Image
 from automation.agent.utils import (
     build_langsmith_config,
+    conversation_thread_id,
     extract_images_from_text,
     extract_text_content,
     get_daiv_agent_kwargs,
@@ -16,6 +17,15 @@ from codebase.base import GitPlatform
 from codebase.repo_config import AgentModelConfig, Models
 from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
+
+
+class TestConversationThreadId:
+    def test_returns_none_outside_runnable_context(self):
+        assert conversation_thread_id() is None
+
+    def test_reads_configurable(self):
+        with patch("automation.agent.utils.get_config", return_value={"configurable": {"thread_id": "t-42"}}):
+            assert conversation_thread_id() == "t-42"
 
 
 class TestImagesToContentBlocks:

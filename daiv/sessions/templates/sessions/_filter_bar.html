@@ -100,8 +100,15 @@
         {% if current_repo %}
         <span class="filter-chip" x-show="!!repo">
             <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
-            <a href="?{% querystring_without 'repo' 'page' %}" @click.prevent="clearParam('repo')"
+            <a href="?{% querystring_without 'repo' 'mr' 'page' %}" @click.prevent="clearParam('repo', 'mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endif %}
+        {% if current_mr %}
+        <span class="filter-chip" x-show="!!mr">
+            <span>{% blocktranslate with iid=current_mr %}Merge request !{{ iid }}{% endblocktranslate %}</span>
+            <a href="?{% querystring_without 'mr' 'page' %}" @click.prevent="clearParam('mr')"
+               class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_schedule %}

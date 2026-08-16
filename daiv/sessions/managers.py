@@ -57,6 +57,20 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
 
+    def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
+        """Sessions that touched merge request ``iid``, whichever way they learned of it.
+
+        MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it
+        when its run backfills at completion. A subquery rather than a ``runs`` join keeps this
+        one row per session, so ``with_latest_status``'s per-row subquery is not multiplied.
+        """
+        from sessions.models import Run
+
+        return self.filter(
+            models.Q(merge_request_iid=iid)
+            | models.Q(pk__in=Run.objects.filter(merge_request_iid=iid).values("session_id"))
+        )
+
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
 

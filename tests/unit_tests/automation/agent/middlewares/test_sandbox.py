@@ -451,7 +451,7 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(
             agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
         )
-        with patch.object(mw, "_conversation_thread_id", return_value="thread-1"):
+        with patch("automation.agent.middlewares.sandbox.conversation_thread_id", return_value="thread-1"):
             result = await mw.aafter_agent({"session_id": "sess-1"}, _make_runtime())
         client.close_session.assert_awaited_once_with("sess-1", force=False)  # stop, keep warm
         client.close.assert_not_awaited()  # injected transport is the run's, not the middleware's
@@ -464,7 +464,7 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(
             agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
         )
-        with patch.object(mw, "_conversation_thread_id", return_value=None):
+        with patch("automation.agent.middlewares.sandbox.conversation_thread_id", return_value=None):
             result = await mw.aafter_agent({"session_id": "sess-1"}, _make_runtime())
         client.close_session.assert_awaited_once_with("sess-1", force=True)
         client.close.assert_not_awaited()
@@ -481,7 +481,7 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(
             agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
         )
-        with patch.object(mw, "_conversation_thread_id", return_value="thread-1"):
+        with patch("automation.agent.middlewares.sandbox.conversation_thread_id", return_value="thread-1"):
             result = await mw.aafter_agent({"session_id": "warm-1"}, _make_runtime())
         assert result is None
         client.close.assert_not_awaited()

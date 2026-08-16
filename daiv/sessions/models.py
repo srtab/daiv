@@ -182,6 +182,20 @@ class Session(models.Model):
     def __str__(self) -> str:
         return str(self.title or self.thread_id)
 
+    def merge_request_iids(self, *, limit: int = 2) -> set[int]:
+        """Distinct merge requests this session reached, from its own column and its runs.
+
+        The inverse of :meth:`SessionQuerySet.for_merge_request`; ``limit`` caps the run-side
+        read for callers that only need to tell "exactly one" from "several".
+        """
+        run_iids = (
+            self.runs
+            .filter(merge_request_iid__isnull=False)
+            .values_list("merge_request_iid", flat=True)
+            .distinct()[:limit]
+        )
+        return {self.merge_request_iid, *run_iids} - {None}
+
     async def atouch(self) -> None:
         """Bump ``last_active_at`` (queryset update; safe from async contexts)."""
         await type(self).objects.filter(pk=self.pk).aupdate(last_active_at=timezone.now())

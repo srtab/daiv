@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from langchain_core.messages.content import create_image_block
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_config
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -255,6 +256,15 @@ def get_daiv_agent_kwargs(
         "model_names": [default_model, site_settings.agent_fallback_model_name],
         "thinking_level": agent_thinking_level or site_settings.agent_thinking_level,
     }
+
+
+def conversation_thread_id() -> str | None:
+    """Read the conversation ``thread_id`` from the active run config; None outside a runnable context."""
+    try:
+        config = get_config()
+    except RuntimeError:
+        return None
+    return (config.get("configurable") or {}).get("thread_id")
 
 
 def build_langsmith_config(

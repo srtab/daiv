@@ -18,6 +18,7 @@ from langsmith import get_current_run_tree
 from automation.agent.git_manager import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
+from automation.agent.utils import conversation_thread_id
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -418,7 +419,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if not self.auto_commit_changes:
             return update or None
 
-        publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
+        publisher = GitChangePublisher(
+            runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
+        )
         outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
 
         if outcome.diff_stats is not None:

@@ -201,6 +201,17 @@ class TestSessionListView:
         response = logged_in_client.get(reverse("session_list"), {"q": "abc"})
         assert response.context["has_active_filters"] is True
 
+    def test_mr_filter_is_visible_and_clearable(self, logged_in_client, user):
+        """Arriving from a merge request description, the filter needs a chip — without one the
+        list looks arbitrarily short and the whole chip row (with "Clear all") stays hidden."""
+        _create_session(user=user, merge_request_iid=42)
+
+        response = logged_in_client.get(reverse("session_list"), {"mr": "42"})
+
+        assert response.context["current_mr"] == 42
+        assert response.context["has_active_filters"] is True
+        assert "Merge request !42" in response.content.decode()
+
     def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
         session = _create_session(user=user)
         _create_run(session, status=RunStatus.SUCCESSFUL)

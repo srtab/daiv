@@ -1,16 +1,19 @@
 import inspect
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
+
+from django.contrib.sites.models import Site
 
 import pytest
 
 from automation.agent.git_manager import RepoStatus
-from automation.agent.publishers import GitChangePublisher, PublishOutcome
+from automation.agent.publishers import SESSION_TRAILER, GitChangePublisher, PublishOutcome, append_trailer
 from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+from core.site_settings import site_settings
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
@@ -62,20 +65,26 @@ def _make_merge_request(**overrides) -> MergeRequest:
     return MergeRequest(**defaults)
 
 
-def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_file_name: str | None = "AGENTS.md"):
+def _make_publisher(
+    *,
+    git_platform: GitPlatform = GitPlatform.GITLAB,
+    context_file_name: str | None = "AGENTS.md",
+    thread_id: str | None = None,
+):
     ctx = Mock()
     ctx.repository.slug = "owner/repo"
     ctx.repository.html_url = "https://gitlab.com/owner/repo"
     ctx.repository.git_platform = git_platform
     ctx.config.context_file_name = context_file_name
     ctx.config.suggest_context_file = True
+    ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
 
-    publisher = GitChangePublisher(ctx)
+    publisher = GitChangePublisher(ctx, thread_id=thread_id)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
     publisher.client.push_uses_ephemeral_token.return_value = False
@@ -157,14 +166,14 @@ class TestSuggestContextFile:
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    async def test_skips_when_globally_disabled(self, monkeypatch):
-        from core.site_settings import site_settings
-
-        monkeypatch.setattr(site_settings, "suggest_context_file_enabled", False)
+    async def test_skips_when_globally_disabled(self):
         publisher = _make_publisher()
         mr = _make_merge_request()
 
-        await publisher._suggest_context_file(mr)
+        # patch.object, not monkeypatch.setattr: SiteSettings serves these through __getattr__,
+        # so monkeypatch's undo would leave a permanent instance attribute shadowing it.
+        with patch.object(site_settings, "suggest_context_file_enabled", False):
+            await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
@@ -189,17 +198,21 @@ class TestSuggestContextFile:
         assert "CLAUDE.md" in comment_body
 
 
+def _publisher_no_issue(
+    *, git_platform: GitPlatform = GitPlatform.GITLAB, thread_id: str | None = None
+) -> GitChangePublisher:
+    """A publisher rendering the description template on its own, with no issue to close."""
+    publisher = _make_publisher(git_platform=git_platform, thread_id=thread_id)
+    publisher.ctx.issue = None
+    publisher.ctx.bot_username = "daiv"
+    return publisher
+
+
 class TestCreateMergeRequestDescription:
     """The new MR description back-links to the original protected MR for traceability."""
 
-    def _make_publisher_with_no_issue(self, *, git_platform: GitPlatform = GitPlatform.GITLAB) -> GitChangePublisher:
-        publisher = _make_publisher(git_platform=git_platform)
-        publisher.ctx.issue = None
-        publisher.ctx.bot_username = "daiv"
-        return publisher
-
     async def test_includes_back_link_when_fallback_provided(self):
-        publisher = self._make_publisher_with_no_issue()
+        publisher = _publisher_no_issue()
         original = _make_merge_request(
             source_branch="dev", merge_request_id=42, web_url="https://gitlab.com/owner/repo/-/merge_requests/42"
         )
@@ -212,7 +225,7 @@ class TestCreateMergeRequestDescription:
         assert "!42" in description
 
     async def test_omits_back_link_when_no_fallback(self):
-        publisher = self._make_publisher_with_no_issue()
+        publisher = _publisher_no_issue()
 
         await publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
 
@@ -220,7 +233,7 @@ class TestCreateMergeRequestDescription:
         assert "is protected on the remote" not in description
 
     async def test_back_link_uses_github_terminology(self):
-        publisher = self._make_publisher_with_no_issue(git_platform=GitPlatform.GITHUB)
+        publisher = _publisher_no_issue(git_platform=GitPlatform.GITHUB)
         original = _make_merge_request(
             source_branch="main", merge_request_id=10, web_url="https://github.com/owner/repo/pull/10"
         )
@@ -233,7 +246,7 @@ class TestCreateMergeRequestDescription:
 
     async def test_fallback_mr_inherits_original_target(self):
         """A protected-branch fallback MR targets the original MR's target, not the default."""
-        publisher = self._make_publisher_with_no_issue()
+        publisher = _publisher_no_issue()
         original = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
 
         await publisher._create_merge_request("feature-fix", "Title", "Body", fallback_from_mr=original)
@@ -241,11 +254,174 @@ class TestCreateMergeRequestDescription:
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "release/x"
 
     async def test_new_mr_targets_default_without_fallback(self):
-        publisher = self._make_publisher_with_no_issue()
+        publisher = _publisher_no_issue()
 
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
+
+def _session_link_disabled(publisher, where: str | None):
+    """Turn the session link off site-wide or per-repository; ``None`` leaves it on."""
+    if where == "site":
+        # patch.object, not monkeypatch.setattr: SiteSettings serves this through __getattr__, so
+        # monkeypatch's undo would leave a permanent instance attribute shadowing it process-wide.
+        return patch.object(site_settings, "session_link_enabled", False)
+    if where == "repo":
+        publisher.ctx.config.session_link = False
+    return nullcontext()
+
+
+@pytest.fixture
+def stub_site_url(monkeypatch):
+    """Resolve session links against a known domain instead of the Sites table."""
+    monkeypatch.setattr("automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}")
+
+
+class TestCreateMergeRequestSessionLink:
+    """The MR description footer links back to the DAIV session that produced it."""
+
+    @pytest.fixture
+    def linked_description(self, stub_site_url):
+        """Render a description with the link resolver stubbed to a known domain."""
+
+        async def _render(thread_id: str = "abc123def") -> str:
+            publisher = _publisher_no_issue(thread_id=thread_id)
+            await publisher._create_merge_request("feature", "Title", "Body")
+            return publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+
+        return _render
+
+    async def test_includes_session_link_when_thread_id_set(self, linked_description):
+        """The description points at the MR-scoped resolver, not one thread's transcript, so
+        sessions that join the MR later are reachable from the same URL."""
+        assert (
+            "[view sessions](https://daiv.test/dashboard/sessions/abc123def/merge-request/)"
+            in await linked_description()
+        )
+
+    async def test_link_shares_the_warning_blockquote(self, linked_description):
+        """A blank line between the two would split the footer into two quote boxes."""
+        lines = (await linked_description()).splitlines()
+        warning_index = next(i for i, line in enumerate(lines) if "can make mistakes" in line)
+        assert "view sessions" in lines[warning_index + 1]
+
+    @pytest.mark.parametrize(
+        ("thread_id", "disable"),
+        [
+            pytest.param(None, None, id="no-thread-id"),
+            pytest.param("", None, id="empty-thread-id"),
+            pytest.param("abc123def", "site", id="disabled-site-wide"),
+            pytest.param("abc123def", "repo", id="disabled-per-repository"),
+        ],
+    )
+    async def test_omits_session_link_without_resolving_a_url(self, monkeypatch, thread_id, disable):
+        """Every disabled path short-circuits before the Site lookup, not after."""
+        build_absolute_url = Mock()
+        monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
+        publisher = _publisher_no_issue(thread_id=thread_id)
+
+        with _session_link_disabled(publisher, disable):
+            await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view sessions" not in description
+        build_absolute_url.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("thread_id", "url_builder"),
+        [
+            pytest.param("not a slug", None, id="unroutable-thread-id"),
+            pytest.param("abc123def", Mock(side_effect=Site.DoesNotExist("no site")), id="missing-site-row"),
+        ],
+    )
+    async def test_unresolvable_link_still_publishes(self, monkeypatch, thread_id, url_builder):
+        """A link that cannot be built must not abort a publish whose branch is already pushed."""
+        if url_builder is not None:
+            monkeypatch.setattr("automation.agent.publishers.build_absolute_url", url_builder)
+        publisher = _publisher_no_issue(thread_id=thread_id)
+
+        await publisher._create_merge_request("feature", "Title", "Body")
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "view sessions" not in description
+        assert "can make mistakes" in description
+
+
+class TestAppendTrailer:
+    """Placement rules for a git trailer appended to a commit message."""
+
+    @pytest.mark.parametrize(
+        ("message", "expected"),
+        [
+            pytest.param("subject", "subject\n\nT: v", id="subject-only"),
+            pytest.param("subject\n\nbody", "subject\n\nbody\n\nT: v", id="after-prose"),
+            pytest.param("subject\n\nCloses: #1", "subject\n\nCloses: #1\nT: v", id="joins-trailer-block"),
+            pytest.param(
+                "subject\n\nCloses: #1\nAcked-by: B <b@x>",
+                "subject\n\nCloses: #1\nAcked-by: B <b@x>\nT: v",
+                id="joins-multi-line-block",
+            ),
+            pytest.param("subject\n\nbody\n\n", "subject\n\nbody\n\nT: v", id="trailing-whitespace"),
+            # A colon in prose does not make the paragraph a trailer block.
+            pytest.param(
+                "subject\n\nNote: see below\nand more",
+                "subject\n\nNote: see below\nand more\n\nT: v",
+                id="prose-with-colon",
+            ),
+            # Without a blank line there is no body paragraph, only a subject.
+            pytest.param("Fix: parser", "Fix: parser\n\nT: v", id="subject-looks-like-a-trailer"),
+        ],
+    )
+    def test_placement(self, message, expected):
+        assert append_trailer(message, "T: v") == expected
+
+
+class TestCommitSessionTrailer:
+    """Commits carry the producing session as a git trailer."""
+
+    @pytest.fixture
+    def trailered(self, stub_site_url):
+        async def _build(message: str = "msg", thread_id: str = "abc123def"):
+            return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
+
+        return _build
+
+    async def test_appends_trailer_referencing_the_session(self, trailered):
+        """Placement itself is pinned by TestAppendTrailer; this is the composed token+URL."""
+        assert await trailered() == "msg\n\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+
+    async def test_trailer_joins_an_existing_trailer_block(self, trailered):
+        """git parses only the last paragraph, so a new one would strip Co-authored-by of its
+        trailer status — losing platform co-author attribution on the commit."""
+        result = await trailered("subject\n\nbody\n\nCo-authored-by: A <a@x>\nCloses: #12")
+
+        assert result.endswith(
+            "Co-authored-by: A <a@x>\nCloses: #12\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+        )
+
+    @pytest.mark.parametrize(
+        ("thread_id", "disable"),
+        [
+            pytest.param(None, None, id="no-thread-id"),
+            pytest.param("abc123def", "site", id="disabled-site-wide"),
+            pytest.param("abc123def", "repo", id="disabled-per-repository"),
+        ],
+    )
+    async def test_message_untouched_when_unavailable(self, thread_id, disable):
+        publisher = _publisher_no_issue(thread_id=thread_id)
+
+        with _session_link_disabled(publisher, disable):
+            assert await publisher._with_session_trailer("msg") == "msg"
+
+    async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
+        """The commit must survive a misconfigured Sites row; only the trailer is lost."""
+        monkeypatch.setattr(
+            "automation.agent.publishers.build_absolute_url", Mock(side_effect=Site.DoesNotExist("no site"))
+        )
+        publisher = _publisher_no_issue(thread_id="abc123def")
+
+        assert await publisher._with_session_trailer("msg") == "msg"
 
 
 class TestCreateMergeRequestAssignee:
@@ -433,6 +609,46 @@ class TestPublishSandboxEgressRefresh:
 
         publisher.sandbox_backend.refresh_egress.assert_awaited_once()
         assert "Could not refresh the sandbox egress token" in caplog.text
+
+
+class TestPublishCommitMessage:
+    """What publish() actually hands to ``commit_all`` — the trailer and the skip-ci prefix."""
+
+    async def _commit_message(self, monkeypatch, *, thread_id, skip_ci=False) -> str:
+        publisher = _publisher_no_issue(thread_id=thread_id)
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None, skip_ci=skip_ci)
+
+        return gm.commit_all.await_args.args[0]
+
+    async def test_commit_carries_the_session_trailer(self, monkeypatch, stub_site_url):
+        message = await self._commit_message(monkeypatch, thread_id="abc123def")
+
+        assert message == f"commit msg\n\n{SESSION_TRAILER}: https://daiv.test/dashboard/sessions/abc123def/"
+
+    async def test_skip_ci_stays_on_the_subject_line(self, monkeypatch, stub_site_url):
+        """The prefix belongs to the subject; a trailer appended around it would strand it."""
+        message = await self._commit_message(monkeypatch, thread_id="abc123def", skip_ci=True)
+
+        assert message.startswith("[skip ci] commit msg")
+        assert message.splitlines()[-1].startswith(f"{SESSION_TRAILER}: ")
+
+    async def test_commit_message_untouched_without_a_thread(self, monkeypatch):
+        assert await self._commit_message(monkeypatch, thread_id=None) == "commit msg"
 
 
 class TestPublishSuggestsContextFile:
