@@ -465,8 +465,8 @@ class SiteConfiguration(models.Model):
         _("link sessions from merge requests"),
         null=True,
         help_text=_(
-            "Add a link to the DAIV session that produced the changes in the descriptions of merge requests DAIV opens."
-            " Disable to keep the DAIV URL off the git platform."
+            "Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests DAIV"
+            " opens and from a DAIV-Session trailer on every commit. Disable to keep the DAIV URL off the git platform."
         ),
     )
 

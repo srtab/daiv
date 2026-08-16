@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
             model_name="siteconfiguration",
             name="session_link_enabled",
             field=models.BooleanField(
-                help_text="Add a link to the DAIV session that produced the changes in the descriptions of merge requests DAIV opens. Disable to keep the DAIV URL off the git platform.",
+                help_text="Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests DAIV opens and from a DAIV-Session trailer on every commit. Disable to keep the DAIV URL off the git platform.",
                 null=True,
                 verbose_name="link sessions from merge requests",
             ),

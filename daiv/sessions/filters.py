@@ -27,6 +27,7 @@ class SessionFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(choices=RunStatus.choices, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
     repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
+    mr = django_filters.NumberFilter(method="filter_mr")
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
     batch = django_filters.UUIDFilter(method="filter_batch")
     range = django_filters.ChoiceFilter(choices=RANGE_CHOICES, method="filter_range")
@@ -48,6 +49,11 @@ class SessionFilter(django_filters.FilterSet):
 
     def filter_batch(self, queryset, name, value):
         return queryset.filter(runs__batch_id=value).distinct()
+
+    def filter_mr(self, queryset, name, value):
+        # A session reaches an MR two ways: MR-scope sessions carry the IID from the webhook,
+        # while an issue-scope session only learns it when its run backfills at completion.
+        return queryset.filter(Q(merge_request_iid=value) | Q(runs__merge_request_iid=value)).distinct()
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits

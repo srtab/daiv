@@ -166,7 +166,11 @@ class RepositoryConfig(BaseModel):
         ),
     )
     session_link: bool = Field(
-        default=True, description="Link the DAIV session that produced the changes from the merge requests DAIV opens."
+        default=True,
+        description=(
+            "Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests "
+            "DAIV opens and from a DAIV-Session trailer on every commit."
+        ),
     )
 
     # Codebase restrictions

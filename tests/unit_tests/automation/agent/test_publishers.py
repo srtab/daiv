@@ -287,13 +287,18 @@ class TestCreateMergeRequestSessionLink:
         return _render
 
     async def test_includes_session_link_when_thread_id_set(self, linked_description):
-        assert "[view session](https://daiv.test/dashboard/sessions/abc123def/)" in await linked_description()
+        """The description points at the MR-scoped resolver, not one thread's transcript, so
+        sessions that join the MR later are reachable from the same URL."""
+        assert (
+            "[view sessions](https://daiv.test/dashboard/sessions/abc123def/merge-request/)"
+            in await linked_description()
+        )
 
     async def test_link_shares_the_warning_blockquote(self, linked_description):
         """A blank line between the two would split the footer into two quote boxes."""
         lines = (await linked_description()).splitlines()
         warning_index = next(i for i, line in enumerate(lines) if "can make mistakes" in line)
-        assert "view session" in lines[warning_index + 1]
+        assert "view sessions" in lines[warning_index + 1]
 
     @pytest.mark.parametrize(
         ("thread_id", "disable"),
@@ -315,7 +320,7 @@ class TestCreateMergeRequestSessionLink:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
-        assert "view session" not in description
+        assert "view sessions" not in description
         build_absolute_url.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -334,8 +339,58 @@ class TestCreateMergeRequestSessionLink:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
-        assert "view session" not in description
+        assert "view sessions" not in description
         assert "can make mistakes" in description
+
+
+class TestCommitSessionTrailer:
+    """Commits carry the producing session as a git trailer."""
+
+    @pytest.fixture
+    def trailered(self, monkeypatch):
+        async def _build(message: str = "msg", thread_id: str = "abc123def"):
+            monkeypatch.setattr(
+                "automation.agent.publishers.build_absolute_url", lambda path: f"https://daiv.test{path}"
+            )
+            return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
+
+        return _build
+
+    async def test_appends_trailer_referencing_the_session(self, trailered):
+        assert await trailered() == "msg\n\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+
+    async def test_trailer_is_its_own_paragraph(self, trailered):
+        """A trailer sharing the previous paragraph is not parsed by `git interpret-trailers`."""
+        body, _, trailer = (await trailered("subject\n\nbody paragraph")).rpartition("\n\n")
+        assert body == "subject\n\nbody paragraph"
+        assert trailer.startswith("DAIV-Session: ")
+
+    async def test_collapses_trailing_whitespace_before_the_trailer(self, trailered):
+        assert await trailered("msg\n\n") == "msg\n\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+
+    @pytest.mark.parametrize(
+        ("thread_id", "disable"),
+        [
+            pytest.param(None, None, id="no-thread-id"),
+            pytest.param("abc123def", _disable_site_wide, id="disabled-site-wide"),
+            pytest.param("abc123def", _disable_per_repository, id="disabled-per-repository"),
+        ],
+    )
+    async def test_message_untouched_when_unavailable(self, monkeypatch, thread_id, disable):
+        publisher = _publisher_no_issue(thread_id=thread_id)
+        if disable is not None:
+            disable(publisher, monkeypatch)
+
+        assert await publisher._with_session_trailer("msg") == "msg"
+
+    async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
+        """The commit must survive a misconfigured Sites row; only the trailer is lost."""
+        monkeypatch.setattr(
+            "automation.agent.publishers.build_absolute_url", Mock(side_effect=Site.DoesNotExist("no site"))
+        )
+        publisher = _publisher_no_issue(thread_id="abc123def")
+
+        assert await publisher._with_session_trailer("msg") == "msg"
 
 
 class TestCreateMergeRequestAssignee:

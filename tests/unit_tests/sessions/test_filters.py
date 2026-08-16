@@ -204,6 +204,37 @@ class TestSessionFilter:
         assert session_other_batch.pk not in pks
         assert session_no_batch.pk not in pks
 
+    def test_mr_matches_sessions_scoped_to_the_merge_request(self, user):
+        """?mr=<iid> collects every session that touched the request, whichever way it learned of it."""
+        from_webhook = _create_session(merge_request_iid=42)
+
+        from_run_backfill = _create_session()
+        _create_run(from_run_backfill, merge_request_iid=42)
+
+        other_mr = _create_session(merge_request_iid=43)
+        no_mr = _create_session()
+
+        pks = list(SessionFilter({"mr": "42"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert from_webhook.pk in pks
+        assert from_run_backfill.pk in pks
+        assert other_mr.pk not in pks
+        assert no_mr.pk not in pks
+
+    def test_mr_returns_a_session_once_despite_several_matching_runs(self, user):
+        """The runs join would otherwise duplicate the row per matching run."""
+        session = _create_session(merge_request_iid=42)
+        _create_run(session, merge_request_iid=42)
+        _create_run(session, merge_request_iid=42)
+
+        pks = list(SessionFilter({"mr": "42"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert pks.count(session.pk) == 1
+
+    def test_mr_filter_invalid_value_is_ignored(self, user):
+        a = _create_session(merge_request_iid=42)
+        f = SessionFilter({"mr": "not-a-number"}, queryset=_qs())
+        assert not f.form.is_valid()
+        assert a.pk in list(f.qs.values_list("pk", flat=True))
+
     def test_invalid_status_drops_filter(self, user):
         """?status=bogus returns the unfiltered list (strict=False semantics)."""
         a = _create_session()

@@ -121,7 +121,17 @@ These selections are fixed at session creation. To use a different model, effort
 
 When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
-When DAIV *opens* the request, its description links back to the producing session so reviewers can jump from the git platform to the session transcript. A request DAIV merely adopts keeps its existing description untouched, so it carries no link. Admins can turn the link off for the whole instance (**Settings > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
+When DAIV *opens* the request, its description carries a **view sessions** link. It resolves to the Sessions list filtered to that request, so it covers every session that worked on it — the one that opened it and each later one that addressed a review comment — and keeps working as more are added. Before the request is known the link falls back to the producing session's transcript.
+
+Every commit DAIV makes also carries the producing session as a git trailer:
+
+```
+DAIV-Session: https://daiv.example.com/dashboard/sessions/<thread_id>/
+```
+
+Unlike the description, the trailer is per-commit and append-only: it survives a rewritten description, reaches requests DAIV merely adopts (whose description is left untouched), and travels with the commit when it is squashed or cherry-picked.
+
+Admins can turn both off for the whole instance (**Settings > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
 
 !!! warning "Expired state"
     Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.

@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
+# Git trailer token carrying the producing session's URL. A wire format read by `git log`
+# and `git interpret-trailers`, so it stays a literal rather than deriving from BOT_NAME.
+SESSION_TRAILER = "DAIV-Session"
+
 
 @dataclass(frozen=True)
 class PublishOutcome:
@@ -161,7 +165,9 @@ class GitChangePublisher(ChangePublisher):
 
             if snapshot.dirty:
                 commit_message = changes_metadata["commit_message"].commit_message
-                await git_manager.commit_all(f"[skip ci] {commit_message}" if skip_ci else commit_message)
+                if skip_ci:
+                    commit_message = f"[skip ci] {commit_message}"
+                await git_manager.commit_all(await self._with_session_trailer(commit_message))
 
             if merge_request is None:
                 branch_name = git_manager.unique_branch_name(
@@ -416,27 +422,36 @@ class GitChangePublisher(ChangePublisher):
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
-                    "session_url": await self._session_url(),
+                    "session_url": await self._session_link("session_merge_request"),
                 },
             ),
         )
 
-    async def _session_url(self) -> str | None:
-        """Absolute URL of the session that produced the changes, or None when unavailable.
+    async def _session_link(self, route: str) -> str | None:
+        """Absolute URL of ``route`` for the producing session, or None when unavailable.
 
-        The link is cosmetic and rendered after the branch is already pushed, so an unroutable
-        thread_id or an unconfigured Sites row degrades to no link rather than losing the MR.
+        The link is cosmetic, so an unroutable thread_id or an unconfigured Sites row degrades
+        to no link rather than losing the commit or the MR.
         """
         if not self.thread_id or not self.ctx.config.session_link or not site_settings.session_link_enabled:
             return None
 
         try:
-            return await sync_to_async(build_absolute_url)(
-                reverse("session_detail", kwargs={"thread_id": self.thread_id})
-            )
+            return await sync_to_async(build_absolute_url)(reverse(route, kwargs={"thread_id": self.thread_id}))
         except NoReverseMatch, ObjectDoesNotExist:
             logger.warning("Could not build a session link for thread_id %r; publishing without it", self.thread_id)
             return None
+
+    async def _with_session_trailer(self, commit_message: str) -> str:
+        """Append the session trailer to ``commit_message``, as its own trailing paragraph.
+
+        Unlike the description link this survives description rewrites and stays attached to the
+        commit once it is squashed or cherry-picked elsewhere.
+        """
+        session_url = await self._session_link("session_detail")
+        if not session_url:
+            return commit_message
+        return f"{commit_message.rstrip()}\n\n{SESSION_TRAILER}: {session_url}"
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

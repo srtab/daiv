@@ -72,3 +72,55 @@ def test_activity_detail_requires_login(run_fixture):
     # LegacyActivityDetailRedirectView has LoginRequiredMixin → 302 to login
     assert resp.status_code == 302
     assert "login" in resp["Location"].lower()
+
+
+class TestSessionMergeRequestRedirect:
+    """The URL DAIV writes into merge request descriptions resolves to every session on that MR."""
+
+    def _get(self, client, session):
+        return client.get(reverse("session_merge_request", kwargs={"thread_id": session.thread_id}))
+
+    def test_redirects_to_the_mr_filtered_session_list(self, client, session_fixture):
+        session_fixture.merge_request_iid = 42
+        session_fixture.save(update_fields=["merge_request_iid"])
+
+        resp = self._get(client, session_fixture)
+
+        assert resp.status_code == 302
+        assert resp["Location"] == f"{reverse('session_list')}?repo=group%2Fproject&mr=42"
+
+    def test_resolves_the_iid_from_a_run_when_the_session_lacks_one(self, client, session_fixture, run_fixture):
+        """Issue-scope sessions only learn their MR when the run backfills it at completion."""
+        run_fixture.merge_request_iid = 7
+        run_fixture.save(update_fields=["merge_request_iid"])
+
+        resp = self._get(client, session_fixture)
+
+        assert resp["Location"].endswith("mr=7")
+
+    def test_falls_back_to_the_transcript_before_the_iid_is_known(self, client, session_fixture):
+        """A reviewer clicking before the run finishes still lands somewhere useful."""
+        resp = self._get(client, session_fixture)
+
+        assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
+
+    def test_redirect_is_temporary(self, client, session_fixture):
+        """A 301 would let browsers cache the pre-backfill fallback forever."""
+        assert self._get(client, session_fixture).status_code == 302
+
+    def test_unknown_thread_returns_404(self, client):
+        resp = client.get(reverse("session_merge_request", kwargs={"thread_id": "nope"}))
+
+        assert resp.status_code == 404
+
+    def test_hidden_from_users_who_cannot_see_the_session(self, session_fixture, other_user):
+        c = Client()
+        c.force_login(other_user)
+
+        assert self._get(c, session_fixture).status_code == 404
+
+    def test_requires_login(self, session_fixture):
+        resp = self._get(Client(), session_fixture)
+
+        assert resp.status_code == 302
+        assert "login" in resp["Location"].lower()
