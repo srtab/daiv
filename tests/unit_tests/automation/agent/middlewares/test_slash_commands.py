@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from ag_ui_langgraph.types import CustomEventNames
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
@@ -196,6 +197,66 @@ async def test_ambiguous_command_falls_through_without_executing():
 
     assert result is None
     command.execute_for_agent.assert_not_awaited()
+
+
+def _emitting_middleware(result: str | Exception):
+    """Middleware wired to a stub command, plus the patches every emit test needs."""
+    mw = SlashCommandMiddleware(subagents=[])
+    command = MagicMock()
+    command.resets_thread = False
+    command.execute_for_agent = AsyncMock(
+        side_effect=result if isinstance(result, Exception) else None,
+        return_value=None if isinstance(result, Exception) else result,
+    )
+    return mw, MagicMock(return_value=command)
+
+
+async def _run_with_emit(mw, command_cls, emit, *, raw="/agents", name="agents"):
+    with (
+        patch.object(mw, "_extract_slash_command", return_value=SlashCommandCommand(raw=raw, command=name, args=[])),
+        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
+        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=[]),
+        patch("automation.agent.middlewares.slash_commands.adispatch_custom_event", emit),
+    ):
+        registry.get_commands.return_value = [command_cls]
+        return await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(), {"cfg": 1})
+
+
+async def test_reply_is_streamed_so_the_chat_turn_is_not_empty():
+    """A slash command answers from a state update, so ``ag_ui_langgraph`` never synthesizes
+    TEXT_MESSAGE_* frames for it — without this event the chat turn paints empty (#/agents)."""
+    mw, command_cls = _emitting_middleware("### Available Sub-Agents")
+    emit = AsyncMock()
+    result = await _run_with_emit(mw, command_cls, emit)
+
+    name, payload = emit.await_args.args
+    assert name == CustomEventNames.ManuallyEmitMessage.value
+    assert payload["message"] == "### Available Sub-Agents"
+    assert payload["role"] == "assistant"
+    assert emit.await_args.kwargs["config"] == {"cfg": 1}
+    # The streamed frame and the checkpointed message are one message, not two: a client that
+    # merges MESSAGES_SNAPSHOT must land on the segment the stream already painted.
+    assert result["messages"][-1].id == payload["message_id"]
+
+
+async def test_failure_reply_is_streamed_too():
+    mw, command_cls = _emitting_middleware(RuntimeError("boom"))
+    emit = AsyncMock()
+    result = await _run_with_emit(mw, command_cls, emit)
+
+    assert emit.await_args.args[1]["message"] == "Failed to execute `/agents`."
+    assert result["messages"][-1].content == "Failed to execute `/agents`."
+
+
+async def test_unstreamable_reply_still_completes_the_command():
+    """No callback-carrying run (unit test, future non-streamed caller) means no parent run to
+    attach to. The reply still reaches the checkpoint, so it surfaces on reload."""
+    mw, command_cls = _emitting_middleware("agents listed")
+    emit = AsyncMock(side_effect=RuntimeError("no parent run id"))
+    result = await _run_with_emit(mw, command_cls, emit)
+
+    assert result["jump_to"] == "end"
+    assert result["messages"][-1].content == "agents listed"
 
 
 def test_extract_slash_command_requires_human_message():

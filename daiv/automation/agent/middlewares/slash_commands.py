@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
+from ag_ui_langgraph.types import CustomEventNames
 from deepagents.middleware.skills import SkillMetadata, _parse_skill_metadata
 from langchain.agents.middleware import AgentMiddleware, hook_config
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage, AnyMessage, RemoveMessage  # noqa: TC002
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
@@ -64,6 +67,34 @@ def _load_global_skill_metadata() -> list[SkillMetadata]:
     return list(skills.values())
 
 
+async def _emit_assistant_message(content: str, config: RunnableConfig) -> str:
+    """Stream ``content`` to the chat as an assistant message; return the id it was emitted under.
+
+    A slash command answers from a state update, never from the model, and ``ag_ui_langgraph``
+    only turns model tokens (``on_chat_model_stream``) or this custom event into the
+    ``TEXT_MESSAGE_*`` frames the chat client renders. Without it the reply reaches the browser
+    only inside the terminal ``MESSAGES_SNAPSHOT``, which ``chat-stream.js`` ignores — the turn
+    paints empty until the page is reloaded from the checkpoint.
+
+    The event name is ``ag_ui_langgraph``'s own, *not* ``copilotkit_emit_message``: copilotkit's
+    ``copilotkit_``-prefixed handler builds the same three frames and then drops them, because it
+    discards what ``_dispatch_event`` returns instead of yielding it.
+
+    Emission is best-effort — outside a callback-carrying run (unit tests, a future non-streamed
+    caller) there is no parent run to attach to, and a cosmetic frame must not fail the command.
+    """
+    message_id = str(uuid.uuid4())
+    try:
+        await adispatch_custom_event(
+            CustomEventNames.ManuallyEmitMessage.value,
+            {"message_id": message_id, "message": content, "role": "assistant"},
+            config=config,
+        )
+    except Exception:
+        logger.warning("Could not stream the slash command reply; it will surface on reload", exc_info=True)
+    return message_id
+
+
 class SlashCommandMiddleware(AgentMiddleware):
     """Intercept builtin slash commands before the sandbox session starts.
 
@@ -84,9 +115,11 @@ class SlashCommandMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(self, state: dict, runtime: Runtime[RuntimeCtx], config: RunnableConfig) -> dict | None:
-        return await self._apply_builtin_slash_commands(state["messages"], runtime.context)
+        return await self._apply_builtin_slash_commands(state["messages"], runtime.context, config)
 
-    async def _apply_builtin_slash_commands(self, messages: list[AnyMessage], context: RuntimeCtx) -> dict | None:
+    async def _apply_builtin_slash_commands(
+        self, messages: list[AnyMessage], context: RuntimeCtx, config: RunnableConfig
+    ) -> dict | None:
         slash_command = self._extract_slash_command(messages, context.bot_username)
         if not slash_command:
             return None
@@ -122,13 +155,16 @@ class SlashCommandMiddleware(AgentMiddleware):
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
             # Do NOT honor resets_thread here: if execute_for_agent raised, any checkpointer-side wipe
             # may not have run, so keeping in-memory history avoids diverging from the Redis checkpoint.
-            return {"messages": [AIMessage(content=f"Failed to execute `{slash_command.raw}`.")], "jump_to": "end"}
+            failure = f"Failed to execute `{slash_command.raw}`."
+            message_id = await _emit_assistant_message(failure, config)
+            return {"messages": [AIMessage(id=message_id, content=failure)], "jump_to": "end"}
         else:
             logger.info("[%s] `%s` slash command completed", self.name, slash_command.raw)
+            message_id = await _emit_assistant_message(result, config)
             # resets_thread commands (e.g. /clear) must drop in-memory history, else the final
             # checkpoint write re-persists every prior message under the same thread_id.
             reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
-            update: dict = {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
+            update: dict = {"messages": [*reset_prefix, AIMessage(id=message_id, content=result)], "jump_to": "end"}
             if command.resets_thread:
                 # The wipe also clears private state: a read-only skill (e.g. /plan sets
                 # active_skill_mode="read-only") must not survive onto the fresh thread, where
