@@ -27,10 +27,10 @@
     </p>
 </div>
 
-<div class="animate-fade-up mt-8 grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start" style="animation-delay: 100ms">
+<div class="animate-fade-up mt-8 grid gap-8 popover:grid-cols-[200px_minmax(0,1fr)] popover:items-start" style="animation-delay: 100ms">
     {% include "core/_config_section_picker.html" %}
 
-    <aside class="hidden lg:flex flex-col" aria-label="Configuration sections">
+    <aside class="hidden popover:flex flex-col" aria-label="Configuration sections">
         {% regroup all_groups by category as grouped %}
         {% for category in grouped %}
         <div class="{% if not forloop.first %}mt-5 {% endif %}mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">

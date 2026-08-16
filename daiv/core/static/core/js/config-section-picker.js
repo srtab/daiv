@@ -1,9 +1,8 @@
 /**
- * Alpine component: the configuration page's section switcher below `lg`.
+ * Alpine component: the configuration page's section switcher, below `--breakpoint-popover`.
  *
- * The surface is a `.picker-popover`, so it is a bottom sheet at every width this
- * component exists at — the sidebar takes over before 1100px, where the popover form
- * would start.
+ * The trigger and `.picker-popover`'s sheet form switch on that one number, so the surface
+ * is a bottom sheet at every width this component exists at.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("configSectionPicker", () => ({

@@ -1,16 +1,18 @@
 {% load i18n icon_tags %}
 {% comment %}
-Section switcher for the configuration page, rendered only below `lg`.
+Section switcher for the configuration page, rendered only where the sidebar is not.
 
-From `lg` up the sections are the sidebar in `site_configuration.html`. Below it that
-sidebar stacks every group above the form it navigates to, which lands the first field
-~820px down — off the screen on every phone, and again after every switch, since each
-section is a full page load. Same list, as the sheet the pickers already use.
+Stacked above the form instead of beside it, that sidebar pushes the first field off the
+screen — and again after every switch, each section being a full page load. Same list, as
+the sheet the pickers already use.
+
+The visibility switch is `popover:` (`--breakpoint-popover`), the width where
+`.picker-popover` stops being a bottom sheet: this surface only ever exists below it.
 
 Context (from `SiteConfigurationView`): `all_groups`, `active_group`.
 `core/js/config-section-picker.js` must be loaded for the Alpine state to bind.
 {% endcomment %}
-<div class="relative lg:hidden" x-data="configSectionPicker()">
+<div class="popover:hidden" x-data="configSectionPicker()">
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
@@ -42,13 +44,14 @@ Context (from `SiteConfigurationView`): `all_groups`, `active_group`.
         {% for group in category.list %}
         <a href="{% url 'site_configuration' group_key=group.key %}"
            {% if group.key == active_group.key %}x-ref="current" aria-current="page"{% endif %}
-           class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14.5px] transition-colors
-                  {% if group.key == active_group.key %}bg-white/[0.06] text-white{% else %}text-gray-400 hover:bg-white/[0.03] hover:text-gray-200{% endif %}">
-            {% icon group.icon "h-3.5 w-3.5 flex-none text-gray-500" %}
-            <span class="min-w-0 truncate">{{ group.title }}</span>
-            {% if group.key == active_group.key %}
-            {% icon "check" "ml-auto h-3.5 w-3.5 flex-none text-emerald-400" %}
-            {% endif %}
+           class="env-popover__row{% if group.key == active_group.key %} env-popover__row--selected{% endif %}">
+            {% icon group.icon "mt-1 h-3.5 w-3.5 shrink-0 text-gray-500" %}
+            <span class="env-popover__row-body">
+                <span class="env-popover__row-head">
+                    <span class="env-popover__row-name">{{ group.title }}</span>
+                </span>
+            </span>
+            {% if group.key == active_group.key %}{% icon "check" "env-popover__check" %}{% endif %}
         </a>
         {% endfor %}
         {% endfor %}
