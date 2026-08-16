@@ -566,36 +566,31 @@ def test_build_langsmith_config_omits_agent_name_when_not_provided():
     assert "lc_agent_name" not in config["metadata"]
 
 
-async def test_streamed_assistant_message_emits_under_the_returned_message_id():
+async def test_streamed_assistant_message_emits_under_the_returned_message_id(emit_custom_event):
     """A message produced without a model call streams only because of this event — chat/api/
     streaming.py turns it into the TEXT_MESSAGE_* frames the client renders. The frame and the
-    message must share an id so a client reconciling MESSAGES_SNAPSHOT lands on one segment."""
-    emit = AsyncMock()
-    with patch("automation.agent.utils.adispatch_custom_event", emit):
-        message = await streamed_assistant_message("stopped looping", {"cfg": 1})
+    message share an id so the client's replay dedup skips it after a mid-run reload."""
+    message = await streamed_assistant_message("stopped looping", {"cfg": 1})
 
-    name, payload = emit.await_args.args
+    name, payload = emit_custom_event.await_args.args
     assert name == ASSISTANT_MESSAGE_EVENT
     assert payload == {"message_id": message.id, "message": "stopped looping"}
-    assert emit.await_args.kwargs["config"] == {"cfg": 1}
+    assert emit_custom_event.await_args.kwargs["config"] == {"cfg": 1}
     assert message.content == "stopped looping"
 
 
-async def test_streamed_assistant_message_defaults_to_the_ambient_config():
+async def test_streamed_assistant_message_defaults_to_the_ambient_config(emit_custom_event):
     """LoopBreaker's awrap_model_call is handed no RunnableConfig; the dispatch resolves the
     ambient one instead."""
-    emit = AsyncMock()
-    with patch("automation.agent.utils.adispatch_custom_event", emit):
-        await streamed_assistant_message("stopped looping")
+    await streamed_assistant_message("stopped looping")
 
-    assert emit.await_args.kwargs["config"] is None
+    assert emit_custom_event.await_args.kwargs["config"] is None
 
 
-async def test_streamed_assistant_message_survives_an_undeliverable_event():
+async def test_streamed_assistant_message_survives_an_undeliverable_event(emit_custom_event):
     """Streaming is cosmetic — the message still reaches the checkpoint, so it surfaces on
     reload. A failed frame must never fail the work that produced the message."""
-    emit = AsyncMock(side_effect=RuntimeError("no parent run id"))
-    with patch("automation.agent.utils.adispatch_custom_event", emit):
-        message = await streamed_assistant_message("stopped looping")
+    emit_custom_event.side_effect = RuntimeError("no parent run id")
+    message = await streamed_assistant_message("stopped looping")
 
     assert message.content == "stopped looping"

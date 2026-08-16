@@ -151,7 +151,8 @@ class LoopBreakerMiddleware(AgentMiddleware):
             self.terminal,
         )
         if self.terminal == "error":
-            # Addressed to the parent agent, not the user — it stays unstreamed on purpose.
+            # An ERROR: sentinel the code-review orchestrator parses, not prose for a human,
+            # so it is deliberately not streamed to the chat.
             return AIMessage(
                 content=(
                     f"ERROR: stopped after calling '{label}' {streak} times in a row with identical arguments and "

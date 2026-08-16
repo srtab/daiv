@@ -158,24 +158,29 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
                 agui_event.raw_event = {"metadata": provenance}
             yield agui_event
 
-        for text_event in self._assistant_message_frames(event):
+        for text_event in self._assistant_message_frames(event, provenance):
             yield text_event
 
     @staticmethod
-    def _assistant_message_frames(event: Any) -> list[BaseEvent]:
+    def _assistant_message_frames(event: Any, provenance: dict) -> list[BaseEvent]:
         """Translate DAIV's ``ASSISTANT_MESSAGE_EVENT`` into the text frames the chat renders.
 
-        An assistant message the agent produced without a model call (a slash command reply, a
-        loop-breaker stop) never streams: no ``on_chat_model_stream`` fires, so upstream builds no
-        ``TEXT_MESSAGE_*`` frames and the message surfaces only in the terminal
-        ``MESSAGES_SNAPSHOT``, which the client ignores. ``automation.agent.utils`` emits this
-        event alongside the message; translating it here keeps every AG-UI concern inside
-        ``daiv/chat`` and leaves the event inert on the webhook and MCP transports.
+        See ``automation.agent.utils.streamed_assistant_message`` for why a message the agent
+        produced without a model call never streams on its own.
 
-        Upstream's own ``manually_emit_message`` is deliberately not reused: it would put an
-        ``ag_ui_langgraph`` import in the transport-agnostic agent package. Copilotkit's
-        ``copilotkit_``-prefixed variant is worse — its handler builds these three frames and then
-        discards them, because it drops what ``_dispatch_event`` returns instead of yielding it.
+        This belongs on the event hook rather than in ``SubagentEventFilter``: the frames carry the
+        source event's ``langgraph_checkpoint_ns``, so the filter already drops them when the
+        message came from inside a subagent. Consolidating the two would lose that for free.
+
+        ``ag_ui_langgraph`` ships an equivalent handler for its own ``manually_emit_message``, and
+        reusing it would need no import — only that wire name. It is forked anyway, for two reasons
+        that are easy to miss: upstream hard-subscripts ``event["data"]["message_id"]``, so a single
+        malformed payload raises mid-stream and kills the run, and adopting the name would make an
+        undocumented upstream enum load-bearing, where a rename would silently stop these messages
+        rendering — the exact failure this whole change exists to fix. Copilotkit's
+        ``copilotkit_``-prefixed variant is separately unusable: its handler builds these three
+        frames and then discards them, dropping what ``_dispatch_event`` returns instead of
+        yielding it.
         """
         if not isinstance(event, dict) or event.get("event") != "on_custom_event":
             return []
@@ -188,14 +193,17 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         if not isinstance(message_id, str) or not isinstance(message, str):
             logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
             return []
+        # Only the keys the filter reads: stamping the whole event would ship the LangGraph
+        # internals *and* a second copy of the message body on each of the three frames.
+        raw_event = {"metadata": provenance}
         return [
             TextMessageStartEvent(
-                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=message_id, raw_event=event
+                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=message_id, raw_event=raw_event
             ),
             TextMessageContentEvent(
-                type=EventType.TEXT_MESSAGE_CONTENT, message_id=message_id, delta=message, raw_event=event
+                type=EventType.TEXT_MESSAGE_CONTENT, message_id=message_id, delta=message, raw_event=raw_event
             ),
-            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=message_id, raw_event=event),
+            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=message_id, raw_event=raw_event),
         ]
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:

@@ -86,23 +86,21 @@ def _command_stub(*, resets_thread=False, **execute_kwargs):
     return command
 
 
-async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL, emit=None):
-    """Drive ``abefore_agent`` past the parser with the registry, skill list and event sink stubbed.
+async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL):
+    """Drive ``abefore_agent`` past the parser with the registry and skill list stubbed.
 
-    Returns ``(result, emit)``; the command stubs stay addressable through the ``commands`` passed in.
+    The command stubs stay addressable through the ``commands`` passed in; the dispatched events
+    through the ``emit_custom_event`` fixture.
     """
     mw = SlashCommandMiddleware(subagents=[])
-    emit = emit if emit is not None else AsyncMock()
-    parsed = SlashCommandCommand(raw=raw, command=raw.lstrip("/"), args=[])
+    parsed = SlashCommandCommand(raw=raw, command=raw.removeprefix("/"), args=[])
     with (
         patch.object(mw, "_extract_slash_command", return_value=parsed),
         patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
         patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=list(skills)),
-        patch("automation.agent.utils.adispatch_custom_event", emit),
     ):
         registry.get_commands.return_value = [MagicMock(return_value=c) for c in commands]
-        result = await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
-    return result, emit
+        return await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
 
 
 async def test_no_slash_command_returns_none():
@@ -111,9 +109,9 @@ async def test_no_slash_command_returns_none():
     assert await mw.abefore_agent(state, _runtime(), {}) is None
 
 
-async def test_executes_builtin_command_and_jumps_to_end():
+async def test_executes_builtin_command_and_jumps_to_end(emit_custom_event):
     command = _command_stub(return_value="help text")
-    result, _ = await _run_command(raw="/help", commands=[command], skills=[{"name": "x", "description": "d"}])
+    result = await _run_command(raw="/help", commands=[command], skills=[{"name": "x", "description": "d"}])
 
     assert result["jump_to"] == "end"
     assert isinstance(result["messages"][-1], AIMessage)
@@ -125,9 +123,9 @@ async def test_executes_builtin_command_and_jumps_to_end():
     assert command.execute_for_agent.await_args.kwargs["available_subagents"] == []
 
 
-async def test_resets_thread_prepends_remove_all():
+async def test_resets_thread_prepends_remove_all(emit_custom_event):
     command = _command_stub(return_value="cleared", resets_thread=True)
-    result, _ = await _run_command(raw="/clear", commands=[command], scope=Scope.ISSUE)
+    result = await _run_command(raw="/clear", commands=[command], scope=Scope.ISSUE)
 
     assert result["jump_to"] == "end"
     assert getattr(result["messages"][0], "id", None) == REMOVE_ALL_MESSAGES
@@ -136,45 +134,45 @@ async def test_resets_thread_prepends_remove_all():
     assert result["active_skill_mode"] is None
 
 
-async def test_command_failure_jumps_to_end_with_error_message():
+async def test_command_failure_jumps_to_end_with_error_message(emit_custom_event):
     command = _command_stub(side_effect=RuntimeError("boom"))
-    result, emit = await _run_command(raw="/help", commands=[command])
+    result = await _run_command(raw="/help", commands=[command])
 
     assert result["jump_to"] == "end"
     assert "Failed to execute `/help`." in result["messages"][-1].content
     # The failure reply streams like any other, else the turn reports the error only on reload.
-    assert emit.await_args.args[1]["message"] == "Failed to execute `/help`."
+    assert emit_custom_event.await_args.args[1]["message"] == "Failed to execute `/help`."
 
 
-async def test_unknown_command_falls_through_without_jump():
+async def test_unknown_command_falls_through_without_jump(emit_custom_event):
     """An unregistered command must NOT short-circuit — it falls through so the agent handles it."""
-    result, emit = await _run_command(raw="/nope", commands=[])
+    result = await _run_command(raw="/nope", commands=[])
 
     assert result is None
-    emit.assert_not_awaited()
+    emit_custom_event.assert_not_awaited()
 
 
-async def test_ambiguous_command_falls_through_without_executing():
+async def test_ambiguous_command_falls_through_without_executing(emit_custom_event):
     """More than one command for the same name is ambiguous — fall through, do not execute either."""
     first, second = _command_stub(), _command_stub()
-    result, _ = await _run_command(raw="/demo", commands=[first, second])
+    result = await _run_command(raw="/demo", commands=[first, second])
 
     assert result is None
     first.execute_for_agent.assert_not_awaited()
     second.execute_for_agent.assert_not_awaited()
 
 
-async def test_reply_is_streamed_so_the_chat_turn_is_not_empty():
+async def test_reply_is_streamed_so_the_chat_turn_is_not_empty(emit_custom_event):
     """A slash command answers from a state update, never from the model, so nothing synthesizes
     TEXT_MESSAGE_* frames for it — without this event the chat turn paints empty."""
     command = _command_stub(return_value="### Available Sub-Agents")
-    result, emit = await _run_command(raw="/agents", commands=[command])
+    result = await _run_command(raw="/agents", commands=[command])
 
-    name, payload = emit.await_args.args
+    name, payload = emit_custom_event.await_args.args
     assert name == ASSISTANT_MESSAGE_EVENT
     assert payload["message"] == "### Available Sub-Agents"
     # The hook is handed a config; pass it rather than resolving the ambient one.
-    assert emit.await_args.kwargs["config"] == {"cfg": 1}
+    assert emit_custom_event.await_args.kwargs["config"] == {"cfg": 1}
     assert result["messages"][-1].id == payload["message_id"]
 
 

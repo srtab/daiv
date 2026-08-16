@@ -1,5 +1,3 @@
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from langchain.agents.middleware import ModelRequest
 from langchain.agents.middleware.types import ModelResponse
@@ -118,7 +116,7 @@ async def test_error_at_terminal_streak_returns_aimessage_without_calling_model(
     assert "no findings" in result.content
 
 
-async def test_finalize_ends_loop_without_calling_model():
+async def test_finalize_ends_loop_without_calling_model(emit_custom_event):
     seen: list = []
     mw = LoopBreakerMiddleware(terminal="finalize")
     result = await mw.awrap_model_call(_request(_loop(6)), await _record_handler(seen))
@@ -128,27 +126,23 @@ async def test_finalize_ends_loop_without_calling_model():
     assert "ERROR" not in result.content
 
 
-async def test_finalize_message_is_streamed_to_the_chat():
+async def test_finalize_message_is_streamed_to_the_chat(emit_custom_event):
     """This message replaces the model's turn, so nothing else emits text frames for it — without
     the event the user's turn ends in silence."""
-    emit = AsyncMock()
     mw = LoopBreakerMiddleware(terminal="finalize")
-    with patch("automation.agent.utils.adispatch_custom_event", emit):
-        result = await mw.awrap_model_call(_request(_loop(6)), await _record_handler([]))
+    result = await mw.awrap_model_call(_request(_loop(6)), await _record_handler([]))
 
-    assert emit.await_args.args[0] == ASSISTANT_MESSAGE_EVENT
-    assert emit.await_args.args[1] == {"message_id": result.id, "message": result.content}
+    assert emit_custom_event.await_args.args[0] == ASSISTANT_MESSAGE_EVENT
+    assert emit_custom_event.await_args.args[1] == {"message_id": result.id, "message": result.content}
 
 
-async def test_error_terminal_message_is_not_streamed():
-    """The ``error`` terminal addresses the parent agent (the code-review orchestrator parses its
-    ``ERROR:`` prefix), not the user — streaming it would paint machine text into the chat."""
-    emit = AsyncMock()
+async def test_error_terminal_message_is_not_streamed(emit_custom_event):
+    """The ``error`` terminal is a sentinel the code-review orchestrator parses by its ``ERROR:``
+    prefix, not prose for a human, so it is deliberately left unstreamed."""
     mw = LoopBreakerMiddleware(terminal="error")
-    with patch("automation.agent.utils.adispatch_custom_event", emit):
-        await mw.awrap_model_call(_request(_loop(6)), await _record_handler([]))
+    await mw.awrap_model_call(_request(_loop(6)), await _record_handler([]))
 
-    emit.assert_not_awaited()
+    emit_custom_event.assert_not_awaited()
 
 
 def test_streak_stops_at_midconversation_human_message():

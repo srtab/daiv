@@ -348,13 +348,16 @@ async def streamed_assistant_message(content: str, config: RunnableConfig | None
     page is reloaded from the checkpoint. This event is what ``chat/api/streaming.py`` translates
     into those frames; every other transport ignores it.
 
-    The frame and the returned message share an id, so a client that reconciles
-    ``MESSAGES_SNAPSHOT`` lands on the segment the stream already painted.
+    The frame and the returned message share an id, and that is load-bearing: ``_resumeRun``
+    (``chat-stream.js``) seeds its replay dedup with the LangChain message ids of the hydrated
+    checkpoint and skips frames carrying one. Mint an id here or reloading mid-run paints the
+    message twice.
 
-    Pass ``config`` wherever the hook is handed one; it falls back to the ambient runnable config
-    otherwise. Streaming is best-effort — every graph invocation carries a parent run to dispatch
-    against, so the guard only covers a caller running outside one, and a cosmetic frame must
-    never fail the work that produced the message.
+    ``config`` is passed explicitly wherever the hook is handed one — ``adispatch_custom_event``
+    falls back to the ambient runnable config, but a failure to resolve it is swallowed below, so
+    prefer the config we already hold over a silent miss. Streaming is best-effort: every graph
+    invocation carries a parent run to dispatch against, so the guard only covers a caller running
+    outside one, and a cosmetic frame must never fail the work that produced the message.
     """
     message = AIMessage(id=str(uuid.uuid4()), content=content)
     try:

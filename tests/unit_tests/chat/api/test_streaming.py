@@ -389,7 +389,7 @@ def test_assistant_message_event_becomes_text_frames():
     streams only through this translation — otherwise it reaches the client only in the terminal
     MESSAGES_SNAPSHOT, which chat-stream.js ignores, and the turn paints empty."""
     frames = RuntimeContextLangGraphAGUIAgent._assistant_message_frames(
-        _assistant_event(message_id="m-1", message="### Available Sub-Agents")
+        _assistant_event(message_id="m-1", message="### Available Sub-Agents"), {"langgraph_checkpoint_ns": "model:1"}
     )
 
     assert [f.type for f in frames] == [
@@ -400,6 +400,9 @@ def test_assistant_message_event_becomes_text_frames():
     assert {f.message_id for f in frames} == {"m-1"}
     assert frames[0].role == "assistant"
     assert frames[1].delta == "### Available Sub-Agents"
+    # Only the provenance keys, not the whole source event: SubagentEventFilter reads the namespace
+    # off raw_event to drop a subagent's message, and stamping the event would ship the body twice.
+    assert [f.raw_event for f in frames] == [{"metadata": {"langgraph_checkpoint_ns": "model:1"}}] * 3
 
 
 @pytest.mark.parametrize(
@@ -417,7 +420,7 @@ def test_assistant_message_event_becomes_text_frames():
 def test_assistant_message_frames_ignores_anything_else(event):
     """Every other event flows through untouched; a malformed payload is dropped rather than
     emitting frames the client cannot close."""
-    assert RuntimeContextLangGraphAGUIAgent._assistant_message_frames(event) == []
+    assert RuntimeContextLangGraphAGUIAgent._assistant_message_frames(event, {}) == []
 
 
 def test_streamer_post_init_rejects_thread_id_mismatch():
