@@ -28,6 +28,12 @@ class TestBreadcrumbs:
         response = _client(admin).get(reverse("session_list"))
         assert b'data-testid="app-breadcrumb"' not in response.content
 
+    def test_chat_has_no_breadcrumb(self, admin):
+        """The chat page is the composer plus the transcript; "Sessions › New" only
+        pushes both down, and the sidebar already links back to the list."""
+        response = _client(admin).get(reverse("session_new_chat"))
+        assert b'data-testid="app-breadcrumb"' not in response.content
+
     def test_schedule_create_breadcrumb(self, admin):
         response = _client(admin).get(reverse("schedule_create"))
         assert b'data-testid="app-breadcrumb"' in response.content

@@ -28,8 +28,6 @@
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
-{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
-
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
