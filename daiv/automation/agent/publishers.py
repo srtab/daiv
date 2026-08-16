@@ -427,7 +427,7 @@ class GitChangePublisher(ChangePublisher):
         The link is cosmetic and rendered after the branch is already pushed, so an unroutable
         thread_id or an unconfigured Sites row degrades to no link rather than losing the MR.
         """
-        if not self.thread_id or not site_settings.session_link_enabled or not self.ctx.config.session_link:
+        if not self.thread_id or not self.ctx.config.session_link or not site_settings.session_link_enabled:
             return None
 
         try:
