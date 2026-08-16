@@ -29,11 +29,9 @@ class BaseManager:
     _unable_note_posted: bool = False
     """ Backing flag for :meth:`_claim_unable_note`; see that method for the rationale. """
 
-    thread_id: str | None = None
-    """ LangGraph checkpoint key for the conversation; set by subclasses that run an agent. """
-
-    def __init__(self, *, runtime_ctx: RuntimeCtx):
+    def __init__(self, *, runtime_ctx: RuntimeCtx, thread_id: str):
         self.ctx = runtime_ctx
+        self.thread_id = thread_id
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
 

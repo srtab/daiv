@@ -21,6 +21,7 @@ document.addEventListener("alpine:init", () => {
         from: "",
         to: "",
         repo: "",
+        mr: "",
         schedule: "",
         batch: "",
 
@@ -39,6 +40,7 @@ document.addEventListener("alpine:init", () => {
             this.from = p.get("date_from") || "";
             this.to = p.get("date_to") || "";
             this.repo = p.get("repo") || "";
+            this.mr = p.get("mr") || "";
             this.schedule = p.get("schedule") || "";
             this.batch = p.get("batch") || "";
         },
@@ -65,6 +67,7 @@ document.addEventListener("alpine:init", () => {
             set("date_from", this.from);
             set("date_to", this.to);
             set("repo", this.repo);
+            set("mr", this.mr);
             set("schedule", this.schedule);
             set("batch", this.batch);
             const qs = params.toString();
@@ -110,6 +113,13 @@ document.addEventListener("alpine:init", () => {
             this[key] = "";
             this._apply();
         },
+        // MR IIDs are per-project, so the repository filter cannot outlive an MR filter that
+        // depends on it for scope — dropping the repo drops both.
+        clearRepo() {
+            this.repo = "";
+            this.mr = "";
+            this._apply();
+        },
         clearAll() {
             this.q = "";
             this.status = "";
@@ -118,6 +128,7 @@ document.addEventListener("alpine:init", () => {
             this.from = "";
             this.to = "";
             this.repo = "";
+            this.mr = "";
             this.schedule = "";
             this.batch = "";
             this._apply();
@@ -149,6 +160,7 @@ document.addEventListener("alpine:init", () => {
                 this.from ||
                 this.to ||
                 this.repo ||
+                this.mr ||
                 this.schedule ||
                 this.batch
             );

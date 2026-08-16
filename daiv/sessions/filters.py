@@ -53,7 +53,12 @@ class SessionFilter(django_filters.FilterSet):
     def filter_mr(self, queryset, name, value):
         # A session reaches an MR two ways: MR-scope sessions carry the IID from the webhook,
         # while an issue-scope session only learns it when its run backfills at completion.
-        return queryset.filter(Q(merge_request_iid=value) | Q(runs__merge_request_iid=value)).distinct()
+        queryset = queryset.filter(Q(merge_request_iid=value) | Q(runs__merge_request_iid=value))
+        # IIDs are per-project, so an unscoped ?mr= would pool every repo's request of that
+        # number. The repo filter runs independently; this pins the scope even without it.
+        if repo := self.data.get("repo"):
+            queryset = queryset.filter(repo_id=repo)
+        return queryset.distinct()
 
     def filter_range(self, queryset, name, value):
         # Rolling windows; "today" is the local calendar day. The first-party UI never emits

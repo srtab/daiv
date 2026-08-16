@@ -229,6 +229,15 @@ class TestSessionFilter:
         pks = list(SessionFilter({"mr": "42"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert pks.count(session.pk) == 1
 
+    def test_mr_is_scoped_to_the_repository_when_one_is_given(self, user):
+        """IIDs are per-project, so !42 of another repo must not join the list."""
+        here = _create_session(repo_id="group/project", merge_request_iid=42)
+        elsewhere = _create_session(repo_id="other/project", merge_request_iid=42)
+
+        pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert here.pk in pks
+        assert elsewhere.pk not in pks
+
     def test_mr_filter_invalid_value_is_ignored(self, user):
         a = _create_session(merge_request_iid=42)
         f = SessionFilter({"mr": "not-a-number"}, queryset=_qs())

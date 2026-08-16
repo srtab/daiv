@@ -34,15 +34,19 @@ class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
         if session is None:
             raise Http404
 
-        merge_request_iid = (
-            session.merge_request_iid
-            or Run.objects
-            .filter(session_id=session.pk, merge_request_iid__isnull=False)
-            .values_list("merge_request_iid", flat=True)
-            .first()
+        iids = set(
+            Run.objects.filter(session_id=session.pk, merge_request_iid__isnull=False).values_list(
+                "merge_request_iid", flat=True
+            )
         )
-        if merge_request_iid is None:
+        if session.merge_request_iid is not None:
+            iids.add(session.merge_request_iid)
+
+        # thread_id alone cannot say *which* request the reader came from, so a thread that
+        # produced several resolves to the session itself rather than guessing one and
+        # landing them on a list that excludes the request they were reading.
+        if len(iids) != 1 or not session.repo_id:
             return HttpResponseRedirect(reverse("session_detail", kwargs={"thread_id": session.pk}))
 
-        query = urlencode({"repo": session.repo_id, "mr": merge_request_iid})
+        query = urlencode({"repo": session.repo_id, "mr": iids.pop()})
         return HttpResponseRedirect(f"{reverse('session_list')}?{query}")

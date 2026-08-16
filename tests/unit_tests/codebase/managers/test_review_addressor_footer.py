@@ -23,7 +23,14 @@ from codebase.managers.review_addressor import CommentsAddressorManager
 @pytest.fixture
 def stub_base_init():
     """Skip BaseManager side effects (RepoClient, GitManager); exercise manager methods directly."""
-    with patch.object(BaseManager, "__init__", lambda self, *, runtime_ctx: setattr(self, "ctx", runtime_ctx)):
+    with patch.object(
+        BaseManager,
+        "__init__",
+        lambda self, *, runtime_ctx, thread_id: (
+            setattr(self, "ctx", runtime_ctx),
+            setattr(self, "thread_id", thread_id),
+        ),
+    ):
         yield
 
 

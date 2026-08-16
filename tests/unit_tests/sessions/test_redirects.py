@@ -104,6 +104,30 @@ class TestSessionMergeRequestRedirect:
 
         assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
 
+    def test_falls_back_to_the_transcript_when_the_thread_produced_several_requests(
+        self, client, session_fixture, run_fixture
+    ):
+        """thread_id cannot say which request the reader came from, so guessing one would send
+        them to a list that excludes the request they were reading."""
+        session_fixture.merge_request_iid = 42
+        session_fixture.save(update_fields=["merge_request_iid"])
+        run_fixture.merge_request_iid = 99
+        run_fixture.save(update_fields=["merge_request_iid"])
+
+        resp = self._get(client, session_fixture)
+
+        assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
+
+    def test_falls_back_to_the_transcript_without_a_repository(self, client, session_fixture):
+        """An unscoped ?mr= would pool every repository's request of that number."""
+        session_fixture.merge_request_iid = 42
+        session_fixture.repo_id = ""
+        session_fixture.save(update_fields=["merge_request_iid", "repo_id"])
+
+        resp = self._get(client, session_fixture)
+
+        assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": session_fixture.thread_id})
+
     def test_redirect_is_temporary(self, client, session_fixture):
         """A 301 would let browsers cache the pre-backfill fallback forever."""
         assert self._get(client, session_fixture).status_code == 302

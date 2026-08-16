@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
+import re
 from abc import abstractmethod
 from dataclasses import dataclass
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.template.loader import render_to_string
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 
@@ -36,6 +36,22 @@ logger = logging.getLogger("daiv.tools")
 # Git trailer token carrying the producing session's URL. A wire format read by `git log`
 # and `git interpret-trailers`, so it stays a literal rather than deriving from BOT_NAME.
 SESSION_TRAILER = "DAIV-Session"
+
+# A trailer line ("Token: value") or its folded continuation (leading whitespace).
+_TRAILER_LINE_RE = re.compile(r"^([A-Za-z0-9-]+:\s|\s+\S)")
+
+
+def append_trailer(commit_message: str, trailer: str) -> str:
+    """Append ``trailer`` to ``commit_message``, joining a trailer block it already ends with.
+
+    git only parses the *last* paragraph for trailers, so opening a new one would strip any
+    ``Co-authored-by``/``Closes`` lines already there of their trailer status.
+    """
+    body = commit_message.rstrip()
+    _, blank_line, last_paragraph = body.rpartition("\n\n")
+    lines = last_paragraph.splitlines() if blank_line else []
+    joiner = "\n" if lines and all(_TRAILER_LINE_RE.match(line) for line in lines) else "\n\n"
+    return f"{body}{joiner}{trailer}"
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,7 @@ class ChangePublisher:
         self.client = RepoClient.create_instance()
         self.sandbox_backend = sandbox_backend
         self.thread_id = thread_id
+        self._site_base_url: str | None = None
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -430,20 +447,24 @@ class GitChangePublisher(ChangePublisher):
     async def _session_link(self, route: str) -> str | None:
         """Absolute URL of ``route`` for the producing session, or None when unavailable.
 
-        The link is cosmetic, so an unroutable thread_id or an unconfigured Sites row degrades
-        to no link rather than losing the commit or the MR.
+        This runs before the commit, so every failure degrades to no link: losing a cosmetic
+        link is always preferable to losing the run's work.
         """
         if not self.thread_id or not self.ctx.config.session_link or not site_settings.session_link_enabled:
             return None
 
         try:
-            return await sync_to_async(build_absolute_url)(reverse(route, kwargs={"thread_id": self.thread_id}))
-        except NoReverseMatch, ObjectDoesNotExist:
-            logger.warning("Could not build a session link for thread_id %r; publishing without it", self.thread_id)
+            if self._site_base_url is None:
+                self._site_base_url = await sync_to_async(build_absolute_url)("")
+            return f"{self._site_base_url}{reverse(route, kwargs={'thread_id': self.thread_id})}"
+        except Exception:
+            logger.warning(
+                "Could not build a session link for thread_id %r; publishing without it", self.thread_id, exc_info=True
+            )
             return None
 
     async def _with_session_trailer(self, commit_message: str) -> str:
-        """Append the session trailer to ``commit_message``, as its own trailing paragraph.
+        """Append the session trailer to ``commit_message``.
 
         Unlike the description link this survives description rewrites and stays attached to the
         commit once it is squashed or cherry-picked elsewhere.
@@ -451,7 +472,7 @@ class GitChangePublisher(ChangePublisher):
         session_url = await self._session_link("session_detail")
         if not session_url:
             return commit_message
-        return f"{commit_message.rstrip()}\n\n{SESSION_TRAILER}: {session_url}"
+        return append_trailer(commit_message, f"{SESSION_TRAILER}: {session_url}")
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

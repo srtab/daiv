@@ -177,6 +177,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
+        context["current_mr"] = cleaned.get("mr") or ""
         context["current_schedule"] = cleaned.get("schedule") or ""
         context["current_batch"] = cleaned.get("batch") or ""
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
@@ -192,6 +193,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_status"],
             context["current_trigger"],
             context["current_repo"],
+            context["current_mr"],
             context["current_schedule"],
             context["current_batch"],
             context["current_range"],

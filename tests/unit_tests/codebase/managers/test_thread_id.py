@@ -14,7 +14,14 @@ from codebase.utils import compute_thread_id
 @pytest.fixture
 def stub_base_init():
     """Skip BaseManager side effects (RepoClient, GitManager) — we exercise __init__ logic only."""
-    with patch.object(BaseManager, "__init__", lambda self, *, runtime_ctx: setattr(self, "ctx", runtime_ctx)):
+    with patch.object(
+        BaseManager,
+        "__init__",
+        lambda self, *, runtime_ctx, thread_id: (
+            setattr(self, "ctx", runtime_ctx),
+            setattr(self, "thread_id", thread_id),
+        ),
+    ):
         yield
 
 

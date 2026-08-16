@@ -46,8 +46,9 @@ def captured_client():
     test can inspect, and the resolved kwargs feed the (patched) downstream agent stack."""
     client = MagicMock()
 
-    def _init(self, *, runtime_ctx):
+    def _init(self, *, runtime_ctx, thread_id):
         self.ctx = runtime_ctx
+        self.thread_id = thread_id
         self.client = client
         self.store = MagicMock()
 

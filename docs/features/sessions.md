@@ -61,6 +61,7 @@ Use the filter controls at the top of the list to narrow results:
 | **Date range** | From / To date pickers |
 | **Schedule** | Pre-applied when navigating from a scheduled job's run count |
 | **Batch** | Pre-applied when viewing a multi-repo submission group (one prompt submitted across several repositories shares a batch ID) |
+| **Merge request** | Pre-applied when arriving from the **view sessions** link in a merge request description. Always paired with a repository, since IIDs are per-project; clearing the repository clears it too |
 
 Filters are combined with AND logic and reflected in the URL query string, so filtered views can be bookmarked or shared.
 
@@ -121,7 +122,18 @@ These selections are fixed at session creation. To use a different model, effort
 
 When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
-When DAIV *opens* the request, its description carries a **view sessions** link. It resolves to the Sessions list filtered to that request, so it covers every session that worked on it — the one that opened it and each later one that addressed a review comment — and keeps working as more are added. Before the request is known the link falls back to the producing session's transcript.
+The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
+
+!!! warning "Expired state"
+    Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
+
+---
+
+## Linking back to sessions
+
+This applies to every session origin — chat, webhooks, scheduled and API runs alike — wherever the agent commits.
+
+When DAIV *opens* a merge/pull request, its description carries a **view sessions** link. It resolves to the Sessions list filtered to that request, so it covers every session that worked on it — the one that opened it and each later one that addressed a review comment — and keeps working as more are added. A thread that produced several requests cannot tell which one the reader came from, so the link falls back to the producing session's transcript rather than guessing; the same fallback applies before any request is known.
 
 Every commit DAIV makes also carries the producing session as a git trailer:
 
@@ -129,12 +141,9 @@ Every commit DAIV makes also carries the producing session as a git trailer:
 DAIV-Session: https://daiv.example.com/dashboard/sessions/<thread_id>/
 ```
 
-Unlike the description, the trailer is per-commit and append-only: it survives a rewritten description, reaches requests DAIV merely adopts (whose description is left untouched), and travels with the commit when it is squashed or cherry-picked.
+Unlike the description, the trailer is per-commit and append-only: it survives a rewritten description, reaches requests DAIV merely adopts (whose description is left untouched), and travels with the commit when it is squashed or cherry-picked. It joins any trailer block the commit message already ends with, so `Co-authored-by` and `Closes` keep working.
 
 Admins can turn both off for the whole instance (**Settings > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
-
-!!! warning "Expired state"
-    Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
 
 ---
 
