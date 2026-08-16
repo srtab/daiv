@@ -248,38 +248,6 @@ class SubagentEventFilter:
             if isinstance(tcid, str) and isinstance(name, str):
                 yield tcid, name, cls._field(tc, "args")
 
-    def _synthesize_unstarted(self, tool_calls: Iterable[tuple[str, str, Any]]) -> list[BaseEvent]:
-        """Build START + (optional ARGS) + END events for every tcid not yet
-        emitted, recording each in ``_synthesized``. Returns a list (not a
-        generator) so callers can simply iterate-and-yield without juggling
-        ``yield from`` inside an async generator.
-        """
-        events: list[BaseEvent] = []
-        for tcid, name, args in tool_calls:
-            if tcid in self._synthesized or tcid in self._natural_started:
-                continue
-            events.append(ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name))
-            if args:
-                # ``default=str`` so a Pydantic model / datetime / other
-                # non-JSON-native object in args doesn't kill the entire chat
-                # stream — better a stringified field than RUN_ERROR.
-                delta = args if isinstance(args, str) else json.dumps(args, default=str)
-                events.append(ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta))
-            events.append(ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid))
-            self._synthesized.add(tcid)
-        return events
-
-    @classmethod
-    def _iter_tool_calls_on(cls, message: Any) -> Iterable[tuple[str, str, Any]]:
-        """Yield ``(tool_call_id, name, args)`` for every well-formed tool_call
-        on a single AIMessage (dict or BaseMessage instance).
-        """
-        for tc in cls._field(message, "tool_calls") or []:
-            tcid = cls._field(tc, "id")
-            name = cls._field(tc, "name")
-            if isinstance(tcid, str) and isinstance(name, str):
-                yield tcid, name, cls._field(tc, "args")
-
     @classmethod
     def _iter_latest_tool_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
         """Yield tool_calls from the snapshot's latest AIMessage. Older AIMessages
