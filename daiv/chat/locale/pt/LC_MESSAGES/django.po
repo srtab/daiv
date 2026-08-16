@@ -27,6 +27,12 @@ msgstr "rascunho"
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
 
+msgid "command"
+msgstr "comando"
+
+msgid "skill"
+msgstr "competência"
+
 msgid "Message DAIV"
 msgstr "Enviar mensagem ao DAIV"
 

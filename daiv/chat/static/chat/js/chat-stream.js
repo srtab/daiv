@@ -124,6 +124,15 @@
     return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
   };
 
+  // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
+  // a space or newline after the token breaks the match and closes the menu.
+  const SLASH_TOKEN_RE = /^\s*\/([\w-]*)$/;
+
+  const loadSlashCatalog = () => {
+    const rows = loadJSONScript("chat-slash-commands", []);
+    return Array.isArray(rows) ? rows : [];
+  };
+
   // English fallbacks for the fragments the composer assembles counts from. The page
   // passes translated ones through ``chat({labels: …})``; these only apply if it doesn't.
   const DEFAULT_LABELS = {
@@ -276,6 +285,11 @@
     // Whether the user changed the selection in this page session. Only then does submit()
     // send one — otherwise an untouched thread keeps its NULL and picks up new servers.
     _mcpTouched: false,
+    // "/" autocomplete: slash commands + global skills, server-rendered into the page.
+    slashCatalog: loadSlashCatalog(),
+    slashDismissed: false,
+    slashIndex: 0,
+    _announceSlashOpen: null,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -400,6 +414,92 @@
       return server.filtered ? `${base} · ${this._labels.filteredTo} ${server.exposed}` : base;
     },
 
+    // ---------- "/" autocomplete --------------------------------------
+
+    get slashToken() {
+      const m = SLASH_TOKEN_RE.exec(this.draftMessage);
+      return m ? m[1].toLowerCase() : null;
+    },
+
+    get slashMatches() {
+      const token = this.slashToken;
+      if (token === null) return [];
+      if (!token) return this.slashCatalog;
+      const starts = [];
+      const contains = [];
+      for (const row of this.slashCatalog) {
+        const name = row.name.toLowerCase();
+        if (name.startsWith(token)) starts.push(row);
+        else if (name.includes(token)) contains.push(row);
+      }
+      return [...starts, ...contains];
+    },
+
+    // A token that matches nothing hides the menu entirely: unlike the MCP filter's
+    // empty row inside a sheet the user opened, this menu is unsolicited.
+    get slashMenuOpen() {
+      return this.slashToken !== null
+        && !this.slashDismissed
+        && !(this.streaming || this.resuming)
+        && this.slashMatches.length > 0;
+    },
+
+    onPromptInput() {
+      this.slashDismissed = false;
+      this.slashIndex = 0;
+    },
+
+    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
+    // preventDefault unconditionally, and plain Enter must keep inserting newlines
+    // whenever the menu is closed.
+    onPromptKeydown(e) {
+      if (!this.slashMenuOpen) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.moveSlashHighlight(1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        this.moveSlashHighlight(-1);
+      } else if ((e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        this.selectHighlightedSlash();
+      } else if (e.key === "Escape") {
+        // The topmost surface consumes Escape — don't let the dock's window-level
+        // closeSheet() listener also fire.
+        e.stopPropagation();
+        this.slashDismissed = true;
+      }
+    },
+
+    moveSlashHighlight(delta) {
+      const count = this.slashMatches.length;
+      if (!count) return;
+      this.slashIndex = (this.slashIndex + delta + count) % count;
+      this.$nextTick(() => {
+        this.$refs.slashList?.querySelector(".env-popover__row--highlighted")
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    },
+
+    selectHighlightedSlash() {
+      const row = this.slashMatches[this.slashIndex];
+      if (row) this.selectSlashCommand(row);
+    },
+
+    // Whole-draft replacement is safe: the menu is only open while the entire draft is
+    // the token. The trailing space breaks SLASH_TOKEN_RE, which closes the menu.
+    selectSlashCommand(row) {
+      this.draftMessage = `/${row.name} `;
+      this.$nextTick(() => {
+        this.autosize();
+        const el = this.$refs.prompt;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    },
+
     applyPolledTurns(turns) {
       // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
       // detached and never publish to the chat relay, so there is no live stream
@@ -443,6 +543,13 @@
 
     init() {
       this._announceOpen = surfaceGroup.join(() => this.closeSheet());
+
+      // Its own surfaceGroup slot: an opening sheet dismisses the menu and vice versa.
+      // $watch fires on transitions only, giving the closed→open-only announce.
+      this._announceSlashOpen = surfaceGroup.join(() => { this.slashDismissed = true; });
+      this.$watch("slashMenuOpen", (open) => {
+        if (open) this._announceSlashOpen();
+      });
 
       // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
       this.now = Date.now();

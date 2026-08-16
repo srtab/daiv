@@ -45,6 +45,7 @@
 .surface-rise,
 .picker-popover,
 .composer-sheet,
+.composer-autocomplete,
 .filter-menu,
 .card__menu-panel {
   animation: surface-rise var(--surface-rise-duration, 180ms) ease-out backwards;
@@ -1893,6 +1894,38 @@ main:has(.chat-shell) {
 
   .repo-chip__caret:hover {
     color: #e5e7eb;
+  }
+
+  /* "/" autocomplete. Not a picker-popover and not a sheet: it spans the composer's own
+     width (no phone overflow to solve) and a bottom sheet would cover the textarea being
+     typed in — so one geometry at every width, anchored above the composer box. */
+
+  .composer-autocomplete {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: #0d1117;
+    box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
+    padding: 8px;
+    --surface-rise-from: 6px;
+  }
+
+  .composer-autocomplete__list {
+    max-height: min(40vh, 320px);
+    overflow-y: auto;
+  }
+
+  .composer-autocomplete__icon {
+    @apply h-3.5 w-3.5 mt-1 shrink-0 opacity-70;
+  }
+
+  .composer-autocomplete__kind {
+    @apply text-[10px] uppercase rounded px-1 py-px shrink-0 bg-white/[0.08] text-gray-300;
+    letter-spacing: 0.04em;
   }
 
   /* Sheets. Same markup at every width: a bottom sheet below 1100px, an anchored
