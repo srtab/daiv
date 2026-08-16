@@ -78,6 +78,33 @@ def _runtime(*, scope=Scope.GLOBAL, bot_username="daiv"):
     return rt
 
 
+def _command_stub(*, resets_thread=False, **execute_kwargs):
+    """A registered command whose ``execute_for_agent`` behaves as the mock kwargs describe."""
+    command = MagicMock()
+    command.resets_thread = resets_thread
+    command.execute_for_agent = AsyncMock(**execute_kwargs)
+    return command
+
+
+async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL, emit=None):
+    """Drive ``abefore_agent`` past the parser with the registry, skill list and event sink stubbed.
+
+    Returns ``(result, emit)``; the command stubs stay addressable through the ``commands`` passed in.
+    """
+    mw = SlashCommandMiddleware(subagents=[])
+    emit = emit if emit is not None else AsyncMock()
+    parsed = SlashCommandCommand(raw=raw, command=raw.lstrip("/"), args=[])
+    with (
+        patch.object(mw, "_extract_slash_command", return_value=parsed),
+        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
+        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=list(skills)),
+        patch("automation.agent.middlewares.slash_commands.adispatch_custom_event", emit),
+    ):
+        registry.get_commands.return_value = [MagicMock(return_value=c) for c in commands]
+        result = await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
+    return result, emit
+
+
 async def test_no_slash_command_returns_none():
     mw = SlashCommandMiddleware(subagents=[])
     state = {"messages": [HumanMessage(content="just a question")]}
@@ -85,25 +112,8 @@ async def test_no_slash_command_returns_none():
 
 
 async def test_executes_builtin_command_and_jumps_to_end():
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.resets_thread = False
-    command.execute_for_agent = AsyncMock(return_value="help text")
-    command_cls = MagicMock(return_value=command)
-
-    state = {"messages": [HumanMessage(content="/help")]}
-    with (
-        patch.object(
-            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/help", command="help", args=[])
-        ),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-        patch(
-            "automation.agent.middlewares.slash_commands._load_global_skill_metadata",
-            return_value=[{"name": "x", "description": "d"}],
-        ),
-    ):
-        registry.get_commands.return_value = [command_cls]
-        result = await mw.abefore_agent(state, _runtime(), {})
+    command = _command_stub(return_value="help text")
+    result, _ = await _run_command(raw="/help", commands=[command], skills=[{"name": "x", "description": "d"}])
 
     assert result["jump_to"] == "end"
     assert isinstance(result["messages"][-1], AIMessage)
@@ -116,22 +126,8 @@ async def test_executes_builtin_command_and_jumps_to_end():
 
 
 async def test_resets_thread_prepends_remove_all():
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.resets_thread = True
-    command.execute_for_agent = AsyncMock(return_value="cleared")
-    command_cls = MagicMock(return_value=command)
-
-    state = {"messages": [HumanMessage(content="/clear")]}
-    with (
-        patch.object(
-            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/clear", command="clear", args=[])
-        ),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=[]),
-    ):
-        registry.get_commands.return_value = [command_cls]
-        result = await mw.abefore_agent(state, _runtime(scope=Scope.ISSUE), {})
+    command = _command_stub(return_value="cleared", resets_thread=True)
+    result, _ = await _run_command(raw="/clear", commands=[command], scope=Scope.ISSUE)
 
     assert result["jump_to"] == "end"
     assert getattr(result["messages"][0], "id", None) == REMOVE_ALL_MESSAGES
@@ -141,93 +137,38 @@ async def test_resets_thread_prepends_remove_all():
 
 
 async def test_command_failure_jumps_to_end_with_error_message():
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.execute_for_agent = AsyncMock(side_effect=RuntimeError("boom"))
-    command_cls = MagicMock(return_value=command)
-
-    state = {"messages": [HumanMessage(content="/help")]}
-    with (
-        patch.object(
-            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/help", command="help", args=[])
-        ),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=[]),
-    ):
-        registry.get_commands.return_value = [command_cls]
-        result = await mw.abefore_agent(state, _runtime(), {})
+    command = _command_stub(side_effect=RuntimeError("boom"))
+    result, emit = await _run_command(raw="/help", commands=[command])
 
     assert result["jump_to"] == "end"
     assert "Failed to execute `/help`." in result["messages"][-1].content
+    # The failure reply streams like any other, else the turn reports the error only on reload.
+    assert emit.await_args.args[1]["message"] == "Failed to execute `/help`."
 
 
 async def test_unknown_command_falls_through_without_jump():
     """An unregistered command must NOT short-circuit — it falls through so the agent handles it."""
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.execute_for_agent = AsyncMock()
-    state = {"messages": [HumanMessage(content="/nope")]}
-    with (
-        patch.object(
-            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/nope", command="nope", args=[])
-        ),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-    ):
-        registry.get_commands.return_value = []
-        result = await mw.abefore_agent(state, _runtime(), {})
+    result, emit = await _run_command(raw="/nope", commands=[])
 
     assert result is None
-    command.execute_for_agent.assert_not_awaited()
+    emit.assert_not_awaited()
 
 
 async def test_ambiguous_command_falls_through_without_executing():
     """More than one command for the same name is ambiguous — fall through, do not execute either."""
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.execute_for_agent = AsyncMock()
-    state = {"messages": [HumanMessage(content="/demo")]}
-    with (
-        patch.object(
-            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/demo", command="demo", args=[])
-        ),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-    ):
-        registry.get_commands.return_value = [MagicMock(command="demo"), MagicMock(command="demo")]
-        result = await mw.abefore_agent(state, _runtime(), {})
+    first, second = _command_stub(), _command_stub()
+    result, _ = await _run_command(raw="/demo", commands=[first, second])
 
     assert result is None
-    command.execute_for_agent.assert_not_awaited()
-
-
-def _emitting_middleware(result: str | Exception):
-    """Middleware wired to a stub command, plus the patches every emit test needs."""
-    mw = SlashCommandMiddleware(subagents=[])
-    command = MagicMock()
-    command.resets_thread = False
-    command.execute_for_agent = AsyncMock(
-        side_effect=result if isinstance(result, Exception) else None,
-        return_value=None if isinstance(result, Exception) else result,
-    )
-    return mw, MagicMock(return_value=command)
-
-
-async def _run_with_emit(mw, command_cls, emit, *, raw="/agents", name="agents"):
-    with (
-        patch.object(mw, "_extract_slash_command", return_value=SlashCommandCommand(raw=raw, command=name, args=[])),
-        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
-        patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=[]),
-        patch("automation.agent.middlewares.slash_commands.adispatch_custom_event", emit),
-    ):
-        registry.get_commands.return_value = [command_cls]
-        return await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(), {"cfg": 1})
+    first.execute_for_agent.assert_not_awaited()
+    second.execute_for_agent.assert_not_awaited()
 
 
 async def test_reply_is_streamed_so_the_chat_turn_is_not_empty():
     """A slash command answers from a state update, so ``ag_ui_langgraph`` never synthesizes
-    TEXT_MESSAGE_* frames for it — without this event the chat turn paints empty (#/agents)."""
-    mw, command_cls = _emitting_middleware("### Available Sub-Agents")
-    emit = AsyncMock()
-    result = await _run_with_emit(mw, command_cls, emit)
+    TEXT_MESSAGE_* frames for it — without this event the chat turn paints empty."""
+    command = _command_stub(return_value="### Available Sub-Agents")
+    result, emit = await _run_command(raw="/agents", commands=[command])
 
     name, payload = emit.await_args.args
     assert name == CustomEventNames.ManuallyEmitMessage.value
@@ -235,25 +176,17 @@ async def test_reply_is_streamed_so_the_chat_turn_is_not_empty():
     assert payload["role"] == "assistant"
     assert emit.await_args.kwargs["config"] == {"cfg": 1}
     # The streamed frame and the checkpointed message are one message, not two: a client that
-    # merges MESSAGES_SNAPSHOT must land on the segment the stream already painted.
+    # reconciles MESSAGES_SNAPSHOT must land on the segment the stream already painted.
     assert result["messages"][-1].id == payload["message_id"]
 
 
-async def test_failure_reply_is_streamed_too():
-    mw, command_cls = _emitting_middleware(RuntimeError("boom"))
-    emit = AsyncMock()
-    result = await _run_with_emit(mw, command_cls, emit)
-
-    assert emit.await_args.args[1]["message"] == "Failed to execute `/agents`."
-    assert result["messages"][-1].content == "Failed to execute `/agents`."
-
-
 async def test_unstreamable_reply_still_completes_the_command():
-    """No callback-carrying run (unit test, future non-streamed caller) means no parent run to
-    attach to. The reply still reaches the checkpoint, so it surfaces on reload."""
-    mw, command_cls = _emitting_middleware("agents listed")
-    emit = AsyncMock(side_effect=RuntimeError("no parent run id"))
-    result = await _run_with_emit(mw, command_cls, emit)
+    """A caller running outside a graph invocation has no parent run to dispatch against. The
+    reply still reaches the checkpoint, so it surfaces on reload."""
+    command = _command_stub(return_value="agents listed")
+    result, _ = await _run_command(
+        raw="/agents", commands=[command], emit=AsyncMock(side_effect=RuntimeError("no parent run id"))
+    )
 
     assert result["jump_to"] == "end"
     assert result["messages"][-1].content == "agents listed"
