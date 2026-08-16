@@ -9,6 +9,7 @@ Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of
 default_branch: main
 context_file_name: "AGENTS.md"
 suggest_context_file: true
+session_link: true
 
 # Access control
 allowed_usernames:
@@ -44,11 +45,12 @@ models:
 
 ## Repository settings
 
-| Option                 | Type          | Default            | Description                                                                                                                                                                                             |
-| ---------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                |
-| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                    |
-| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://srtab.github.io/daiv/dev/features/issue-addressing/#agentsmd-suggestion). |
+| Option                 | Type          | Default            | Description                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                                                                                     |
+| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                                                                                         |
+| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://srtab.github.io/daiv/dev/features/issue-addressing/#agentsmd-suggestion).                                                                      |
+| `session_link`         | `bool`        | `true`             | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](https://srtab.github.io/daiv/dev/features/sessions/#linking-back-to-sessions). |
 
 Tip
 
