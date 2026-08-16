@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
-from ag_ui_langgraph.types import CustomEventNames
 from deepagents.middleware.skills import SkillMetadata, _parse_skill_metadata
 from langchain.agents.middleware import AgentMiddleware, hook_config
-from langchain_core.callbacks.manager import adispatch_custom_event
-from langchain_core.messages import AIMessage, AnyMessage, RemoveMessage  # noqa: TC002
+from langchain_core.messages import AnyMessage, RemoveMessage  # noqa: TC002
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.skills import DAIVSkillsState
-from automation.agent.utils import extract_text_content
+from automation.agent.utils import extract_text_content, streamed_assistant_message
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
@@ -65,36 +62,6 @@ def _load_global_skill_metadata() -> list[SkillMetadata]:
             if meta is not None:
                 skills[meta["name"]] = meta
     return list(skills.values())
-
-
-async def _streamed_reply(content: str, config: RunnableConfig) -> AIMessage:
-    """Build the assistant reply, streaming it to the chat as it is minted.
-
-    A slash command answers from a state update, never from the model, and ``ag_ui_langgraph``
-    only turns model tokens (``on_chat_model_stream``) or this custom event into the
-    ``TEXT_MESSAGE_*`` frames the chat client renders. Without it the reply reaches the browser
-    only inside the terminal ``MESSAGES_SNAPSHOT``, which ``chat-stream.js`` ignores — the turn
-    paints empty until the page is reloaded from the checkpoint.
-
-    The event name is ``ag_ui_langgraph``'s own, *not* ``copilotkit_emit_message``: copilotkit's
-    ``copilotkit_``-prefixed handler builds the same three frames and then drops them, because it
-    discards what ``_dispatch_event`` returns instead of yielding it.
-
-    The frame and the returned message share an id, so a client that reconciles
-    ``MESSAGES_SNAPSHOT`` lands on the segment the stream already painted. Streaming is
-    best-effort: every graph invocation carries a parent run to dispatch against, so the guard
-    only covers a caller running outside one — and a cosmetic frame must not fail the command.
-    """
-    message = AIMessage(id=str(uuid.uuid4()), content=content)
-    try:
-        await adispatch_custom_event(
-            CustomEventNames.ManuallyEmitMessage.value,
-            {"message_id": message.id, "message": content, "role": "assistant"},
-            config=config,
-        )
-    except Exception:
-        logger.warning("Could not stream the slash command reply; it will surface on reload", exc_info=True)
-    return message
 
 
 class SlashCommandMiddleware(AgentMiddleware):
@@ -157,14 +124,15 @@ class SlashCommandMiddleware(AgentMiddleware):
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
             # Do NOT honor resets_thread here: if execute_for_agent raised, any checkpointer-side wipe
             # may not have run, so keeping in-memory history avoids diverging from the Redis checkpoint.
-            reply = await _streamed_reply(f"Failed to execute `{slash_command.raw}`.", config)
+            reply = await streamed_assistant_message(f"Failed to execute `{slash_command.raw}`.", config)
             return {"messages": [reply], "jump_to": "end"}
         else:
             logger.info("[%s] `%s` slash command completed", self.name, slash_command.raw)
             # resets_thread commands (e.g. /clear) must drop in-memory history, else the final
             # checkpoint write re-persists every prior message under the same thread_id.
             reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
-            update: dict = {"messages": [*reset_prefix, await _streamed_reply(result, config)], "jump_to": "end"}
+            reply = await streamed_assistant_message(result, config)
+            update: dict = {"messages": [*reset_prefix, reply], "jump_to": "end"}
             if command.resets_thread:
                 # The wipe also clears private state: a read-only skill (e.g. /plan sets
                 # active_skill_mode="read-only") must not survive onto the fresh thread, where

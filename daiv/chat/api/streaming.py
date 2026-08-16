@@ -9,12 +9,21 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
+from ag_ui.core.events import (
+    BaseEvent,
+    CustomEvent,
+    EventType,
+    RunErrorEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
 
+from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
@@ -148,6 +157,46 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
                 agui_event.raw_event = {"metadata": provenance}
             yield agui_event
+
+        for text_event in self._assistant_message_frames(event):
+            yield text_event
+
+    @staticmethod
+    def _assistant_message_frames(event: Any) -> list[BaseEvent]:
+        """Translate DAIV's ``ASSISTANT_MESSAGE_EVENT`` into the text frames the chat renders.
+
+        An assistant message the agent produced without a model call (a slash command reply, a
+        loop-breaker stop) never streams: no ``on_chat_model_stream`` fires, so upstream builds no
+        ``TEXT_MESSAGE_*`` frames and the message surfaces only in the terminal
+        ``MESSAGES_SNAPSHOT``, which the client ignores. ``automation.agent.utils`` emits this
+        event alongside the message; translating it here keeps every AG-UI concern inside
+        ``daiv/chat`` and leaves the event inert on the webhook and MCP transports.
+
+        Upstream's own ``manually_emit_message`` is deliberately not reused: it would put an
+        ``ag_ui_langgraph`` import in the transport-agnostic agent package. Copilotkit's
+        ``copilotkit_``-prefixed variant is worse — its handler builds these three frames and then
+        discards them, because it drops what ``_dispatch_event`` returns instead of yielding it.
+        """
+        if not isinstance(event, dict) or event.get("event") != "on_custom_event":
+            return []
+        if event.get("name") != ASSISTANT_MESSAGE_EVENT:
+            return []
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return []
+        message_id, message = data.get("message_id"), data.get("message")
+        if not isinstance(message_id, str) or not isinstance(message, str):
+            logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
+            return []
+        return [
+            TextMessageStartEvent(
+                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=message_id, raw_event=event
+            ),
+            TextMessageContentEvent(
+                type=EventType.TEXT_MESSAGE_CONTENT, message_id=message_id, delta=message, raw_event=event
+            ),
+            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=message_id, raw_event=event),
+        ]
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
         # Upstream calls ``graph.config_schema().schema()`` which recurses into

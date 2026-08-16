@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from ag_ui_langgraph.types import CustomEventNames
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, _load_global_skill_metadata
 from codebase.base import Scope
 from slash_commands.parser import SlashCommandCommand
@@ -98,7 +98,7 @@ async def _run_command(*, raw, commands, skills=(), scope=Scope.GLOBAL, emit=Non
         patch.object(mw, "_extract_slash_command", return_value=parsed),
         patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
         patch("automation.agent.middlewares.slash_commands._load_global_skill_metadata", return_value=list(skills)),
-        patch("automation.agent.middlewares.slash_commands.adispatch_custom_event", emit),
+        patch("automation.agent.utils.adispatch_custom_event", emit),
     ):
         registry.get_commands.return_value = [MagicMock(return_value=c) for c in commands]
         result = await mw.abefore_agent({"messages": [HumanMessage(content=raw)]}, _runtime(scope=scope), {"cfg": 1})
@@ -165,31 +165,17 @@ async def test_ambiguous_command_falls_through_without_executing():
 
 
 async def test_reply_is_streamed_so_the_chat_turn_is_not_empty():
-    """A slash command answers from a state update, so ``ag_ui_langgraph`` never synthesizes
+    """A slash command answers from a state update, never from the model, so nothing synthesizes
     TEXT_MESSAGE_* frames for it — without this event the chat turn paints empty."""
     command = _command_stub(return_value="### Available Sub-Agents")
     result, emit = await _run_command(raw="/agents", commands=[command])
 
     name, payload = emit.await_args.args
-    assert name == CustomEventNames.ManuallyEmitMessage.value
+    assert name == ASSISTANT_MESSAGE_EVENT
     assert payload["message"] == "### Available Sub-Agents"
-    assert payload["role"] == "assistant"
+    # The hook is handed a config; pass it rather than resolving the ambient one.
     assert emit.await_args.kwargs["config"] == {"cfg": 1}
-    # The streamed frame and the checkpointed message are one message, not two: a client that
-    # reconciles MESSAGES_SNAPSHOT must land on the segment the stream already painted.
     assert result["messages"][-1].id == payload["message_id"]
-
-
-async def test_unstreamable_reply_still_completes_the_command():
-    """A caller running outside a graph invocation has no parent run to dispatch against. The
-    reply still reaches the checkpoint, so it surfaces on reload."""
-    command = _command_stub(return_value="agents listed")
-    result, _ = await _run_command(
-        raw="/agents", commands=[command], emit=AsyncMock(side_effect=RuntimeError("no parent run id"))
-    )
-
-    assert result["jump_to"] == "end"
-    assert result["messages"][-1].content == "agents listed"
 
 
 def test_extract_slash_command_requires_human_message():

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import base64
+import logging
 import re
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from langchain_core.callbacks.manager import adispatch_custom_event
+from langchain_core.messages import AIMessage
 from langchain_core.messages.content import create_image_block
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
@@ -15,8 +19,11 @@ from codebase.clients import RepoClient
 from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
+from .constants import ASSISTANT_MESSAGE_EVENT
 from .schemas import Image
 from .validators import AgentConfigurationError
+
+logger = logging.getLogger("daiv.agent")
 
 if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
@@ -329,6 +336,34 @@ def build_langsmith_config(
         config_kwargs["configurable"] = configurable
 
     return RunnableConfig(**config_kwargs)
+
+
+async def streamed_assistant_message(content: str, config: RunnableConfig | None = None) -> AIMessage:
+    """Build an assistant message the agent produced without a model call, streaming it as it is minted.
+
+    A message returned from a middleware hook never passes through the model, so no
+    ``on_chat_model_stream`` fires for it, and the chat's AG-UI translator has nothing to build
+    ``TEXT_MESSAGE_*`` frames from. The reply then reaches the browser only inside the terminal
+    ``MESSAGES_SNAPSHOT``, which ``chat-stream.js`` ignores, and the turn paints empty until the
+    page is reloaded from the checkpoint. This event is what ``chat/api/streaming.py`` translates
+    into those frames; every other transport ignores it.
+
+    The frame and the returned message share an id, so a client that reconciles
+    ``MESSAGES_SNAPSHOT`` lands on the segment the stream already painted.
+
+    Pass ``config`` wherever the hook is handed one; it falls back to the ambient runnable config
+    otherwise. Streaming is best-effort — every graph invocation carries a parent run to dispatch
+    against, so the guard only covers a caller running outside one, and a cosmetic frame must
+    never fail the work that produced the message.
+    """
+    message = AIMessage(id=str(uuid.uuid4()), content=content)
+    try:
+        await adispatch_custom_event(
+            ASSISTANT_MESSAGE_EVENT, {"message_id": message.id, "message": content}, config=config
+        )
+    except Exception:
+        logger.warning("Could not stream an assistant message; it will surface on reload", exc_info=True)
+    return message
 
 
 def extract_body_from_frontmatter(frontmatter_text: str) -> str:

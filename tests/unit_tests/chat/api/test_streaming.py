@@ -17,6 +17,7 @@ import pytest
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
 from langchain_core.messages import AIMessageChunk
 
+from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 
@@ -377,6 +378,46 @@ def test_get_stream_kwargs_overrides_configurable_context_with_runtime_ctx():
     )
 
     assert kwargs["context"] is runtime_ctx
+
+
+def _assistant_event(**data):
+    return {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": data}
+
+
+def test_assistant_message_event_becomes_text_frames():
+    """A message the agent produced without a model call (slash command reply, loop-breaker stop)
+    streams only through this translation — otherwise it reaches the client only in the terminal
+    MESSAGES_SNAPSHOT, which chat-stream.js ignores, and the turn paints empty."""
+    frames = RuntimeContextLangGraphAGUIAgent._assistant_message_frames(
+        _assistant_event(message_id="m-1", message="### Available Sub-Agents")
+    )
+
+    assert [f.type for f in frames] == [
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+    ]
+    assert {f.message_id for f in frames} == {"m-1"}
+    assert frames[0].role == "assistant"
+    assert frames[1].delta == "### Available Sub-Agents"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"event": "on_chat_model_stream", "name": ASSISTANT_MESSAGE_EVENT, "data": {}},
+        {"event": "on_custom_event", "name": "some_other_event", "data": {}},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": None},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message": "no id"}},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message_id": "m-1"}},
+        "not-a-dict",
+    ],
+    ids=["wrong-event", "wrong-name", "no-data", "missing-id", "missing-message", "not-a-dict"],
+)
+def test_assistant_message_frames_ignores_anything_else(event):
+    """Every other event flows through untouched; a malformed payload is dropped rather than
+    emitting frames the client cannot close."""
+    assert RuntimeContextLangGraphAGUIAgent._assistant_message_frames(event) == []
 
 
 def test_streamer_post_init_rejects_thread_id_mismatch():

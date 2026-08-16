@@ -45,6 +45,11 @@ SUBAGENTS_SOURCES = [AGENTS_SUBAGENTS_PATH]
 # Path where the memory is stored in repository.
 AGENTS_MEMORY_PATH = ".agents/AGENTS.md"
 
+# Custom LangGraph event carrying an assistant message the agent produced *without* a model call
+# (a slash command reply, a loop-breaker stop). ``chat/api/streaming.py`` translates it into the
+# AG-UI text frames the chat renders; the webhook and MCP transports ignore it.
+ASSISTANT_MESSAGE_EVENT = "daiv_assistant_message"
+
 
 class ModelName(StrEnum):
     """
