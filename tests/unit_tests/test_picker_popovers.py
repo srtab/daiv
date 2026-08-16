@@ -26,8 +26,9 @@ SURFACE_SCRIPTS = (
     "sessions/static/sessions/js/prompt-box.js",
     "schedules/static/schedules/js/subscriber-picker.js",
     "chat/static/chat/js/chat-stream.js",
+    "core/static/core/js/config-section-picker.js",
 )
-EXPECTED_SURFACES = 7
+EXPECTED_SURFACES = 8
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.

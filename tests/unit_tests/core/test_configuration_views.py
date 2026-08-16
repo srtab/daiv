@@ -124,6 +124,44 @@ class TestGetContent:
         assert 'placeholder="10240"' in content  # memory_max_bytes default
 
 
+class TestSectionPicker:
+    """Below `lg` the sidebar would stack 13 links and 5 headings above the form it
+    navigates to, leaving the first field off the screen on every phone — and again after
+    every switch, each section being a full page load. The same list renders as the sheet
+    the other pickers already use, above the form rather than in front of it."""
+
+    def test_trigger_names_where_you_are(self, client, admin_user, group_url):
+        # The sidebar marks the current section with a highlight, which says nothing until
+        # you have scrolled to it. The trigger is the only thing on the first screen that
+        # states it, so it carries the category as well as the title.
+        client.force_login(admin_user)
+        content = client.get(group_url("web_search")).content.decode()
+        assert "picker-popover" in content
+        assert "Agent tools" in content
+        assert "Web Search" in content
+
+    def test_offers_every_section(self, client, admin_user, url):
+        # Both lists render every group: a sheet holding a subset would strand the missing
+        # sections at widths where the sidebar is hidden.
+        client.force_login(admin_user)
+        content = client.get(url).content.decode()
+        for group in SiteConfiguration.get_field_groups():
+            target = reverse("site_configuration", kwargs={"group_key": group.key})
+            assert content.count(f'href="{target}"') == 2, f"{group.key} is missing from a section list"
+
+    def test_exactly_one_section_list_shows_at_any_width(self, client, admin_user, url):
+        client.force_login(admin_user)
+        content = client.get(url).content.decode()
+        assert 'class="relative lg:hidden"' in content
+        assert 'class="hidden lg:flex flex-col"' in content
+
+    def test_loads_the_component_that_opens_it(self, client, admin_user, url):
+        # Without the script the trigger still renders and still looks pressable, so a
+        # dropped `<script>` is invisible until someone taps it.
+        client.force_login(admin_user)
+        assert "core/js/config-section-picker.js" in client.get(url).content.decode()
+
+
 class TestBooleanCheckboxField:
     def test_checked_returns_true(self):
         from core.forms import _BooleanCheckboxField
