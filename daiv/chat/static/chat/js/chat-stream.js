@@ -126,7 +126,7 @@
 
   // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
   // a space or newline after the token breaks the match and closes the menu.
-  const SLASH_TOKEN_RE = /^\s*\/([\w-]*)$/;
+  const SLASH_TOKEN_RE = /^\s*\/([a-z0-9-]*)$/;
 
   // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
   // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
