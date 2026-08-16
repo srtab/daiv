@@ -16,10 +16,11 @@ import re
 
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
-# Alpine components that own a `.picker-popover` or a composer sheet — every surface that
-# below 1100px renders pinned to the bottom edge, where a second one would stack. The count
-# below is the tripwire: an allowlist alone can only catch a regression in what it already
-# lists, never the new surface that forgot to enrol.
+# Alpine components that own a floating surface — one that opens over the page and so has
+# to take the single `surfaceGroup` slot, whether it renders as a bottom sheet, an anchored
+# popover, or the composer-width autocomplete. The count below is the tripwire: an allowlist
+# alone can only catch a regression in what it already lists, never the new surface that
+# forgot to enrol.
 SURFACE_SCRIPTS = (
     "sandbox_envs/static/sandbox_envs/js/env-picker.js",
     "automation/static/automation/js/agent-picker.js",
@@ -28,7 +29,15 @@ SURFACE_SCRIPTS = (
     "chat/static/chat/js/chat-stream.js",
     "core/static/core/js/config-section-picker.js",
 )
-EXPECTED_SURFACES = 8
+EXPECTED_SURFACES = 9
+
+# Surfaces that carry their own container class (`.picker-popover` is matched by CONTAINER
+# instead). A new kind of surface belongs here, not just on the `surface-rise` roster. The
+# lookahead keeps the match on the container itself, so `composer-sheet__body` and
+# `composer-sheet-anchor` don't count and adding a modifier to a container doesn't stop it
+# counting.
+SURFACE_CLASSES = ("composer-sheet", "composer-autocomplete")
+SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLASSES)))
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
@@ -123,13 +132,24 @@ def test_a_new_surface_forces_a_look_at_the_group():
     found = sum(len(CONTAINER.findall(source)) for source in _templates_with_popovers().values())
     for path in iter_template_files():
         if path.suffix == ".html":
-            found += path.read_text(encoding="utf-8").count('class="composer-sheet ')
+            found += len(SURFACE_CLASS.findall(path.read_text(encoding="utf-8")))
 
     assert found == EXPECTED_SURFACES, (
         f"floating surfaces went from {EXPECTED_SURFACES} to {found} — enrol the new one in "
         f"`surfaceGroup` (see core/js/surface-group.js), add its script to SURFACE_SCRIPTS, and "
         f"update EXPECTED_SURFACES"
     )
+
+
+def test_every_surface_class_is_on_the_surface_rise_roster():
+    """A surface that appears without motion reads as a repaint glitch next to the ones that
+    rise; membership is the one grouped rule at the top of input.css."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    roster_start = css.index(".surface-rise,")
+    entries = {part.strip() for part in css[roster_start : css.index("{", roster_start)].split(",")}
+
+    missing = [name for name in (*SURFACE_CLASSES, "picker-popover") if f".{name}" not in entries]
+    assert not missing, f"not on the `surface-rise` roster in input.css: {missing}"
 
 
 def test_the_group_helper_loads_before_the_component_definitions():

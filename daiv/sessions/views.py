@@ -41,6 +41,7 @@ from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.transcript import annotate_transcript
+from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -295,6 +296,8 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         )
 
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
+
+        ctx["slash_command_rows"] = composer_command_rows()
 
         if session is None:
             ctx.update({

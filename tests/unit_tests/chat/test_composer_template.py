@@ -17,6 +17,7 @@ import pytest
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
+from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
 def _create_session(user, **kwargs) -> Session:
@@ -160,3 +161,72 @@ def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
     sheet = html[sheet_start : html.index("composer-sheet composer-sheet--progress")]
     assert sheet.count("sheet-disclosure") >= 2
     assert not POPOVER_CONTAINER.search(sheet)
+
+
+COMMAND_MENU = DAIV_DIR / "chat" / "templates" / "chat" / "_command_menu.html"
+CHAT_STREAM_JS = DAIV_DIR / "chat" / "static" / "chat" / "js" / "chat-stream.js"
+
+
+@pytest.mark.django_db
+def test_composer_renders_the_command_autocomplete(member_client, member_user):
+    """The "/" menu ships on both the empty hero state and an existing thread, seeded by
+    the ``chat-slash-commands`` json_script; ``@mousedown.prevent`` is what keeps the
+    textarea focused through a row click."""
+    hero = _render_new_chat(member_client)
+    thread = _render_thread(member_client, _create_session(member_user))
+
+    for html in (hero, thread):
+        assert "composer-autocomplete" in html
+        assert "chat-slash-commands" in html
+        assert "slashMenuOpen" in html
+        assert "@mousedown.prevent" in html
+
+
+def test_autocomplete_is_not_a_picker_popover_or_sheet():
+    """The menu spans the composer's own width, so the phone-overflow problem that forces
+    trigger-anchored pickers into bottom sheets never applies — and a bottom sheet would
+    cover the textarea being typed in."""
+    source = COMMAND_MENU.read_text(encoding="utf-8")
+
+    assert not POPOVER_CONTAINER.search(source)
+    assert 'class="composer-sheet ' not in source
+    assert "x-transition" not in source
+
+
+@pytest.mark.django_db
+def test_autocomplete_rows_are_options_the_textarea_drives(member_client):
+    """Enter rewrites the field, so the field has to say what it is bound to. Rows are
+    options rather than tab stops — Shift+Tab must not land inside the menu."""
+    html = _render_new_chat(member_client)
+
+    assert 'role="listbox"' in html
+    assert 'role="option"' in html
+    assert 'aria-controls="chat-command-menu"' in html
+    assert ':aria-activedescendant="slashMenuOpen ?' in html
+    assert 'tabindex="-1"' in html
+
+
+def test_autocomplete_never_steals_a_key_it_was_not_offered():
+    """Two ways the menu could eat a keystroke meant for the draft: an IME committing a
+    candidate with Enter, and a re-armed menu after the user dismissed it."""
+    js = CHAT_STREAM_JS.read_text(encoding="utf-8")
+
+    assert "e.isComposing" in js
+    assert "if (this.slashToken === null) this.slashDismissed = false;" in js
+
+
+def test_autocomplete_kind_badge_avoids_a_js_string_literal():
+    """A translation carrying an apostrophe would close the literal an ``x-text`` ternary
+    compiles, so the two words render as sibling elements instead."""
+    source = COMMAND_MENU.read_text(encoding="utf-8")
+
+    assert "? '{% translate" not in source
+
+
+def test_autocomplete_announces_via_its_own_surface_group_slot():
+    """One slot per surface: the menu must not share the sheets' close callback, or
+    opening it would not dismiss an open sheet (and vice versa)."""
+    js = CHAT_STREAM_JS.read_text(encoding="utf-8")
+
+    assert "surfaceGroup.join(() => this.closeSheet())" in js
+    assert "surfaceGroup.join(() => { this.slashDismissed = true; })" in js

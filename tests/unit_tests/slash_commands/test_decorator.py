@@ -10,15 +10,15 @@ class TestSlashCommandDecorator:
         actions = [MagicMock()]
 
         async def execute_for_agent(self, *, args: str, **kwargs) -> str:
-            return "test_command"
+            return "test-command"
 
     def test_decorator_with_valid_command(self):
         """Test that decorator properly registers a valid slash command."""
         with patch("slash_commands.decorator.slash_command_registry") as mock_registry:
-            slash_command(command="test_command", scopes=[Scope.ISSUE])(self.DecoratorCommand)
+            slash_command(command="test-command", scopes=[Scope.ISSUE])(self.DecoratorCommand)
 
             # Verify the decorator called register with correct parameters
-            mock_registry.register.assert_called_once_with(self.DecoratorCommand, "test_command", [Scope.ISSUE])
+            mock_registry.register.assert_called_once_with(self.DecoratorCommand, "test-command", [Scope.ISSUE])
 
             # Verify the class is returned unchanged
             assert self.DecoratorCommand.__name__ == "DecoratorCommand"
@@ -28,9 +28,9 @@ class TestSlashCommandDecorator:
         with patch("slash_commands.decorator.slash_command_registry") as mock_registry:
             scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
 
-            slash_command(command="multi_scope_command", scopes=scopes)(self.DecoratorCommand)
+            slash_command(command="multi-scope-command", scopes=scopes)(self.DecoratorCommand)
 
-            mock_registry.register.assert_called_once_with(self.DecoratorCommand, "multi_scope_command", scopes)
+            mock_registry.register.assert_called_once_with(self.DecoratorCommand, "multi-scope-command", scopes)
 
     def test_decorator_can_be_applied_to_multiple_classes(self):
         """Test that decorator can be applied to multiple different classes."""
@@ -57,11 +57,11 @@ class TestSlashCommandDecorator:
                 def shared_method(self):
                     return "shared"
 
-            @slash_command(command="inherited_command", scopes=[Scope.ISSUE])
+            @slash_command(command="inherited-command", scopes=[Scope.ISSUE])
             class InheritedCommand(BaseCommand):
                 pass
 
-            mock_registry.register.assert_called_once_with(InheritedCommand, "inherited_command", [Scope.ISSUE])
+            mock_registry.register.assert_called_once_with(InheritedCommand, "inherited-command", [Scope.ISSUE])
 
             # Verify inheritance still works
             command = InheritedCommand(scope=Scope.ISSUE, repo_id="repo1", bot_username="bot")

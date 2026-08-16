@@ -144,6 +144,25 @@ def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client
 
 
 @pytest.mark.django_db
+def test_detail_seeds_the_slash_command_catalog(member_client, member_user):
+    session = _create_session(user=member_user)
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+    assert resp.status_code == 200
+    assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
+
+
+@pytest.mark.django_db
+def test_new_chat_seeds_the_slash_command_catalog(member_client):
+    """The catalog must be set above the ``session is None`` early return: the "/" menu
+    has to work on the very first message, before any thread exists."""
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_new_chat"))
+    assert resp.status_code == 200
+    assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
+
+
+@pytest.mark.django_db
 def test_detail_with_live_checkpoint_renders_transcript(member_client, member_user):
     from langchain_core.messages import AIMessage
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from inspect import isclass
 from typing import TYPE_CHECKING
 
+from skills.constants import SKILL_NAME_RE
+
 from .base import SlashCommand
 
 if TYPE_CHECKING:
@@ -32,6 +34,11 @@ class SlashCommandRegistry:
         )
         assert command_cls not in self._registry.values(), f"{command_cls.__name__} is already registered."
         assert command not in self._registry, f"{command} is already registered."
+        # Command names share the skill-name charset (SKILL_NAME_RE): the chat composer's
+        # "/" autocomplete matches that exact set, so a name outside it is unreachable there.
+        assert SKILL_NAME_RE.fullmatch(command), (
+            f"{command!r} is not a valid command name (must match {SKILL_NAME_RE.pattern})"
+        )
 
         command_cls.command = command
         command_cls.scopes = scopes
