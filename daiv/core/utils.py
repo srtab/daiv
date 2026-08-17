@@ -59,6 +59,23 @@ def is_git_ref_not_found_text(text: str) -> bool:
     return "not found in upstream" in text.lower()
 
 
+def is_transient_platform_error(e: Exception) -> bool:
+    """True for a 5xx/429 or transport-layer error from the git platform — self-healing next try.
+
+    Single source of truth shared by the repo-access-sync cron (``codebase.tasks``) and the
+    clone-token self-heal (``codebase.clients.gitlab.clone_tokens``) so both agree on what a
+    transient platform failure looks like. ``OSError`` covers transport errors raised by the
+    HTTP layer (``requests.RequestException`` subclasses ``IOError``→``OSError``) as well as raw
+    connection/timeout failures; the status check duck-types both ``GithubException.status`` and
+    ``GitlabError.response_code``. Auth failures (401/403) and other 4xx are non-transient and
+    left for the caller to escalate.
+    """
+    if isinstance(e, OSError):
+        return True
+    status = getattr(e, "status", None) or getattr(e, "response_code", None)
+    return status is not None and (status == 429 or status >= 500)  # noqa: PLR2004
+
+
 def build_absolute_url(path: str) -> str:
     """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()

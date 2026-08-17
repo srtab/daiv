@@ -9,6 +9,8 @@ from django.core.cache import cache
 import requests
 from gitlab.exceptions import GitlabAuthenticationError, GitlabError
 
+from core.utils import is_transient_platform_error
+
 if TYPE_CHECKING:
     from gitlab import Gitlab
 
@@ -103,7 +105,11 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
             project_pk,
             e,
         )
-        return None, CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT if _is_transient(e) else CLONE_TOKEN_UNAVAILABLE_TIMEOUT
+        if is_transient_platform_error(e):
+            cache_timeout = CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT
+        else:
+            cache_timeout = CLONE_TOKEN_UNAVAILABLE_TIMEOUT
+        return None, cache_timeout
     if not (secret := getattr(token, "token", None)):
         # The create call succeeded, so GitLab now holds a token it never disclosed to us.
         logger.warning(
@@ -114,9 +120,3 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
         )
         return None, CLONE_TOKEN_UNAVAILABLE_TIMEOUT
     return secret, CLONE_TOKEN_CACHE_TIMEOUT
-
-
-def _is_transient(e: GitlabError | requests.RequestException) -> bool:
-    if isinstance(e, requests.RequestException):
-        return True
-    return e.response_code == 429 or (e.response_code or 0) >= 500  # noqa: PLR2004

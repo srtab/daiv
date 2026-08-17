@@ -15,21 +15,13 @@ from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
-from core.utils import locked_task
+from core.utils import is_transient_platform_error, locked_task
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.tasks")
-
-
-def _is_transient_platform_error(e: Exception) -> bool:
-    """A 5xx/429 or transport-layer error from the git platform — self-healing next cycle."""
-    if isinstance(e, OSError):
-        return True
-    status = getattr(e, "status", None) or getattr(e, "response_code", None)
-    return status is not None and (status == 429 or status >= 500)  # noqa: PLR2004
 
 
 def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
@@ -174,7 +166,7 @@ def sync_repository_access_cron_task():
                 RepositoryAccess.objects.bulk_create(rows)
         except Exception as e:
             failures += 1
-            if _is_transient_platform_error(e):
+            if is_transient_platform_error(e):
                 logger.warning("Repository access sync: failed to sync %s (keeping previous rows): %s", repo.slug, e)
             else:
                 logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
