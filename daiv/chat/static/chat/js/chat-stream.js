@@ -167,6 +167,13 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
+  // Relay entries are Redis stream ids ("<unix-ms>-<seq>") and every SSE data frame carries
+  // its own, so a replayed event is timed by when it was published, not when it arrived.
+  const frameTime = (lastEventId) => {
+    const ms = Number.parseInt(String(lastEventId || "").split("-")[0], 10);
+    return Number.isFinite(ms) && ms > 0 ? ms : Date.now();
+  };
+
   const pickPath = (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
@@ -256,6 +263,9 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
+    // Publish time of the last relay frame, so a thought closed by the turn ending is
+    // stamped on the same clock its start came from (client/server skew otherwise leaks).
+    _lastFrameAt: 0,
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
@@ -637,7 +647,8 @@
     async _resumeRun(runId) {
       // LangChain message ids (turn.id) and tool_call ids from the hydrated
       // checkpoint are the same ids the AG-UI events carry — anything already
-      // rendered server-side gets skipped during replay.
+      // rendered server-side gets skipped during replay. Reasoning is the
+      // exception; ``_dropReplayedThinking`` handles it positionally.
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
@@ -683,8 +694,13 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          if (this._isReplayDuplicate(evt)) return;
-          this.dispatch(evt, turn);
+          const at = frameTime(event.lastEventId);
+          this._lastFrameAt = at;
+          if (this._isReplayDuplicate(evt)) {
+            this._dropReplayedThinking(turn);
+            return;
+          }
+          this.dispatch(evt, turn, at);
         };
         source.addEventListener("end", (event) => {
           let reason = "finished";
@@ -712,13 +728,30 @@
       return false;
     },
 
+    // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
+    // in no checkpoint — so replayed thoughts are recognized by position, not by id.
+    _dropReplayedThinking(turn) {
+      const kept = turn.segments.filter((s) => s.type !== "thinking");
+      if (kept.length === turn.segments.length) return;
+      turn.segments = kept;
+      // Both maps hold positions into ``segments``; dropping a segment ahead of a tool card
+      // would otherwise point later ARGS/RESULT deltas at the wrong one.
+      this._reasoningIndex.clear();
+      this._toolIndex.clear();
+      kept.forEach((seg, idx) => {
+        if (seg.id && (seg.type === "tool_call" || seg.type === "publish_phase")) {
+          this._toolIndex.set(seg.id, idx);
+        }
+      });
+    },
+
     _finishTurn(turn, reason) {
       turn.streaming = false;
       turn.segments.forEach((s) => {
         if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
-          s.endedAt = Date.now();
+          s.endedAt = Math.max(this._lastFrameAt || Date.now(), s.startedAt || 0);
         }
       });
       // Terminal reasons that leave the turn in an error state ("finished" is
@@ -736,6 +769,7 @@
       this.streaming = false;
       this._activeRun = null;
       this._replayDedup = null;
+      this._lastFrameAt = 0;
       this.scrollToBottom();
     },
 
@@ -1168,7 +1202,7 @@
       el.classList.add("chat-tool__highlight");
     },
 
-    dispatch(evt, turn) {
+    dispatch(evt, turn, at = Date.now()) {
       const type = evt.type;
 
       if (type === AGUI.TEXT_MESSAGE_START) {
@@ -1186,7 +1220,7 @@
           type: "thinking",
           id: evt.messageId,
           content: "",
-          startedAt: Date.now(),
+          startedAt: at,
           endedAt: null,
           status: "running",
         });
@@ -1200,7 +1234,7 @@
         const seg = idx != null ? turn.segments[idx] : null;
         if (seg) {
           seg.status = "done";
-          seg.endedAt = Date.now();
+          seg.endedAt = at;
         }
       } else if (type === AGUI.TOOL_CALL_START) {
         // ag_ui_langgraph re-emits START/ARGS/END from OnToolEnd whenever its
