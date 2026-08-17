@@ -167,13 +167,6 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  // Relay entries are Redis stream ids ("<unix-ms>-<seq>") and every SSE data frame carries
-  // its own, so a replayed event is timed by when it was published, not when it arrived.
-  const frameTime = (lastEventId) => {
-    const ms = Number.parseInt(String(lastEventId || "").split("-")[0], 10);
-    return Number.isFinite(ms) && ms > 0 ? ms : Date.now();
-  };
-
   const pickPath = (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
@@ -263,8 +256,8 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
-    // Publish time of the last relay frame, so a thought closed by the turn ending is
-    // stamped on the same clock its start came from (client/server skew otherwise leaks).
+    // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
+    // on the same clock its start came from (client/server skew otherwise leaks).
     _lastFrameAt: 0,
     _scrollQueued: false,
     _autoFollow: true,
@@ -694,7 +687,9 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          const at = frameTime(event.lastEventId);
+          // Server-stamped emit time (``chat.api.runner._publish``): a rejoining browser
+          // replays the whole run at once, so its own clock measures every thought as 0ms.
+          const at = evt.timestamp || Date.now();
           this._lastFrameAt = at;
           if (this._isReplayDuplicate(evt)) {
             this._dropReplayedThinking(turn);
@@ -731,17 +726,14 @@
     // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
     // in no checkpoint — so replayed thoughts are recognized by position, not by id.
     _dropReplayedThinking(turn) {
+      if (this._reasoningIndex.size === 0) return;
       const kept = turn.segments.filter((s) => s.type !== "thinking");
-      if (kept.length === turn.segments.length) return;
       turn.segments = kept;
-      // Both maps hold positions into ``segments``; dropping a segment ahead of a tool card
-      // would otherwise point later ARGS/RESULT deltas at the wrong one.
       this._reasoningIndex.clear();
-      this._toolIndex.clear();
+      // ``_toolIndex`` holds positions into ``segments``; remap the survivors so a later
+      // ARGS/RESULT delta cannot land on the card that shifted into a dropped slot.
       kept.forEach((seg, idx) => {
-        if (seg.id && (seg.type === "tool_call" || seg.type === "publish_phase")) {
-          this._toolIndex.set(seg.id, idx);
-        }
+        if (this._toolIndex.has(seg.id)) this._toolIndex.set(seg.id, idx);
       });
     },
 
@@ -751,7 +743,7 @@
         if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
-          s.endedAt = Math.max(this._lastFrameAt || Date.now(), s.startedAt || 0);
+          s.endedAt = this._lastFrameAt || Date.now();
         }
       });
       // Terminal reasons that leave the turn in an error state ("finished" is
@@ -1202,7 +1194,7 @@
       el.classList.add("chat-tool__highlight");
     },
 
-    dispatch(evt, turn, at = Date.now()) {
+    dispatch(evt, turn, at) {
       const type = evt.type;
 
       if (type === AGUI.TEXT_MESSAGE_START) {
