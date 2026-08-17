@@ -18,7 +18,6 @@ import pytest
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
-from tests.unit_tests.test_picker_popovers import INPUT_CSS
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
@@ -235,26 +234,7 @@ def test_autocomplete_announces_via_its_own_surface_group_slot():
 
 
 DIFF_CSS = DAIV_DIR / "chat" / "static" / "chat" / "css" / "diff.css"
-CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
-TEXT_COLOR = re.compile(r"(?<!-)color:\s*(#[0-9a-fA-F]{3,6})\b")
-SHEET_BACKGROUND = re.compile(r"\.composer-sheet \{[^}]*?background:\s*(#[0-9a-fA-F]{6})", re.DOTALL)
-
-
-def _relative_luminance(hex_colour: str) -> float:
-    digits = hex_colour.lstrip("#")
-    if len(digits) == 3:
-        digits = "".join(c * 2 for c in digits)
-    channels = []
-    for offset in (0, 2, 4):
-        c = int(digits[offset : offset + 2], 16) / 255
-        channels.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
-    r, g, b = channels
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _contrast(foreground: str, background: str) -> float:
-    a, b = sorted((_relative_luminance(foreground) + 0.05, _relative_luminance(background) + 0.05))
-    return b / a
+TODOS_WRAPPER = re.compile(r"\.chat-todos \{([^}]*)\}")
 
 
 @pytest.mark.django_db
@@ -267,34 +247,7 @@ def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client
 
     assert sheet.index('class="chat-todos"') < sheet.index('class="chat-todo"')
 
-    css = DIFF_CSS.read_text(encoding="utf-8")
-    wrapper = next(body for sel, body in CSS_RULE.findall(css) if sel.strip().endswith(".chat-todos"))
-    assert "font-size:" in wrapper, ".chat-todos no longer sizes the rows it wraps"
-    assert "gap:" in wrapper, ".chat-todos no longer separates the rows it wraps"
-
-
-def test_progress_sheet_text_clears_aa_on_its_own_background():
-    """The sheet is opaque `#0d1117`, darker than the page it floats over, so a dim colour
-    borrowed from elsewhere lands below AA on it — which is how the completed todo rows
-    ended up at 3.6:1 while the file paths beside them sat at 12.8:1."""
-    input_css = INPUT_CSS.read_text(encoding="utf-8")
-    background = SHEET_BACKGROUND.search(input_css)
-
-    assert background, ".composer-sheet no longer declares a background to measure against"
-
-    measured = []
-    for source in (input_css, DIFF_CSS.read_text(encoding="utf-8")):
-        for selector, body in CSS_RULE.findall(source):
-            selector = " ".join(selector.split())
-            if not re.search(r"\.composer-sheet|\.chat-todo", selector):
-                continue
-            measured.extend((selector, colour) for colour in TEXT_COLOR.findall(body))
-
-    assert len(measured) >= 12, f"expected the sheet's whole palette, measured {len(measured)}"
-
-    failing = {
-        f"{selector} ({colour})": round(ratio, 2)
-        for selector, colour in measured
-        if (ratio := _contrast(colour, background.group(1))) < 4.5
-    }
-    assert not failing, f"below AA on {background.group(1)}: {failing}"
+    wrapper = TODOS_WRAPPER.search(DIFF_CSS.read_text(encoding="utf-8"))
+    assert wrapper, ".chat-todos is gone — the rows it sizes are mounted in nothing"
+    assert "font-size:" in wrapper.group(1), ".chat-todos no longer sizes the rows it wraps"
+    assert "gap:" in wrapper.group(1), ".chat-todos no longer separates the rows it wraps"

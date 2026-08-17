@@ -2283,7 +2283,7 @@ main:has(.chat-shell) {
 
   .sheet-row__meta {
     font-size: 11.5px;
-    color: #64748b;
+    color: #8592a8;
   }
 
   /* Single-select rows (Environment) mark the current value instead of switching it. */

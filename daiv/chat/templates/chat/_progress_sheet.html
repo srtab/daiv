@@ -40,8 +40,7 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
         </h3>
         <p class="composer-sheet__empty" x-show="!latestTodos.length">{% translate "Nothing planned yet." %}</p>
         {% comment %}
-        `.chat-todos` is what sizes and spaces the rows; bare `.chat-todo` children inherit
-        the 16px body font and sit flush, colliding a wrapped todo with the next one.
+        Not redundant nesting: `.chat-todo` has no type of its own, `.chat-todos` supplies it.
         {% endcomment %}
         <div class="chat-todos">
           <template x-for="t in latestTodos" :key="t.content">
