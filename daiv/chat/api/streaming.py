@@ -9,12 +9,21 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
+from ag_ui.core.events import (
+    BaseEvent,
+    CustomEvent,
+    EventType,
+    RunErrorEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
 
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
@@ -148,6 +157,53 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
                 agui_event.raw_event = {"metadata": provenance}
             yield agui_event
+
+        for text_event in self._assistant_message_frames(event, provenance):
+            yield text_event
+
+    @staticmethod
+    def _assistant_message_frames(event: Any, provenance: dict) -> list[BaseEvent]:
+        """Translate DAIV's ``ASSISTANT_MESSAGE_EVENT`` into the text frames the chat renders.
+
+        See ``automation.agent.utils.streamed_assistant_message`` for why a message the agent
+        produced without a model call never streams on its own.
+
+        This belongs on the event hook rather than in ``SubagentEventFilter``: the frames carry the
+        source event's ``langgraph_checkpoint_ns``, so the filter already drops them when the
+        message came from inside a subagent. Consolidating the two would lose that for free.
+
+        ``ag_ui_langgraph`` ships an equivalent handler for its own ``manually_emit_message``, and
+        reusing it would need no import — only that wire name. It is forked anyway, for two reasons
+        that are easy to miss: upstream hard-subscripts ``event["data"]["message_id"]``, so a single
+        malformed payload raises mid-stream and kills the run, and adopting the name would make an
+        undocumented upstream enum load-bearing, where a rename would silently stop these messages
+        rendering — the exact failure this whole change exists to fix. Copilotkit's
+        ``copilotkit_``-prefixed variant is separately unusable: its handler builds these three
+        frames and then discards them, dropping what ``_dispatch_event`` returns instead of
+        yielding it.
+        """
+        if not isinstance(event, dict) or event.get("event") != "on_custom_event":
+            return []
+        if event.get("name") != ASSISTANT_MESSAGE_EVENT:
+            return []
+        if (parsed := parse_assistant_message(event.get("data"))) is None:
+            logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
+            return []
+        # Only the keys the filter reads: stamping the whole event would ship the LangGraph
+        # internals *and* a second copy of the message body on each of the three frames.
+        raw_event = {"metadata": provenance}
+        return [
+            TextMessageStartEvent(
+                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=parsed.message_id, raw_event=raw_event
+            ),
+            TextMessageContentEvent(
+                type=EventType.TEXT_MESSAGE_CONTENT,
+                message_id=parsed.message_id,
+                delta=parsed.content,
+                raw_event=raw_event,
+            ),
+            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=parsed.message_id, raw_event=raw_event),
+        ]
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
         # Upstream calls ``graph.config_schema().schema()`` which recurses into

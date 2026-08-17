@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP `get_job_status` and job pollers are now scoped to the authenticated user.
 - Upgraded `deepagents` to 0.7.0, whose leaner tool descriptions reduce the tool-schema tokens sent on every agent turn. Each agent now declares its filesystem tool set explicitly: the recursive `delete` tool 0.7 adds is deliberately not exposed (the sandbox's delete RPC removes a single file, not a directory tree), and the read-only subagents (`explore` and the code-review detectors) no longer carry write tools in their schema at all.
 - Upgraded pinned dependencies: `deepagents` to 0.7.3, `genai-prices` to 0.1.1, `ipython` to 9.16.1, `langsmith` to 0.10.15, `markdown` to 3.10.3, and `uvicorn` to 0.52.1; dev dependencies `coverage` to 7.15.3, `prek` to 0.4.12, `pyproject-fmt` to 2.27.0, `ruff` to 0.16.1, and `ty` to 0.0.66.
+- The chat page no longer shows a breadcrumb. It only pushed the transcript and composer down; the sidebar already links back to the sessions list.
 
 ### Added
 
@@ -79,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the agent answering with nothing in chat whenever it replies without consulting the model — a slash command (`/agents`, `/help`), or the loop breaker stopping a repeated tool call. The AG-UI translator only turns model tokens into the text frames the chat renders, so these replies reached the browser only inside the closing messages snapshot, which the chat ignores, and the turn painted empty. The answer was never lost: reloading the page showed it, because the transcript rebuilds from the checkpoint. Such replies are now streamed as they are produced.
 - Restored pinch-to-zoom on mobile: the viewport no longer sets `maximum-scale=1, user-scalable=no` (a WCAG 1.4.4 accessibility regression on Android Chrome). The two annoyances the lock addressed are now handled without blocking zoom: `touch-action: manipulation` suppresses double-tap-to-zoom, and form controls render at 16px on touch devices so iOS Safari no longer auto-zooms on input focus.
 - Fixed MCP `get_environment` resolving GLOBAL sandbox environments for a credential revoked between authentication and execution; it now rejects the request like every other tool. `get_job_status` no longer leaks the raw exception text to the client when user resolution hits a transient DB error.
 - Fixed MCP bearer-token handling: API-key requests are routed by token shape/type instead of always probing the OAuth table first and overloading `client_id` (an OAuth application whose `client_id` starts with `api-key:` no longer breaks its own tokens), a warning is logged again when an OAuth token disappears between verification and execution, and unexpected resolution errors are logged once instead of twice.

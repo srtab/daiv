@@ -8,6 +8,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
 from automation.agent.middlewares.reminders import append_system_reminder
+from automation.agent.utils import streamed_assistant_message
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -119,7 +120,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
         label = _repeated_tool_label(request.messages)
         if streak >= self._terminal_streak:
-            return self._terminate(streak, label)
+            return await self._terminate(streak, label)
 
         remaining = self._terminal_streak - streak
         logger.info(
@@ -141,7 +142,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
             "</system-reminder>"
         )
 
-    def _terminate(self, streak: int, label: str) -> ModelCallResult:
+    async def _terminate(self, streak: int, label: str) -> ModelCallResult:
         logger.warning(
             "LoopBreaker: %d identical consecutive '%s' call(s) and %d reminders ignored; terminating via '%s'.",
             streak,
@@ -150,6 +151,8 @@ class LoopBreakerMiddleware(AgentMiddleware):
             self.terminal,
         )
         if self.terminal == "error":
+            # An ERROR: sentinel the code-review orchestrator parses, not prose for a human,
+            # so it is deliberately not streamed to the chat.
             return AIMessage(
                 content=(
                     f"ERROR: stopped after calling '{label}' {streak} times in a row with identical arguments and "
@@ -157,9 +160,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
                     "successful run or as 'no findings'; the work is incomplete."
                 )
             )
-        return AIMessage(
-            content=(
-                f"I stopped because I called the '{label}' tool {streak} times in a row without making "
-                "progress, and could not complete the task."
-            )
+        return await streamed_assistant_message(
+            f"I stopped because I called the '{label}' tool {streak} times in a row without making "
+            "progress, and could not complete the task."
         )

@@ -257,7 +257,7 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
         return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
-class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
+class SessionDetailView(LoginRequiredMixin, DetailView):
     """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
     model = Session
@@ -372,16 +372,6 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         )
 
         return ctx
-
-    def get_breadcrumbs(self):
-        sessions_url = reverse("session_list")
-        session = getattr(self, "object", None)
-        if session is None:
-            return [{"label": "Sessions", "url": sessions_url}, {"label": "New", "url": None}]
-        return [
-            {"label": "Sessions", "url": sessions_url},
-            {"label": session.title or session.thread_id[:8], "url": None},
-        ]
 
 
 class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):

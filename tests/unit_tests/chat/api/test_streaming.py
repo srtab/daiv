@@ -10,15 +10,26 @@ here so these tests stay focused on the MR-capture + lock-release invariants; th
 Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
+import uuid
+from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
-from langchain_core.messages import AIMessageChunk
+from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langgraph.checkpoint.memory import InMemorySaver
 
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT
+from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+
+_TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
 
 @pytest.fixture(autouse=True)
@@ -377,6 +388,99 @@ def test_get_stream_kwargs_overrides_configurable_context_with_runtime_ctx():
     )
 
     assert kwargs["context"] is runtime_ctx
+
+
+def _assistant_event(**data):
+    return {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": data}
+
+
+async def test_a_middleware_message_reaches_the_stream_as_text_frames():
+    """Closes the producer→consumer loop: a real middleware emitting through
+    ``streamed_assistant_message``, a real graph, and the real agent class.
+
+    The two halves live in packages with no shared schema and the consumer degrades an
+    unreadable payload to "no frames", so unit-testing each side against its own literals
+    leaves a renamed key green on both — and back to painting empty turns. This is the only
+    test that fails for that.
+    """
+
+    @dataclass
+    class Ctx:
+        pass
+
+    class ReplyingMiddleware(AgentMiddleware):
+        """Stands in for SlashCommandMiddleware / LoopBreakerMiddleware: answers without the model."""
+
+        async def awrap_model_call(self, request, handler):
+            return await streamed_assistant_message("answered without the model")
+
+    agent = create_agent(
+        model=FakeMessagesListChatModel(responses=[AIMessage(content="the model would have answered")]),
+        tools=[],
+        middleware=[ReplyingMiddleware()],
+        context_schema=Ctx,
+        checkpointer=InMemorySaver(),
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
+    payload = RunAgentInput(
+        thread_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        state={},
+        messages=[{"id": "m1", "role": "user", "content": "/agents"}],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+
+    frames = [e async for e in agui.run(payload) if e is not None and e.type in _TEXT_FRAME_TYPES]
+
+    assert [f.type for f in frames] == [
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+    ]
+    assert frames[1].delta == "answered without the model"
+    # One message end to end: the id the producer minted is the id the client dedupes replays on.
+    assert len({f.message_id for f in frames}) == 1
+
+
+def test_assistant_message_event_becomes_text_frames():
+    """A message the agent produced without a model call (slash command reply, loop-breaker stop)
+    streams only through this translation — otherwise it reaches the client only in the terminal
+    MESSAGES_SNAPSHOT, which chat-stream.js ignores, and the turn paints empty."""
+    frames = RuntimeContextLangGraphAGUIAgent._assistant_message_frames(
+        _assistant_event(message_id="m-1", message="### Available Sub-Agents"), {"langgraph_checkpoint_ns": "model:1"}
+    )
+
+    assert [f.type for f in frames] == [
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+    ]
+    assert {f.message_id for f in frames} == {"m-1"}
+    assert frames[0].role == "assistant"
+    assert frames[1].delta == "### Available Sub-Agents"
+    # Only the provenance keys, not the whole source event: SubagentEventFilter reads the namespace
+    # off raw_event to drop a subagent's message, and stamping the event would ship the body twice.
+    assert [f.raw_event for f in frames] == [{"metadata": {"langgraph_checkpoint_ns": "model:1"}}] * 3
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"event": "on_chat_model_stream", "name": ASSISTANT_MESSAGE_EVENT, "data": {}},
+        {"event": "on_custom_event", "name": "some_other_event", "data": {}},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": None},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message": "no id"}},
+        {"event": "on_custom_event", "name": ASSISTANT_MESSAGE_EVENT, "data": {"message_id": "m-1"}},
+        "not-a-dict",
+    ],
+    ids=["wrong-event", "wrong-name", "no-data", "missing-id", "missing-message", "not-a-dict"],
+)
+def test_assistant_message_frames_ignores_anything_else(event):
+    """Every other event flows through untouched; a malformed payload is dropped rather than
+    emitting frames the client cannot close."""
+    assert RuntimeContextLangGraphAGUIAgent._assistant_message_frames(event, {}) == []
 
 
 def test_streamer_post_init_rejects_thread_id_mismatch():
