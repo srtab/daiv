@@ -24,6 +24,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tasks")
 
 
+def _is_transient_platform_error(e: Exception) -> bool:
+    """A 5xx/429 or transport-layer error from the git platform — self-healing next cycle."""
+    if isinstance(e, OSError):
+        return True
+    status = getattr(e, "status", None) or getattr(e, "response_code", None)
+    return status is not None and (status == 429 or status >= 500)  # noqa: PLR2004
+
+
 def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> AgentResult:
     from automation.agent.results import AgentResult
 
@@ -164,9 +172,12 @@ def sync_repository_access_cron_task():
             with transaction.atomic():
                 RepositoryAccess.objects.filter(provider=provider, repo_id=repo.slug).delete()
                 RepositoryAccess.objects.bulk_create(rows)
-        except Exception:
+        except Exception as e:
             failures += 1
-            logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
+            if _is_transient_platform_error(e):
+                logger.warning("Repository access sync: failed to sync %s (keeping previous rows): %s", repo.slug, e)
+            else:
+                logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
             continue
 
     # Prune access rows for repos no longer in the universe, so a repo the bot lost access to

@@ -319,3 +319,30 @@ class TestSyncRepositoryCatalog:
         assert not RepositoryAccess.objects.filter(repo_id="old/gone").exists()
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+    def test_transient_5xx_failure_logs_at_warning_not_error(self, mock_repo_client, caplog):
+        """A transient platform 5xx is self-healing on the next cycle, so it must not mint an ERROR
+        Sentry event per failure (DAIV-27): it is logged at WARNING, while a non-transient error
+        still escalates to ERROR with a traceback.
+        """
+        from github.GithubException import GithubException
+
+        _row("a/b", "7", RepoAccessLevel.WRITE)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.side_effect = GithubException(
+            status=503, data={"message": "No server is currently available"}, headers={}
+        )
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tasks"):
+            sync_repository_access_cron_task.func()
+
+        # stale rows kept, run marked failed
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="7").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+        matching = [r for r in caplog.records if "failed to sync a/b" in r.getMessage()]
+        assert matching, "expected a sync-failure log record"
+        assert all(r.levelno == logging.WARNING for r in matching)
