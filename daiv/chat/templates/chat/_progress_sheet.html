@@ -39,12 +39,17 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
           <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
         </h3>
         <p class="composer-sheet__empty" x-show="!latestTodos.length">{% translate "Nothing planned yet." %}</p>
-        <template x-for="t in latestTodos" :key="t.content">
-          <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
-            <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
-            <span x-text="t.content"></span>
-          </div>
-        </template>
+        {% comment %}
+        Not redundant nesting: `.chat-todo` has no type of its own, `.chat-todos` supplies it.
+        {% endcomment %}
+        <div class="chat-todos">
+          <template x-for="t in latestTodos" :key="t.content">
+            <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+              <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+              <span x-text="t.content"></span>
+            </div>
+          </template>
+        </div>
       </section>
 
       <section class="composer-sheet__group">

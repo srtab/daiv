@@ -8,6 +8,7 @@ and the live model label ship in the HTML; which one shows is a client-side deci
 
 from __future__ import annotations
 
+import re
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -230,3 +231,23 @@ def test_autocomplete_announces_via_its_own_surface_group_slot():
 
     assert "surfaceGroup.join(() => this.closeSheet())" in js
     assert "surfaceGroup.join(() => { this.slashDismissed = true; })" in js
+
+
+DIFF_CSS = DAIV_DIR / "chat" / "static" / "chat" / "css" / "diff.css"
+TODOS_WRAPPER = re.compile(r"\.chat-todos \{([^}]*)\}")
+
+
+@pytest.mark.django_db
+def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client, member_user):
+    """`.chat-todo` carries no type or spacing of its own. Bare rows inherit the 16px body
+    font — out of scale with every other line in the sheet — and sit flush, so a todo long
+    enough to wrap is indistinguishable from two todos."""
+    html = _render_thread(member_client, _create_session(member_user))
+    sheet = html[html.index("composer-sheet composer-sheet--progress") :]
+
+    assert sheet.index('class="chat-todos"') < sheet.index('class="chat-todo"')
+
+    wrapper = TODOS_WRAPPER.search(DIFF_CSS.read_text(encoding="utf-8"))
+    assert wrapper, ".chat-todos is gone — the rows it sizes are mounted in nothing"
+    assert "font-size:" in wrapper.group(1), ".chat-todos no longer sizes the rows it wraps"
+    assert "gap:" in wrapper.group(1), ".chat-todos no longer separates the rows it wraps"
