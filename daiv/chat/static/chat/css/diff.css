@@ -105,10 +105,12 @@
   color: #94a3b8;
 }
 
+/* The gap has to stay visibly wider than `.chat-todo`'s line-height: a todo long enough
+   to wrap otherwise reads as two todos. */
 .chat-todos {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12.5px;
 }
@@ -117,6 +119,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  line-height: 1.4;
   color: #cbd5e1;
 }
 
@@ -126,11 +129,11 @@
   display: inline-block;
   flex: 0 0 12px;
   text-align: center;
-  color: #64748b;
+  color: #8592a8;
 }
 
 .chat-todo--completed {
-  color: #646c88;
+  color: #8592a8;
 }
 
 .chat-todo--completed .chat-todo__icon {
