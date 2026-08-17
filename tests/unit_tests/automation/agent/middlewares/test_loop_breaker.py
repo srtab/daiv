@@ -4,7 +4,7 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware, repeated_tool_streak
 
 

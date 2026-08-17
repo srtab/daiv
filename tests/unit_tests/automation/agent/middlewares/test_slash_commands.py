@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
-from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, _load_global_skill_metadata
 from codebase.base import Scope
 from slash_commands.parser import SlashCommandCommand

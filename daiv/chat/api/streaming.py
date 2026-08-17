@@ -23,7 +23,7 @@ from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
 
-from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
@@ -186,11 +186,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             return []
         if event.get("name") != ASSISTANT_MESSAGE_EVENT:
             return []
-        data = event.get("data")
-        if not isinstance(data, dict):
-            return []
-        message_id, message = data.get("message_id"), data.get("message")
-        if not isinstance(message_id, str) or not isinstance(message, str):
+        if (parsed := parse_assistant_message(event.get("data"))) is None:
             logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
             return []
         # Only the keys the filter reads: stamping the whole event would ship the LangGraph
@@ -198,12 +194,15 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         raw_event = {"metadata": provenance}
         return [
             TextMessageStartEvent(
-                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=message_id, raw_event=raw_event
+                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=parsed.message_id, raw_event=raw_event
             ),
             TextMessageContentEvent(
-                type=EventType.TEXT_MESSAGE_CONTENT, message_id=message_id, delta=message, raw_event=raw_event
+                type=EventType.TEXT_MESSAGE_CONTENT,
+                message_id=parsed.message_id,
+                delta=parsed.content,
+                raw_event=raw_event,
             ),
-            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=message_id, raw_event=raw_event),
+            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=parsed.message_id, raw_event=raw_event),
         ]
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:

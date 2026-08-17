@@ -19,7 +19,7 @@ from codebase.clients import RepoClient
 from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
-from .constants import ASSISTANT_MESSAGE_EVENT
+from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
 from .schemas import Image
 from .validators import AgentConfigurationError
 
@@ -359,10 +359,11 @@ async def streamed_assistant_message(content: str, config: RunnableConfig | None
     invocation carries a parent run to dispatch against, so the guard only covers a caller running
     outside one, and a cosmetic frame must never fail the work that produced the message.
     """
-    message = AIMessage(id=str(uuid.uuid4()), content=content)
+    message_id = str(uuid.uuid4())
+    message = AIMessage(id=message_id, content=content)
     try:
         await adispatch_custom_event(
-            ASSISTANT_MESSAGE_EVENT, {"message_id": message.id, "message": content}, config=config
+            ASSISTANT_MESSAGE_EVENT, assistant_message_payload(message_id, content), config=config
         )
     except Exception:
         logger.warning("Could not stream an assistant message; it will surface on reload", exc_info=True)

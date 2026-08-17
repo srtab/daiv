@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from automation.agent.constants import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.schemas import Image
 from automation.agent.utils import (
     build_langsmith_config,

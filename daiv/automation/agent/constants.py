@@ -45,10 +45,6 @@ SUBAGENTS_SOURCES = [AGENTS_SUBAGENTS_PATH]
 # Path where the memory is stored in repository.
 AGENTS_MEMORY_PATH = ".agents/AGENTS.md"
 
-# Payload {"message_id": str, "message": str}; emitted by utils.streamed_assistant_message,
-# translated by chat/api/streaming.py. Ignored by the webhook and MCP transports.
-ASSISTANT_MESSAGE_EVENT = "daiv_assistant_message"
-
 
 class ModelName(StrEnum):
     """
