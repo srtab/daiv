@@ -6,7 +6,7 @@
 {% endblock alpine_stores %}
 
 {% block content %}
-{% translate "%(count)s running" as nav_running_label %}
+{% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', unread: {{ unread_count|default:0 }}, running: {{ nav_running_jobs|default:0 }}, runningLabel: '{{ nav_running_label|escapejs }}' })"
      class="flex h-dvh">

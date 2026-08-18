@@ -15,10 +15,13 @@
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, unread, running, runningLabel })">
  *
- * `runningLabel` is the sidebar badge's translated sentence with `%(count)s` still in it:
+ * `runningLabel` is the sidebar badge's translated sentence with `{count}` still in it:
  * a live number can't go through `blocktranslate`, and keeping the whole sentence as one
  * msgid (rather than "3" + a translated word) leaves the translator in control of word
  * order. base_app.html passes it because it is what includes the sidebar.
+ *
+ * Brace-style, not `%(count)s`: `{% translate %}` doubles every `%` before the catalog
+ * lookup, so a percent-style msgid misses and silently renders the untranslated source.
  */
 document.addEventListener("alpine:init", () => {
   Alpine.store("nav", {
@@ -28,7 +31,7 @@ document.addEventListener("alpine:init", () => {
     _runningLabel: "",
 
     get runningLabel() {
-      return this._runningLabel.replace("%(count)s", this.running);
+      return this._runningLabel.replace("{count}", this.running);
     },
 
     /** Seed from the page render and open the stream. Idempotent per tab. */

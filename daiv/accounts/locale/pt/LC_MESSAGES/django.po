@@ -103,9 +103,9 @@ msgstr "Painel"
 msgid "Sessions"
 msgstr "Sessões"
 
-#, python-format
-msgid "%(count)s running"
-msgstr "%(count)s em execução"
+#, python-brace-format
+msgid "{count} running"
+msgstr "{count} em execução"
 
 msgid "Schedules"
 msgstr "Agendamentos"

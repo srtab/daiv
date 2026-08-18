@@ -66,7 +66,7 @@ process.stdout.write(JSON.stringify({
 def drive(props: dict, frames: list[dict] | None = None, dispatch: list[str] | None = None) -> dict:
     payload = {
         "src": str(NAV_EVENTS_JS),
-        "props": {"url": "/api/nav/events", "unread": 0, "running": 0, "runningLabel": "%(count)s running", **props},
+        "props": {"url": "/api/nav/events", "unread": 0, "running": 0, "runningLabel": "{count} running", **props},
         "frames": frames or [],
         "dispatch": dispatch or [],
     }
@@ -113,7 +113,7 @@ def test_an_unreadable_frame_is_ignored_rather_than_clearing_the_badges():
 def test_the_label_interpolates_the_live_count():
     """The number cannot go through `blocktranslate`, so the store fills the placeholder
     the server left in the translated sentence."""
-    state = drive({"running": 4, "runningLabel": "%(count)s em execução"})
+    state = drive({"running": 4, "runningLabel": "{count} em execução"})
     assert state["runningLabel"] == "4 em execução"
 
 
