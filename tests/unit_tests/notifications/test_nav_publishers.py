@@ -18,12 +18,6 @@ from notifications.models import Notification
 from notifications.services import create_notification
 
 
-def make_notification(user) -> Notification:
-    return Notification.objects.create(
-        recipient=user, event_type="schedule.finished", subject="n", body="b", link_url="/"
-    )
-
-
 @pytest.mark.django_db
 class TestUnreadPokes:
     def test_creating_a_notification_pokes_its_recipient(self, member_user):
@@ -44,8 +38,7 @@ class TestUnreadPokes:
                 callback()
         publish.assert_called_once_with(member_user.pk)
 
-    def test_marking_one_read_pokes(self, member_user):
-        notification = make_notification(member_user)
+    def test_marking_one_read_pokes(self, member_user, notification):
         with (
             patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
@@ -53,8 +46,7 @@ class TestUnreadPokes:
             notification.mark_as_read()
         publish.assert_called_once_with(member_user.pk)
 
-    def test_marking_an_already_read_one_does_not_poke(self, member_user):
-        notification = make_notification(member_user)
+    def test_marking_an_already_read_one_does_not_poke(self, member_user, notification):
         notification.mark_as_read()
         with (
             patch("core.ui_events.publisher.notifications_changed") as publish,
@@ -63,10 +55,9 @@ class TestUnreadPokes:
             notification.mark_as_read()
         publish.assert_not_called()
 
-    def test_marking_all_read_pokes(self, member_user):
+    def test_marking_all_read_pokes(self, member_user, notification):
         """The bulk ``.update()`` fires no ``post_save``, and this is the path the bell
         dropdown takes on open — the badge clearing depends on it."""
-        make_notification(member_user)
         with (
             patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
@@ -82,8 +73,7 @@ class TestUnreadPokes:
             Notification.mark_all_read_for(member_user)
         publish.assert_not_called()
 
-    def test_opening_the_bell_dropdown_pokes(self, member_client, member_user):
-        make_notification(member_user)
+    def test_opening_the_bell_dropdown_pokes(self, member_client, member_user, notification):
         with (
             patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),

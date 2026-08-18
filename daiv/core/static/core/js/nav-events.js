@@ -13,7 +13,11 @@
  * no flash, then replaced wholesale by each `snapshot` frame — the stream sends state,
  * not deltas, so a reconnect needs no replay.
  *
- *     <div x-data="..." x-init="$store.nav.start({ url, unread, running, runningLabel })">
+ *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
+ *
+ * `state` carries the server's own snapshot keys (`unread_count`, `running_runs`) rather
+ * than the store's field names, so the page seed and the SSE frames are one shape read by
+ * one function — a key renamed on the Python side then breaks both, not just the stream.
  *
  * `runningLabel` is the sidebar badge's translated sentence with `{count}` still in it:
  * a live number can't go through `blocktranslate`, and keeping the whole sentence as one
@@ -37,9 +41,8 @@ document.addEventListener("alpine:init", () => {
     },
 
     /** Seed from the page render and open the stream. Idempotent per tab. */
-    start({ url, unread, running, runningLabel }) {
-      this.unread = Number(unread) || 0;
-      this.running = Number(running) || 0;
+    start({ url, state, runningLabel }) {
+      this._applyState(state);
       this._runningLabel = runningLabel || "";
       if (this._url || !url || !window.EventSource) return;
       this._url = url;
@@ -81,8 +84,14 @@ document.addEventListener("alpine:init", () => {
         console.warn("nav: unreadable snapshot frame");
         return;
       }
-      if (typeof snapshot.unread_count === "number") this.unread = snapshot.unread_count;
-      if (typeof snapshot.running_runs === "number") this.running = snapshot.running_runs;
+      this._applyState(snapshot);
+    },
+
+    /** The only place the wire keys are read, so the seed and the stream can't drift. */
+    _applyState(state) {
+      if (!state) return;
+      if (typeof state.unread_count === "number") this.unread = state.unread_count;
+      if (typeof state.running_runs === "number") this.running = state.running_runs;
     },
   });
 });

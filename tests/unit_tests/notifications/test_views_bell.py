@@ -77,7 +77,7 @@ class TestBellMarkup:
         content = member_client.get(reverse("dashboard")).content.decode()
         assert 'x-text="$store.nav.unread"' in content
         # Seeded server-side so the badge does not flash in before the stream connects.
-        assert "unread: 1" in content
+        assert "unread_count: 1" in content
 
     def test_the_dropdown_is_still_fetched_on_open_not_on_a_timer(self, member_client):
         """Lazy-loading the rows is a user action, not polling — it stays."""

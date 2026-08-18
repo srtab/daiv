@@ -108,7 +108,7 @@ class TestRunningJobsBadge:
 
     def test_seeds_the_store_with_zero_when_nothing_is_running(self, member):
         response = _client(member).get(reverse("dashboard"))
-        assert "running: 0" in response.content.decode()
+        assert "running_runs: 0" in response.content.decode()
 
     def test_badge_shows_count_when_running(self, member):
         session1 = Session.objects.create(
@@ -134,7 +134,7 @@ class TestRunningJobsBadge:
         response = _client(member).get(reverse("dashboard"))
         content = response.content.decode()
         # The seed the store starts from, and the label template it interpolates into.
-        assert "running: 2" in content
+        assert "running_runs: 2" in content
         assert "{count} running" in content
 
     def test_the_label_reaches_the_page_translated(self, member):

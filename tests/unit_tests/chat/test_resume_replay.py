@@ -10,19 +10,13 @@ checkpoint already painted.
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess  # noqa: S404
-
-import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from chat.turns import build_turns
 from tests.unit_tests.chat.test_composer_template import CHAT_STREAM_JS
+from tests.unit_tests.jsdriver import requires_node, run_node
 
-NODE = shutil.which("node")
-
-pytestmark = pytest.mark.skipif(NODE is None, reason="node is required to drive chat-stream.js")
+pytestmark = requires_node
 
 # Chronological relay frames for a run whose first model call is already checkpointed
 # (message ``msg-1``, tool ``tc-1``) and whose second is still in flight. ``timestamp`` is
@@ -116,17 +110,7 @@ process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: cha
 
 def _rejoin(frames) -> list[dict]:
     """Replay ``frames`` into a freshly rejoined turn; return its rendered segments."""
-    payload = {"src": str(CHAT_STREAM_JS), "frames": frames, "turns": HYDRATED_TURNS}
-    proc = subprocess.run(  # noqa: S603
-        [str(NODE), "--input-type=module", "-e", HARNESS],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    return run_node(HARNESS, {"src": str(CHAT_STREAM_JS), "frames": frames, "turns": HYDRATED_TURNS})
 
 
 def test_rejoin_drops_thinking_the_checkpoint_already_rendered():

@@ -91,6 +91,19 @@ class TestNavFrames:
         assert frames[0] == "retry: 3000\n\n"
         assert frames[1].startswith("event: snapshot\n")
 
+    async def test_the_page_seeds_the_store_with_the_keys_the_stream_sends(self, member_client, member_user):
+        """The seed and the frames are one shape read by one JS function, so a key renamed
+        on this side has to break both or neither — the reason `state:` is not spelled out
+        in the store's own field names."""
+        await Notification.objects.acreate(
+            recipient=member_user, event_type="schedule.finished", subject="n", body="b", link_url="/"
+        )
+        await start_run(member_user)
+        frames = await read_frames(member_user, FakeStream(), count=2)
+        rendered = await sync_to_async(lambda: member_client.get("/dashboard/").content.decode())()
+        for key in snapshots(frames)[0]:
+            assert f"{key}: " in rendered
+
     async def test_the_snapshot_carries_both_counts(self, member_user):
         await Notification.objects.acreate(
             recipient=member_user, event_type="schedule.finished", subject="n", body="b", link_url="/"
@@ -150,7 +163,7 @@ class TestNavFrames:
             finally:
                 await generator.aclose()
 
-    async def test_a_failure_mid_stream_backs_off_instead_of_giving_up(self, member_user, caplog):
+    async def test_a_failure_mid_stream_backs_off_instead_of_giving_up(self, member_user):
         """A dropped bus connection is transient, and the reconnect a silent close forces
         is the resync. An ``event: end`` would freeze the badges until the next page load,
         so only the longer retry is sent."""

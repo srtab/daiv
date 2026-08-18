@@ -77,6 +77,31 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
+def visible_runs(user):
+    """The runs ``user`` may see, as a queryset.
+
+    Split from the count so a long-lived reader (the nav SSE stream) resolves platform
+    identity once per connection instead of once per recount — the same hoist
+    ``SessionStreamView._stream`` documents.
+
+    SYNC ONLY — ``visible_to`` resolves that identity with a DB read at query-build time;
+    async callers must wrap this in ``sync_to_async``.
+    """
+    from sessions.models import Run  # local import to avoid circulars
+
+    return Run.objects.visible_to(user)
+
+
+def count_running(visible) -> int:
+    """RUNNING rows in a queryset from ``visible_runs``.
+
+    ``values("pk")`` keeps the DISTINCT of the visibility join off every Run column.
+    """
+    from sessions.models import RunStatus  # local import to avoid circulars
+
+    return visible.filter(status=RunStatus.RUNNING).values("pk").count()
+
+
 def query_running_jobs(user) -> int:
     """Count the runs ``user`` can see that are currently RUNNING.
 
@@ -87,12 +112,9 @@ def query_running_jobs(user) -> int:
     but a live stream must keep the browser's last value rather than push a zero it
     cannot distinguish from a real one.
 
-    SYNC ONLY — ``Run.objects.visible_to`` resolves the caller's platform identity with a
-    DB read at query-build time; async callers must wrap this in ``sync_to_async``.
+    SYNC ONLY — see ``visible_runs``.
     """
-    from sessions.models import Run, RunStatus  # local import to avoid circulars
-
-    return Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
+    return count_running(visible_runs(user))
 
 
 def running_jobs_count(request, user) -> int:

@@ -19,14 +19,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import redis
 
-from core.ui_events import (
-    Channel,
-    RedisConnections,
-    UIEventKind,
-    UIEventPublisher,
-    UIEventStream,
-    is_transient_bus_error,
-)
+from core.ui_events import Channel, UIEventKind, UIEventPublisher, UIEventStream, is_transient_bus_error
 
 
 class FakeConnections:
@@ -116,28 +109,6 @@ class TestWireFormat:
         assert UIEventKind.from_message(message) is None
 
 
-class TestRedisConnections:
-    def test_no_setting_at_all_is_a_bus_that_is_simply_absent(self, settings):
-        """The test settings leave the Redis component out of the include list, which is
-        a valid deployment shape — not a broken one."""
-        del settings.DJANGO_REDIS_URL
-        assert RedisConnections().configured is False
-
-    def test_a_reader_asking_for_a_client_gets_a_clear_error(self, settings):
-        """Where publishers stay quiet, this is the side an operator sees when Redis is
-        missing — it reaches the SSE handler's error frame."""
-        del settings.DJANGO_REDIS_URL
-        with pytest.raises(RuntimeError, match="requires Redis"):
-            RedisConnections().async_client()
-
-    def test_clients_are_built_once_and_kept(self, settings):
-        settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
-        connections = RedisConnections()
-        assert connections.sync_client() is connections.sync_client()
-        assert connections.async_client() is connections.async_client()
-        assert connections.sync_client() is not connections.async_client()
-
-
 class TestPublish:
     def test_runs_changed_goes_to_the_broadcast_channel(self):
         client = Mock()
@@ -220,12 +191,6 @@ class TestStreamLifecycle:
             async with stream_on(pubsub):
                 pass
         assert pubsub.closed
-
-    async def test_a_reader_gets_a_clear_error_when_no_bus_is_configured(self, settings):
-        del settings.DJANGO_REDIS_URL
-        with pytest.raises(RuntimeError, match="requires Redis"):
-            async with UIEventStream("a", connections=RedisConnections()):
-                pass
 
     async def test_reading_before_subscribing_is_a_programming_error(self):
         with pytest.raises(RuntimeError, match="not subscribed"):

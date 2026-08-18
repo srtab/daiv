@@ -16,7 +16,7 @@ from sessions.models import Session
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
-from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, end_frame, retry_frame, sse_response
+from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import relay, runner
 from .security import AuthBearer
@@ -72,7 +72,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
                     if entry.is_end:
                         yield end_frame("finished")
                         return
-                    yield f"id: {entry.id}\ndata: {entry.data}\n\n"
+                    yield data_frame(entry.data, event_id=entry.id)
                 continue
 
             if released_drain:

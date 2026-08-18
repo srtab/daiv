@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -32,7 +31,7 @@ from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
-from core.sse import STREAM_MAX_DURATION_S, sse_response
+from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
@@ -103,13 +102,12 @@ class SessionStreamView(View):
 
                 if last_emitted.get(run.id) != current_state:
                     last_emitted[run.id] = current_state
-                    data = json.dumps({
+                    yield data_frame({
                         "id": str(run.id),
                         "status": run.status,
                         "started_at": started_iso,
                         "finished_at": finished_iso,
                     })
-                    yield f"data: {data}\n\n"
 
                 if run.status in terminal:
                     tracking.discard(run.id)
@@ -117,8 +115,7 @@ class SessionStreamView(View):
         # ``complete`` distinguishes a clean finish (all tracked runs reached a
         # terminal state) from a timeout with runs still pending, so the client
         # can decide whether to re-subscribe rather than freeze on stale state.
-        done = json.dumps({"done": True, "complete": not tracking})
-        yield f"data: {done}\n\n"
+        yield data_frame({"done": True, "complete": not tracking})
 
 
 class SessionListView(LoginRequiredMixin, FilterView):

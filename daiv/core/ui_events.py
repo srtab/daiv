@@ -23,11 +23,10 @@ Four objects, split by concern:
   pokes is absorbed, and what to make of a malformed message. Callers see
   ``wait_for_change()``, never a raw pub/sub message.
 
-Connection lifecycle is separate from all four (``RedisConnections``, module singleton
-``redis_connections``), as in ``chat.api.relay``: publishing is sync because it runs
-inside signal handlers and request paths, reading is async because it runs inside an
-SSE response, so the two halves hold separate clients. Each is built lazily, so
-importing this module never needs Redis (or an event loop).
+Connection lifecycle is not one of them: the clients come from ``core.redis``, shared
+with the chat relay. Publishing is sync because it runs inside signal handlers and
+request paths, reading is async because it runs inside an SSE response, so the two
+halves hold separate clients.
 """
 
 from __future__ import annotations
@@ -35,12 +34,12 @@ from __future__ import annotations
 import json
 import logging
 from enum import StrEnum
+from time import monotonic
 from typing import TYPE_CHECKING, Self
 
-from django.conf import settings
-
 import redis
-import redis.asyncio as aioredis
+
+from core.redis import RedisConnections, redis_connections
 
 if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
@@ -99,50 +98,6 @@ class UIEventKind(StrEnum):
         except TypeError, ValueError, KeyError, AttributeError:
             logger.warning("ui_events: unreadable message on %s", message.get("channel"))
             return None
-
-
-class RedisConnections:
-    """Lazy, process-wide Redis clients for the bus.
-
-    An unconfigured ``DJANGO_REDIS_URL`` is a supported deployment shape, so the two
-    halves ask ``configured`` and decide for themselves what to do about it: publishers
-    drop the poke silently, readers raise.
-    """
-
-    def __init__(self) -> None:
-        self._sync: redis.Redis | None = None
-        self._async: aioredis.Redis | None = None
-
-    @property
-    def url(self) -> str:
-        """A plain ``getattr``: the test settings leave the Redis component out of the
-        include list entirely, so the setting can be absent rather than empty."""
-        return getattr(settings, "DJANGO_REDIS_URL", "") or ""
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.url)
-
-    def _url_or_raise(self) -> str:
-        if not self.url:
-            raise RuntimeError("DJANGO_REDIS_URL is not configured; the UI event bus requires Redis.")
-        return self.url
-
-    def sync_client(self) -> redis.Redis:
-        if self._sync is None:
-            self._sync = redis.Redis.from_url(self._url_or_raise(), decode_responses=True)
-        return self._sync
-
-    def async_client(self) -> aioredis.Redis:
-        """Same loop-binding contract as ``chat.api.relay.get_redis``: ``redis.asyncio``
-        binds pooled connections to the loop that created them, so this must only be used
-        from the web worker's event loop."""
-        if self._async is None:
-            self._async = aioredis.Redis.from_url(self._url_or_raise(), decode_responses=True)
-        return self._async
-
-
-redis_connections = RedisConnections()
 
 
 class UIEventPublisher:
@@ -221,6 +176,9 @@ class UIEventStream:
     # A finished run pokes several times over (the status write, then the dispatcher's
     # follow-ups). Absorbing the burst here is what turns those into one recompute.
     COALESCE_S = 0.15
+    # Ceiling on that absorb. Without it a deployment poking faster than COALESCE_S feeds
+    # the loop forever, and the reader burns its whole duration cap without recounting.
+    ABSORB_MAX_S = 1.0
 
     def __init__(self, *channels: str, connections: RedisConnections | None = None) -> None:
         self._channels = channels
@@ -260,7 +218,8 @@ class UIEventStream:
         """
         if UIEventKind.from_message(await self._next_message(timeout)) is None:
             return False
-        while await self._next_message(self.COALESCE_S) is not None:
+        deadline = monotonic() + self.ABSORB_MAX_S
+        while monotonic() < deadline and await self._next_message(self.COALESCE_S) is not None:
             pass
         return True
 

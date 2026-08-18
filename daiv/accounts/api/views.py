@@ -13,17 +13,18 @@ that repairs anything a dropped poke lost. Every failure short of "this
 deployment has no bus at all" therefore closes *without* a terminal frame, so
 that same reconnect is also the recovery path.
 
-Both counts are read through the same helpers that render the first page load
-(``accounts.context_processors.query_running_jobs``,
+Both counts are computed by the same helpers that render the first page load
+(``accounts.context_processors.count_running``,
 ``notifications.context_processors.query_unread_count``), so the seeded values and
-the streamed ones can't drift apart.
+the streamed ones can't drift apart. The page render reaches the first through
+``query_running_jobs``; the stream hoists that helper's queryset out of the loop.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.db import Error as DatabaseError
@@ -34,8 +35,8 @@ from ninja import Router
 from ninja.security import django_auth
 from notifications.context_processors import query_unread_count
 
-from accounts.context_processors import query_running_jobs
-from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, end_frame, retry_frame, sse_response
+from accounts.context_processors import count_running, visible_runs
+from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 from core.ui_events import UIEventStream, is_transient_bus_error, redis_connections
 
 if TYPE_CHECKING:
@@ -57,32 +58,45 @@ RETRY_MS = 3_000
 FAILURE_RETRY_MS = 30_000
 
 
-def _counts(user: User) -> dict[str, int] | None:
+# ``thread_sensitive=False``: the default mints one executor thread per request context
+# and holds it until the response ends, which here is the duration cap — an idle thread
+# per open tab. These hops touch no shared sync state and span no transaction, so the
+# loop's bounded default executor is enough.
+_in_db_thread = partial(sync_to_async, thread_sensitive=False)
+
+
+@_in_db_thread
+def _open_visible_runs(user: User):
+    """Resolve run visibility once per connection.
+
+    ``visible_to`` costs a platform-identity read plus a cache round-trip to build, and
+    none of that changes for the life of a stream; only the RUNNING count does.
+    """
+    try:
+        return visible_runs(user)
+    finally:
+        close_old_connections()
+
+
+@_in_db_thread
+def _snapshot(user: User, visible) -> dict[str, int] | None:
     """Both badge counts in one trip to the DB thread, or ``None`` when the DB failed.
 
-    Sync because ``visible_to`` is (it resolves platform identity mid-query-build), and
-    because Django's async ORM is ``sync_to_async`` underneath anyway — one hop beats two
-    onto the same thread-sensitive executor. The connection goes back to the pool on the
-    way out: a stream idles here for up to the duration cap, and one it holds without
-    using is one ``DB_POOL_MAX_SIZE`` cannot give a request that would use it.
+    Sync because the querysets are (Django's async ORM is ``sync_to_async`` underneath
+    anyway) — one hop beats two. The connection goes back to the pool on the way out: a
+    stream idles for up to the duration cap, and one it holds without using is one
+    ``DB_POOL_MAX_SIZE`` cannot give a request that would use it.
 
     ``None`` rather than zeros: the caller cannot tell a fabricated zero from a real one,
     and pushing one would blank a badge that is still correct in the browser.
     """
     try:
-        return {"unread_count": query_unread_count(user), "running_runs": query_running_jobs(user)}
+        return {"unread_count": query_unread_count(user), "running_runs": count_running(visible)}
     except DatabaseError as err:
         logger.warning("nav: recount failed for user pk=%s: %s", user.pk, err)
         return None
     finally:
         close_old_connections()
-
-
-_snapshot = sync_to_async(_counts)
-
-
-def _snapshot_frame(state: dict[str, int]) -> str:
-    return f"event: snapshot\ndata: {json.dumps(state)}\n\n"
 
 
 async def _nav_frames(user: User):
@@ -109,19 +123,20 @@ async def _nav_frames(user: User):
         # Subscribe before the first snapshot, not after: a run finishing in between
         # would otherwise be missed until the next reconnect.
         async with UIEventStream.for_user(user.pk) as events:
-            state = await _snapshot(user)
+            visible = await _open_visible_runs(user)
+            state = await _snapshot(user, visible)
             if state is not None:
-                yield _snapshot_frame(state)
+                yield data_frame(state, event="snapshot")
 
             while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
                 if not await events.wait_for_change(POKE_WAIT_S):
                     yield KEEP_ALIVE_FRAME
                     continue
 
-                fresh = await _snapshot(user)
+                fresh = await _snapshot(user, visible)
                 if fresh is not None and fresh != state:
                     state = fresh
-                    yield _snapshot_frame(state)
+                    yield data_frame(state, event="snapshot")
     except Exception as err:
         # A dropped bus is anticipated, and the client is about to reconnect: at WARNING
         # without a traceback, an outage costs one line per tab per retry instead of a
