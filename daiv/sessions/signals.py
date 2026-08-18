@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
 from jobs.tasks import run_job_task
 
-from core.ui_events import publish_runs_changed
+from core import ui_events
 from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
@@ -87,12 +87,12 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
 
     if created:
         if instance.status == RunStatus.RUNNING:
-            transaction.on_commit(publish_runs_changed)
+            transaction.on_commit(ui_events.publisher.runs_changed)
         return
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and "status" not in update_fields:
         return
-    transaction.on_commit(publish_runs_changed)
+    transaction.on_commit(ui_events.publisher.runs_changed)
 
 
 def emit_run_finished_if_terminal(run: Any, previous_status: str | None, *, skip_dispatch: bool = False) -> None:

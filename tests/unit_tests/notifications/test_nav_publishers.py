@@ -27,7 +27,7 @@ def make_notification(user) -> Notification:
 @pytest.mark.django_db
 class TestUnreadPokes:
     def test_creating_a_notification_pokes_its_recipient(self, member_user):
-        with patch("notifications.models.publish_notifications_changed") as publish:
+        with patch("core.ui_events.publisher.notifications_changed") as publish:
             with TestCase.captureOnCommitCallbacks(execute=False) as callbacks:
                 create_notification(
                     recipient=member_user,
@@ -47,7 +47,7 @@ class TestUnreadPokes:
     def test_marking_one_read_pokes(self, member_user):
         notification = make_notification(member_user)
         with (
-            patch("notifications.models.publish_notifications_changed") as publish,
+            patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             notification.mark_as_read()
@@ -57,7 +57,7 @@ class TestUnreadPokes:
         notification = make_notification(member_user)
         notification.mark_as_read()
         with (
-            patch("notifications.models.publish_notifications_changed") as publish,
+            patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             notification.mark_as_read()
@@ -68,7 +68,7 @@ class TestUnreadPokes:
         dropdown takes on open — the badge clearing depends on it."""
         make_notification(member_user)
         with (
-            patch("notifications.models.publish_notifications_changed") as publish,
+            patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             Notification.mark_all_read_for(member_user)
@@ -76,7 +76,7 @@ class TestUnreadPokes:
 
     def test_marking_all_read_with_nothing_unread_does_not_poke(self, member_user):
         with (
-            patch("notifications.models.publish_notifications_changed") as publish,
+            patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             Notification.mark_all_read_for(member_user)
@@ -85,7 +85,7 @@ class TestUnreadPokes:
     def test_opening_the_bell_dropdown_pokes(self, member_client, member_user):
         make_notification(member_user)
         with (
-            patch("notifications.models.publish_notifications_changed") as publish,
+            patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             response = member_client.get("/dashboard/notifications/bell/")

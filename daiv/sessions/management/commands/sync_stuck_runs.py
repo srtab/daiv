@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from core.ui_events import publish_runs_changed
+from core import ui_events
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, SessionOrigin
 
@@ -84,5 +84,5 @@ class Command(BaseCommand):
             # to be issued here — these rows were counted as running until now. Deferred
             # like the signal's, so a caller that wraps this in ``atomic`` still cannot
             # have readers recount against a pre-write snapshot.
-            transaction.on_commit(publish_runs_changed)
+            transaction.on_commit(ui_events.publisher.runs_changed)
         return reaped

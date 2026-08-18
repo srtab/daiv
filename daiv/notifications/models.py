@@ -8,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
 
-from core.ui_events import publish_notifications_changed
+from core import ui_events
 from notifications.choices import ChannelType, DeliveryStatus, EventType
 
 
@@ -21,7 +21,7 @@ def publish_unread_changed(user_id) -> None:
     ``services.create_notification`` — rather than from the views on top of them, so
     a new caller can't silently leave the badge stale.
     """
-    transaction.on_commit(lambda: publish_notifications_changed(user_id))
+    transaction.on_commit(lambda: ui_events.publisher.notifications_changed(user_id))
 
 
 class Notification(TimeStampedModel):

@@ -34,13 +34,13 @@ def make_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB
 class TestRunSavePokes:
     def test_a_status_change_pokes(self, session):
         run = make_run(session)
-        with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
+        with patch("core.ui_events.publisher.runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
             run.status = RunStatus.RUNNING
             run.save(update_fields=["status"])
         publish.assert_called_once()
 
     def test_creating_a_run_pokes(self, session):
-        with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
+        with patch("core.ui_events.publisher.runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
             make_run(session, status=RunStatus.RUNNING)
         publish.assert_called_once()
 
@@ -48,13 +48,13 @@ class TestRunSavePokes:
         """Every path but chat creates a run ``READY``/``QUEUED`` — the most frequent Run
         write there is, and one no reader's count can include. Unlike an update, a create
         has the status in hand, so the gate can be exact instead of a superset."""
-        with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
+        with patch("core.ui_events.publisher.runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
             make_run(session, status=RunStatus.QUEUED)
         publish.assert_not_called()
 
     def test_a_save_that_cannot_have_moved_the_status_does_not_poke(self, session):
         run = make_run(session, status=RunStatus.RUNNING)
-        with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
+        with patch("core.ui_events.publisher.runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
             run.result_summary = "done"
             run.save(update_fields=["result_summary"])
         publish.assert_not_called()
@@ -63,7 +63,7 @@ class TestRunSavePokes:
         """A reader recounting before the write landed would send the old number and
         then sit on it — nothing pokes twice."""
         run = make_run(session)
-        with patch("sessions.signals.publish_runs_changed") as publish:
+        with patch("core.ui_events.publisher.runs_changed") as publish:
             # `captureOnCommitCallbacks` only fills the list on exit, so the deferred
             # callbacks have to run outside it — the patch stays up around both.
             with TestCase.captureOnCommitCallbacks(execute=False) as callbacks:
@@ -85,7 +85,7 @@ class TestWritesThatBypassSignals:
         run = await Run.objects.acreate(
             session=session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.CHAT, repo_id="daiv/api"
         )
-        with patch("chat.api.streaming.apublish_runs_changed") as publish:
+        with patch("core.ui_events.publisher.aruns_changed") as publish:
             await finalize_chat_run(run.pk, success=True, usage=None, response_text="ok")
         publish.assert_called_once()
 
@@ -94,11 +94,11 @@ class TestWritesThatBypassSignals:
         badge left counting a run whose worker was killed."""
         Session.objects.filter(pk=session.pk).update(last_active_at=stale_cutoff() - timedelta(minutes=5))
         make_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.CHAT)
-        with patch("sessions.management.commands.sync_stuck_runs.publish_runs_changed") as publish:
+        with patch("core.ui_events.publisher.runs_changed") as publish:
             call_command("sync_stuck_runs")
         publish.assert_called_once()
 
     def test_a_reaper_pass_with_nothing_to_reap_does_not_poke(self, session):
-        with patch("sessions.management.commands.sync_stuck_runs.publish_runs_changed") as publish:
+        with patch("core.ui_events.publisher.runs_changed") as publish:
             call_command("sync_stuck_runs")
         publish.assert_not_called()
