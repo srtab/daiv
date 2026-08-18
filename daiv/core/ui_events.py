@@ -120,8 +120,25 @@ def _publish(channel: str, kind: str) -> None:
         _on_publish_failure(channel, kind, err)
 
 
+async def _apublish(channel: str, kind: str) -> None:
+    """``_publish`` for callers already on the web worker's event loop, sharing its
+    guard and failure policy. Same loop-binding contract as ``get_async_redis``."""
+    if not _bus_configured():
+        return
+    try:
+        await get_async_redis().publish(channel, _message(kind))
+    except Exception as err:  # noqa: BLE001
+        _on_publish_failure(channel, kind, err)
+
+
 def publish_runs_changed() -> None:
-    """Poke every reader to recompute its visible running-runs count."""
+    """Poke every reader to recompute its visible running-runs count.
+
+    Fire-and-forget, and *not* commit-deferred: keeping ``transaction.on_commit`` at the
+    call sites is what lets this stay usable without a DB connection (and lets tests
+    patch the publisher without patching the deferral out of the code under test). Sync
+    callers must wrap it — see ``sessions.signals.publish_nav_runs_changed``.
+    """
     _publish(RUNS_CHANNEL, KIND_RUNS)
 
 
@@ -129,18 +146,17 @@ async def apublish_runs_changed() -> None:
     """``publish_runs_changed`` for callers already on the web worker's event loop.
 
     The chat run finalizer lives there and would otherwise pay a thread hop for a
-    single round-trip. Same loop-binding contract as ``get_async_redis``.
+    single round-trip. No ``on_commit``: it runs outside the ORM's sync transaction
+    machinery, and its own write has already been awaited.
     """
-    if not _bus_configured():
-        return
-    try:
-        await get_async_redis().publish(RUNS_CHANNEL, _message(KIND_RUNS))
-    except Exception as err:  # noqa: BLE001
-        _on_publish_failure(RUNS_CHANNEL, KIND_RUNS, err)
+    await _apublish(RUNS_CHANNEL, KIND_RUNS)
 
 
 def publish_notifications_changed(user_id: int | str | None) -> None:
-    """Poke one user's readers to recompute their unread count."""
+    """Poke one user's readers to recompute their unread count.
+
+    Commit-deferral is the caller's, on the same terms as ``publish_runs_changed``.
+    """
     if user_id is None:
         return
     _publish(user_channel(user_id), KIND_NOTIFICATIONS)

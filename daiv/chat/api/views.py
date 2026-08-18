@@ -1,8 +1,7 @@
-import json
 import logging
 import time
 
-from django.http import Http404, HttpRequest, StreamingHttpResponse
+from django.http import Http404, HttpRequest
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from asgiref.sync import sync_to_async
@@ -17,6 +16,7 @@ from sessions.models import Session
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
+from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, end_frame, retry_frame, sse_response
 
 from . import relay, runner
 from .security import AuthBearer
@@ -31,28 +31,11 @@ HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
-# SSE reader tuning. The 300s duration cap closes the response *without* an end
-# frame — EventSource then auto-reconnects with Last-Event-ID, which keeps
-# long runs streaming while bounding per-connection worker occupancy.
+# SSE reader tuning. The 300s duration cap (``core.sse``) closes the response
+# *without* an end frame — EventSource then auto-reconnects with Last-Event-ID,
+# which keeps long runs streaming while bounding per-connection worker occupancy.
 STREAM_BLOCK_MS = 15_000
 STREAM_DRAIN_BLOCK_MS = 500
-STREAM_MAX_DURATION_S = 300.0
-
-
-def _end_frame(reason: str) -> str:
-    return f"event: end\ndata: {json.dumps({'reason': reason})}\n\n"
-
-
-def _sse_response(frames) -> StreamingHttpResponse:
-    """Wrap a relay-tail generator in the response every SSE endpoint shares.
-
-    ``X-Accel-Buffering: no`` + ``Cache-Control: no-cache`` are the load-bearing
-    headers that stop nginx from buffering the stream — keep them in one place so
-    the two callers can't drift.
-    """
-    return StreamingHttpResponse(
-        frames, content_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
 
 
 async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
@@ -74,7 +57,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     from a transient drop to the browser's EventSource, which would then reconnect
     forever against a still-broken backend. The explicit terminal frame stops it.
     """
-    yield "retry: 2000\n\n"
+    yield retry_frame(2000)
     start = time.monotonic()
     released_drain = False
     run_relay = relay.RunRelay(thread_id, run_id)
@@ -87,13 +70,13 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
                 for entry in entries:
                     last_id = entry.id
                     if entry.is_end:
-                        yield _end_frame("finished")
+                        yield end_frame("finished")
                         return
                     yield f"id: {entry.id}\ndata: {entry.data}\n\n"
                 continue
 
             if released_drain:
-                yield _end_frame("finished")
+                yield end_frame("finished")
                 return
 
             session = (
@@ -103,12 +86,12 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
                 released_drain = True
                 continue
             if session["last_active_at"] < stale_cutoff():
-                yield _end_frame("stale")
+                yield end_frame("stale")
                 return
-            yield ": keep-alive\n\n"
+            yield KEEP_ALIVE_FRAME
     except Exception:
         logger.exception("chat: relay tail failed for thread_id=%s run_id=%s", thread_id, run_id)
-        yield _end_frame("error")
+        yield end_frame("error")
 
 
 @chat_router.get("/stream", url_name="chat_run_stream")
@@ -124,7 +107,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
-    return _sse_response(_run_event_frames(thread_id, run_id, last_id))
+    return sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
 class RunHandle(Schema):
@@ -321,7 +304,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # a browser EventSource auto-reconnects with Last-Event-ID, but a raw AG-UI
         # client that doesn't must reconnect via ``GET /stream`` with a
         # ``Last-Event-ID`` header to resume a run longer than the cap.
-        return _sse_response(_run_event_frames(thread_id, run_id, "0-0"))
+        return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
 
 

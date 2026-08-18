@@ -13,7 +13,7 @@ from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.text import slugify
@@ -32,6 +32,7 @@ from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from core.sse import STREAM_MAX_DURATION_S, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
@@ -50,7 +51,6 @@ if TYPE_CHECKING:
 
 
 POLL_INTERVAL = 2.0
-MAX_DURATION = 300.0
 
 
 class SessionStreamView(View):
@@ -72,11 +72,7 @@ class SessionStreamView(View):
         if not uuids:
             return HttpResponse(status=400)
 
-        return StreamingHttpResponse(
-            self._stream(uuids, user),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        return sse_response(self._stream(uuids, user))
 
     async def _stream(self, run_ids: list[uuid.UUID], user):
         """Stream current Run state to the browser.
@@ -88,14 +84,14 @@ class SessionStreamView(View):
         # Authorize the requested ids once: run visibility is stable for the life of the
         # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
         # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
-        # of spinning to MAX_DURATION on ids the caller can't see. ``visible_to`` resolves the
+        # of spinning to the duration cap on ids the caller can't see. ``visible_to`` resolves the
         # caller's platform identity with a sync DB read, so build the queryset off-loop.
         visible = await sync_to_async(Run.objects.visible_to)(user)
         tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
-        while tracking and (time.monotonic() - start) < MAX_DURATION:
+        while tracking and (time.monotonic() - start) < STREAM_MAX_DURATION_S:
             await asyncio.sleep(POLL_INTERVAL)
 
             runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")

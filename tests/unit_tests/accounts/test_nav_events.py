@@ -97,87 +97,82 @@ def snapshots(frames: list[str]) -> list[dict]:
     return [json.loads(frame.split("data: ", 1)[1].strip()) for frame in frames if frame.startswith("event: snapshot")]
 
 
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(username="alice", email="alice@test.com", password="x123456789")  # noqa: S106
-
-
 @pytest.mark.django_db(transaction=True)
 class TestNavFrames:
-    async def test_opens_with_a_reconnect_hint_then_a_snapshot(self, user):
+    async def test_opens_with_a_reconnect_hint_then_a_snapshot(self, member_user):
         """``retry:`` first because the duration cap works by *forcing* a reconnect —
         without it the browser would use its own back-off."""
-        frames = await read_frames(user, FakePubSub([]), count=2)
+        frames = await read_frames(member_user, FakePubSub([]), count=2)
         assert frames[0] == "retry: 3000\n\n"
         assert frames[1].startswith("event: snapshot\n")
 
-    async def test_the_snapshot_carries_both_counts(self, user):
+    async def test_the_snapshot_carries_both_counts(self, member_user):
         await Notification.objects.acreate(
-            recipient=user, event_type="schedule.finished", subject="n", body="b", link_url="/"
+            recipient=member_user, event_type="schedule.finished", subject="n", body="b", link_url="/"
         )
-        await start_run(user)
-        frames = await read_frames(user, FakePubSub([]), count=2)
+        await start_run(member_user)
+        frames = await read_frames(member_user, FakePubSub([]), count=2)
         assert snapshots(frames) == [{"unread_count": 1, "running_runs": 1}]
 
-    async def test_only_running_runs_are_counted(self, user):
-        await start_run(user, status=RunStatus.SUCCESSFUL)
-        await start_run(user, status=RunStatus.QUEUED, repo_id="daiv/other")
-        frames = await read_frames(user, FakePubSub([]), count=2)
+    async def test_only_running_runs_are_counted(self, member_user):
+        await start_run(member_user, status=RunStatus.SUCCESSFUL)
+        await start_run(member_user, status=RunStatus.QUEUED, repo_id="daiv/other")
+        frames = await read_frames(member_user, FakePubSub([]), count=2)
         assert snapshots(frames)[0]["running_runs"] == 0
 
-    async def test_another_users_notifications_are_not_counted(self, user):
+    async def test_another_users_notifications_are_not_counted(self, member_user):
         bob = await User.objects.acreate_user(username="bob", email="bob@test.com", password="x123456789")  # noqa: S106
         await Notification.objects.acreate(
             recipient=bob, event_type="schedule.finished", subject="n", body="b", link_url="/"
         )
-        frames = await read_frames(user, FakePubSub([]), count=2)
+        frames = await read_frames(member_user, FakePubSub([]), count=2)
         assert snapshots(frames)[0]["unread_count"] == 0
 
-    async def test_listens_on_the_broadcast_channel_and_the_users_own(self, user):
+    async def test_listens_on_the_broadcast_channel_and_the_users_own(self, member_user):
         pubsub = FakePubSub([])
-        await read_frames(user, pubsub, count=2)
-        assert pubsub.channels == (ui_events.RUNS_CHANNEL, f"daiv:ui-events:user:{user.pk}")
+        await read_frames(member_user, pubsub, count=2)
+        assert pubsub.channels == (ui_events.RUNS_CHANNEL, f"daiv:ui-events:user:{member_user.pk}")
 
-    async def test_an_idle_stream_sends_keep_alives_not_snapshots(self, user):
-        frames = await read_frames(user, FakePubSub([]), count=4)
+    async def test_an_idle_stream_sends_keep_alives_not_snapshots(self, member_user):
+        frames = await read_frames(member_user, FakePubSub([]), count=4)
         assert frames[2:] == [": keep-alive\n\n", ": keep-alive\n\n"]
 
-    async def test_a_poke_that_changed_nothing_sends_no_second_snapshot(self, user):
+    async def test_a_poke_that_changed_nothing_sends_no_second_snapshot(self, member_user):
         """The publishers are a deliberate over-approximation (any Run save touching
         status pokes every reader), so suppression here is what keeps the client quiet."""
-        frames = await read_frames(user, FakePubSub([poke()]), count=3)
+        frames = await read_frames(member_user, FakePubSub([poke()]), count=3)
         assert len(snapshots(frames)) == 1
         assert frames[2] == ": keep-alive\n\n"
 
-    async def test_a_poke_after_a_real_change_sends_a_fresh_snapshot(self, user):
+    async def test_a_poke_after_a_real_change_sends_a_fresh_snapshot(self, member_user):
         pubsub = FakePubSub([])
-        generator = _nav_frames(user)
+        generator = _nav_frames(member_user)
         with patch.object(ui_events, "subscription", fake_subscription(pubsub)):
             try:
                 assert await anext(generator) == "retry: 3000\n\n"
                 first = await anext(generator)
                 assert json.loads(first.split("data: ", 1)[1])["running_runs"] == 0
 
-                await start_run(user)
+                await start_run(member_user)
                 pubsub._messages.append(poke())
                 second = await anext(generator)
                 assert json.loads(second.split("data: ", 1)[1])["running_runs"] == 1
             finally:
                 await generator.aclose()
 
-    async def test_a_burst_of_pokes_costs_one_recompute(self, user):
+    async def test_a_burst_of_pokes_costs_one_recompute(self, member_user):
         """A finishing run pokes several times over; coalescing turns the burst into a
         single recount instead of one per poke, per connected reader."""
         pubsub = FakePubSub([poke(), poke(), poke()])
         with patch("accounts.api.views.query_running_jobs", return_value=0) as query:
-            await read_frames(user, pubsub, count=3)
+            await read_frames(member_user, pubsub, count=3)
         assert query.call_count == 2  # the opening snapshot, then one for the whole burst
 
-    async def test_a_failure_mid_stream_ends_it_explicitly(self, user, caplog):
+    async def test_a_failure_mid_stream_ends_it_explicitly(self, member_user, caplog):
         """An unframed abort is indistinguishable from a transient drop, so EventSource
         would reconnect against a still-broken backend forever."""
         pubsub = FakePubSub([], error=ConnectionError("redis went away"))
-        frames = await read_frames(user, pubsub, count=3)
+        frames = await read_frames(member_user, pubsub, count=3)
         assert frames[2] == 'event: end\ndata: {"reason": "error"}\n\n'
         assert "event stream failed" in caplog.text
 
@@ -188,10 +183,9 @@ class TestNavEventsEndpoint:
         response = client.get("/api/nav/events")
         assert response.status_code == 401
 
-    def test_it_is_served_as_an_event_stream(self, client, user):
-        client.force_login(user)
+    def test_it_is_served_as_an_event_stream(self, member_client):
         with patch("accounts.api.views._nav_frames", return_value=iter([])):
-            response = client.get("/api/nav/events")
+            response = member_client.get("/api/nav/events")
         assert response.status_code == 200
         assert response["Content-Type"] == "text/event-stream"
         # Without these nginx buffers the whole response and nothing streams.

@@ -69,18 +69,28 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     """Poke the nav SSE readers whenever a Run's status may have moved.
 
     The sidebar's "N running" badge is per-viewer, so readers recompute their own
-    count from this poke (see ``core.ui_events``). The gate is a deliberate
-    superset — a full save carries no ``update_fields`` to inspect — because an
-    extra poke costs one COUNT per reader while a missed one leaves a stale badge
-    until the connection's next resync. Deferred to commit so the recount cannot
-    read a pre-write snapshot.
+    count from this poke (see ``core.ui_events``). Deferred to commit so the recount
+    cannot read a pre-write snapshot.
+
+    On an update the gate is a deliberate superset — a full save carries no
+    ``update_fields`` to inspect — because an extra poke costs one COUNT per reader
+    while a missed one leaves a stale badge until the connection's next resync. A
+    create is exact instead: the status is in hand, and every other run creation
+    (``READY``/``QUEUED`` from the webhook, API, MCP, schedule and batch paths) is a
+    row no reader's count can include.
 
     Writes that bypass this signal (``Run.objects...aupdate()`` in
     ``chat.api.streaming.finalize_chat_run``, the ``.update()`` in the
     ``sync_stuck_runs`` reaper) publish for themselves.
     """
+    from sessions.models import RunStatus  # local import to avoid circulars
+
+    if created:
+        if instance.status == RunStatus.RUNNING:
+            transaction.on_commit(publish_runs_changed)
+        return
     update_fields = kwargs.get("update_fields")
-    if not created and update_fields is not None and "status" not in update_fields:
+    if update_fields is not None and "status" not in update_fields:
         return
     transaction.on_commit(publish_runs_changed)
 

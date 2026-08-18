@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from core.ui_events import publish_runs_changed
@@ -80,6 +81,8 @@ class Command(BaseCommand):
         if reaped:
             logger.warning("sync_stuck_runs: reaped %d orphaned chat run(s) stuck in RUNNING", reaped)
             # The direct ``.update()`` above fires no post_save, so the nav badge poke has
-            # to be issued here — these rows were counted as running until now.
-            publish_runs_changed()
+            # to be issued here — these rows were counted as running until now. Deferred
+            # like the signal's, so a caller that wraps this in ``atomic`` still cannot
+            # have readers recount against a pre-write snapshot.
+            transaction.on_commit(publish_runs_changed)
         return reaped

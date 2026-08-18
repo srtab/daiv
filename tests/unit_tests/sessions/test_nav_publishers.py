@@ -44,6 +44,14 @@ class TestRunSavePokes:
             make_run(session, status=RunStatus.RUNNING)
         publish.assert_called_once()
 
+    def test_creating_a_run_that_is_not_running_does_not_poke(self, session):
+        """Every path but chat creates a run ``READY``/``QUEUED`` — the most frequent Run
+        write there is, and one no reader's count can include. Unlike an update, a create
+        has the status in hand, so the gate can be exact instead of a superset."""
+        with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):
+            make_run(session, status=RunStatus.QUEUED)
+        publish.assert_not_called()
+
     def test_a_save_that_cannot_have_moved_the_status_does_not_poke(self, session):
         run = make_run(session, status=RunStatus.RUNNING)
         with patch("sessions.signals.publish_runs_changed") as publish, TestCase.captureOnCommitCallbacks(execute=True):

@@ -11,9 +11,10 @@ truth. That makes the duration cap do double duty: it bounds how long a worker
 stays occupied by one tab, and the reconnect it forces is the periodic resync
 that repairs anything a dropped poke lost.
 
-The counts are computed with the same helpers that render the first page load
-(``accounts.context_processors.query_running_jobs``), so the seeded values and the
-streamed ones can't drift apart.
+Both counts are read through the same helpers that render the first page load
+(``accounts.context_processors.query_running_jobs``,
+``notifications.context_processors.query_unread_count``), so the seeded values and
+the streamed ones can't drift apart.
 """
 
 from __future__ import annotations
@@ -23,15 +24,16 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from django.http import StreamingHttpResponse
+from django.db import close_old_connections
 
 from asgiref.sync import sync_to_async
 from ninja import Router
 from ninja.security import django_auth
-from notifications.models import Notification
+from notifications.context_processors import query_unread_count
 
 from accounts.context_processors import query_running_jobs
 from core import ui_events
+from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, end_frame, retry_frame, sse_response
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -43,26 +45,32 @@ logger = logging.getLogger("daiv.accounts")
 nav_router = Router(tags=["nav"], auth=django_auth)
 
 # Reader tuning. Waking every 20s keeps proxies and load balancers from reaping an
-# idle stream (the wake costs a comment frame, no queries). The 300s cap closes the
-# response without a terminal frame, which is what makes EventSource reconnect — and
-# the fresh snapshot on that reconnect is the resync, so the cap is load-bearing.
+# idle stream (the wake costs a comment frame, no queries). The shared duration cap
+# closes the response without a terminal frame, which is what makes EventSource
+# reconnect — and the fresh snapshot on that reconnect is the resync.
 POKE_WAIT_S = 20.0
-STREAM_MAX_DURATION_S = 300.0
 # A finished run pokes several times in a row (status write, then the dispatcher's
 # follow-ups). Collecting the burst before recomputing turns those into one snapshot.
 POKE_COALESCE_S = 0.15
 
 
-async def _unread_count(user: User) -> int:
-    return await Notification.objects.filter(recipient=user, read_at__isnull=True).acount()
+def _counts(user: User) -> dict[str, int]:
+    """Both badge counts in one trip to the DB thread.
+
+    Sync because ``visible_to`` is (it resolves platform identity mid-query-build), and
+    because Django's async ORM is ``sync_to_async`` underneath anyway — one hop beats two
+    onto the same thread-sensitive executor. The connection goes back to the pool on the
+    way out: a stream idles here for up to the duration cap, and one it holds without
+    using is one ``DB_POOL_MAX_SIZE`` cannot give a request that would use it.
+    """
+    try:
+        return {"unread_count": query_unread_count(user), "running_runs": query_running_jobs(user)}
+    finally:
+        close_old_connections()
 
 
 async def _snapshot(user: User) -> dict[str, int]:
-    return {
-        "unread_count": await _unread_count(user),
-        # ``visible_to`` is sync-only (it resolves platform identity mid-query-build).
-        "running_runs": await sync_to_async(query_running_jobs)(user),
-    }
+    return await sync_to_async(_counts)(user)
 
 
 async def _nav_frames(user: User):
@@ -77,7 +85,7 @@ async def _nav_frames(user: User):
     instead of an unframed abort: to EventSource the latter is indistinguishable from a
     transient drop, so it would reconnect against a still-broken backend forever.
     """
-    yield "retry: 3000\n\n"
+    yield retry_frame(3000)
     start = time.monotonic()
     try:
         # Subscribe before the first snapshot, not after: a run finishing in between
@@ -90,7 +98,7 @@ async def _nav_frames(user: User):
             while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
                 message = await pubsub.get_message(timeout=POKE_WAIT_S)
                 if ui_events.parse_kind(message) is None:
-                    yield ": keep-alive\n\n"
+                    yield KEEP_ALIVE_FRAME
                     continue
 
                 # Drain the rest of the burst before spending queries on it. The kind is
@@ -105,14 +113,10 @@ async def _nav_frames(user: User):
                     yield f"event: snapshot\ndata: {json.dumps(state)}\n\n"
     except Exception:
         logger.exception("nav: event stream failed for user pk=%s", user.pk)
-        yield f"event: end\ndata: {json.dumps({'reason': 'error'})}\n\n"
+        yield end_frame("error")
 
 
 @nav_router.get("/events", url_name="nav_events")
 async def nav_events(request: HttpRequest):
     """Live counters for the dashboard shell (notification bell, running-runs badge)."""
-    return StreamingHttpResponse(
-        _nav_frames(request.auth),  # ty: ignore[unresolved-attribute, invalid-argument-type]
-        content_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return sse_response(_nav_frames(request.auth))  # ty: ignore[unresolved-attribute]
