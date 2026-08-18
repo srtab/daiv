@@ -45,10 +45,17 @@ CONTAINER = re.compile(r'class="(picker-popover(?![_\w])[^"]*)"')
 
 SHEET_HEAD = "core/_sheet_head.html"
 
+# The scrim, and the surface's own opening tag it has to agree with. `[^>]` can't cross a
+# tag boundary, so the attribute blob is whatever the popover's own `<div` carries.
+BACKDROP_SHOW = re.compile(r'\{% include "core/_sheet_backdrop\.html" with show_expr="([^"]*)"')
+POPOVER_TAG = re.compile(r'<div\s+([^>]*class="picker-popover(?![_\w])[^"]*"[^>]*)>')
+X_SHOW = re.compile(r'x-show="([^"]*)"')
+
 INPUT_CSS = DAIV_DIR / "static_src" / "css" / "input.css"
 BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
 # Steps nest one level (the rules the media query re-declares), so one alternation is enough.
 SHEET_MEDIA = re.compile(r"@media \(width < (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
+DESKTOP_MEDIA = re.compile(r"@media \(min-width: (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
 
 def _templates_with_popovers() -> dict[str, str]:
@@ -84,6 +91,38 @@ def test_every_popover_carries_a_sheet_dismiss():
     ]
 
     assert not failures, "Every .picker-popover needs its own sheet head:\n" + "\n".join(failures)
+
+
+def test_every_popover_dims_the_page_behind_its_sheet():
+    """A bottom sheet covers the page instead of floating over a corner of it, so without
+    the scrim the page below reads as live while every click on it only dismisses. Matched
+    by expression, not counted: a scrim on a condition the surface no longer uses shows the
+    dim with nothing in front of it."""
+    failures = [
+        f"{rel}: popovers {popovers} vs scrims {scrims}"
+        for rel, source in _templates_with_popovers().items()
+        if (popovers := sorted(X_SHOW.search(attrs)[1] for attrs in POPOVER_TAG.findall(source)))
+        != (scrims := sorted(BACKDROP_SHOW.findall(source)))
+    ]
+
+    assert not failures, (
+        "Every .picker-popover needs a core/_sheet_backdrop.html shown by its own expression:\n" + "\n".join(failures)
+    )
+
+
+def test_the_scrim_stops_where_the_sheet_does():
+    """Left on above the breakpoint it would dim the whole app behind a popover anchored to
+    a trigger the user can still see."""
+    source = INPUT_CSS.read_text(encoding="utf-8")
+    token = BREAKPOINT_TOKEN.search(source)
+
+    assert token, "`@theme` no longer declares --breakpoint-popover"
+
+    widths = {width for width, body in DESKTOP_MEDIA.findall(source) if ".sheet-backdrop {" in body}
+
+    assert widths == {token.group(1)}, (
+        f"--breakpoint-popover is {token.group(1)}px but the scrim stops at {widths or 'nowhere'}"
+    )
 
 
 def test_the_sheet_breakpoint_is_a_single_number():

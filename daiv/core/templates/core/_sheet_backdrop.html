@@ -1,0 +1,18 @@
+{% comment %}
+Scrim behind a surface in its bottom-sheet form — the page below is inert while the sheet
+is open, and without the dim it doesn't look it.
+
+Include it as a *sibling* of the surface, inside the same Alpine scope: as a descendant it
+would inherit the sheet's stacking context and paint over the sheet instead of behind it.
+Above 1100px the surface is an anchored popover and the scrim is `display: none`.
+
+Parameters:
+- show_expr (required)  — the Alpine expression the surface's own ``x-show`` carries.
+- close_expr (required) — Alpine expression that closes the surface, as in
+                          ``core/_sheet_head.html``.
+{% endcomment %}
+<div class="sheet-backdrop"
+     x-show="{{ show_expr }}"
+     x-cloak
+     @click="{{ close_expr }}"
+     aria-hidden="true"></div>

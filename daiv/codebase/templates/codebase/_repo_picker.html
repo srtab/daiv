@@ -105,7 +105,9 @@ Parameters:
     Both popovers stay in the DOM with hx-get pre-set so HTMX registers them during its
     initial sweep. openBranchPicker rewrites the branch input's hx-get (via setAttribute)
     before firing `refresh`, so the __SLUG__ placeholder is replaced with the real slug.
+    Each one carries its own scrim, shown by the same expression.
     {% endcomment %}
+    {% include "core/_sheet_backdrop.html" with show_expr="popover === 'repo'" close_expr="closePopover()" %}
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
@@ -143,6 +145,7 @@ Parameters:
         <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="picker-popover__list scrollbar-thin"></div>
     </div>
 
+    {% include "core/_sheet_backdrop.html" with show_expr="popover === 'branch'" close_expr="closePopover()" %}
     <div x-show="popover === 'branch'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"

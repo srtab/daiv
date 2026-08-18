@@ -1964,7 +1964,9 @@ main:has(.chat-shell) {
     --surface-rise-from: 12px;
   }
 
-  .composer-sheet__backdrop {
+  /* One scrim for every sheet, the composer's and the pickers' alike. Always a sibling of
+     the surface: inside it, it would paint over the sheet instead of behind it. */
+  .sheet-backdrop {
     position: fixed;
     inset: 0;
     z-index: 55;
@@ -1984,7 +1986,7 @@ main:has(.chat-shell) {
       box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
     }
 
-    .composer-sheet__backdrop {
+    .sheet-backdrop {
       display: none;
     }
   }

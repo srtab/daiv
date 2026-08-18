@@ -109,6 +109,19 @@ def test_both_sheets_are_rendered_with_their_triggers(member_client, member_user
     assert "composer-trigger--pill" in html
 
 
+SCRIM = re.compile(r'class="sheet-backdrop"\s+x-show="([^"]*)"')
+
+
+@pytest.mark.django_db
+def test_every_dock_surface_dims_the_transcript_behind_it(member_client):
+    """Below 1100px the two sheets and the two pickers in the dock are the same surface, so
+    they dim the same way. The pickers ship their own scrim from the shared partial — the
+    composer's covers only what ``sheet`` opens."""
+    scrims = set(SCRIM.findall(_render_new_chat(member_client)))
+
+    assert scrims == {"sheet", "popover === 'repo'", "popover === 'branch'", "open"}
+
+
 @pytest.mark.django_db
 def test_model_label_is_locked_for_an_existing_thread(member_client, member_user):
     """The API rejects a changed ``agent_model`` after the first turn, so the label has to
