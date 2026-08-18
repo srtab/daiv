@@ -12,12 +12,21 @@ singletons (which would leak a cached client into whatever runs next).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import redis
 
-from core.ui_events import Channel, RedisConnections, UIEventKind, UIEventPublisher, UIEventStream
+from core.ui_events import (
+    Channel,
+    RedisConnections,
+    UIEventKind,
+    UIEventPublisher,
+    UIEventStream,
+    is_transient_bus_error,
+)
 
 
 class FakeConnections:
@@ -251,3 +260,35 @@ class TestWaitForChange:
             assert await stream.wait_for_change(20.0) is False
         assert pubsub.reads[:1] == [20.0]
         assert pubsub.reads[1:4] == [UIEventStream.COALESCE_S] * 3
+
+
+class TestTransientClassification:
+    """Which failures a reader may report quietly. Getting this wrong is invisible in
+    tests and only shows up as Sentry noise during an outage (or a swallowed bug)."""
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            redis.RedisError("generic"),
+            redis.ConnectionError("refused"),
+            redis.TimeoutError("timed out"),
+            ConnectionResetError("peer reset"),
+            TimeoutError("socket timeout"),
+        ],
+        ids=["redis-error", "redis-connection", "redis-timeout", "socket-reset", "socket-timeout"],
+    )
+    def test_an_outage_is_transient(self, exc):
+        assert is_transient_bus_error(exc) is True
+
+    @pytest.mark.parametrize(
+        "exc",
+        [RuntimeError("wrong event loop"), AttributeError("typo"), ValueError("bad value")],
+        ids=["loop-binding", "typo", "bad-value"],
+    )
+    def test_a_bug_is_not(self, exc):
+        assert is_transient_bus_error(exc) is False
+
+    def test_cancellation_is_never_classified(self):
+        """``CancelledError`` is a ``BaseException``, so an ``except Exception`` never
+        reaches here and outer cancellation keeps propagating."""
+        assert is_transient_bus_error(asyncio.CancelledError()) is False

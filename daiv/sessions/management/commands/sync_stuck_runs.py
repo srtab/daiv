@@ -80,9 +80,7 @@ class Command(BaseCommand):
         )
         if reaped:
             logger.warning("sync_stuck_runs: reaped %d orphaned chat run(s) stuck in RUNNING", reaped)
-            # The direct ``.update()`` above fires no post_save, so the nav badge poke has
-            # to be issued here — these rows were counted as running until now. Deferred
-            # like the signal's, so a caller that wraps this in ``atomic`` still cannot
-            # have readers recount against a pre-write snapshot.
+            # The ``.update()`` above fires no post_save, so the nav badge poke is issued
+            # here; deferred so a wrapping ``atomic`` can't have readers recount too early.
             transaction.on_commit(ui_events.publisher.runs_changed)
         return reaped

@@ -24,7 +24,7 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, props, frames, dispatch } = JSON.parse(readFileSync(0, "utf8"));
+const { src, props, frames, dispatch, visibility } = JSON.parse(readFileSync(0, "utf8"));
 const stores = {};
 let opened = null;
 
@@ -36,10 +36,14 @@ class FakeEventSource {
   close() { this.closed = true; }
 }
 
+const docListeners = {};
 const sandbox = {
   console: { warn: () => {}, error: () => {} },
   EventSource: FakeEventSource,
-  document: { addEventListener: (name, cb) => { if (name === "alpine:init") cb(); } },
+  document: {
+    visibilityState: "visible",
+    addEventListener: (name, cb) => { if (name === "alpine:init") cb(); else docListeners[name] = cb; },
+  },
 };
 sandbox.window = sandbox;
 sandbox.Alpine = { store: (name, value) => (stores[name] = value) };
@@ -51,6 +55,10 @@ nav.start(props);
 if (props.startTwice) nav.start(props);
 for (const frame of frames) opened.listeners.snapshot({ data: JSON.stringify(frame) });
 for (const name of dispatch) opened.listeners[name]({ data: "{}" });
+for (const state of visibility) {
+  sandbox.document.visibilityState = state;
+  docListeners.visibilitychange();
+}
 
 process.stdout.write(JSON.stringify({
   unread: nav.unread,
@@ -63,12 +71,18 @@ process.stdout.write(JSON.stringify({
 """
 
 
-def drive(props: dict, frames: list[dict] | None = None, dispatch: list[str] | None = None) -> dict:
+def drive(
+    props: dict,
+    frames: list[dict] | None = None,
+    dispatch: list[str] | None = None,
+    visibility: list[str] | None = None,
+) -> dict:
     payload = {
         "src": str(NAV_EVENTS_JS),
         "props": {"url": "/api/nav/events", "unread": 0, "running": 0, "runningLabel": "{count} running", **props},
         "frames": frames or [],
         "dispatch": dispatch or [],
+        "visibility": visibility or [],
     }
     proc = subprocess.run(  # noqa: S603
         [str(NODE), "--input-type=module", "-e", HARNESS],
@@ -136,3 +150,24 @@ def test_an_end_frame_closes_the_stream():
     state = drive({"unread": 2}, dispatch=["end"])
     assert state["closed"] is True
     assert state["unread"] == 2
+
+
+def test_a_backgrounded_tab_drops_the_stream():
+    """The poll this replaced was gated on visibility; an ungated stream holds a worker,
+    a recount per poke and one of six per-origin connections for every hidden tab."""
+    state = drive({}, visibility=["hidden"])
+    assert state["closed"] is True
+    assert state["constructed"] == 1
+
+
+def test_coming_back_into_view_reopens_it():
+    """The fresh stream's first frame is a whole-state snapshot, so the gap self-heals."""
+    state = drive({}, visibility=["hidden", "visible"])
+    assert state["closed"] is False
+    assert state["constructed"] == 2
+
+
+def test_a_stream_the_server_ended_is_not_reopened_by_visibility():
+    state = drive({}, dispatch=["end"], visibility=["hidden", "visible"])
+    assert state["closed"] is True
+    assert state["constructed"] == 1

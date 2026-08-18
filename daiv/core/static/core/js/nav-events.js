@@ -27,7 +27,9 @@ document.addEventListener("alpine:init", () => {
   Alpine.store("nav", {
     unread: 0,
     running: 0,
+    _url: "",
     _source: null,
+    _ended: false,
     _runningLabel: "",
 
     get runningLabel() {
@@ -39,16 +41,34 @@ document.addEventListener("alpine:init", () => {
       this.unread = Number(unread) || 0;
       this.running = Number(running) || 0;
       this._runningLabel = runningLabel || "";
-      if (this._source || !url || !window.EventSource) return;
-      this._source = new EventSource(url);
+      if (this._url || !url || !window.EventSource) return;
+      this._url = url;
+      // The poll this replaced was gated on `document.visibilityState === 'visible'`;
+      // an ungated stream would hold a worker, a DB recount per poke and one of the
+      // browser's six per-origin connections for every backgrounded tab.
+      document.addEventListener("visibilitychange", () => this._sync());
+      this._sync();
+    },
+
+    /** Terminal: the server gave up, so reconnecting would hammer a broken backend. */
+    stop() {
+      this._ended = true;
+      this._close();
+    },
+
+    _sync() {
+      if (document.visibilityState === "hidden") this._close();
+      else this._open();
+    },
+
+    _open() {
+      if (this._source || this._ended || !this._url) return;
+      this._source = new EventSource(this._url);
       this._source.addEventListener("snapshot", (event) => this._apply(event.data));
-      // The server sends `end` only when it has given up (a stream-level failure), so
-      // reconnecting would just hammer a broken backend. The badges keep their last
-      // values until the next page load.
       this._source.addEventListener("end", () => this.stop());
     },
 
-    stop() {
+    _close() {
       if (this._source) this._source.close();
       this._source = null;
     },

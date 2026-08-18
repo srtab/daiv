@@ -82,28 +82,33 @@ def query_running_jobs(user) -> int:
 
     The nav badge's single source of truth: the first page render reads it through
     ``nav`` below, and every subsequent update comes from the SSE endpoint
-    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Falls back to 0
-    and logs on ``DatabaseError`` so a transient DB failure degrades the badge rather
-    than breaking the page (or dropping the stream).
+    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
+    ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
+    but a live stream must keep the browser's last value rather than push a zero it
+    cannot distinguish from a real one.
 
     SYNC ONLY — ``Run.objects.visible_to`` resolves the caller's platform identity with a
     DB read at query-build time; async callers must wrap this in ``sync_to_async``.
     """
     from sessions.models import Run, RunStatus  # local import to avoid circulars
 
-    try:
-        return Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
-    except DatabaseError:
-        logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
-        return 0
+    return Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
 
 
 def running_jobs_count(request, user) -> int:
-    """``query_running_jobs`` memoized per-request via ``request._daiv_running_jobs``."""
+    """``query_running_jobs`` memoized per-request via ``request._daiv_running_jobs``.
+
+    Degrades to 0 on ``DatabaseError`` so a transient DB failure costs the badge rather
+    than the whole page render.
+    """
     cached = getattr(request, "_daiv_running_jobs", None)
     if cached is not None:
         return cached
-    running = query_running_jobs(user)
+    try:
+        running = query_running_jobs(user)
+    except DatabaseError:
+        logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
+        running = 0
     request._daiv_running_jobs = running
     return running
 

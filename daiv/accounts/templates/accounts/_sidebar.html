@@ -34,9 +34,8 @@
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'sessions' %}opacity-0{% endif %}"></span>
       {% icon "chat-bubble" "h-4 w-4" %}
       <span class="flex-1">{% translate "Sessions" %}</span>
-      {% comment %}Count and label both come from the `nav` store, seeded in base_app.html and
-      kept current by the SSE stream. `x-cloak` because the badge must not flash at zero before
-      Alpine boots — the same reason the <aside> above carries it.{% endcomment %}
+      {% comment %}Count and label come from the `nav` store, seeded in base_app.html.
+      `x-cloak` so the badge cannot flash at zero before Alpine boots.{% endcomment %}
       <span data-testid="nav-running-badge"
             x-show="$store.nav.running > 0" x-cloak
             x-text="$store.nav.runningLabel"

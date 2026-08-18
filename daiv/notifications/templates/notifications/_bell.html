@@ -1,8 +1,6 @@
 {% load i18n icon_tags %}
 {% comment %}The badge is bound to the `nav` store (fed by the SSE stream in
-`core/js/nav-events.js`), never re-rendered. This element used to carry a 10s
-`hx-get` + `hx-swap="outerHTML"` badge poll, which replaced the very element holding
-`open` — so an open dropdown closed on the next tick.{% endcomment %}
+`core/js/nav-events.js`); nothing here may re-render this element, which owns `open`.{% endcomment %}
 <div id="notifications-bell" class="relative" x-data="{ open: false }">
   <button type="button" @click="open = !open; if(open) htmx.trigger($el, 'load-dropdown')"
           hx-get="{% url 'notifications:bell_dropdown' %}"
@@ -13,7 +11,7 @@
           aria-label="{% translate 'Notifications' %}">
     {% icon "bell" "h-5 w-5" %}
     {% comment %}Opening the dropdown marks everything read server-side, which pushes a fresh
-    snapshot — so the badge clears from the stream, not optimistically.{% endcomment %}
+    snapshot — the badge clears from the stream, not optimistically.{% endcomment %}
     <span x-show="$store.nav.unread > 0" x-text="$store.nav.unread" x-cloak
           class="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"></span>
   </button>

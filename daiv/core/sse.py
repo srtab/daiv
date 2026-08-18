@@ -17,9 +17,8 @@ from django.http import StreamingHttpResponse
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, Iterable
 
-# Bounds how long one connection occupies a worker. Closing without a terminal frame
-# is what makes EventSource reconnect, so each endpoint's reconnect behaviour (replay
-# from Last-Event-ID, or a fresh snapshot) is also its resync.
+# Bounds how long one connection occupies a worker. Closing without a terminal frame is
+# what makes EventSource reconnect, so each endpoint's reconnect is also its resync.
 STREAM_MAX_DURATION_S = 300.0
 
 KEEP_ALIVE_FRAME = ": keep-alive\n\n"

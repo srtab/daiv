@@ -13,6 +13,8 @@ import json
 import uuid
 from unittest.mock import patch
 
+from django.db import Error as DatabaseError
+
 import pytest
 from asgiref.sync import sync_to_async
 from notifications.models import Notification
@@ -20,6 +22,13 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.api.views import _nav_frames
 from accounts.models import User
+
+
+@pytest.fixture(autouse=True)
+def _bus_configured(settings):
+    """The test settings omit the Redis component, and an unconfigured bus is its own
+    (separately asserted) branch — every other test here needs one."""
+    settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
 
 
 class FakeStream:
@@ -141,12 +150,44 @@ class TestNavFrames:
             finally:
                 await generator.aclose()
 
-    async def test_a_failure_mid_stream_ends_it_explicitly(self, member_user, caplog):
-        """An unframed abort is indistinguishable from a transient drop, so EventSource
-        would reconnect against a still-broken backend forever."""
+    async def test_a_failure_mid_stream_backs_off_instead_of_giving_up(self, member_user, caplog):
+        """A dropped bus connection is transient, and the reconnect a silent close forces
+        is the resync. An ``event: end`` would freeze the badges until the next page load,
+        so only the longer retry is sent."""
         frames = await read_frames(member_user, FakeStream(error=ConnectionError("redis went away")), count=3)
-        assert frames[2] == 'event: end\ndata: {"reason": "error"}\n\n'
+        assert frames[2] == "retry: 30000\n\n"
+        assert not any(frame.startswith("event: end") for frame in frames)
+
+    async def test_a_dropped_bus_is_logged_without_a_traceback(self, member_user, caplog):
+        """The client reconnects every 30s, so an outage would mint one Sentry error event
+        per tab per retry — the same split ``_is_transient_mcp_error`` draws."""
+        await read_frames(member_user, FakeStream(error=ConnectionError("redis went away")), count=3)
+        assert "lost the bus" in caplog.text
+        assert "Traceback" not in caplog.text
+
+    async def test_an_unexpected_failure_still_gets_a_traceback(self, member_user, caplog):
+        """The quiet path is for the bus being down, not for a bug in how we drive it."""
+        await read_frames(member_user, FakeStream(error=AttributeError("bad attribute")), count=3)
         assert "event stream failed" in caplog.text
+        assert "Traceback" in caplog.text
+
+    async def test_no_bus_configured_is_told_to_the_client_and_not_retried(self, member_user, settings, caplog):
+        """A deployment without Redis is a supported shape, not an outage: one warning,
+        no traceback, and a terminal frame because reconnecting cannot fix it."""
+        del settings.DJANGO_REDIS_URL
+        frames = await read_frames(member_user, FakeStream(), count=2)
+        assert frames[1] == 'event: end\ndata: {"reason": "unavailable"}\n\n'
+        assert "DJANGO_REDIS_URL is not configured" in caplog.text
+        assert "Traceback" not in caplog.text
+
+    async def test_a_recount_that_failed_leaves_the_badges_alone(self, member_user, caplog):
+        """The counts degrade to 0 on a page render, but a live badge holding the right
+        number must not be blanked by a zero the reader cannot vouch for."""
+        with patch("accounts.api.views.query_unread_count", side_effect=DatabaseError("connection lost")):
+            frames = await read_frames(member_user, FakeStream([True]), count=3)
+        assert snapshots(frames) == []
+        assert frames[1:] == [": keep-alive\n\n", ": keep-alive\n\n"]
+        assert "recount failed" in caplog.text
 
 
 @pytest.mark.django_db
