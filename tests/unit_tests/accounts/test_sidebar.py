@@ -65,9 +65,22 @@ class TestAdminGroupVisibility:
 
 @pytest.mark.django_db
 class TestRunningJobsBadge:
-    def test_no_badge_when_zero_running(self, member):
+    """The badge's text is Alpine-bound to the `nav` store, so what the server controls
+    is the seed handed to `$store.nav.start(...)` and the store expressions on the badge
+    — the count itself is covered in test_context_processors.py."""
+
+    def test_badge_is_bound_to_the_store_not_server_rendered(self, member):
         response = _client(member).get(reverse("dashboard"))
-        assert b'data-testid="nav-running-badge"' not in response.content
+        content = response.content.decode()
+        # Present at any count (x-show hides it at zero), so a 0 → 1 transition has an
+        # element to reveal without a page load.
+        assert 'data-testid="nav-running-badge"' in content
+        assert 'x-show="$store.nav.running > 0"' in content
+        assert 'x-text="$store.nav.runningLabel"' in content
+
+    def test_seeds_the_store_with_zero_when_nothing_is_running(self, member):
+        response = _client(member).get(reverse("dashboard"))
+        assert "running: 0" in response.content.decode()
 
     def test_badge_shows_count_when_running(self, member):
         session1 = Session.objects.create(
@@ -91,8 +104,10 @@ class TestRunningJobsBadge:
             user=member,
         )
         response = _client(member).get(reverse("dashboard"))
-        assert b'data-testid="nav-running-badge"' in response.content
-        assert b"2 running" in response.content
+        content = response.content.decode()
+        # The seed the store starts from, and the label template it interpolates into.
+        assert "running: 2" in content
+        assert "%(count)s running" in content
 
 
 @pytest.mark.django_db

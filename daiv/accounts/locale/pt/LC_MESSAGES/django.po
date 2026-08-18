@@ -104,10 +104,8 @@ msgid "Sessions"
 msgstr "Sessões"
 
 #, python-format
-msgid "%(counter)s running"
-msgid_plural "%(counter)s running"
-msgstr[0] "%(counter)s em execução"
-msgstr[1] "%(counter)s em execução"
+msgid "%(count)s running"
+msgstr "%(count)s em execução"
 
 msgid "Schedules"
 msgstr "Agendamentos"

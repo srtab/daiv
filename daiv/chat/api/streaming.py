@@ -31,6 +31,7 @@ from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.ui_events import apublish_runs_changed
 
 from . import relay
 from .event_filter import SubagentEventFilter
@@ -80,6 +81,9 @@ async def finalize_chat_run(
     if usage:
         update.update(usage_field_updates(usage, run_ref=run_pk))
     await Run.objects.filter(pk=run_pk).aupdate(**update)
+    # ``aupdate`` fires no post_save, so the nav badge poke the Run signal would have
+    # sent has to be issued here.
+    await apublish_runs_changed()
 
 
 # GitState fields that survive the ag-ui output-schema filter and reach the

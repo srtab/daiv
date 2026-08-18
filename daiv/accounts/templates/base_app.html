@@ -1,8 +1,15 @@
 {% extends "base.html" %}
-{% load i18n icon_tags %}
+{% load i18n icon_tags static %}
+
+{% block alpine_stores %}
+<script defer src="{% static 'core/js/nav-events.js' %}"></script>
+{% endblock alpine_stores %}
 
 {% block content %}
-<div x-data="{ mobileNavOpen: false }" class="flex h-dvh">
+{% translate "%(count)s running" as nav_running_label %}
+<div x-data="{ mobileNavOpen: false }"
+     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', unread: {{ unread_count|default:0 }}, running: {{ nav_running_jobs|default:0 }}, runningLabel: '{{ nav_running_label|escapejs }}' })"
+     class="flex h-dvh">
   {% include "accounts/_sidebar.html" %}
 
   <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 sm:hidden">

@@ -77,24 +77,33 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def running_jobs_count(request, user) -> int:
-    """Return the user's running-jobs count, memoized per-request.
+def query_running_jobs(user) -> int:
+    """Count the runs ``user`` can see that are currently RUNNING.
 
-    The first caller hits the database; subsequent callers on the same request reuse the
-    value via ``request._daiv_running_jobs``. Falls back to 0 and logs on ``DatabaseError``
-    so a transient DB failure degrades the nav badge rather than breaking page rendering.
+    The nav badge's single source of truth: the first page render reads it through
+    ``nav`` below, and every subsequent update comes from the SSE endpoint
+    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Falls back to 0
+    and logs on ``DatabaseError`` so a transient DB failure degrades the badge rather
+    than breaking the page (or dropping the stream).
+
+    SYNC ONLY — ``Run.objects.visible_to`` resolves the caller's platform identity with a
+    DB read at query-build time; async callers must wrap this in ``sync_to_async``.
     """
-    cached = getattr(request, "_daiv_running_jobs", None)
-    if cached is not None:
-        return cached
-
     from sessions.models import Run, RunStatus  # local import to avoid circulars
 
     try:
-        running = Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
+        return Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
-        running = 0
+        return 0
+
+
+def running_jobs_count(request, user) -> int:
+    """``query_running_jobs`` memoized per-request via ``request._daiv_running_jobs``."""
+    cached = getattr(request, "_daiv_running_jobs", None)
+    if cached is not None:
+        return cached
+    running = query_running_jobs(user)
     request._daiv_running_jobs = running
     return running
 
