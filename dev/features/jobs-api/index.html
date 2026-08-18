@@ -1747,7 +1747,7 @@
 <h2 id="authentication">Authentication</h2>
 <p>The Jobs API uses <strong>API key authentication</strong> via Bearer tokens — the same mechanism used by the chat completions API.</p>
 <h3 id="creating-an-api-key">Creating an API key</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>create_api_key<span class="w"> </span>&lt;username&gt;<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;my-key&quot;</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>create_api_key<span class="w"> </span>&lt;username&gt;<span class="w"> </span>--name<span class="w"> </span><span class="s2">"my-key"</span>
 </code></pre></div></td></tr></table></div>
 <p>This outputs a key in the format <code>prefix.secret</code>. Store it securely — it cannot be retrieved later.</p>
 <h3 id="managing-api-keys">Managing API keys</h3>
@@ -1764,9 +1764,9 @@
 <span class="normal"><a href="#__codelineno-1-2">2</a></span>
 <span class="normal"><a href="#__codelineno-1-3">3</a></span>
 <span class="normal"><a href="#__codelineno-1-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://daiv.example.com/api/jobs<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;...&#39;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer &lt;your-api-key&gt;"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'...'</span>
 </code></pre></div></td></tr></table></div>
 <h2 id="rate-limiting">Rate limiting</h2>
 <p>Job submissions are rate-limited per authenticated user. The default limit is <strong>20 requests per hour</strong>. When exceeded, the API returns <code>429 Too Many Requests</code>.</p>
@@ -1849,12 +1849,12 @@
 <span class="normal"><a href="#__codelineno-4-5">5</a></span>
 <span class="normal"><a href="#__codelineno-4-6">6</a></span>
 <span class="normal"><a href="#__codelineno-4-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://daiv.example.com/api/jobs<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$DAIV_API_KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="s1">    &quot;repos&quot;: [{&quot;repo_id&quot;: &quot;mygroup/myproject&quot;}],</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="s1">    &quot;prompt&quot;: &quot;List all Python files and summarize the project structure&quot;</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="s1">  }&#39;</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$DAIV_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="s1">    "repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="s1">    "prompt": "List all Python files and summarize the project structure"</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="s1">  }'</span>
 </code></pre></div></td></tr></table></div>
 <p><strong>Response (202 Accepted):</strong></p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
@@ -1870,17 +1870,17 @@
 <span class="normal"><a href="#__codelineno-5-11">11</a></span>
 <span class="normal"><a href="#__codelineno-5-12">12</a></span>
 <span class="normal"><a href="#__codelineno-5-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;batch_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;5b9e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;jobs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">"batch_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"5b9e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">"jobs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">    </span><span class="p">{</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">      </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1adfbf7a-917e-4f2e-8f54-17a27c006ec5&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">      </span><span class="nt">&quot;repo_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;mygroup/myproject&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">      </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">      </span><span class="nt">&quot;thread_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;READY&quot;</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">      </span><span class="nt">"job_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1adfbf7a-917e-4f2e-8f54-17a27c006ec5"</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">      </span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/myproject"</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">      </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">      </span><span class="nt">"thread_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">      </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"READY"</span>
 <a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">    </span><span class="p">}</span>
 <a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="w">  </span><span class="p">],</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span><span class="nt">"failed"</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <a id="__codelineno-5-13" name="__codelineno-5-13"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <p>Each entry in <code>jobs</code> is an independent run — poll each <code>job_id</code> separately. The <code>status</code> is <code>READY</code> for an immediately-runnable job, or <code>QUEUED</code> if another run is already in flight on the same <code>thread_id</code> (see <a href="#job-lifecycle">Job lifecycle</a>). Pre-enqueue rejections (e.g. unknown <code>repo_id</code>) are reported in <code>failed</code> as <code>{repo_id, ref, error}</code>; the rest of the batch still runs.</p>
@@ -1899,15 +1899,15 @@
 <span class="normal"><a href="#__codelineno-7-9"> 9</a></span>
 <span class="normal"><a href="#__codelineno-7-10">10</a></span>
 <span class="normal"><a href="#__codelineno-7-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="p">{</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1adfbf7a-917e-4f2e-8f54-17a27c006ec5&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SUCCESSFUL&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;thread_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Here are the Python files...&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;merge_request_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.012Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;started_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.401Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10"></a><span class="w">  </span><span class="nt">&quot;finished_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:52.402Z&quot;</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">"job_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1adfbf7a-917e-4f2e-8f54-17a27c006ec5"</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"SUCCESSFUL"</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">  </span><span class="nt">"thread_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">"result"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Here are the Python files..."</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">  </span><span class="nt">"merge_request_url"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">  </span><span class="nt">"created_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:39.012Z"</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">  </span><span class="nt">"started_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:39.401Z"</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10"></a><span class="w">  </span><span class="nt">"finished_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:52.402Z"</span>
 <a id="__codelineno-7-11" name="__codelineno-7-11"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <p><code>merge_request_url</code> is populated when the agent produced code changes that were committed and pushed; <code>null</code> otherwise (e.g. read-only triage runs). <code>thread_id</code> identifies the thread this job ran on — pass it back as the <code>thread_id</code> field on a new submission to continue the conversation.</p>
@@ -2026,27 +2026,27 @@
 <span class="normal"><a href="#__codelineno-8-23">23</a></span>
 <span class="normal"><a href="#__codelineno-8-24">24</a></span>
 <span class="normal"><a href="#__codelineno-8-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="ch">#!/bin/bash</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="nv">DAIV_URL</span><span class="o">=</span><span class="s2">&quot;https://daiv.example.com&quot;</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="nv">DAIV_URL</span><span class="o">=</span><span class="s2">"https://daiv.example.com"</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span>
 <a id="__codelineno-8-4" name="__codelineno-8-4"></a>
 <a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="c1"># Submit (single-repo batch)</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6"></a><span class="nv">JOB_ID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;repos&quot;:[{&quot;repo_id&quot;:&quot;mygroup/myproject&quot;}],&quot;prompt&quot;:&quot;List all TODO comments&quot;}&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.jobs[0].job_id&#39;</span><span class="k">)</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6"></a><span class="nv">JOB_ID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"repos":[{"repo_id":"mygroup/myproject"}],"prompt":"List all TODO comments"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.jobs[0].job_id'</span><span class="k">)</span>
 <a id="__codelineno-8-11" name="__codelineno-8-11"></a>
-<a id="__codelineno-8-12" name="__codelineno-8-12"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Job submitted: </span><span class="nv">$JOB_ID</span><span class="s2">&quot;</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job submitted: </span><span class="nv">$JOB_ID</span><span class="s2">"</span>
 <a id="__codelineno-8-13" name="__codelineno-8-13"></a>
 <a id="__codelineno-8-14" name="__codelineno-8-14"></a><span class="c1"># Poll until done</span>
 <a id="__codelineno-8-15" name="__codelineno-8-15"></a><span class="k">while</span><span class="w"> </span>true<span class="p">;</span><span class="w"> </span><span class="k">do</span>
-<a id="__codelineno-8-16" name="__codelineno-8-16"></a><span class="w">  </span><span class="nv">RESPONSE</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs/</span><span class="nv">$JOB_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">&quot;</span><span class="k">)</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18"></a><span class="w">  </span><span class="nv">STATUS</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$RESPONSE</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.status&#39;</span><span class="k">)</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16"></a><span class="w">  </span><span class="nv">RESPONSE</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs/</span><span class="nv">$JOB_ID</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="k">)</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18"></a><span class="w">  </span><span class="nv">STATUS</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.status'</span><span class="k">)</span>
 <a id="__codelineno-8-19" name="__codelineno-8-19"></a>
-<a id="__codelineno-8-20" name="__codelineno-8-20"></a><span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$STATUS</span><span class="s2">&quot;</span><span class="w"> </span><span class="k">in</span>
-<a id="__codelineno-8-21" name="__codelineno-8-21"></a><span class="w">    </span>SUCCESSFUL<span class="o">)</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$RESPONSE</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.result&#39;</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="w"> </span><span class="p">;;</span>
-<a id="__codelineno-8-22" name="__codelineno-8-22"></a><span class="w">    </span>FAILED<span class="o">)</span><span class="w">     </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Job failed&quot;</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-8-20" name="__codelineno-8-20"></a><span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="s2">"</span><span class="nv">$STATUS</span><span class="s2">"</span><span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21"></a><span class="w">    </span>SUCCESSFUL<span class="o">)</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.result'</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22"></a><span class="w">    </span>FAILED<span class="o">)</span><span class="w">     </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job failed"</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">;;</span>
 <a id="__codelineno-8-23" name="__codelineno-8-23"></a><span class="w">    </span>*<span class="o">)</span><span class="w">          </span>sleep<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="p">;;</span>
 <a id="__codelineno-8-24" name="__codelineno-8-24"></a><span class="w">  </span><span class="k">esac</span>
 <a id="__codelineno-8-25" name="__codelineno-8-25"></a><span class="k">done</span>
@@ -2089,37 +2089,37 @@
 <span class="normal"><a href="#__codelineno-9-34">34</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="c1"># .gitlab-ci.yml</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="nt">triage-and-create-issues</span><span class="p">:</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == &quot;schedule&quot;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "schedule"</span>
 <a id="__codelineno-9-5" name="__codelineno-9-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
 <a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="w">    </span><span class="c1"># Step 1: Triage tickets</span>
 <a id="__codelineno-9-7" name="__codelineno-9-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8"></a><span class="w">      </span><span class="no">JOB_ID=$(curl -s -X POST &quot;$DAIV_URL/api/jobs&quot; \</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9"></a><span class="w">        </span><span class="no">-H &quot;Authorization: Bearer $DAIV_API_KEY&quot; \</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10"></a><span class="w">        </span><span class="no">-H &quot;Content-Type: application/json&quot; \</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="w">        </span><span class="no">-d &#39;{</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12"></a><span class="w">          </span><span class="no">&quot;repos&quot;: [{&quot;repo_id&quot;: &quot;mygroup/myproject&quot;}],</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13"></a><span class="w">          </span><span class="no">&quot;prompt&quot;: &quot;Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities.&quot;</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14"></a><span class="w">        </span><span class="no">}&#39; | jq -r &#39;.jobs[0].job_id&#39;)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8"></a><span class="w">      </span><span class="no">JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="w">        </span><span class="no">-d '{</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12"></a><span class="w">          </span><span class="no">"repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13"></a><span class="w">          </span><span class="no">"prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14"></a><span class="w">        </span><span class="no">}' | jq -r '.jobs[0].job_id')</span>
 <a id="__codelineno-9-15" name="__codelineno-9-15"></a>
 <a id="__codelineno-9-16" name="__codelineno-9-16"></a><span class="w">    </span><span class="c1"># Step 2: Poll until done</span>
 <a id="__codelineno-9-17" name="__codelineno-9-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
 <a id="__codelineno-9-18" name="__codelineno-9-18"></a><span class="w">      </span><span class="no">while true; do</span>
-<a id="__codelineno-9-19" name="__codelineno-9-19"></a><span class="w">        </span><span class="no">STATUS=$(curl -s &quot;$DAIV_URL/api/jobs/$JOB_ID&quot; \</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20"></a><span class="w">          </span><span class="no">-H &quot;Authorization: Bearer $DAIV_API_KEY&quot; | jq -r &#39;.status&#39;)</span>
-<a id="__codelineno-9-21" name="__codelineno-9-21"></a><span class="w">        </span><span class="no">[ &quot;$STATUS&quot; = &quot;SUCCESSFUL&quot; ] &amp;&amp; break</span>
-<a id="__codelineno-9-22" name="__codelineno-9-22"></a><span class="w">        </span><span class="no">[ &quot;$STATUS&quot; = &quot;FAILED&quot; ] &amp;&amp; exit 1</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19"></a><span class="w">        </span><span class="no">STATUS=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20"></a><span class="w">          </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.status')</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21"></a><span class="w">        </span><span class="no">[ "$STATUS" = "SUCCESSFUL" ] &amp;&amp; break</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22"></a><span class="w">        </span><span class="no">[ "$STATUS" = "FAILED" ] &amp;&amp; exit 1</span>
 <a id="__codelineno-9-23" name="__codelineno-9-23"></a><span class="w">        </span><span class="no">sleep 30</span>
 <a id="__codelineno-9-24" name="__codelineno-9-24"></a><span class="w">      </span><span class="no">done</span>
-<a id="__codelineno-9-25" name="__codelineno-9-25"></a><span class="w">      </span><span class="no">TRIAGE=$(curl -s &quot;$DAIV_URL/api/jobs/$JOB_ID&quot; \</span>
-<a id="__codelineno-9-26" name="__codelineno-9-26"></a><span class="w">        </span><span class="no">-H &quot;Authorization: Bearer $DAIV_API_KEY&quot; | jq -r &#39;.result&#39;)</span>
+<a id="__codelineno-9-25" name="__codelineno-9-25"></a><span class="w">      </span><span class="no">TRIAGE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-9-26" name="__codelineno-9-26"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.result')</span>
 <a id="__codelineno-9-27" name="__codelineno-9-27"></a>
 <a id="__codelineno-9-28" name="__codelineno-9-28"></a><span class="w">    </span><span class="c1"># Step 3: Chain — create issues from the triage report</span>
 <a id="__codelineno-9-29" name="__codelineno-9-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-9-30" name="__codelineno-9-30"></a><span class="w">      </span><span class="no">curl -s -X POST &quot;$DAIV_URL/api/jobs&quot; \</span>
-<a id="__codelineno-9-31" name="__codelineno-9-31"></a><span class="w">        </span><span class="no">-H &quot;Authorization: Bearer $DAIV_API_KEY&quot; \</span>
-<a id="__codelineno-9-32" name="__codelineno-9-32"></a><span class="w">        </span><span class="no">-H &quot;Content-Type: application/json&quot; \</span>
-<a id="__codelineno-9-33" name="__codelineno-9-33"></a><span class="w">        </span><span class="no">-d &quot;$(jq -n --arg prompt &quot;Based on this triage report, create GitLab issues for each actionable item: $TRIAGE&quot; \</span>
-<a id="__codelineno-9-34" name="__codelineno-9-34"></a><span class="w">          </span><span class="no">&#39;{repos: [{repo_id: &quot;mygroup/myproject&quot;}], prompt: $prompt}&#39;)&quot;</span>
+<a id="__codelineno-9-30" name="__codelineno-9-30"></a><span class="w">      </span><span class="no">curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-9-31" name="__codelineno-9-31"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-9-32" name="__codelineno-9-32"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-9-33" name="__codelineno-9-33"></a><span class="w">        </span><span class="no">-d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \</span>
+<a id="__codelineno-9-34" name="__codelineno-9-34"></a><span class="w">          </span><span class="no">'{repos: [{repo_id: "mygroup/myproject"}], prompt: $prompt}')"</span>
 </code></pre></div></td></tr></table></div>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
@@ -2151,7 +2151,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 16, 2026 12:52:06 UTC">August 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
   </span>
 
     
@@ -2161,7 +2161,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 16, 2026 12:52:06 UTC">August 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
   </span>
 
     
