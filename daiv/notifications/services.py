@@ -8,7 +8,7 @@ from django.db import transaction
 from notifications.channels.registry import get_channel
 from notifications.choices import DeliveryStatus
 from notifications.exceptions import UnknownChannelError
-from notifications.models import Notification, NotificationDelivery
+from notifications.models import Notification, NotificationDelivery, publish_unread_changed
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -68,6 +68,7 @@ def create_notification(
             status=DeliveryStatus.SKIPPED if skipped_reason else DeliveryStatus.PENDING,
             error_message=skipped_reason or "",
         )
+    publish_unread_changed(recipient.pk)
     return notification
 
 

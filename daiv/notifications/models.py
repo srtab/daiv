@@ -2,13 +2,26 @@ import uuid
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
 
+from core import ui_events
 from notifications.choices import ChannelType, DeliveryStatus, EventType
+
+
+def publish_unread_changed(user_id) -> None:
+    """Poke the recipient's nav readers to recompute their unread count.
+
+    Deferred to commit so the reader's recount cannot run against a snapshot that
+    predates the write; outside a transaction ``on_commit`` fires straight away.
+    Called from every site that changes unread state — the model methods below and
+    ``services.create_notification`` — rather than from the views on top of them, so
+    a new caller can't silently leave the badge stale.
+    """
+    transaction.on_commit(lambda: ui_events.publisher.notifications_changed(user_id))
 
 
 class Notification(TimeStampedModel):
@@ -64,11 +77,15 @@ class Notification(TimeStampedModel):
         if self.read_at is None:
             self.read_at = timezone.now()
             self.save(update_fields=["read_at", "modified"])
+            publish_unread_changed(self.recipient_id)
 
     @classmethod
     def mark_all_read_for(cls, user) -> int:
         now = timezone.now()
-        return cls.objects.filter(recipient=user, read_at__isnull=True).update(read_at=now, modified=now)
+        marked = cls.objects.filter(recipient=user, read_at__isnull=True).update(read_at=now, modified=now)
+        if marked:
+            publish_unread_changed(user.pk)
+        return marked
 
 
 class NotificationDelivery(TimeStampedModel):

@@ -76,10 +76,6 @@ class BellDropdownView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class BellBadgeView(LoginRequiredMixin, TemplateView):
-    template_name = "notifications/_bell.html"
-
-
 @method_decorator(require_POST, name="dispatch")
 class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
     template_name = "notifications/_notification_row.html"

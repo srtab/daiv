@@ -76,7 +76,7 @@ class TestNavContextProcessor:
     def test_running_jobs_falls_back_to_zero_on_database_error(self, user, mocker):
         # A transient DB failure should log-and-degrade the badge rather than crash rendering.
         failing_qs = mocker.MagicMock()
-        failing_qs.filter.return_value.count.side_effect = DatabaseError("connection lost")
+        failing_qs.filter.return_value.values.return_value.count.side_effect = DatabaseError("connection lost")
         mocker.patch("sessions.models.RunManager.visible_to", return_value=failing_qs)
         request = RequestFactory().get("/dashboard/")
         request.user = user
