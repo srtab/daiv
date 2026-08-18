@@ -775,7 +775,6 @@ main:has(.chat-shell) {
 
   .chat-turn--user .chat-text {
     white-space: pre-wrap;
-    overflow-wrap: break-word;
   }
 
   /* Collapsible tall user messages: clamp to a line budget with a bottom fade
@@ -883,6 +882,12 @@ main:has(.chat-shell) {
   }
   .chat-run-status--aborted {
     @apply border-white/10 bg-white/[0.03] text-gray-400;
+  }
+
+  /* `anywhere`, never `break-word`: only `anywhere` shrinks the box's min-content width,
+     and chat text is sized intrinsically, so break-word paints a pasted URL outside it. */
+  .chat-text {
+    overflow-wrap: anywhere;
   }
 
   .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl) {
@@ -1109,6 +1114,9 @@ main:has(.chat-shell) {
     color: #e2e8f0;
     font-weight: 600;
     letter-spacing: 0.01em;
+    /* Short enough that keeping a header whole can't widen the table; `anywhere` would
+       otherwise break "Key" over two lines. */
+    overflow-wrap: normal;
   }
 
   .chat-text td {
