@@ -167,7 +167,25 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  const pickPath = (argsStr) => {
+  // The transcript getters below re-derive from `turns` on every read, and parsing the
+  // JSON payloads off each segment is what made that expensive. Memoized per segment, on
+  // the source string as well — `args` grows delta by delta while a call streams, and a
+  // result lands whole later — so a payload is parsed once per value it ever holds.
+  // `field` is bound here rather than passed per call: the segment and the string it holds
+  // can then never be mis-paired at a call site.
+  const memoizePayload = (field, parse) => {
+    const cache = new WeakMap();
+    return (seg) => {
+      const src = seg[field];
+      const hit = cache.get(seg);
+      if (hit && hit.src === src) return hit.value;
+      const value = parse(src);
+      cache.set(seg, { src, value });
+      return value;
+    };
+  };
+
+  const pickPath = memoizePayload("args", (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
       if (!args || typeof args !== "object") return null;
@@ -175,10 +193,21 @@
     } catch {
       return null;
     }
-  };
+  });
 
-  const bashFilesChanged = (resultStr) =>
-    (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
+  const bashFilesChanged = memoizePayload(
+    "result",
+    (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
+  );
+
+  const parseTodos = memoizePayload("args", (argsStr) => {
+    try {
+      const args = JSON.parse(argsStr || "{}");
+      return Array.isArray(args.todos) ? args.todos : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
@@ -190,26 +219,52 @@
       if (turn.role === "user") return [];
       for (let j = turn.segments.length - 1; j >= 0; j--) {
         const s = turn.segments[j];
-        if (s.type === "tool_call" && s.name === "write_todos") {
-          try {
-            const args = JSON.parse(s.args || "{}");
-            return Array.isArray(args.todos) ? args.todos : [];
-          } catch {
-            return [];
-          }
-        }
+        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
     return [];
   };
 
-  // These caches live here, not on the returned data object: Alpine makes every own
-  // property reactive, so a cache read inside the getter would subscribe each reader to it
-  // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
-  // this factory once per component.
+  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+
+  // Every file the agent has written, most-recent first: path -> { path, op, fromPath?, segmentId }.
+  const collectFilesTouched = (turns) => {
+    const map = new Map();
+    const record = (path, op, seg, extra = {}) => {
+      if (!path) return;
+      map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
+    };
+    for (const t of turns) {
+      if (t.role === "run_status") continue;
+      for (const seg of t.segments) {
+        if (seg.type !== "tool_call") continue;
+        if (PATH_TOOLS.has(seg.name)) {
+          record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
+        } else if (seg.name === "bash") {
+          for (const entry of bashFilesChanged(seg)) {
+            record(entry.path, entry.op || "modified", seg,
+              entry.from_path ? { fromPath: entry.from_path } : {});
+          }
+        }
+      }
+    }
+    return [...map.values()].reverse();
+  };
+
+  // Whether a freshly derived list still says what the published one does, by the fields a
+  // binding renders. Assigning an equal-but-new array would re-trigger every reader of it.
+  const sameList = (a, b, fields) =>
+    a.length === b.length && a.every((item, i) => fields.every((f) => item[f] === b[i][f]));
+
+  const TODO_FIELDS = ["content", "status"];
+  const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
+
   const chat = (config) => {
-  let filesCache = null;
-  let todosCache = null;
+  // What the transcript effect last published. Write-side only — never read by a binding —
+  // so it is not the getter cache this replaced: it exists to keep the effect from reading
+  // its own output, which would subscribe it to what it writes.
+  let publishedTodos = [];
+  let publishedFiles = [];
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -264,9 +319,20 @@
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    _deriveTranscript: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
+    // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
+    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
+    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
+    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
+    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
+    // a getter*, which serves every reader after the first without touching `turns` and
+    // leaves those bindings subscribed to nothing.
+    latestTodos: [],
+    filesTouched: [],
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -572,6 +638,18 @@
         : this._defaultMcpNames();
       this._freezeMcpOrder();
 
+      // The one walk of the transcript. It subscribes to everything `latestTodos` and
+      // `filesTouched` read — every segment's type, name and payload — so a pushed turn, a
+      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
+      // value, and a mutation inside `turns` leaves its identity alone.
+      this._deriveTranscript = window.Alpine.effect(() => {
+        const todos = findLatestTodos(this.turns);
+        const files = collectFilesTouched(this.turns);
+        if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
+        if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+      });
+
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
       // and files) would otherwise stay "open" and pop back into view on the next turn.
       this.$watch("!progressPill", (gone) => {
@@ -627,6 +705,7 @@
     },
 
     destroy() {
+      if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -792,52 +871,9 @@
       return { tone: "thinking", label: this._thinkingPhrase };
     },
 
-    get latestTodos() {
-      // Cached for the rest of the microtask like ``filesTouched``, for the same reason:
-      // the progress pill and sheet read this a dozen-plus times per Alpine flush, and
-      // each read re-walked the transcript and re-parsed the todo args.
-      if (todosCache) return todosCache;
-      todosCache = findLatestTodos(this.turns);
-      queueMicrotask(() => { todosCache = null; });
-      return todosCache;
-    },
-
-    get todosDone() {
-      return this.latestTodos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
-    },
-
-    get filesTouched() {
-      // Alpine re-evaluates every binding that reads this in a single flush — the pill,
-      // its class, the crowded modifier, the sheet's rows, the $watch. Caching for the
-      // rest of the current microtask collapses those into one transcript walk; releasing
-      // it there means no mutation can ever be observed through a stale cache, since
-      // `turns` only changes between events.
-      if (filesCache) return filesCache;
-      // path -> { path, op, fromPath?, segmentId }
-      const map = new Map();
-      const record = (path, op, seg, extra = {}) => {
-        if (!path) return;
-        map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
-      };
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg.args), op, seg);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              record(entry.path, entry.op || "modified", seg,
-                entry.from_path ? { fromPath: entry.from_path } : {});
-            }
-          }
-        }
-      }
-      // Reverse so most-recent comes first.
-      filesCache = [...map.values()].reverse();
-      queueMicrotask(() => { filesCache = null; });
-      return filesCache;
+    get todosProgress() {
+      const todos = this.latestTodos;
+      return `${countDone(todos)}/${todos.length}`;
     },
 
     get showJumpToLatest() {
@@ -857,7 +893,7 @@
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const parts = [];
-      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
       if (files.length) parts.push(this._filesLabel(files.length));
 
       if (this.streaming || this.resuming) {

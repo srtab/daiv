@@ -1545,7 +1545,14 @@ main:has(.chat-shell) {
       0 16px 48px -16px rgba(124, 58, 237, 0.35);
   }
 
-  .chat-composer--sending {
+  /* In flight, the composer reads as inert — control by control, never as one fade on the
+     form. An `opacity` there is a stacking context, and it holds the sheets opened from the
+     action row: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
+     faded with the rest of the subtree, panel background included. */
+  .chat-composer--sending .chat-composer__textarea,
+  .chat-composer--sending .composer-trigger,
+  .chat-composer--sending .model-label,
+  .chat-composer--sending .composer-send {
     opacity: 0.72;
   }
 

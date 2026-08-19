@@ -39,6 +39,12 @@ EXPECTED_SURFACES = 9
 SURFACE_CLASSES = ("composer-sheet", "composer-autocomplete")
 SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLASSES)))
 
+# The `surface-rise` roster by name — every class that *is* a floating surface container,
+# which is what a guard on their z-order or their ancestors has to look for. `.picker-popover`
+# is matched by CONTAINER rather than SURFACE_CLASS, and the two dropdowns are built from
+# utilities, so neither reaches SURFACE_CLASSES above.
+SURFACE_CONTAINERS = frozenset({*SURFACE_CLASSES, "picker-popover", "filter-menu", "card__menu-panel"})
+
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
 POPOVER_CLASS = r'class="(picker-popover(?![_\w])[^"]*)"'
@@ -180,7 +186,7 @@ def test_every_surface_class_is_on_the_surface_rise_roster():
     roster_start = css.index(".surface-rise,")
     entries = {part.strip() for part in css[roster_start : css.index("{", roster_start)].split(",")}
 
-    missing = [name for name in (*SURFACE_CLASSES, "picker-popover") if f".{name}" not in entries]
+    missing = [name for name in sorted(SURFACE_CONTAINERS) if f".{name}" not in entries]
     assert not missing, f"not on the `surface-rise` roster in input.css: {missing}"
 
 
