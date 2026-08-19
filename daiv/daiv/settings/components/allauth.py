@@ -19,7 +19,11 @@ ACCOUNT_ADAPTER = "accounts.adapter.AccountAdapter"
 SOCIALACCOUNT_ADAPTER = "accounts.adapter.SocialAccountAdapter"
 ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 
-SOCIALACCOUNT_LOGIN_ON_GET = True
+# Allauth default: provider logins must be POST-initiated. The login template
+# renders provider links as POST forms (with {% csrf_token %}); a GET to a
+# provider login URL renders allauth's intermediate confirmation page instead of
+# redirecting straight away. Prevents login-CSRF via a crafted GET link.
+SOCIALACCOUNT_LOGIN_ON_GET = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True

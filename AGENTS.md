@@ -56,7 +56,7 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 - `AdminRequiredMixin` enforces `user.is_admin`; `user.is_last_active_admin()` guards deletion.
 - `APIKey.objects.create_key(user, name, expires_at)` is **async** — use `async_to_sync` from sync contexts.
 
-**Dependency management** — pin to exact versions (`==`), never edit `pyproject.toml` by hand. `parable` is git-pinned (not on PyPI); do not install it independently.
+**Dependency management** — pin to exact versions (`==`), never edit `pyproject.toml` by hand. `parable` is git-pinned (not on PyPI); do not install it independently. Its git source is pinned to an exact commit via `[tool.uv.sources]` (`sources.parable = { git = "...", rev = "<full-sha>" }`) — the bare `"parable"` line in `dependencies` has no `==` because a git-sourced dep can't take one, and the rev (not the dep line) is what freezes the commit. `uv add "parable @ git+...@<sha>"` is a no-op when the source rev already matches; verify with `uv sync --locked`.
 
 **Repository config** — `.daiv.yml` per repo cached 1 hour (`codebase/repo_config.py`). Invalidate via `RepositoryConfig.invalidate_cache(repo_id)`.
 
@@ -81,6 +81,10 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 **Repository memory ("dreaming")** — `MemoryEntry` rows are the source of truth; `RepositoryMemory.content` is a render cache produced by `render_memory_document` (`memory/render.py`), never model-generated. Entries are append-only — `entry.supersede(successor)` / `entry.confirm(when)`, never in-place edits or deletes — and `memory_max_lines`/`memory_max_bytes` are enforced by `prune_to_budget`, never by slicing the rendered document. The structured-output schemas (`memory/schemas.py`) deliberately carry **no** pydantic length or size constraints: parsing is all-or-nothing, so one over-long field would discard a whole valid batch; limits are checked per item instead.
 
 **Django settings** — test module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is injected automatically in tests.
+
+**ALLOWED_HOSTS fails closed** — `common.py` defaults `DJANGO_ALLOWED_HOSTS` to the empty list (Django then refuses to serve until the operator configures hosts), so host-header poisoning can't reach login-by-code emails / OAuth metadata. `components/debug.py` (dev, included only by `settings.local.py`) and `components/testing.py` override to `["*"]` so `runserver` and the test client (Host: `testserver`) keep working; `docker/local/app/config.env` sets `DJANGO_ALLOWED_HOSTS=*` for the dev compose. Do not restore a `*` default in `common.py`.
+
+**CSRF on ninja routes** — django-ninja 1.x has **no** `NinjaAPI(csrf=True)` kwarg (it was removed in the 1.0 refactor; passing it raises `TypeError` at import). CSRF is enforced per-route at the auth-class level: ninja marks every view `csrf_exempt` at the Django-middleware layer (`ninja/operation.py`) and delegates checking to the cookie/session auth classes — `django_auth` (`ninja.security.SessionAuth`, default `csrf=True`) runs `ninja.utils.check_csrf` (which drives `CsrfViewMiddleware.process_view`) on every request it handles, so any route using `django_auth` (chat / sessions / accounts routers) rejects cookie-authenticated unsafe methods without a matching `X-CSRFToken`. Bearer / API-key clients authenticate via `HttpBearer` / `APIKeyHeader` and never touch CSRF. `ninja.testing.TestAsyncClient` sets `request._dont_enforce_csrf_checks = True`, so it **cannot** exercise CSRF — to test enforcement use Django's real `Client`/`AsyncClient(enforce_csrf_checks=True)` against the mounted URL (e.g. `/api/chat/cancel`); see `tests/unit_tests/chat/api/test_csrf.py`.
 
 **Python 3.14 except syntax (PEP 758)** — `except E1, E2:` is valid and equivalent to `except (E1, E2):`. Ruff canonicalises to the unparenthesised form, so do NOT "fix" it back to parens; both run, and rewriting is just churn.
 
