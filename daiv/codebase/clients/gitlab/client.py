@@ -120,6 +120,14 @@ def _create_award_emoji(target: AwardEmojiTarget, emoji: Emoji):
             raise
 
 
+def _has_award_emoji(target: AwardEmojiTarget, emoji: Emoji, current_user_id: int) -> bool:
+    """Whether the current user already awarded `emoji` on an issue, MR or note."""
+    for award_emoji in target.awardemojis.list(iterator=True):
+        if award_emoji.name == emoji and award_emoji.user["id"] == current_user_id:
+            return True
+    return False
+
+
 class GitLabClient(RepoClient):
     """
     GitLab client to interact with GitLab repositories.
@@ -669,27 +677,30 @@ class GitLabClient(RepoClient):
         target = issue.notes.get(note_id, lazy=True) if note_id is not None else issue
         _create_award_emoji(target, emoji)
 
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None) -> bool:
         """
-        Check if an issue has a specific emoji reaction from the current user.
+        Check if an issue (or one of its notes when ``note_id`` is given) has a specific
+        emoji reaction from the current user.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
             emoji: The emoji to check for.
+            note_id: When set, check the reaction on the issue note instead of the issue.
 
         Returns:
-            True if the issue has the reaction, False otherwise.
+            True if the issue/note has the reaction, False otherwise.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         issue = project.issues.get(issue_id, lazy=True)
-        current_user_id = self.current_user.id
+        target = issue.notes.get(note_id, lazy=True) if note_id is not None else issue
+        return _has_award_emoji(target, emoji, self.current_user.id)
 
-        for award_emoji in issue.awardemojis.list(iterator=True):
-            if award_emoji.name == emoji and award_emoji.user["id"] == current_user_id:
-                return True
-
-        return False
+    def has_merge_request_note_reaction(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int) -> bool:
+        """Check if a merge request note has a specific emoji reaction from the current user."""
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        return _has_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji, self.current_user.id)
 
     # Merge request
     def update_or_create_merge_request(

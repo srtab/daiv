@@ -334,17 +334,19 @@ class RepoClient(abc.ABC):
         """
 
     @abc.abstractmethod
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None) -> bool:
         """
-        Check if an issue has a specific emoji reaction from the current user.
+        Check if an issue (or one of its notes when `note_id` is given) has a specific
+        emoji reaction from the current user.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
             emoji: The emoji to check for.
+            note_id: When set, check the reaction on the issue note instead of the issue.
 
         Returns:
-            True if the issue has the reaction, False otherwise.
+            True if the issue/note has the reaction, False otherwise.
         """
         pass
 
@@ -468,6 +470,11 @@ class RepoClient(abc.ABC):
         `note_id` names a conversation comment; GitHub review (diff) comments are not addressable
         here, since DAIV receives none.
         """
+
+    @abc.abstractmethod
+    def has_merge_request_note_reaction(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int) -> bool:
+        """Check if a merge request note has a specific emoji reaction from the current user."""
+        pass
 
     @abc.abstractmethod
     def mark_merge_request_comment_as_resolved(self, repo_id: str, merge_request_id: int, discussion_id: str):

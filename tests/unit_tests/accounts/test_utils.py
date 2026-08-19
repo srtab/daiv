@@ -40,8 +40,12 @@ async def test_resolve_user_by_social_account(user):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_resolve_user_username_takes_priority_over_social(user):
-    """Username match should resolve before falling through to social account."""
+async def test_resolve_user_social_account_takes_priority_over_username(user):
+    """The verified provider+uid link must win over a webhook-claimed username.
+
+    A platform user sharing a victim's username must not be misattributed to the
+    victim: the social account for the provider+uid is the verified identity.
+    """
     from allauth.socialaccount.models import SocialAccount
 
     other_user = await User.objects.acreate_user(
@@ -54,12 +58,12 @@ async def test_resolve_user_username_takes_priority_over_social(user):
     result = await resolve_user("gitlab", 12345, username="testuser")
 
     assert result is not None
-    assert result.pk == user.pk
+    assert result.pk == other_user.pk
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_resolve_user_email_takes_priority_over_social(user):
-    """Email match should resolve before falling through to social account."""
+async def test_resolve_user_social_account_takes_priority_over_email(user):
+    """The verified provider+uid link must win over a webhook-claimed email."""
     from allauth.socialaccount.models import SocialAccount
 
     other_user = await User.objects.acreate_user(
@@ -72,11 +76,31 @@ async def test_resolve_user_email_takes_priority_over_social(user):
     result = await resolve_user("gitlab", 12345, email="test@test.com")
 
     assert result is not None
+    assert result.pk == other_user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_resolve_user_falls_back_to_username_when_no_social_account(user):
+    """With no social account for the provider+uid, the username is the fallback."""
+    result = await resolve_user("gitlab", 12345, username="testuser")
+
+    assert result is not None
     assert result.pk == user.pk
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_resolve_user_falls_through_to_social_when_no_username_or_email_match():
+async def test_resolve_user_falls_back_to_email_when_no_social_account(user):
+    """With no social account for the provider+uid, the email is the fallback."""
+    result = await resolve_user("gitlab", 12345, email="test@test.com")
+
+    assert result is not None
+    assert result.pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_resolve_user_username_fallback_does_not_cross_match_social_account():
+    """The username fallback is scoped: a social account for a *different* uid must
+    not be reached via the username fallback path."""
     from allauth.socialaccount.models import SocialAccount
 
     user = await User.objects.acreate_user(
@@ -84,12 +108,14 @@ async def test_resolve_user_falls_through_to_social_when_no_username_or_email_ma
         email="daiv@test.com",
         password="testpass",  # noqa: S106
     )
+    # A social account exists for uid 12345 (a different external identity).
     await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="12345")
 
-    result = await resolve_user("gitlab", 12345, username="nonexistent", email="nobody@test.com")
+    # Resolving a *different* uid with a username that matches no user falls back
+    # to the username lookup, which finds nothing, and never returns the 12345 user.
+    result = await resolve_user("gitlab", 99999, username="nonexistent")
 
-    assert result is not None
-    assert result.pk == user.pk
+    assert result is None
 
 
 @pytest.mark.django_db(transaction=True)

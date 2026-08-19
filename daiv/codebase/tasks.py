@@ -2,7 +2,6 @@ import logging
 from datetime import UTC
 from typing import TYPE_CHECKING
 
-from django.conf import settings
 from django.core.management import call_command
 
 from crontask import cron
@@ -44,7 +43,7 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
         """
         Setup webhooks for all repositories periodically.
         """
-        call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
+        call_command("setup_webhooks", disable_ssl_verification=not codebase_settings.WEBHOOK_SSL_VERIFY)  # noqa: S106
 
 
 @cron(codebase_settings.REPO_ACCESS_SYNC_CRON)

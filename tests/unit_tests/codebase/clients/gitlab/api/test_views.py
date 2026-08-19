@@ -58,16 +58,16 @@ async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_
 
 async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_settings):
     """
-    Test GitLab callback with not accepted webhook.
+    Test GitLab callback with a valid token but a webhook that is not accepted.
     """
-    mock_settings.GITLAB_WEBHOOK_SECRET = None
-
     # Execute
     with (
         patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
         patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
     ):
-        response = await client.post("/codebase/callbacks/gitlab/", json=mock_push_callback)
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test_secret"}
+        )
 
     # Assert
     assert response.status_code == 204

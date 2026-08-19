@@ -3,6 +3,7 @@ import pytest
 from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
+from codebase.clients.base import Emoji
 from codebase.clients.gitlab.api.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from codebase.clients.gitlab.api.models import (
     Issue,
@@ -27,6 +28,8 @@ class StubClient:
         self.current_user = BaseUser(id=1, username="daiv", name="DAIV")
         self._discussion = None
         self._has_reaction = False
+        self.issue_reaction_calls = []
+        self.mr_note_reaction_calls = []
 
     def get_merge_request_comment(self, *_a, **_kw):
         return self._discussion
@@ -34,7 +37,12 @@ class StubClient:
     def set_discussion(self, discussion):
         self._discussion = discussion
 
-    def has_issue_reaction(self, *_a, **_kw):
+    def has_issue_reaction(self, *args, **kwargs):
+        self.issue_reaction_calls.append((args, kwargs))
+        return self._has_reaction
+
+    def has_merge_request_note_reaction(self, *args, **kwargs):
+        self.mr_note_reaction_calls.append((args, kwargs))
         return self._has_reaction
 
     def set_has_reaction(self, value):
@@ -233,6 +241,64 @@ def test_reject_when_system_note(monkeypatch_dependencies, stub_client):
     )
 
     assert callback.accept_callback() is False
+
+
+def test_reject_note_replay_when_already_reacted(monkeypatch_dependencies, stub_client):
+    """A duplicate delivery of a note DAIV has already reacted to (eyes) is rejected."""
+    callback = create_note_callback("@daiv please review this code")
+    stub_client.set_has_reaction(True)
+
+    assert callback.accept_callback() is False
+    # The guard must check the MR note's reaction, scoped to the note id.
+    assert len(stub_client.mr_note_reaction_calls) == 1
+    args, _ = stub_client.mr_note_reaction_calls[0]
+    assert args == ("group/repo", 1, Emoji.EYES, 100)
+
+
+def test_accept_note_first_delivery_when_not_reacted(monkeypatch_dependencies, stub_client):
+    """The first delivery of a note (no prior reaction) is accepted."""
+    callback = create_note_callback("@daiv please review this code")
+
+    assert callback.accept_callback() is True
+    assert len(stub_client.mr_note_reaction_calls) == 1
+    args, _ = stub_client.mr_note_reaction_calls[0]
+    assert args == ("group/repo", 1, Emoji.EYES, 100)
+
+
+def test_reject_issue_note_replay_when_already_reacted(monkeypatch_dependencies, stub_client):
+    """An issue-note replay is rejected via the issue-note reaction guard."""
+    callback = NoteCallback(
+        object_kind="note",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        issue=Issue(
+            id=50,
+            iid=42,
+            title="Some Issue",
+            description="x",
+            state="opened",
+            assignee_id=None,
+            action=IssueAction.OPEN,
+            labels=[Label(title="daiv")],
+            type="Issue",
+        ),
+        object_attributes=Note(
+            id=200,
+            action=NoteAction.CREATE,
+            noteable_type=NoteableType.ISSUE,
+            noteable_id=50,
+            discussion_id="discussion_1",
+            note="@daiv please look at this",
+            system=False,
+        ),
+    )
+    stub_client.set_has_reaction(True)
+
+    assert callback.accept_callback() is False
+    assert len(stub_client.issue_reaction_calls) == 1
+    args, kwargs = stub_client.issue_reaction_calls[0]
+    assert args == ("group/repo", 42, Emoji.EYES)
+    assert kwargs == {"note_id": 200}
 
 
 def create_issue_callback(

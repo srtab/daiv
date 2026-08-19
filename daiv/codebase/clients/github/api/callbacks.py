@@ -161,6 +161,20 @@ class IssueCommentCallback(GitHubCallback):
             )
             return False
 
+        # Idempotence: a duplicate delivery / replay of the same comment must not re-trigger
+        # an agent run. DAIV reacts to an accepted comment with the eyes emoji, so an existing
+        # reaction on the comment marks it as already handled (GitHub PR conversation comments
+        # resolve on the issues API, so this covers both issue and PR-review comments).
+        if self._client.has_issue_reaction(
+            self.repository.full_name, self.issue.number, Emoji.EYES, note_id=self.comment.id
+        ):
+            logger.info(
+                "Skipping comment %s#%s: DAIV has already reacted to this comment",
+                self.repository.full_name,
+                self.comment.id,
+            )
+            return False
+
         return bool(self._is_issue_comment or self._is_merge_request_review)
 
     async def process_callback(self):

@@ -113,6 +113,52 @@ class TestGitHubClient:
         result = github_client.has_issue_reaction("owner/repo", 123, emoji)
         assert result is expected
 
+    @pytest.mark.parametrize(
+        ("reactions", "expected"),
+        [
+            pytest.param([("eyes", 123)], True, id="comment-reaction-exists-for-current-user"),
+            pytest.param([("eyes", 456)], False, id="comment-reaction-from-different-user"),
+            pytest.param([], False, id="comment-no-reactions"),
+        ],
+    )
+    def test_has_issue_reaction_on_comment(self, github_client, monkeypatch, reactions, expected):
+        """With note_id, the reaction is checked on the issue comment, not the issue."""
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_comment = Mock()
+        mock_reactions = []
+        for content, user_id in reactions:
+            reaction = Mock()
+            reaction.content = content
+            reaction.user = Mock(id=user_id)
+            mock_reactions.append(reaction)
+
+        monkeypatch.setattr(type(github_client), "current_user", User(id=123, username="daiv", name="DAIV"))
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_comment.return_value = mock_comment
+        mock_comment.get_reactions.return_value = mock_reactions
+
+        result = github_client.has_issue_reaction("owner/repo", 123, Emoji.EYES, note_id=456)
+        assert result is expected
+        mock_issue.get_comment.assert_called_once_with(456)
+
+    def test_has_merge_request_note_reaction_delegates_to_issue_comment(self, github_client, monkeypatch):
+        """PR conversation comments resolve on the issues API, so the MR-note check delegates there."""
+        mock_repo = Mock()
+        mock_issue = Mock()
+        mock_comment = Mock()
+        mock_comment.get_reactions.return_value = []
+
+        monkeypatch.setattr(type(github_client), "current_user", User(id=123, username="daiv", name="DAIV"))
+        github_client.client.get_repo.return_value = mock_repo
+        mock_repo.get_issue.return_value = mock_issue
+        mock_issue.get_comment.return_value = mock_comment
+
+        result = github_client.has_merge_request_note_reaction("owner/repo", 99, Emoji.EYES, 456)
+        assert result is False
+        mock_issue.get_comment.assert_called_once_with(456)
+
     def test_create_merge_request_note_emoji_targets_issue_comment_endpoint(self, github_client, lazy_requester):
         """A PR conversation comment id resolves only on the issue-comment endpoint, so the reaction
         must be POSTed there rather than to the pull-request review-comment endpoint."""

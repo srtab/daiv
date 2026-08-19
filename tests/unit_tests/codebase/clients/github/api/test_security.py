@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 from django.http import HttpRequest
@@ -22,8 +23,8 @@ def mock_request():
         (True, True, True, True),  # Secret configured, signature header present and valid
         (True, True, False, False),  # Secret configured, signature header present but invalid
         (True, False, False, False),  # Secret configured, signature header missing
-        (False, True, False, True),  # No secret configured, signature header present (should pass)
-        (False, False, False, True),  # No secret configured, signature header missing (should pass)
+        (False, True, False, False),  # No secret configured, signature header present (must reject)
+        (False, False, False, False),  # No secret configured, signature header missing (must reject)
     ],
 )
 def test_validate_github_webhook(mock_request, secret_configured, signature_header, valid_signature, expected_result):
@@ -50,3 +51,14 @@ def test_validate_github_webhook(mock_request, secret_configured, signature_head
 
         # Assert
         assert result == expected_result
+
+
+def test_unconfigured_secret_rejects_and_logs_at_error(mock_request, caplog):
+    """An unconfigured secret must fail closed and surface at ERROR, not silently pass."""
+    with patch("codebase.clients.github.api.security.settings") as mock_settings:
+        mock_settings.GITHUB_WEBHOOK_SECRET = None
+        with caplog.at_level(logging.ERROR, logger="daiv.webhooks"):
+            result = validate_github_webhook(mock_request)
+
+    assert result is False
+    assert any("no secret token configured" in r.message and r.levelno == logging.ERROR for r in caplog.records)

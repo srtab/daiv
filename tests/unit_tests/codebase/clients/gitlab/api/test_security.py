@@ -21,8 +21,8 @@ def mock_request():
     [
         (True, True, True),  # Secret configured, token header present and valid
         (True, False, False),  # Secret configured, token header missing
-        (False, True, True),  # No secret configured, token header present (should pass)
-        (False, False, True),  # No secret configured, token header missing (should pass)
+        (False, True, False),  # No secret configured, token header present (must reject)
+        (False, False, False),  # No secret configured, token header missing (must reject)
     ],
 )
 def test_validate_gitlab_webhook(mock_request, secret_configured, token_header, expected_result):

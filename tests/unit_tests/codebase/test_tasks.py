@@ -62,11 +62,26 @@ async def test_address_mr_comments_skips_when_branch_gone():
     assert result["code_changes"] is False
 
 
-async def test_setup_webhooks_cron_task_calls_command():
+async def test_setup_webhooks_cron_task_defaults_to_ssl_verified():
     if not hasattr(codebase_tasks, "setup_webhooks_cron_task"):
         pytest.skip("setup_webhooks_cron_task is only defined for the GitLab client")
 
-    with patch("codebase.tasks.call_command") as mock_call_command, patch("codebase.tasks.settings.DEBUG", True):
+    with patch("codebase.tasks.call_command") as mock_call_command:
+        await codebase_tasks.setup_webhooks_cron_task.aenqueue()
+
+    # SSL verification must be driven by the explicit WEBHOOK_SSL_VERIFY setting (default True),
+    # never by DEBUG — a debug-shaped deployment must not silently downgrade secure hooks.
+    mock_call_command.assert_called_once_with("setup_webhooks", disable_ssl_verification=False)
+
+
+async def test_setup_webhooks_cron_task_disables_ssl_when_setting_false():
+    if not hasattr(codebase_tasks, "setup_webhooks_cron_task"):
+        pytest.skip("setup_webhooks_cron_task is only defined for the GitLab client")
+
+    with (
+        patch("codebase.tasks.call_command") as mock_call_command,
+        patch.object(codebase_tasks.codebase_settings, "WEBHOOK_SSL_VERIFY", False),
+    ):
         await codebase_tasks.setup_webhooks_cron_task.aenqueue()
 
     mock_call_command.assert_called_once_with("setup_webhooks", disable_ssl_verification=True)
