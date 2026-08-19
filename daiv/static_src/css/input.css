@@ -1964,11 +1964,19 @@ main:has(.chat-shell) {
     --surface-rise-from: 12px;
   }
 
-  .composer-sheet__backdrop {
+  /* One scrim for every bottom sheet, the composer's and the pickers' alike. It has to
+     render outside the surface it dims — see `core/_sheet_backdrop.html`. */
+  .sheet-backdrop {
     position: fixed;
     inset: 0;
     z-index: 55;
     background: rgba(3, 7, 18, 0.6);
+  }
+
+  @media (width >= 1100px) {
+    .sheet-backdrop {
+      display: none;
+    }
   }
 
   @media (min-width: 1100px) {
@@ -1982,10 +1990,6 @@ main:has(.chat-shell) {
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
-    }
-
-    .composer-sheet__backdrop {
-      display: none;
     }
   }
 

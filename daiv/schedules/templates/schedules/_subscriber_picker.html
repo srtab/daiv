@@ -47,6 +47,7 @@
             </button>
         </div>
 
+        {% include "core/_sheet_backdrop.html" with show_expr="popover" %}
         <div x-show="popover" x-cloak
              @click.outside="closePicker()"
              @keydown.escape.window="closePicker()"
