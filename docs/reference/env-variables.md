@@ -22,10 +22,13 @@ Variables marked with:
 |-------------------------|-----------------------------------------------------|:----------------------:|--------------------------------|
 | `DJANGO_DEBUG`          | Toggle Django debug mode                            | `False`                | `True`                         |
 | :material-asterisk: `DJANGO_SECRET_KEY`  :material-lock:     | Secret key for Django                              | *(none)*               | `super-secret-key`             |
-| `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | `*`                    | `example.com,localhost`        |
+| `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | *(empty — required in production)* | `example.com,localhost`        |
 
 !!! danger
     Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.
+
+!!! danger
+    `DJANGO_ALLOWED_HOSTS` defaults to the **empty list** in production, so Django refuses to serve any request until the operator configures the hosts the app is reachable on. This prevents host-header poisoning from reaching login-by-code emails and OAuth metadata. Local development settings (`daiv.settings.local`) override this to `*` so `runserver` and the Docker dev compose still work out of the box.
 
 !!! info
     The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowed to access the application. Make sure to include the host where the application is running to increase security.

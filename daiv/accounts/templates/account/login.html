@@ -46,17 +46,21 @@
         <div class="animate-fade-up space-y-2.5" style="animation-delay: 80ms">
             {% for provider in socialaccount_providers %}
             {% if provider.id == "github" %}
-            <a href="{% provider_login_url provider.id process='login' %}"
-               class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
-                {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                Continue with GitHub
-            </a>
+            <form method="post" action="{% provider_login_url provider.id process='login' %}" class="w-full">
+                {% csrf_token %}
+                <button type="submit" class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
+                    {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                    Continue with GitHub
+                </button>
+            </form>
             {% elif provider.id == "gitlab" %}
-            <a href="{% provider_login_url provider.id process='login' %}"
-               class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
-                {% icon "gitlab" "h-5 w-5 text-[#FC6D26] transition-colors group-hover:text-white" %}
-                Continue with GitLab
-            </a>
+            <form method="post" action="{% provider_login_url provider.id process='login' %}" class="w-full">
+                {% csrf_token %}
+                <button type="submit" class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
+                    {% icon "gitlab" "h-5 w-5 text-[#FC6D26] transition-colors group-hover:text-white" %}
+                    Continue with GitLab
+                </button>
+            </form>
             {% endif %}
             {% endfor %}
         </div>
