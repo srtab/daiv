@@ -173,7 +173,7 @@ Parameters:
         <span class="env-pill__caret" aria-hidden="true">▾</span>
     </button>
 
-    {% include "core/_sheet_backdrop.html" with show_expr="open" close_expr="close()" %}
+    {% include "core/_sheet_backdrop.html" with show_expr="open" %}
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"

@@ -138,6 +138,5 @@ box (``_command_menu.html``).
     {% translate "DAIV can make mistakes. Verify important information." %}
   </p>
 
-  {# Dims the transcript behind a bottom sheet; the desktop popover uses @click.outside instead. #}
-  {% include "core/_sheet_backdrop.html" with show_expr="sheet" close_expr="closeSheet()" %}
+  {% include "core/_sheet_backdrop.html" with show_expr="sheet" %}
 </div>

@@ -18,6 +18,7 @@ import pytest
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
+from tests.unit_tests.test_picker_popovers import X_SHOW
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
@@ -109,17 +110,19 @@ def test_both_sheets_are_rendered_with_their_triggers(member_client, member_user
     assert "composer-trigger--pill" in html
 
 
-SCRIM = re.compile(r'class="sheet-backdrop"\s+x-show="([^"]*)"')
+# Whole tag, so the assertion survives a reordering of the partial's attributes.
+SCRIM_TAG = re.compile(r"<div[^>]*class=\"sheet-backdrop\"[^>]*>")
 
 
 @pytest.mark.django_db
-def test_every_dock_surface_dims_the_transcript_behind_it(member_client):
-    """Below 1100px the two sheets and the two pickers in the dock are the same surface, so
-    they dim the same way. The pickers ship their own scrim from the shared partial — the
-    composer's covers only what ``sheet`` opens."""
-    scrims = set(SCRIM.findall(_render_new_chat(member_client)))
+def test_the_composer_sheets_dim_the_transcript_behind_them(member_client):
+    """Below 1100px the options and progress sheets cover the transcript, so they dim it. The
+    pickers in the dock are `.picker-popover`s and covered template-side by
+    `test_every_popover_dims_the_page_behind_its_sheet`; the composer's own two sheets are
+    not, and share the one scrim that `sheet` opens — so this is their only guard."""
+    scrims = [X_SHOW.search(tag)[1] for tag in SCRIM_TAG.findall(_render_new_chat(member_client))]
 
-    assert scrims == {"sheet", "popover === 'repo'", "popover === 'branch'", "open"}
+    assert scrims.count("sheet") == 1, f"expected exactly one scrim for the composer sheets, got {scrims}"
 
 
 @pytest.mark.django_db

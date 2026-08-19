@@ -1,18 +1,16 @@
 {% comment %}
-Scrim behind a surface in its bottom-sheet form — the page below is inert while the sheet
-is open, and without the dim it doesn't look it.
+Scrim behind a surface in its bottom-sheet form: it dims the page and takes the clicks
+aimed at it, so a tap behind the sheet dismisses instead of hitting the link it landed on.
+(Only the clicks — the page below still scrolls and still takes Tab.)
 
-Include it as a *sibling* of the surface, inside the same Alpine scope: as a descendant it
-would inherit the sheet's stacking context and paint over the sheet instead of behind it.
-Above 1100px the surface is an anchored popover and the scrim is `display: none`.
+Render it *outside* the surface, in the same Alpine scope and with no stacking context
+between the two. Inside the surface it inherits its stacking context and paints over the
+panel's own background, and while `surface-rise` holds a transform it takes the panel as
+its containing block. Dismissal is the surface's own `@click.outside`, which every one of
+them carries and which a scrim click reaches by definition. Above 1100px the surface is an
+anchored popover and the scrim is `display: none`.
 
 Parameters:
-- show_expr (required)  — the Alpine expression the surface's own ``x-show`` carries.
-- close_expr (required) — Alpine expression that closes the surface, as in
-                          ``core/_sheet_head.html``.
+- show_expr (required) — the Alpine expression the surface's own ``x-show`` carries.
 {% endcomment %}
-<div class="sheet-backdrop"
-     x-show="{{ show_expr }}"
-     x-cloak
-     @click="{{ close_expr }}"
-     aria-hidden="true"></div>
+<div class="sheet-backdrop" x-show="{{ show_expr }}" x-cloak aria-hidden="true"></div>

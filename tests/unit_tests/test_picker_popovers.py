@@ -41,21 +41,22 @@ SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLA
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
-CONTAINER = re.compile(r'class="(picker-popover(?![_\w])[^"]*)"')
+POPOVER_CLASS = r'class="(picker-popover(?![_\w])[^"]*)"'
+CONTAINER = re.compile(POPOVER_CLASS)
+# The whole opening tag, for the attributes that have to agree with the scrim beside it.
+# `[^>]` can't cross a tag boundary, so the blob is whatever the popover's own `<div` carries.
+POPOVER_TAG = re.compile(rf"<div\s+([^>]*{POPOVER_CLASS}[^>]*)>")
+X_SHOW = re.compile(r'x-show="([^"]*)"')
 
 SHEET_HEAD = "core/_sheet_head.html"
-
-# The scrim, and the surface's own opening tag it has to agree with. `[^>]` can't cross a
-# tag boundary, so the attribute blob is whatever the popover's own `<div` carries.
 BACKDROP_SHOW = re.compile(r'\{% include "core/_sheet_backdrop\.html" with show_expr="([^"]*)"')
-POPOVER_TAG = re.compile(r'<div\s+([^>]*class="picker-popover(?![_\w])[^"]*"[^>]*)>')
-X_SHOW = re.compile(r'x-show="([^"]*)"')
 
 INPUT_CSS = DAIV_DIR / "static_src" / "css" / "input.css"
 BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
-# Steps nest one level (the rules the media query re-declares), so one alternation is enough.
-SHEET_MEDIA = re.compile(r"@media \(width < (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
-DESKTOP_MEDIA = re.compile(r"@media \(min-width: (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
+# Any single-condition breakpoint block, by its width alone: the file spells the same number
+# `width < N`, `width >= N` and `min-width: N`, and a rule is no less pinned for the idiom it
+# picked. Steps nest one level (the rules the block re-declares), so one alternation is enough.
+MEDIA = re.compile(r"@media \([^)]*?(\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
 
 def _templates_with_popovers() -> dict[str, str]:
@@ -97,49 +98,41 @@ def test_every_popover_dims_the_page_behind_its_sheet():
     """A bottom sheet covers the page instead of floating over a corner of it, so without
     the scrim the page below reads as live while every click on it only dismisses. Matched
     by expression, not counted: a scrim on a condition the surface no longer uses shows the
-    dim with nothing in front of it."""
-    failures = [
-        f"{rel}: popovers {popovers} vs scrims {scrims}"
-        for rel, source in _templates_with_popovers().items()
-        if (popovers := sorted(X_SHOW.search(attrs)[1] for attrs in POPOVER_TAG.findall(source)))
-        != (scrims := sorted(BACKDROP_SHOW.findall(source)))
-    ]
+    dim with nothing in front of it. The scrim carries no handler of its own — a click on it
+    is outside the surface by construction, so `@click.outside` is what dismisses, and a
+    surface without one would make the dim a trap."""
+    failures = []
+    for rel, source in _templates_with_popovers().items():
+        tags = POPOVER_TAG.findall(source)
+        popovers = sorted(shown[1] for attrs, _ in tags if (shown := X_SHOW.search(attrs)))
+        if popovers != (scrims := sorted(BACKDROP_SHOW.findall(source))):
+            failures.append(f"{rel}: popovers {popovers} vs scrims {scrims}")
+        if undismissable := [attrs for attrs, _ in tags if "@click.outside" not in attrs]:
+            failures.append(f"{rel}: {len(undismissable)} popover(s) with no @click.outside")
 
     assert not failures, (
         "Every .picker-popover needs a core/_sheet_backdrop.html shown by its own expression:\n" + "\n".join(failures)
     )
 
 
-def test_the_scrim_stops_where_the_sheet_does():
-    """Left on above the breakpoint it would dim the whole app behind a popover anchored to
-    a trigger the user can still see."""
-    source = INPUT_CSS.read_text(encoding="utf-8")
-    token = BREAKPOINT_TOKEN.search(source)
-
-    assert token, "`@theme` no longer declares --breakpoint-popover"
-
-    widths = {width for width, body in DESKTOP_MEDIA.findall(source) if ".sheet-backdrop {" in body}
-
-    assert widths == {token.group(1)}, (
-        f"--breakpoint-popover is {token.group(1)}px but the scrim stops at {widths or 'nowhere'}"
-    )
-
-
 def test_the_sheet_breakpoint_is_a_single_number():
     """A layout that swaps with the surface — a sidebar giving way to the sheet that
     replaces it — spells the switch `popover:`, which Tailwind compiles from
-    `--breakpoint-popover`. Let that drift from the media query below and a band opens where
-    the trigger is showing while the surface is still an anchored, headless popover."""
+    `--breakpoint-popover`. Let that drift from the media queries and a band opens where the
+    trigger is showing while the surface is still an anchored, headless popover. The scrim is
+    the same number from the other side: left on above it, it dims the whole app behind a
+    popover anchored to a trigger the user can still see."""
     source = INPUT_CSS.read_text(encoding="utf-8")
     token = BREAKPOINT_TOKEN.search(source)
 
     assert token, "`@theme` no longer declares --breakpoint-popover"
 
-    widths = {width for width, body in SHEET_MEDIA.findall(source) if ".picker-popover {" in body}
+    for rule in (".picker-popover {", ".sheet-backdrop {"):
+        widths = {width for width, body in MEDIA.findall(source) if rule in body}
 
-    assert widths == {token.group(1)}, (
-        f"--breakpoint-popover is {token.group(1)}px but .picker-popover becomes a sheet at {widths or 'nowhere'}"
-    )
+        assert widths == {token.group(1)}, (
+            f"--breakpoint-popover is {token.group(1)}px but {rule.rstrip(' {')} switches at {widths or 'nowhere'}"
+        )
 
 
 def test_the_guards_are_actually_looking_at_something():

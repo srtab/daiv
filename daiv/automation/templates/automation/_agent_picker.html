@@ -159,7 +159,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {% endif %}
     </button>
 
-    {% include "core/_sheet_backdrop.html" with show_expr="open" close_expr="close()" %}
+    {% include "core/_sheet_backdrop.html" with show_expr="open" %}
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"
