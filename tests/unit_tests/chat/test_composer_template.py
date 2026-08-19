@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from html.parser import HTMLParser
 from unittest.mock import AsyncMock, patch
 
 from django.urls import reverse
@@ -18,8 +17,10 @@ from django.urls import reverse
 import pytest
 from sessions.models import Session, SessionOrigin
 
+from tests.unit_tests.chat.chat_stream_driver import CHAT_STREAM_JS
+from tests.unit_tests.htmltree import ElementStack
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
-from tests.unit_tests.test_picker_popovers import INPUT_CSS, X_SHOW
+from tests.unit_tests.test_picker_popovers import INPUT_CSS, SURFACE_CONTAINERS, X_SHOW
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
@@ -182,7 +183,6 @@ def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
 
 
 COMMAND_MENU = DAIV_DIR / "chat" / "templates" / "chat" / "_command_menu.html"
-CHAT_STREAM_JS = DAIV_DIR / "chat" / "static" / "chat" / "js" / "chat-stream.js"
 
 
 @pytest.mark.django_db
@@ -270,101 +270,59 @@ def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client
     assert "gap:" in wrapper.group(1), ".chat-todos no longer separates the rows it wraps"
 
 
-# Class tokens that name a floating surface. `composer-sheet__body` and
-# `composer-sheet-anchor` are content and anchor, not surfaces, so the tokens are matched
-# whole.
-SURFACE_TOKENS = frozenset({"composer-sheet", "composer-autocomplete", "picker-popover"})
-# HTML's void elements: they have no end tag, so pushing them would unbalance the stack.
-VOID_TAGS = frozenset({
-    "area",
-    "base",
-    "br",
-    "col",
-    "embed",
-    "hr",
-    "img",
-    "input",
-    "link",
-    "meta",
-    "param",
-    "source",
-    "track",
-    "wbr",
-})
-# Properties whose mere presence on an ancestor breaks a floating surface: each one makes
-# that ancestor a stacking context, which traps the surface below anything painted above it
-# — the scrim included — and `opacity` fades the panel with the rest of the subtree.
-FADE_PROPERTY = re.compile(r"(?<![-\w])(?:opacity|transform|filter|backdrop-filter)\s*:")
-FADE_UTILITY = re.compile(r"^(?:opacity|scale|rotate|translate|blur|-translate)-")
-# Innermost declaration blocks only: `@layer`/`@media` bodies contain braces of their own,
-# so they can never match, and every rule in the file is nested in one of them.
-RULE = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
-SUBJECT = re.compile(r"[\s>+~]+")
-COMMENT = re.compile(r"/\*.*?\*/", re.S)
+# The composer's in-flight look is a list of controls rather than one `opacity` on the form,
+# because a fade there is a stacking context and traps the sheets opened from the action row
+# (`test_surface_stacking`). A list has the failure the single rule did not: a control added
+# later simply never fades. So the roster is read back out of the stylesheet and checked
+# against what the composer actually renders.
+SENDING = re.compile(r"\.chat-composer--sending\s+\.([\w-]+)")
+CONTROL_TAGS = frozenset({"button", "textarea", "input", "select"})
+# Exempt by name so it stays a decision, not a gap: `.chat-jump` is positioned above the
+# composer box, over the transcript, and is on screen only while sending — the one control
+# in there that is an affordance rather than an input being held inert.
+CRISP = frozenset({"chat-jump"})
 
 
-class _SurfaceAncestors(HTMLParser):
-    """Collects the class tokens of every element that encloses a floating surface."""
+def _is_invisible(classes: list[str], attrs: dict[str, str]) -> bool:
+    """A hidden input or a screen-reader-only one paints nothing, so it can't go inert."""
+    return attrs.get("type") == "hidden" or "sr-only" in classes
+
+
+class _ComposerControls(ElementStack):
+    """The class lists of every control the composer renders outside a floating surface.
+
+    Controls inside a sheet or popover are excluded: those open *over* the composer and stay
+    live while a turn runs.
+    """
 
     def __init__(self):
         super().__init__()
-        self._stack = []
-        self.tokens = set()
+        self.controls = []
 
-    def handle_starttag(self, tag, attrs):
-        classes = (dict(attrs).get("class") or "").split()
-        if SURFACE_TOKENS.intersection(classes):
-            self.tokens.update(token for frame in self._stack for token in frame)
-        if tag not in VOID_TAGS:
-            self._stack.append(classes)
-
-    def handle_endtag(self, tag):
-        if tag not in VOID_TAGS and self._stack:
-            self._stack.pop()
-
-
-def _surface_ancestor_tokens(html: str) -> set[str]:
-    parser = _SurfaceAncestors()
-    parser.feed(html)
-    return parser.tokens
-
-
-def _fading_rules(css: str) -> list[tuple[str, str]]:
-    """Every (subject, rule) pair in ``css`` whose rule fades or transforms its subject."""
-    pairs = []
-    for selector, body in RULE.findall(COMMENT.sub("", css)):
-        if not (FADE_PROPERTY.search(body) or any(FADE_UTILITY.match(u) for u in body.split())):
-            continue
-        for one in selector.split(","):
-            if subject := SUBJECT.split(one.strip())[-1]:
-                pairs.append((subject, f"{selector.strip()} {{{body.strip()}}}"))
-    return pairs
+    def visit(self, tag, classes, attrs):
+        if tag not in CONTROL_TAGS or _is_invisible(classes, attrs):
+            return
+        if not self.within(lambda t, c: t == "form" and "chat-composer" in c):
+            return
+        if self.within(lambda t, c: bool(SURFACE_CONTAINERS.intersection(c))):
+            return
+        self.controls.append(classes)
 
 
 @pytest.mark.django_db
-def test_nothing_enclosing_a_sheet_is_faded_or_transformed(member_client, member_user):
-    """The sending state used to fade the whole composer, and a sheet opened from its action
-    row came up unreadable: the `opacity` made the form a stacking context, dropping the
-    panel below the scrim its own z-index outranks, then faded the panel's background along
-    with everything else in the subtree. So the fade goes control by control — and any other
-    property that would make an enclosing element a stacking context is the same bug.
+def test_every_composer_control_goes_inert_while_a_turn_is_in_flight(member_client, member_user):
+    """`.chat-composer--sending` names its controls one by one, so the composer is only as
+    inert as that list is current. A control added to the action row and left off it reads
+    as live mid-turn beside four neighbours that have dimmed.
     """
-    thread = _render_thread(member_client, _create_session(member_user))
-    enclosing = _surface_ancestor_tokens(thread) | _surface_ancestor_tokens(_render_new_chat(member_client))
-    css = INPUT_CSS.read_text(encoding="utf-8")
+    faded = {match.group(1) for match in SENDING.finditer(INPUT_CSS.read_text(encoding="utf-8"))}
+    assert faded, "the composer no longer dims anything while sending — is this test still looking?"
 
-    assert "chat-composer" in enclosing, "the composer no longer encloses a sheet — is this test still looking?"
+    parser = _ComposerControls()
+    parser.feed(_render_thread(member_client, _create_session(member_user)))
+    assert parser.controls, "no composer controls found — is this test still looking?"
 
-    offenders = [
-        f"an enclosing element carries the {token!r} utility"
-        for token in sorted(enclosing)
-        if FADE_UTILITY.match(token)
+    missed = [
+        " ".join(classes) or "<unclassed>" for classes in parser.controls if not (faded | CRISP).intersection(classes)
     ]
-    offenders += [
-        f"{subject} encloses a surface: {rule}"
-        for subject, rule in _fading_rules(css)
-        for token in enclosing
-        if re.fullmatch(rf"\.{re.escape(token)}(?:--[\w-]+)?(?:::?[\w-]+(?:\([^)]*\))?)*", subject)
-    ]
-
-    assert not offenders, "A floating surface is trapped in a stacking context:\n" + "\n".join(offenders)
+    assert not missed, "composer controls that never go inert while sending:\n" + "\n".join(missed)

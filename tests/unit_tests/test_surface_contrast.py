@@ -62,7 +62,7 @@ def _contrast(foreground: str, background: str) -> float:
     return darker / lighter
 
 
-def _rules(*paths):
+def iter_rules(*paths):
     """Selector/body pairs, comments stripped — an unstripped rule carries the preceding
     comment into its selector, which would let prose decide what gets measured."""
     for path in paths:
@@ -75,7 +75,7 @@ def test_the_floating_surfaces_share_one_background():
     """The guard below measures one background because these surfaces declare one. Adding a
     surface, or re-toning an existing one, has to come back through here."""
     backgrounds = {}
-    for selector, body in _rules(INPUT_CSS):
+    for selector, body in iter_rules(INPUT_CSS):
         block = selector.split()[0].split(",")[0].split(":")[0]
         if block not in SURFACES:
             continue
@@ -92,14 +92,14 @@ def test_surface_text_clears_aa_on_the_surface_background():
     picker without either word appearing in it."""
     background = next(
         (declared or applied)
-        for selector, body in _rules(INPUT_CSS)
+        for selector, body in iter_rules(INPUT_CSS)
         if selector.split()[0].split(",")[0] == ".composer-sheet"
         for declared, applied in SURFACE_BACKGROUND.findall(body)
     )
 
     measured = [
         (selector, colour)
-        for selector, body in _rules(INPUT_CSS, DIFF_CSS)
+        for selector, body in iter_rules(INPUT_CSS, DIFF_CSS)
         if FAMILIES.search(selector) and selector not in DECORATIVE
         for colour in TEXT_COLOR.findall(body)
     ]

@@ -11,8 +11,8 @@ module under node against a stand-in for the reactivity it runs on.
 
 from __future__ import annotations
 
-from tests.unit_tests.chat.test_composer_template import CHAT_STREAM_JS
-from tests.unit_tests.jsdriver import requires_node, run_node
+from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
+from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
@@ -21,13 +21,7 @@ TODOS = [
     {"content": "Launch parallel audit subagents per sub-area", "status": "in_progress"},
 ]
 
-HARNESS = """
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-
-const { src, todos } = JSON.parse(readFileSync(0, "utf8"));
-const registry = {};
-
+PRELUDE = """
 /* A stand-in for Alpine's reactivity, small enough to read: per-effect dependency
    tracking over proxies, effects run synchronously. Synchronous is the point — Alpine's
    initial tree walk runs every binding in one task, and its scheduler flushes the whole
@@ -79,23 +73,9 @@ const effect = (fn) => {
   run();
   return run;
 };
+"""
 
-/* `queueMicrotask` is here so a reintroduced cache fails on the assertions below rather
-   than on a missing global — the tests have to describe what the pill did, not crash. */
-const sandbox = {
-  console: { log: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
-  crypto, setInterval, clearInterval, queueMicrotask,
-  CSS: { supports: () => true },
-  document: {
-    getElementById: () => null,
-    querySelector: () => null,
-    addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
-  },
-  window: { Alpine: { data: (name, factory) => (registry[name] = factory) } },
-};
-vm.createContext(sandbox);
-vm.runInContext(readFileSync(src, "utf8"), sandbox);
-
+BODY = """
 const state = reactive(registry.chat({ endpoint: "/api/chat" }));
 state.turns = [{ role: "user", segments: [{ type: "text", content: "audit this" }] },
                { role: "assistant", streaming: true, segments: [] }];
@@ -111,7 +91,7 @@ effect(() => { seen.second.push(state.progressPill?.label ?? null); });
 // its args stream in.
 const turn = state.turns[state.turns.length - 1];
 turn.segments.push({ id: "tc-1", type: "tool_call", name: "write_todos", args: "", status: "running" });
-turn.segments[0].args += JSON.stringify({ todos });
+turn.segments[turn.segments.length - 1].args += JSON.stringify({ todos: payload.todos });
 
 process.stdout.write(JSON.stringify(seen));
 """
@@ -119,25 +99,19 @@ process.stdout.write(JSON.stringify(seen));
 
 def _bindings() -> dict[str, list[str | None]]:
     """Replay a mid-turn ``write_todos`` under two bindings; return what each one saw."""
-    return run_node(HARNESS, {"src": str(CHAT_STREAM_JS), "todos": TODOS})
+    return run_chat_stream(BODY, {"todos": TODOS}, prelude=PRELUDE)
 
 
 def test_every_binding_sees_the_todos_that_land_mid_turn():
     """The pill is suppressed on content, so the ``write_todos`` of a running turn is what
     brings it on screen. Both readers have to see it: one subscribed binding is enough to
     apply the crowded modifier to a row whose pill never renders.
+
+    The todo list arrives as deltas on ``args``, so this also pins the memo key: parses are
+    cached on the segment *and* the string parsed. Keyed on the segment alone, the pill
+    would keep reporting whatever the first delta held — here, an empty list.
     """
     seen = _bindings()
 
     assert seen["first"][0] is None, "nothing to show before the todos land"
     assert [seen["first"][-1], seen["second"][-1]] == ["1/2", "1/2"]
-
-
-def test_a_streamed_arg_delta_is_not_served_from_a_stale_parse():
-    """The todo list arrives as deltas on ``args``, so the parse is memoized on the segment
-    *and* the string it parsed. Keyed on the segment alone, the pill would keep reporting
-    whatever the first delta contained — for the tool call above, an empty list.
-    """
-    labels = _bindings()["first"]
-
-    assert labels[-1] == "1/2", f"the pill never caught up with the streamed args: {labels}"

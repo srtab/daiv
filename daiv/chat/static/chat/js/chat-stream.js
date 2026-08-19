@@ -171,9 +171,12 @@
   // JSON payloads off each segment is what made that expensive. Memoized per segment, on
   // the source string as well — `args` grows delta by delta while a call streams, and a
   // result lands whole later — so a payload is parsed once per value it ever holds.
-  const memoizePayload = (parse) => {
+  // `field` is bound here rather than passed per call: the segment and the string it holds
+  // can then never be mis-paired at a call site.
+  const memoizePayload = (field, parse) => {
     const cache = new WeakMap();
-    return (seg, src) => {
+    return (seg) => {
+      const src = seg[field];
       const hit = cache.get(seg);
       if (hit && hit.src === src) return hit.value;
       const value = parse(src);
@@ -182,7 +185,7 @@
     };
   };
 
-  const pickPath = memoizePayload((argsStr) => {
+  const pickPath = memoizePayload("args", (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
       if (!args || typeof args !== "object") return null;
@@ -193,10 +196,11 @@
   });
 
   const bashFilesChanged = memoizePayload(
+    "result",
     (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
   );
 
-  const parseTodos = memoizePayload((argsStr) => {
+  const parseTodos = memoizePayload("args", (argsStr) => {
     try {
       const args = JSON.parse(argsStr || "{}");
       return Array.isArray(args.todos) ? args.todos : [];
@@ -215,7 +219,7 @@
       if (turn.role === "user") return [];
       for (let j = turn.segments.length - 1; j >= 0; j--) {
         const s = turn.segments[j];
-        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s, s.args);
+        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
     return [];
@@ -223,8 +227,7 @@
 
   const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
-  const chat = (config) => {
-  return {
+  const chat = (config) => ({
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
@@ -814,8 +817,9 @@
       return findLatestTodos(this.turns);
     },
 
-    get todosDone() {
-      return countDone(this.latestTodos);
+    get todosProgress() {
+      const todos = this.latestTodos;
+      return `${countDone(todos)}/${todos.length}`;
     },
 
     get filesTouched() {
@@ -833,9 +837,9 @@
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
             const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg, seg.args), op, seg);
+            record(pickPath(seg), op, seg);
           } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg, seg.result)) {
+            for (const entry of bashFilesChanged(seg)) {
               record(entry.path, entry.op || "modified", seg,
                 entry.from_path ? { fromPath: entry.from_path } : {});
             }
@@ -1467,8 +1471,7 @@
         if (force) this._autoFollow = true;
       });
     },
-  };
-  };
+  });
 
   // Collapse tall user-message bubbles. Measures the rendered height once on
   // init: user text is immutable after creation, and Alpine's keyed x-for reuses

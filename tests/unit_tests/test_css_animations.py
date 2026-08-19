@@ -25,7 +25,8 @@ KEYFRAMES = re.compile(r"@keyframes\s+([\w-]+)\s*\{((?:[^{}]|\{[^{}]*\})*)\}")
 ANIMATION = re.compile(r"animation:\s*([^;]+);")
 
 # The individual transform properties establish a containing block on the same terms.
-TRANSFORM = re.compile(r"\b(transform|translate|rotate|scale|perspective)\s*:")
+CONTAINING_BLOCK_PROPERTIES = ("transform", "translate", "rotate", "scale", "perspective")
+TRANSFORM = re.compile(r"\b({})\s*:".format("|".join(CONTAINING_BLOCK_PROPERTIES)))
 
 FORWARD_FILL = {"both", "forwards"}
 

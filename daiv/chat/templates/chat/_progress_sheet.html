@@ -36,7 +36,7 @@ means no button at all, because an empty sheet is worse than no way in. ``progre
       <section class="composer-sheet__group">
         <h3 class="composer-sheet__label">
           {% translate "Todos" %}
-          <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+          <span x-show="latestTodos.length" x-text="`· ${todosProgress}`"></span>
         </h3>
         <p class="composer-sheet__empty" x-show="!latestTodos.length">{% translate "Nothing planned yet." %}</p>
         {% comment %}

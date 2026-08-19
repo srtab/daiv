@@ -13,8 +13,8 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, ToolMessage
 
 from chat.turns import build_turns
-from tests.unit_tests.chat.test_composer_template import CHAT_STREAM_JS
-from tests.unit_tests.jsdriver import requires_node, run_node
+from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
+from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
 
@@ -62,12 +62,7 @@ HYDRATED_TURNS = build_turns([
     ToolMessage(content="ok", tool_call_id="tc-1"),
 ])
 
-HARNESS = """
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-
-const { src, frames, turns } = JSON.parse(readFileSync(0, "utf8"));
-const registry = {};
+PRELUDE = """
 let opened = null;
 
 class FakeEventSource {
@@ -76,21 +71,10 @@ class FakeEventSource {
   addEventListener(name, cb) { this.listeners[name] = cb; }
   close() { this.readyState = 2; }
 }
+"""
 
-const sandbox = {
-  console: { log: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
-  crypto, setInterval, clearInterval,
-  EventSource: FakeEventSource,
-  CSS: { supports: () => true },
-  document: {
-    getElementById: () => null,
-    querySelector: () => null,
-    addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
-  },
-  window: { Alpine: { data: (name, factory) => (registry[name] = factory) } },
-};
-vm.createContext(sandbox);
-vm.runInContext(readFileSync(src, "utf8"), sandbox);
+BODY = """
+const { frames, turns } = payload;
 
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
 chat.turns = turns;
@@ -110,7 +94,12 @@ process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: cha
 
 def _rejoin(frames) -> list[dict]:
     """Replay ``frames`` into a freshly rejoined turn; return its rendered segments."""
-    return run_node(HARNESS, {"src": str(CHAT_STREAM_JS), "frames": frames, "turns": HYDRATED_TURNS})
+    return run_chat_stream(
+        BODY,
+        {"frames": frames, "turns": HYDRATED_TURNS},
+        prelude=PRELUDE,
+        extra_globals="EventSource: FakeEventSource,",
+    )
 
 
 def test_rejoin_drops_thinking_the_checkpoint_already_rendered():

@@ -1,8 +1,9 @@
 """Run a JS module under node and read back what it did.
 
-Two suites assert on behaviour a source-string grep cannot see — ``chat/test_resume_replay.py``
-and ``core/test_nav_events_js.py``. They differ in the harness they run and the payload they
-feed it, not in how node is invoked, so the invocation lives here.
+Several suites assert on behaviour a source-string grep cannot see. They differ in the
+harness they run and the payload they feed it, not in how node is invoked, so the
+invocation lives here. Booting a *particular* module is a layer up: the two chat suites
+share ``chat/chat_stream_driver.py``.
 """
 
 from __future__ import annotations
