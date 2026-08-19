@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.redis import SOCKET_TIMEOUT_S, RedisConnections
+from core.redis import ASYNC_MAX_CONNECTIONS, SOCKET_TIMEOUT_S, RedisConnections
 
 
 class TestRedisConnections:
@@ -42,3 +42,12 @@ class TestRedisConnections:
         settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
         options = RedisConnections().async_client().connection_pool.connection_kwargs
         assert options.get("socket_timeout") is None
+
+    def test_the_async_client_pool_is_bounded(self, settings):
+        """Each open chat stream pins a pooled async connection through a 15s blocking
+        ``xread``, so without a cap a burst of SSE readers could grow the pool unbounded
+        and exhaust Redis connections process-wide. The cap mirrors the cache redis pool
+        and stays above ``DB_POOL_MAX_SIZE``\u00a0=\u00a015."""
+        settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
+        pool = RedisConnections().async_client().connection_pool
+        assert pool.max_connections == ASYNC_MAX_CONNECTIONS

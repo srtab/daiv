@@ -9,7 +9,7 @@ from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
-from core.utils import generate_uuid
+from core.utils import compute_keyed_uuid
 
 if TYPE_CHECKING:
     from git import Repo
@@ -26,13 +26,19 @@ def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) ->
     Webhook callbacks mint this to set ``Activity.thread_id`` before enqueueing the
     addressor task; the addressor managers must compute the same value so follow-up
     events resume the same checkpointer state.
+
+    The derivation is HMAC-SHA256 keyed by a server secret
+    (:func:`core.utils.compute_keyed_uuid`), so the id is deterministic per
+    ``(repo_slug, scope, entity_iid)`` but **not** computable from those public inputs
+    alone — a caller cannot pre-derive another repo's webhook thread id to squat its
+    conversation transcript (the unsalted MD5 this replaced allowed exactly that).
     """
     if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
         raise ValueError(
             f"compute_thread_id requires non-empty values; "
             f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
         )
-    return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
+    return compute_keyed_uuid(f"{repo_slug}:{scope}/{entity_iid}")
 
 
 def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:

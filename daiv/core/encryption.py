@@ -51,6 +51,45 @@ def _derive_key(source: bytes) -> bytes:
     return base64.urlsafe_b64encode(hkdf.derive(source))
 
 
+_thread_id_key: bytes | None = None
+
+
+def get_thread_id_signing_key() -> bytes:
+    """32-byte HMAC key for the deterministic webhook conversation thread-id derivation.
+
+    Derived from the same secret source as the Fernet key (``DAIV_ENCRYPTION_KEY`` if
+    set, otherwise ``DJANGO_SECRET_KEY``) via HKDF-SHA256 with a distinct ``info``, so
+    the thread-id key is cryptographically independent of the encryption key. Keying the
+    derivation by a server secret means webhook thread ids are deterministic per
+    ``(repo, scope, iid)`` but **not** computable by a caller who only knows those public
+    inputs — closing the thread_id squat that an unsalted MD5 of the same triple allowed.
+    """
+    global _thread_id_key  # noqa: PLW0603
+    if _thread_id_key is None:
+        source = _resolve_secret_bytes()
+        hkdf = HKDF(algorithm=SHA256(), length=32, salt=b"daiv-thread-id", info=b"hmac-sha256-key")
+        _thread_id_key = hkdf.derive(source)
+    return _thread_id_key
+
+
+def _resolve_secret_bytes() -> bytes:
+    """The raw secret bytes behind ``get_encryption_key``'s resolution, before Fernet shaping.
+
+    ``DAIV_ENCRYPTION_KEY`` (raw, whatever shape) when set, otherwise ``DJANGO_SECRET_KEY``.
+    Raises when neither is configured — the same contract ``get_encryption_key`` enforces.
+    """
+    from core.conf import settings as core_settings
+
+    if core_settings.ENCRYPTION_KEY is not None:
+        raw = core_settings.ENCRYPTION_KEY.get_secret_value()
+        return raw.encode() if isinstance(raw, str) else raw
+
+    secret = settings.SECRET_KEY
+    if not secret:
+        raise RuntimeError("Neither DAIV_ENCRYPTION_KEY nor DJANGO_SECRET_KEY is set.")
+    return secret.encode() if isinstance(secret, str) else secret
+
+
 def get_fernet() -> Fernet:
     """
     Return a cached :class:`Fernet` instance for encrypting/decrypting values.

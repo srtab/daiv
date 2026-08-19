@@ -15,7 +15,7 @@ from sessions.models import Session
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
-from core.api.throttling import JobsRateThrottle
+from core.api.throttling import ChatStreamRateThrottle, JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import relay, runner
@@ -36,6 +36,38 @@ chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 # which keeps long runs streaming while bounding per-connection worker occupancy.
 STREAM_BLOCK_MS = 15_000
 STREAM_DRAIN_BLOCK_MS = 500
+
+# Chat thread/run ids are CharField(64) PKs; oversized values must 400 at the schema
+# boundary rather than DataError-500'ing at the DB (FIX 2). The digest-shaped rejection
+# (FIX 1.3) blocks a caller from replaying the server-derived webhook thread id — which is
+# an HMAC-SHA256 hex digest (64 chars, no dashes) — to squat another repo's conversation.
+# A real client UUID carries dashes, so the digest check never matches legitimate ids.
+_HEXDIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _is_deterministic_digest(value: str) -> bool:
+    """True for an unsalted-hash-shaped id (32- or 64-char pure hex, no dashes).
+
+    Covers both the legacy unsalted-MD5 webhook id (32 hex) and the current HMAC-SHA256
+    derivation (64 hex) — the formats a squatter would replay. A client-chosen UUID has
+    dashes, so this never matches it.
+    """
+    return len(value) in (32, 64) and "-" not in value and all(c in _HEXDIGITS for c in value)
+
+
+def _validate_thread_or_run_id(value: str, field: str) -> str:
+    """Validate a client-supplied thread_id / run_id at the schema boundary.
+
+    Rejects empty values, values longer than the 64-char column (FIX 2: prevents a
+    DataError-500 on the ``Session.thread_id`` / ``active_run_id`` PK), and
+    deterministic-digest-shaped values (FIX 1.3: blocks a thread_id squat via a replayed
+    webhook thread id).
+    """
+    if not value or len(value) > 64:
+        raise HttpError(400, f"{field} must be a non-empty string of at most 64 characters.")
+    if _is_deterministic_digest(value):
+        raise HttpError(400, f"{field} must be a client-chosen UUID, not a deterministic identifier.")
+    return value
 
 
 async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
@@ -94,7 +126,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
         yield end_frame("error")
 
 
-@chat_router.get("/stream", url_name="chat_run_stream")
+@chat_router.get("/stream", url_name="chat_run_stream", throttle=[ChatStreamRateThrottle()])
 async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     """Resumable SSE stream of a chat run's AG-UI events.
 
@@ -102,7 +134,16 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     reconnect) and tails live until the run's terminal sentinel. Authorization
     is thread visibility: the relay key embeds the thread id, so a run id from
     another thread reads an empty stream even if guessed.
+
+    Per-user throttled (``ChatStreamRateThrottle``): the stream holds an ASGI
+    connection for up to the 300s duration cap and pins a pooled Redis connection
+    through 15s blocking ``xread``\u00a0s, so an unbounded open rate would let one
+    caller exhaust worker threads and the async Redis pool. The rate bounds the
+    open frequency per user; the async client's ``max_connections`` is the hard
+    pool cap (see :mod:`core.redis`).
     """
+    _validate_thread_or_run_id(thread_id, "thread_id")
+    _validate_thread_or_run_id(run_id, "run_id")
     user = request.auth  # ty: ignore[unresolved-attribute]
     if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
         raise HttpError(404, "Thread not found")
@@ -159,6 +200,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     thread_id = input_data.thread_id
     run_id = input_data.run_id
+    _validate_thread_or_run_id(thread_id, "thread_id")
+    _validate_thread_or_run_id(run_id, "run_id")
 
     forwarded = getattr(input_data, "forwarded_props", None) or {}
     try:
@@ -321,6 +364,8 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
     the run at its next event boundary wherever it executes; the local task
     cancel is immediate when the run lives in this process.
     """
+    _validate_thread_or_run_id(payload.thread_id, "thread_id")
+    _validate_thread_or_run_id(payload.run_id, "run_id")
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await Session.objects.by_owner(user).filter(thread_id=payload.thread_id).afirst()
     if session is None:
