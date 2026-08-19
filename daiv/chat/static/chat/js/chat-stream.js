@@ -592,6 +592,15 @@
         this._scrollEl = scroller;
       }
 
+      // A software keyboard shortens the scroller (`--keyboard-inset`, core/js), and a
+      // shorter scrollport leaves the tail below the fold instead of carrying the scroll
+      // position with it — tap the composer and the turn you just sent drifts out of
+      // sight. Gated on `_autoFollow`, so a reader who scrolled up keeps their place.
+      if (window.visualViewport) {
+        this._viewportListener = () => this.scrollToBottom();
+        window.visualViewport.addEventListener("resize", this._viewportListener);
+      }
+
       this.$watch("streaming", (on) => {
         if (on || this.resuming) {
           let i = 0;
@@ -629,6 +638,9 @@
     destroy() {
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
+      }
+      if (this._viewportListener) {
+        window.visualViewport.removeEventListener("resize", this._viewportListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);

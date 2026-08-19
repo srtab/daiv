@@ -84,9 +84,17 @@ html {
 
 /* Drop <main>'s bottom padding on chat detail so the sticky dock reaches
    the actual viewport bottom. `!important` is needed to beat Tailwind's
-   `py-8`/`sm:py-10` utilities applied directly on <main>. */
+   `py-8`/`sm:py-10` utilities applied directly on <main>.
+
+   `--keyboard-inset` (core/js/keyboard-inset.js) is the band a software keyboard covers,
+   and 0 whenever nothing does. Shrinking the scroll container by it is what keeps the
+   composer at the bottom of what is *visible*: the viewport edge the dock sticks to does
+   not move for a keyboard on iOS, so without this the dock is anchored behind it and
+   Safari's rescue pan lands it somewhere else entirely. Margin, not padding: the scroller
+   has to be shorter, not padded, or the transcript tail stays under the keyboard too. */
 main:has(.chat-shell) {
   padding-bottom: 0 !important;
+  margin-bottom: var(--keyboard-inset, 0px);
 }
 
 .animate-fade-up {
