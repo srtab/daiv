@@ -27,7 +27,7 @@ from django.urls import reverse
 import pytest
 
 from schedules.models import ScheduledJob
-from tests.unit_tests.chat.test_composer_template import _create_session, _render_new_chat, _render_thread
+from tests.unit_tests.chat.chat_pages import create_session, render_new_chat, render_thread
 from tests.unit_tests.htmltree import ElementStack
 from tests.unit_tests.test_css_animations import CONTAINING_BLOCK_PROPERTIES
 from tests.unit_tests.test_picker_popovers import INPUT_CSS, SURFACE_CONTAINERS
@@ -99,8 +99,8 @@ def _surface_hosting_pages(member_client, admin_client, member_user) -> dict[str
     a form's pickers, a card's row menu, the configuration sidebar."""
     _a_schedule(member_user)
     return {
-        "session_new_chat": _render_new_chat(member_client),
-        "session_detail": _render_thread(member_client, _create_session(member_user)),
+        "session_new_chat": render_new_chat(member_client),
+        "session_detail": render_thread(member_client, create_session(member_user)),
         "session_list": member_client.get(reverse("session_list")).content.decode(),
         "schedule_create": member_client.get(reverse("schedule_create")).content.decode(),
         "schedule_list": member_client.get(reverse("schedule_list")).content.decode(),

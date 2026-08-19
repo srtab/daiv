@@ -227,7 +227,45 @@
 
   const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
-  const chat = (config) => ({
+  // Every file the agent has written, most-recent first: path -> { path, op, fromPath?, segmentId }.
+  const collectFilesTouched = (turns) => {
+    const map = new Map();
+    const record = (path, op, seg, extra = {}) => {
+      if (!path) return;
+      map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
+    };
+    for (const t of turns) {
+      if (t.role === "run_status") continue;
+      for (const seg of t.segments) {
+        if (seg.type !== "tool_call") continue;
+        if (PATH_TOOLS.has(seg.name)) {
+          record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
+        } else if (seg.name === "bash") {
+          for (const entry of bashFilesChanged(seg)) {
+            record(entry.path, entry.op || "modified", seg,
+              entry.from_path ? { fromPath: entry.from_path } : {});
+          }
+        }
+      }
+    }
+    return [...map.values()].reverse();
+  };
+
+  // Whether a freshly derived list still says what the published one does, by the fields a
+  // binding renders. Assigning an equal-but-new array would re-trigger every reader of it.
+  const sameList = (a, b, fields) =>
+    a.length === b.length && a.every((item, i) => fields.every((f) => item[f] === b[i][f]));
+
+  const TODO_FIELDS = ["content", "status"];
+  const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
+
+  const chat = (config) => {
+  // What the transcript effect last published. Write-side only — never read by a binding —
+  // so it is not the getter cache this replaced: it exists to keep the effect from reading
+  // its own output, which would subscribe it to what it writes.
+  let publishedTodos = [];
+  let publishedFiles = [];
+  return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
@@ -281,9 +319,20 @@
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    _deriveTranscript: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
+    // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
+    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
+    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
+    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
+    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
+    // a getter*, which serves every reader after the first without touching `turns` and
+    // leaves those bindings subscribed to nothing.
+    latestTodos: [],
+    filesTouched: [],
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -589,6 +638,18 @@
         : this._defaultMcpNames();
       this._freezeMcpOrder();
 
+      // The one walk of the transcript. It subscribes to everything `latestTodos` and
+      // `filesTouched` read — every segment's type, name and payload — so a pushed turn, a
+      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
+      // value, and a mutation inside `turns` leaves its identity alone.
+      this._deriveTranscript = window.Alpine.effect(() => {
+        const todos = findLatestTodos(this.turns);
+        const files = collectFilesTouched(this.turns);
+        if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
+        if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+      });
+
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
       // and files) would otherwise stay "open" and pop back into view on the next turn.
       this.$watch("!progressPill", (gone) => {
@@ -644,6 +705,7 @@
     },
 
     destroy() {
+      if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -809,45 +871,9 @@
       return { tone: "thinking", label: this._thinkingPhrase };
     },
 
-    get latestTodos() {
-      // Walked on every read, never cached across readers: Alpine tracks dependencies per
-      // effect, so the second binding to ask in a flush would be answered without touching
-      // the transcript, subscribe to nothing, and never run again. That is what kept the
-      // progress pill hidden until a reload when a turn's ``write_todos`` landed mid-run.
-      return findLatestTodos(this.turns);
-    },
-
     get todosProgress() {
       const todos = this.latestTodos;
       return `${countDone(todos)}/${todos.length}`;
-    },
-
-    get filesTouched() {
-      // Re-derived per read for the reason ``latestTodos`` is; the payload parsing every
-      // bash result needed is memoized on the segment instead.
-      // path -> { path, op, fromPath?, segmentId }
-      const map = new Map();
-      const record = (path, op, seg, extra = {}) => {
-        if (!path) return;
-        map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
-      };
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg), op, seg);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg)) {
-              record(entry.path, entry.op || "modified", seg,
-                entry.from_path ? { fromPath: entry.from_path } : {});
-            }
-          }
-        }
-      }
-      // Reverse so most-recent comes first.
-      return [...map.values()].reverse();
     },
 
     get showJumpToLatest() {
@@ -1471,7 +1497,8 @@
         if (force) this._autoFollow = true;
       });
     },
-  });
+  };
+  };
 
   // Collapse tall user-message bubbles. Measures the rendered height once on
   // init: user text is immutable after creation, and Alpine's keyed x-for reuses
