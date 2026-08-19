@@ -23,6 +23,14 @@ import redis.asyncio as aioredis
 CONNECT_TIMEOUT_S = 5
 SOCKET_TIMEOUT_S = 5
 
+# Bounds the async pool that backs the chat run relay's blocking ``xread``\u00a0s and the
+# UI-event SSE readers. Each open chat stream pins one pooled connection through a 15s
+# block, so without a cap a burst of SSE readers could grow the pool unbounded and exhaust
+# Redis connections process-wide. 50 mirrors the cache redis pool's ``max_connections``
+# (the other redis pool in this codebase) and stays above ``DB_POOL_MAX_SIZE``\u00a0=\u00a015 so the
+# async bus is never the tighter resource than the per-process DB pool it sits beside.
+ASYNC_MAX_CONNECTIONS = 50
+
 
 class RedisConnections:
     """The sync and async clients, built on first use and shared per process.
@@ -77,7 +85,10 @@ class RedisConnections:
 
     def build_async_client(self) -> aioredis.Redis:
         return aioredis.Redis.from_url(
-            self._url_or_raise(), decode_responses=True, socket_connect_timeout=CONNECT_TIMEOUT_S
+            self._url_or_raise(),
+            decode_responses=True,
+            socket_connect_timeout=CONNECT_TIMEOUT_S,
+            max_connections=ASYNC_MAX_CONNECTIONS,
         )
 
 

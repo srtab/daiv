@@ -1217,3 +1217,127 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     assert session is not None
     assert session.active_run_id is None
     await user.adelete()
+
+
+# ---------------------------------------------------------------------------
+# thread_id squat + schema-boundary validation (security hardening)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_rejects_deterministic_webhook_thread_id(client: TestAsyncClient, authed):
+    """Thread_id squat defense: a caller must not pre-claim another repo's webhook
+    conversation thread id via the chat API. Webhook thread ids are server-keyed HMACs
+    (not computable offline), and the chat API additionally rejects the
+    deterministic-digest shape so a replayed id cannot even create a squatter session —
+    leaving nothing for a later webhook to graft onto (paired with the refusal in
+    ``sessions.services.aget_or_create_session``)."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    _, raw, user = authed
+    squat_id = compute_thread_id(repo_slug="victim/repo", scope=Scope.ISSUE, entity_iid=42)
+    assert len(squat_id) == 64  # HMAC-SHA256 hex — digest-shaped, never a client UUID
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=squat_id),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "attacker/repo", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert not await Session.objects.filter(thread_id=squat_id).aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_rejects_legacy_md5_digest_thread_id(client: TestAsyncClient, authed):
+    """A 32-char unsalted-MD5 digest — the *legacy* webhook thread-id shape — is also
+    rejected at the chat API boundary, so a caller replaying an old-format id cannot squat
+    a pre-existing webhook conversation either."""
+    import hashlib
+
+    _, raw, user = authed
+    legacy_md5 = hashlib.md5(b"victim/repo:Issue/42").hexdigest()  # noqa: S324
+    assert len(legacy_md5) == 32
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=legacy_md5),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "attacker/repo", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert not await Session.objects.filter(thread_id=legacy_md5).aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_rejects_oversized_thread_id(client: TestAsyncClient, authed):
+    """An over-long thread_id must 400 at the schema boundary rather than DataError-500
+    on the CharField(64) primary key (Session.thread_id)."""
+    _, raw, user = authed
+    oversized = "x" * 65
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=oversized),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert not await Session.objects.filter(thread_id=oversized).aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_rejects_oversized_run_id(client: TestAsyncClient, authed):
+    """An over-long run_id must 400 at the schema boundary rather than DataError-500 on
+    the CharField(64) active_run_id lock slot."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(runId="x" * 65),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_rejects_oversized_thread_id(client: TestAsyncClient, authed):
+    """``GET /chat/stream`` validates the query thread_id/run_id at the schema boundary too,
+    so an over-long value 400s instead of reaching the relay/DB."""
+    _, raw, user = authed
+    response = await client.get("/chat/stream?thread_id=" + "x" * 65 + "&run_id=r-1", headers=_auth_headers(raw))
+    assert response.status_code == 400
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_rejects_digest_thread_id(client: TestAsyncClient, authed):
+    """A digest-shaped thread_id on the stream endpoint is rejected — a caller replaying
+    the deterministic webhook id cannot tail another repo's run even via the reader."""
+    import hashlib
+
+    _, raw, user = authed
+    digest = hashlib.md5(b"victim/repo:Issue/42").hexdigest()  # noqa: S324
+    response = await client.get(f"/chat/stream?thread_id={digest}&run_id=r-1", headers=_auth_headers(raw))
+    assert response.status_code == 400
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_is_per_user_throttled(client: TestAsyncClient, authed):
+    """``GET /chat/stream`` carries a per-user rate throttle (``ChatStreamRateThrottle``):
+    when the throttle denies, ninja returns 429 (Too Many Requests) rather than opening
+    another long-lived ASGI connection. The throttle bounds stream-open frequency so one
+    caller cannot exhaust worker threads / the async Redis pool."""
+    from core.api.throttling import ChatStreamRateThrottle
+
+    _, raw, user = authed
+    with patch.object(ChatStreamRateThrottle, "allow_request", lambda self, request: False):
+        response = await client.get(
+            "/chat/stream?thread_id=" + str(uuid.uuid4()) + "&run_id=" + str(uuid.uuid4()), headers=_auth_headers(raw)
+        )
+    assert response.status_code == 429
+    await user.adelete()

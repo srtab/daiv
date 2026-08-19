@@ -20,6 +20,8 @@ from sessions.services import (
 )
 from sessions.validators import validate_repo_list
 
+from accounts.models import User
+
 pytestmark = pytest.mark.django_db
 
 
@@ -100,6 +102,44 @@ async def test_aget_or_create_session_existing_keeps_origin_and_touches():
     assert again.origin == SessionOrigin.ISSUE_WEBHOOK  # first trigger wins
     await again.arefresh_from_db()
     assert again.last_active_at > before
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_session_refuses_to_adopt_chat_session_for_webhook():
+    """Thread_id squat defense: a webhook-origin run must NOT graft onto a pre-existing
+    chat-origin session on the same thread id. Webhook thread ids are server-keyed and
+    unguessable, so such a collision means a squatter pre-claimed the id via the chat
+    path — refuse loudly so no webhook run lands on the squatter's transcript."""
+    from sessions.services import SessionAdoptionError
+
+    tid = str(uuid.uuid4())
+    squatter = await User.objects.acreate_user(username="squatter", email="sq@x.com", password="x")  # noqa: S106
+    # The squatter pre-claimed the thread id via the chat path (origin=CHAT, owned).
+    await aget_or_create_session(thread_id=tid, origin=SessionOrigin.CHAT, repo_id="victim/repo", user=squatter)
+    # A webhook later fires on the same thread id and must NOT adopt the chat session.
+    with pytest.raises(SessionAdoptionError):
+        await aget_or_create_session(
+            thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="victim/repo", external_username="bot"
+        )
+    # The squatter's chat session is untouched.
+    s = await Session.objects.aget(thread_id=tid)
+    assert s.origin == SessionOrigin.CHAT
+    await squatter.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_session_adopts_existing_webhook_session_for_webhook():
+    """The legitimate resume path: a later webhook event on the same issue adopts the
+    existing webhook-origin session (same origin family). Only a non-webhook existing
+    session triggers the refusal."""
+    tid = str(uuid.uuid4())
+    first = await aget_or_create_session(
+        thread_id=tid, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="g/r", external_username="bot"
+    )
+    again = await aget_or_create_session(
+        thread_id=tid, origin=SessionOrigin.MR_WEBHOOK, repo_id="g/r", external_username="bot"
+    )
+    assert again.pk == first.pk  # adopted, not refused
 
 
 @pytest.mark.django_db(transaction=True)

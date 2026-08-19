@@ -300,6 +300,40 @@ class TestComputeThreadId:
         with pytest.raises(ValueError):
             compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
 
+    def test_is_keyed_not_offline_computable_md5(self):
+        """The webhook thread id is HMAC-SHA256 keyed by a server secret, not the unsalted
+        MD5 it replaced — so a caller who only knows the public ``(repo, scope, iid)``
+        triple cannot derive it offline to squat another repo's conversation. This is the
+        thread_id-squat fix: a server-keyed derivation plus a digest-shape rejection at the
+        chat API boundary (see ``chat.api.views``) close the vector at two layers."""
+        import hashlib
+
+        from core.utils import generate_uuid
+
+        tid = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        same_input = f"owner/repo:{Scope.ISSUE.value}/42"
+        # The unsalted MD5 of the same public inputs — the old, squat-able derivation.
+        plain_md5 = hashlib.md5(same_input.encode()).hexdigest()  # noqa: S324
+        assert tid != plain_md5
+        assert tid != generate_uuid(same_input)
+        assert len(tid) == 64  # HMAC-SHA256 hexdigest
+
+    def test_rotates_with_the_server_secret(self, monkeypatch):
+        """Two server secrets derive different thread ids for the same triple — the keying
+        is what makes the id unguessable offline. Resets the cached key after so downstream
+        tests re-derive against the real test secret."""
+        import core.encryption
+
+        core.encryption._thread_id_key = None
+        monkeypatch.setattr("django.conf.settings.SECRET_KEY", "secret-a")
+        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        core.encryption._thread_id_key = None
+        monkeypatch.setattr("django.conf.settings.SECRET_KEY", "secret-b")
+        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        assert a != b
+        # Leave the cached key cleared so later tests re-derive with the real secret.
+        core.encryption._thread_id_key = None
+
 
 class TestRedactDiffContent:
     def test_redacts_omitted_file_content(self):

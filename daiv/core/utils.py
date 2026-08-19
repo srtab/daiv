@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import hmac
 import logging
 import mimetypes
 from functools import wraps
@@ -263,3 +264,19 @@ def generate_uuid(input_string: str) -> str:
     """
     input_bytes = str(input_string).encode("utf-8")
     return hashlib.md5(input_bytes).hexdigest()  # noqa: S324
+
+
+def compute_keyed_uuid(input_string: str) -> str:
+    """Deterministic, server-keyed identifier: HMAC-SHA256 of ``input_string`` keyed by
+    a server secret (see :func:`core.encryption.get_thread_id_signing_key`).
+
+    Returns 64 hex chars. Unlike :func:`generate_uuid` (unsalted MD5), this is **not**
+    computable from public inputs alone — a caller who knows the ``(repo, scope, iid)``
+    triple cannot pre-derive the webhook thread id to squat another repo's conversation.
+    Use this for security-sensitive deterministic ids (webhook conversation thread ids);
+    keep :func:`generate_uuid` for non-security cache keys.
+    """
+    from core.encryption import get_thread_id_signing_key
+
+    key = get_thread_id_signing_key()
+    return hmac.new(key, str(input_string).encode("utf-8"), hashlib.sha256).hexdigest()

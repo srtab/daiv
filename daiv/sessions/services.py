@@ -29,6 +29,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 
+class SessionAdoptionError(Exception):
+    """Raised when :func:`aget_or_create_session` refuses to graft a run onto an existing
+    session whose origin is incompatible with the caller's.
+
+    The thread_id squat defense: webhook thread ids are server-keyed and unguessable
+    (see :func:`codebase.utils.compute_thread_id`), so a webhook path colliding with a
+    pre-existing *non-webhook* session means a squatter pre-claimed the id. Rather than
+    let the webhook run land on the squatter's session (and transcript), fail loudly so
+    no run is created against the foreign row.
+    """
+
+
 @dataclass(frozen=True)
 class RepoTarget:
     repo_id: str
@@ -77,6 +89,11 @@ async def aget_or_create_session(
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
     continued via API keeps origin=issue_webhook).
+
+    A webhook-origin caller refuses to adopt a pre-existing *non-webhook* session on the
+    same thread id: webhook thread ids are server-keyed and unguessable, so such a
+    collision is a thread_id squat (a caller pre-claimed the id via the chat/job path)
+    rather than a legitimate resume. See :class:`SessionAdoptionError`.
     """
     session, created = await Session.objects.aget_or_create(
         thread_id=thread_id,
@@ -97,6 +114,19 @@ async def aget_or_create_session(
         },
     )
     if not created:
+        if origin in SessionOrigin.webhooks() and session.origin not in SessionOrigin.webhooks():
+            logger.warning(
+                "aget_or_create_session: refused to graft %s run onto existing %s session "
+                "thread_id=%s repo_id=%s (possible thread_id squat)",
+                origin,
+                session.origin,
+                thread_id,
+                repo_id,
+            )
+            raise SessionAdoptionError(
+                f"thread_id {thread_id} is already bound to a {session.origin} session; "
+                f"refusing to graft a {origin} run onto it."
+            )
         await session.atouch()
     return session
 

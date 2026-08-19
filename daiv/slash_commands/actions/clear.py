@@ -3,7 +3,7 @@ import logging
 from django.conf import settings as django_settings
 
 from codebase.base import Scope
-from core.utils import generate_uuid
+from codebase.utils import compute_thread_id
 from slash_commands.base import SlashCommand
 from slash_commands.decorator import slash_command
 
@@ -36,9 +36,9 @@ class ClearSlashCommand(SlashCommand):
             Success or error message.
         """
         if self.scope == Scope.ISSUE and issue_iid is not None:
-            thread_id = generate_uuid(f"{self.repo_id}:{self.scope.value}/{issue_iid}")
+            thread_id = compute_thread_id(repo_slug=self.repo_id, scope=self.scope, entity_iid=issue_iid)
         elif self.scope == Scope.MERGE_REQUEST and merge_request_id is not None:
-            thread_id = generate_uuid(f"{self.repo_id}:{self.scope.value}/{merge_request_id}")
+            thread_id = compute_thread_id(repo_slug=self.repo_id, scope=self.scope, entity_iid=merge_request_id)
         else:
             return f"The /{self.command} command is only available for issues and merge requests."
 
