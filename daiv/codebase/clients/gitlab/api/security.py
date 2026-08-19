@@ -20,9 +20,11 @@ def validate_gitlab_webhook(request: HttpRequest) -> bool:
     Returns:
         True if the webhook is valid, False otherwise
     """
+    # Fail closed: an unconfigured secret must never accept a payload, otherwise
+    # the unauthenticated callback endpoint would accept forged requests.
     if not settings.GITLAB_WEBHOOK_SECRET:
-        logger.warning("GitLab webhook validation skipped: No secret token configured")
-        return True
+        logger.error("GitLab webhook rejected: no secret token configured")
+        return False
 
     token = request.headers.get("X-Gitlab-Token")
     if not token:

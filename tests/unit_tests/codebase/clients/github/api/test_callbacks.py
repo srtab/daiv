@@ -204,6 +204,40 @@ class TestIssueCommentCallbackAllowlist:
         assert callback.accept_callback() is True
 
 
+class TestIssueCommentCallbackIdempotence:
+    """Replays / duplicate deliveries of the same comment must not re-trigger a run."""
+
+    def _make_callback(self):
+        return IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[Label(id=1, name=BOT_LABEL)]),
+            comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "alice"})),
+        )
+
+    def test_rejects_replay_when_already_reacted(self, monkeypatch_dependencies, mock_repo_config, mock_repo_client):
+        """A comment DAIV has already reacted to (eyes) is a replay — reject."""
+        mock_repo_config.allowed_usernames = ("alice",)
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+        mock_repo_client.has_issue_reaction.return_value = True
+
+        callback = self._make_callback()
+        assert callback.accept_callback() is False
+        # The guard must check the comment's reaction, not the issue's.
+        mock_repo_client.has_issue_reaction.assert_called_once_with("owner/repo", 42, Emoji.EYES, note_id=200)
+
+    def test_accepts_first_delivery_when_not_reacted(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        """The first delivery (no prior reaction) is accepted."""
+        mock_repo_config.allowed_usernames = ("alice",)
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+        mock_repo_client.has_issue_reaction.return_value = False
+
+        callback = self._make_callback()
+        assert callback.accept_callback() is True
+
+
 def create_pull_request_callback(
     action: str = "closed",
     merged: bool = True,

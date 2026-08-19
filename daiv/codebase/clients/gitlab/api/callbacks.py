@@ -182,7 +182,34 @@ class NoteCallback(BaseCallback):
             )
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_comment)
+        is_issue_comment = self._is_issue_comment
+        is_merge_request_comment = self._is_merge_request_comment
+        if not (is_issue_comment or is_merge_request_comment):
+            return False
+
+        # Idempotence: a duplicate delivery / replay of the same note must not re-trigger an
+        # agent run. DAIV reacts to an accepted note with the eyes emoji, so an existing reaction
+        # on the note marks it as already handled.
+        if is_issue_comment and self.issue is not None:
+            already_reacted = self._client.has_issue_reaction(
+                self.project.path_with_namespace, self.issue.iid, Emoji.EYES, note_id=self.object_attributes.id
+            )
+        elif is_merge_request_comment and self.merge_request is not None:
+            already_reacted = self._client.has_merge_request_note_reaction(
+                self.project.path_with_namespace, self.merge_request.iid, Emoji.EYES, self.object_attributes.id
+            )
+        else:
+            already_reacted = False
+
+        if already_reacted:
+            logger.info(
+                "Skipping note %s on project %s: DAIV has already reacted to this note",
+                self.object_attributes.id,
+                self.project.path_with_namespace,
+            )
+            return False
+
+        return True
 
     async def process_callback(self):
         """

@@ -436,29 +436,40 @@ class GitHubClient(RepoClient):
         else:
             issue.create_reaction(emoji_reaction)
 
-    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji) -> bool:
+    def has_issue_reaction(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None) -> bool:
         """
-        Check if an issue has a specific emoji reaction from the current user.
+        Check if an issue (or one of its comments when ``note_id`` is given) has a specific
+        emoji reaction from the current user.
 
         Args:
             repo_id: The repository ID.
             issue_id: The issue ID.
             emoji: The emoji to check for.
+            note_id: When set, check the reaction on the issue comment instead of the issue.
 
         Returns:
-            True if the issue has the reaction, False otherwise.
+            True if the issue/comment has the reaction, False otherwise.
         """
         if not (emoji_reaction := EMOJI_MAP.get(emoji)):
             raise ValueError(f"Unsupported emoji: {emoji}")
 
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(issue_id)
+        target = issue.get_comment(note_id) if note_id is not None else issue
         current_user_id = self.current_user.id
 
-        for reaction in issue.get_reactions():
+        for reaction in target.get_reactions():
             if reaction.content == emoji_reaction and reaction.user.id == current_user_id:
                 return True
 
         return False
+
+    def has_merge_request_note_reaction(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int) -> bool:
+        """Check if a PR conversation comment has a specific emoji reaction from the current user.
+
+        PR conversation comments resolve on the issues API, so this delegates to
+        ``has_issue_reaction`` with the comment id.
+        """
+        return self.has_issue_reaction(repo_id, merge_request_id, emoji, note_id=note_id)
 
     # Merge request
     def update_or_create_merge_request(

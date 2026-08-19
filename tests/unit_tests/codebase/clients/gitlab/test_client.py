@@ -115,6 +115,65 @@ class TestGitLabClient:
         result = gitlab_client.has_issue_reaction("group/repo", 123, emoji)
         assert result is expected
 
+    @pytest.mark.parametrize(
+        ("award_emojis", "expected"),
+        [
+            pytest.param([("eyes", 123)], True, id="issue-note-reaction-exists-for-current-user"),
+            pytest.param([("eyes", 456)], False, id="issue-note-reaction-from-different-user"),
+            pytest.param([], False, id="issue-note-no-reactions"),
+        ],
+    )
+    def test_has_issue_reaction_on_note(self, gitlab_client, monkeypatch, award_emojis, expected):
+        """With note_id, the award emoji is checked on the issue note, not the issue."""
+        mock_project = Mock()
+        mock_issue = Mock()
+        mock_note = Mock()
+        mock_reactions = []
+        for name, user_id in award_emojis:
+            award_emoji = Mock()
+            award_emoji.name = name
+            award_emoji.user = {"id": user_id}
+            mock_reactions.append(award_emoji)
+
+        monkeypatch.setattr(type(gitlab_client), "current_user", User(id=123, username="daiv", name="DAIV"))
+        gitlab_client.client.projects.get.return_value = mock_project
+        mock_project.issues.get.return_value = mock_issue
+        mock_issue.notes.get.return_value = mock_note
+        mock_note.awardemojis.list.return_value = mock_reactions
+
+        result = gitlab_client.has_issue_reaction("group/repo", 123, Emoji.EYES, note_id=456)
+        assert result is expected
+        mock_issue.notes.get.assert_called_once_with(456, lazy=True)
+
+    @pytest.mark.parametrize(
+        ("award_emojis", "expected"),
+        [
+            pytest.param([("eyes", 123)], True, id="mr-note-reaction-exists-for-current-user"),
+            pytest.param([], False, id="mr-note-no-reactions"),
+        ],
+    )
+    def test_has_merge_request_note_reaction(self, gitlab_client, monkeypatch, award_emojis, expected):
+        """The MR-note reaction check inspects the merge request note's award emojis."""
+        mock_project = Mock()
+        mock_merge_request = Mock()
+        mock_note = Mock()
+        mock_reactions = []
+        for name, user_id in award_emojis:
+            award_emoji = Mock()
+            award_emoji.name = name
+            award_emoji.user = {"id": user_id}
+            mock_reactions.append(award_emoji)
+
+        monkeypatch.setattr(type(gitlab_client), "current_user", User(id=123, username="daiv", name="DAIV"))
+        gitlab_client.client.projects.get.return_value = mock_project
+        mock_project.mergerequests.get.return_value = mock_merge_request
+        mock_merge_request.notes.get.return_value = mock_note
+        mock_note.awardemojis.list.return_value = mock_reactions
+
+        result = gitlab_client.has_merge_request_note_reaction("group/repo", 7, Emoji.EYES, 456)
+        assert result is expected
+        mock_merge_request.notes.get.assert_called_once_with(456, lazy=True)
+
     @pytest.fixture
     def clone_setup(self, gitlab_client, monkeypatch):
         """Patched clone environment: yields (repository, clone_from mock, config writer mock)."""

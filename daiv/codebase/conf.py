@@ -19,6 +19,11 @@ class CodebaseSettings(BaseSettings):
     WEBHOOK_SETUP_CRON: str = Field(
         default="*/5 * * * *", description="Cron expression for periodic webhook setup (GitLab only)"
     )
+    WEBHOOK_SSL_VERIFY: bool = Field(
+        default=True,
+        description="Whether webhooks set up by DAIV require SSL verification. "
+        "Disable only for explicitly insecure deployments (never driven by DEBUG).",
+    )
 
     REPO_ACCESS_SYNC_CRON: str = Field(
         default="*/15 * * * *", description="Cron expression for the periodic repository access sync"

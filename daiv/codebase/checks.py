@@ -31,6 +31,26 @@ def check_api_keys(app_configs, **kwargs):
             )
         )
 
+    # The webhook secret gates the unauthenticated callback endpoint: when it is
+    # unset the validators fail closed, so the active platform's webhooks are dead
+    # weight. Surface that as a deployment error rather than silently dropping hooks.
+    if settings.CLIENT == GitPlatform.GITLAB and not settings.GITLAB_WEBHOOK_SECRET:
+        errors.append(
+            Error(
+                "No webhook secret configured for GitLab. "
+                "Webhook validation fails closed without it, so callbacks will be rejected. "
+                "Set it using the environment variable CODEBASE_GITLAB_WEBHOOK_SECRET."
+            )
+        )
+    elif settings.CLIENT == GitPlatform.GITHUB and not settings.GITHUB_WEBHOOK_SECRET:
+        errors.append(
+            Error(
+                "No webhook secret configured for GitHub. "
+                "Webhook validation fails closed without it, so callbacks will be rejected. "
+                "Set it using the environment variable CODEBASE_GITHUB_WEBHOOK_SECRET."
+            )
+        )
+
     # SWE client doesn't require any API keys
 
     return errors
