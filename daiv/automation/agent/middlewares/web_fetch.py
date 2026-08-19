@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import ipaddress
 import logging
+import socket
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -88,6 +90,11 @@ def _upgrade_http_to_https(url: str) -> str:
 def _is_private_or_local(hostname: str) -> bool:
     """
     Check if a hostname is a private/local IP address or localhost.
+
+    This is a string-only fast path: it catches literal IP addresses (including
+    standard IPv4/IPv6 and v4-mapped IPv6), ``localhost`` and ``.local`` /
+    ``.localhost`` suffixes. It does **not** resolve DNS, so a domain pointing at
+    an internal address is caught separately by :func:`_resolved_addresses_are_blocked`.
     """
     # Check hostname literals first
     if hostname.lower() in {"localhost", "localhost.localdomain"}:
@@ -95,11 +102,66 @@ def _is_private_or_local(hostname: str) -> bool:
 
     try:
         ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+        return _ip_is_blocked(ip)
     except ValueError:
         # Not a valid IP address, could be a hostname
         # Check for localhost-like patterns
         return hostname.lower().endswith(".local") or hostname.lower().endswith(".localhost")
+
+
+def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True if an IP literal is private/loopback/link-local/reserved/multicast.
+
+    v4-mapped / v4-compatible IPv6 addresses are unwrapped first so the embedded
+    IPv4 address is checked, not the wrapping ``::ffff:`` form.
+    """
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
+
+
+async def _resolved_addresses_are_blocked(hostname: str) -> bool:
+    """
+    Resolve ``hostname`` via the system resolver and return ``True`` if **any**
+    resolved address is private/loopback/link-local/reserved/multicast.
+
+    This closes the DNS-rebinding gap that :func:`_is_private_or_local` cannot: an
+    attacker-controlled domain that resolves to an internal IP, and non-dotted
+    IPv4 encodings (decimal / hex / octal) that the literal fast path treats as
+    ordinary hostnames but ``getaddrinfo`` resolves to a real address.
+
+    A literal IP is checked directly without a DNS round-trip. A hostname that
+    fails to resolve is left for httpx to error on — this guard exists to block
+    rebinding to internal addresses, not to fabricate failures for unresolvable
+    names.
+    """
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return _ip_is_blocked(ip)
+
+    try:
+        infos = await asyncio.to_thread(socket.getaddrinfo, hostname, None)
+    except socket.gaierror:
+        return False
+
+    for _family, _stype, _proto, _canon, sockaddr in infos:
+        # ``sockaddr[0]`` is the resolved IP for both AF_INET (host, port) and
+        # AF_INET6 (host, port, flowinfo, scopeid); coerce to str so the union
+        # narrows for the checker.
+        ip_str = str(sockaddr[0])
+        # Strip any IPv6 zone identifier (e.g. ``fe80::1%eth0``) before parsing.
+        if "%" in ip_str:
+            ip_str = ip_str.split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if _ip_is_blocked(ip):
+            return True
+    return False
 
 
 def _is_valid_http_url(url: str) -> bool:
@@ -123,10 +185,13 @@ async def _fetch_url_text(
     """
     from httpx import AsyncClient, HTTPError
 
-    # SSRF protection: block private/local addresses (checked on every redirect to guard against DNS rebinding).
+    # SSRF protection: block private/local addresses (checked on every redirect
+    # to guard against DNS rebinding). The string fast path catches literal IPs
+    # and localhost-like names; the resolver catches domains (and non-dotted IP
+    # encodings) that point at an internal address.
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
-    if _is_private_or_local(hostname):
+    if _is_private_or_local(hostname) or await _resolved_addresses_are_blocked(hostname):
         raise ValueError(f"Requests to private/local addresses are blocked: {url}")
 
     request_headers = {"User-Agent": USER_AGENT, **(extra_headers or {})}
@@ -141,6 +206,10 @@ async def _fetch_url_text(
     if 300 <= response.status_code < 400 and response.headers.get("location"):
         redirect_url = urljoin(url, response.headers["location"])
         if urlparse(redirect_url).netloc != urlparse(url).netloc:
+            # Re-validate the redirect target before handing it to the model: the
+            # Location header is otherwise embedded verbatim in the special tag.
+            if not _is_valid_http_url(redirect_url):
+                raise ValueError(f"Blocked redirect to non-http(s) URL: {redirect_url}")
             # Special format required by the webfetch tool prompt.
             raise RuntimeError(f"<redirect_url>{redirect_url}</redirect_url>")
 
