@@ -4,7 +4,8 @@ name: Deploy
 #
 # Runs after the "Docker" workflow finishes building & pushing
 # ghcr.io/srtab/daiv:main for a push to main, then SSHes into the server and
-# rolls the app/worker/scheduler containers onto the new image. Can also be run
+# rolls the app/worker/scheduler containers (plus worker-interactive where the server
+# compose defines it) onto the new image. Can also be run
 # manually from the Actions tab to re-deploy :main or roll back to a pinned
 # per-commit tag (e.g. sha-5e4f0d0); the script validates that the server
 # compose file honors DAIV_IMAGE_TAG (its error message states the contract).
@@ -60,6 +61,12 @@ jobs:
 
             SERVICES="app worker scheduler"
             export DAIV_IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG env not forwarded}"
+
+            # The queue-split worker is optional server-side: roll it only where it is defined,
+            # so a server that has not adopted it yet still deploys.
+            if docker compose config --services | grep -qx worker-interactive; then
+              SERVICES="$SERVICES worker-interactive"
+            fi
 
             # STRICT=1 (pinned sha rollback) fails unless that exact build ends up serving;
             # continuous deploys verify softly, tolerating being superseded by a newer :main.

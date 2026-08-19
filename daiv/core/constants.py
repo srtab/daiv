@@ -12,3 +12,13 @@ BOT_AUTO_LABEL = "daiv-auto"
 CANCELLED_BY_USER_MESSAGE = "Stopped by user."
 INTERRUPTED_MESSAGE = "Run was interrupted before completing."
 RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
+
+# Task queues. Short user-visible work runs on ``interactive`` so it never waits behind an agent
+# run: a worker runs one task to completion before claiming the next, and priority cannot preempt.
+TASK_QUEUE_DEFAULT = "default"
+TASK_QUEUE_INTERACTIVE = "interactive"
+
+# Priorities inside a queue (higher runs first). Only the interactive queue orders its members:
+# every default-queue task is long, so ranking them would starve whichever lost.
+TASK_PRIORITY_TITLING = 20
+TASK_PRIORITY_NOTIFICATION = 10

@@ -9,6 +9,7 @@ from django.utils.translation import gettext
 from crontask import cron
 from django_tasks import task
 
+from core.constants import TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.sessions")
@@ -21,7 +22,7 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 RECLASSIFY_BATCH_LIMIT = 200
 
 
-@task(dedup=True)
+@task(dedup=True, queue_name=TASK_QUEUE_INTERACTIVE)
 async def classify_run_task(run_id: str) -> None:
     """Classify a finished scheduled run's prose report into its :class:`~sessions.models.RunEnvelope`.
 

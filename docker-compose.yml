@@ -78,7 +78,7 @@ services:
 
   worker:
     <<: *x_app_default
-    command: sh /home/app/docker/start-worker
+    command: sh /home/app/docker/start-worker default
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
       interval: 30s
@@ -89,6 +89,20 @@ services:
     deploy:
       mode: replicated
       replicas: 2
+
+  worker-interactive:
+    <<: *x_app_default
+    command: sh /home/app/docker/start-worker interactive
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports: []
+    deploy:
+      mode: replicated
+      replicas: 1
 
   scheduler:
     <<: *x_app_default

@@ -2,4 +2,6 @@
 
 set -eu
 
-exec django-admin db_worker --skip-checks
+# First argument narrows which queues this worker serves; unset it serves every declared queue,
+# so a deployment that runs a single worker keeps draining short work without adding a service.
+exec django-admin db_worker --skip-checks --queue-name "${1:-default,interactive}"

@@ -1,3 +1,5 @@
+from core.constants import TASK_QUEUE_DEFAULT, TASK_QUEUE_INTERACTIVE
+
 TESTING = True
 
 # I18N
@@ -40,7 +42,12 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 # TASKS
 
-TASKS = {"default": {"BACKEND": "core.backends.immediate.ImmediateBackend"}}
+TASKS = {
+    "default": {
+        "BACKEND": "core.backends.immediate.ImmediateBackend",
+        "QUEUES": [TASK_QUEUE_DEFAULT, TASK_QUEUE_INTERACTIVE],
+    }
+}
 
 
 # LOGGING
