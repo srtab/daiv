@@ -313,7 +313,7 @@ secrets:
 10.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
 
 !!! info "Task queues"
-    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves both, which is fine for a small deployment as long as you accept that wait.
+    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
 MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
 
@@ -535,7 +535,7 @@ volumes:
 18.  **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for the `app`, `worker`, and `scheduler` services (which share this anchor)
 
 !!! info "Task queues"
-    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves both, which is fine for a small deployment as long as you accept that wait.
+    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
 MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
 
