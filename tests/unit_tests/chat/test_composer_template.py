@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from html.parser import HTMLParser
 from unittest.mock import AsyncMock, patch
 
 from django.urls import reverse
@@ -18,7 +19,7 @@ import pytest
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.test_picker_popovers import CONTAINER as POPOVER_CONTAINER
-from tests.unit_tests.test_picker_popovers import X_SHOW
+from tests.unit_tests.test_picker_popovers import INPUT_CSS, X_SHOW
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
 
@@ -267,3 +268,103 @@ def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client
     assert wrapper, ".chat-todos is gone — the rows it sizes are mounted in nothing"
     assert "font-size:" in wrapper.group(1), ".chat-todos no longer sizes the rows it wraps"
     assert "gap:" in wrapper.group(1), ".chat-todos no longer separates the rows it wraps"
+
+
+# Class tokens that name a floating surface. `composer-sheet__body` and
+# `composer-sheet-anchor` are content and anchor, not surfaces, so the tokens are matched
+# whole.
+SURFACE_TOKENS = frozenset({"composer-sheet", "composer-autocomplete", "picker-popover"})
+# HTML's void elements: they have no end tag, so pushing them would unbalance the stack.
+VOID_TAGS = frozenset({
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+})
+# Properties whose mere presence on an ancestor breaks a floating surface: each one makes
+# that ancestor a stacking context, which traps the surface below anything painted above it
+# — the scrim included — and `opacity` fades the panel with the rest of the subtree.
+FADE_PROPERTY = re.compile(r"(?<![-\w])(?:opacity|transform|filter|backdrop-filter)\s*:")
+FADE_UTILITY = re.compile(r"^(?:opacity|scale|rotate|translate|blur|-translate)-")
+# Innermost declaration blocks only: `@layer`/`@media` bodies contain braces of their own,
+# so they can never match, and every rule in the file is nested in one of them.
+RULE = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
+SUBJECT = re.compile(r"[\s>+~]+")
+COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+
+class _SurfaceAncestors(HTMLParser):
+    """Collects the class tokens of every element that encloses a floating surface."""
+
+    def __init__(self):
+        super().__init__()
+        self._stack = []
+        self.tokens = set()
+
+    def handle_starttag(self, tag, attrs):
+        classes = (dict(attrs).get("class") or "").split()
+        if SURFACE_TOKENS.intersection(classes):
+            self.tokens.update(token for frame in self._stack for token in frame)
+        if tag not in VOID_TAGS:
+            self._stack.append(classes)
+
+    def handle_endtag(self, tag):
+        if tag not in VOID_TAGS and self._stack:
+            self._stack.pop()
+
+
+def _surface_ancestor_tokens(html: str) -> set[str]:
+    parser = _SurfaceAncestors()
+    parser.feed(html)
+    return parser.tokens
+
+
+def _fading_rules(css: str) -> list[tuple[str, str]]:
+    """Every (subject, rule) pair in ``css`` whose rule fades or transforms its subject."""
+    pairs = []
+    for selector, body in RULE.findall(COMMENT.sub("", css)):
+        if not (FADE_PROPERTY.search(body) or any(FADE_UTILITY.match(u) for u in body.split())):
+            continue
+        for one in selector.split(","):
+            if subject := SUBJECT.split(one.strip())[-1]:
+                pairs.append((subject, f"{selector.strip()} {{{body.strip()}}}"))
+    return pairs
+
+
+@pytest.mark.django_db
+def test_nothing_enclosing_a_sheet_is_faded_or_transformed(member_client, member_user):
+    """The sending state used to fade the whole composer, and a sheet opened from its action
+    row came up unreadable: the `opacity` made the form a stacking context, dropping the
+    panel below the scrim its own z-index outranks, then faded the panel's background along
+    with everything else in the subtree. So the fade goes control by control — and any other
+    property that would make an enclosing element a stacking context is the same bug.
+    """
+    thread = _render_thread(member_client, _create_session(member_user))
+    enclosing = _surface_ancestor_tokens(thread) | _surface_ancestor_tokens(_render_new_chat(member_client))
+    css = INPUT_CSS.read_text(encoding="utf-8")
+
+    assert "chat-composer" in enclosing, "the composer no longer encloses a sheet — is this test still looking?"
+
+    offenders = [
+        f"an enclosing element carries the {token!r} utility"
+        for token in sorted(enclosing)
+        if FADE_UTILITY.match(token)
+    ]
+    offenders += [
+        f"{subject} encloses a surface: {rule}"
+        for subject, rule in _fading_rules(css)
+        for token in enclosing
+        if re.fullmatch(rf"\.{re.escape(token)}(?:--[\w-]+)?(?:::?[\w-]+(?:\([^)]*\))?)*", subject)
+    ]
+
+    assert not offenders, "A floating surface is trapped in a stacking context:\n" + "\n".join(offenders)

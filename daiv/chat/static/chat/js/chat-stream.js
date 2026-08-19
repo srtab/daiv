@@ -167,7 +167,22 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  const pickPath = (argsStr) => {
+  // The transcript getters below re-derive from `turns` on every read, and parsing the
+  // JSON payloads off each segment is what made that expensive. Memoized per segment, on
+  // the source string as well — `args` grows delta by delta while a call streams, and a
+  // result lands whole later — so a payload is parsed once per value it ever holds.
+  const memoizePayload = (parse) => {
+    const cache = new WeakMap();
+    return (seg, src) => {
+      const hit = cache.get(seg);
+      if (hit && hit.src === src) return hit.value;
+      const value = parse(src);
+      cache.set(seg, { src, value });
+      return value;
+    };
+  };
+
+  const pickPath = memoizePayload((argsStr) => {
     try {
       const args = JSON.parse(argsStr);
       if (!args || typeof args !== "object") return null;
@@ -175,10 +190,20 @@
     } catch {
       return null;
     }
-  };
+  });
 
-  const bashFilesChanged = (resultStr) =>
-    (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
+  const bashFilesChanged = memoizePayload(
+    (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
+  );
+
+  const parseTodos = memoizePayload((argsStr) => {
+    try {
+      const args = JSON.parse(argsStr || "{}");
+      return Array.isArray(args.todos) ? args.todos : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
@@ -190,26 +215,15 @@
       if (turn.role === "user") return [];
       for (let j = turn.segments.length - 1; j >= 0; j--) {
         const s = turn.segments[j];
-        if (s.type === "tool_call" && s.name === "write_todos") {
-          try {
-            const args = JSON.parse(s.args || "{}");
-            return Array.isArray(args.todos) ? args.todos : [];
-          } catch {
-            return [];
-          }
-        }
+        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s, s.args);
       }
     }
     return [];
   };
 
-  // These caches live here, not on the returned data object: Alpine makes every own
-  // property reactive, so a cache read inside the getter would subscribe each reader to it
-  // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
-  // this factory once per component.
+  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+
   const chat = (config) => {
-  let filesCache = null;
-  let todosCache = null;
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -793,26 +807,20 @@
     },
 
     get latestTodos() {
-      // Cached for the rest of the microtask like ``filesTouched``, for the same reason:
-      // the progress pill and sheet read this a dozen-plus times per Alpine flush, and
-      // each read re-walked the transcript and re-parsed the todo args.
-      if (todosCache) return todosCache;
-      todosCache = findLatestTodos(this.turns);
-      queueMicrotask(() => { todosCache = null; });
-      return todosCache;
+      // Walked on every read, never cached across readers: Alpine tracks dependencies per
+      // effect, so the second binding to ask in a flush would be answered without touching
+      // the transcript, subscribe to nothing, and never run again. That is what kept the
+      // progress pill hidden until a reload when a turn's ``write_todos`` landed mid-run.
+      return findLatestTodos(this.turns);
     },
 
     get todosDone() {
-      return this.latestTodos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+      return countDone(this.latestTodos);
     },
 
     get filesTouched() {
-      // Alpine re-evaluates every binding that reads this in a single flush — the pill,
-      // its class, the crowded modifier, the sheet's rows, the $watch. Caching for the
-      // rest of the current microtask collapses those into one transcript walk; releasing
-      // it there means no mutation can ever be observed through a stale cache, since
-      // `turns` only changes between events.
-      if (filesCache) return filesCache;
+      // Re-derived per read for the reason ``latestTodos`` is; the payload parsing every
+      // bash result needed is memoized on the segment instead.
       // path -> { path, op, fromPath?, segmentId }
       const map = new Map();
       const record = (path, op, seg, extra = {}) => {
@@ -825,9 +833,9 @@
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
             const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg.args), op, seg);
+            record(pickPath(seg, seg.args), op, seg);
           } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
+            for (const entry of bashFilesChanged(seg, seg.result)) {
               record(entry.path, entry.op || "modified", seg,
                 entry.from_path ? { fromPath: entry.from_path } : {});
             }
@@ -835,9 +843,7 @@
         }
       }
       // Reverse so most-recent comes first.
-      filesCache = [...map.values()].reverse();
-      queueMicrotask(() => { filesCache = null; });
-      return filesCache;
+      return [...map.values()].reverse();
     },
 
     get showJumpToLatest() {
@@ -857,7 +863,7 @@
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const parts = [];
-      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
       if (files.length) parts.push(this._filesLabel(files.length));
 
       if (this.streaming || this.resuming) {
