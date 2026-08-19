@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -1091,3 +1091,71 @@ class TestGitLabClient:
         assert pipeline.id == 987
         assert pipeline.status == "pending"
         assert pipeline.web_url.endswith("/pipelines/987")
+
+
+class TestGetProjectUploadedFile:
+    """The upload path is taken from issue/MR markdown (attacker-influenced) and the
+    download is authenticated with the PRIVATE-TOKEN while following redirects, so the
+    path must be validated server-side before it is built into the request URL.
+    """
+
+    @pytest.fixture
+    def gitlab_client(self):
+        mock_gitlab = Mock()
+        mock_gitlab.url = "https://gitlab.example.com"
+        mock_gitlab.private_token = "glpat-secret"  # noqa: S105
+        with patch("codebase.clients.gitlab.client.Gitlab", return_value=mock_gitlab):
+            client = GitLabClient(auth_token="test-token", url="https://gitlab.example.com")  # noqa: S106
+        # ``client.client`` is the python-gitlab Gitlab instance created in __init__.
+        client.client = mock_gitlab
+        return client
+
+    @pytest.mark.parametrize(
+        ("file_path", "expected"),
+        [
+            pytest.param("/uploads/abc/def.png", "uploads/abc/def.png", id="valid"),
+            pytest.param("/uploads/secret/file.png", "uploads/secret/file.png", id="valid-nested"),
+            pytest.param("/uploads/../etc/passwd", None, id="parent-traversal"),
+            pytest.param("/uploads/a/../../api/v4/projects/other", None, id="deep-traversal"),
+            pytest.param("//uploads/abc", None, id="protocol-relative-netloc"),
+            pytest.param("https://evil.example.com/uploads/abc", None, id="absolute-url-scheme"),
+            pytest.param("https://evil.example.com", None, id="scheme-only"),
+            pytest.param("/uploads/abc\n/x", None, id="control-char-newline"),
+            pytest.param("/uploads/abc\r/x", None, id="control-char-cr"),
+            pytest.param("/uploads/abc\x7f/x", None, id="control-char-del"),
+            pytest.param("/notuploads/abc", None, id="wrong-prefix"),
+            pytest.param("/uploads/", None, id="prefix-only-no-segments"),
+            pytest.param("", None, id="empty"),
+        ],
+    )
+    def test_safe_gitlab_upload_path_validates(self, file_path, expected):
+        from codebase.clients.gitlab.client import _safe_gitlab_upload_path
+
+        assert _safe_gitlab_upload_path(file_path) == expected
+
+    def test_encodes_segments_so_encoded_traversal_is_literal(self):
+        from codebase.clients.gitlab.client import _safe_gitlab_upload_path
+
+        # %2e%2e stays a literal segment (not a path component) once re-encoded.
+        assert _safe_gitlab_upload_path("/uploads/%2e%2e/x") == "uploads/%252e%252e/x"
+
+    async def test_rejected_path_returns_none_and_never_downloads(self, gitlab_client):
+        with patch("codebase.clients.gitlab.client.async_download_url", new=AsyncMock()) as mock_dl:
+            result = await gitlab_client.get_project_uploaded_file("group/repo", "/uploads/../etc/passwd")
+
+        assert result is None
+        mock_dl.assert_not_called()
+
+    async def test_valid_path_builds_encoded_authenticated_url(self, gitlab_client):
+        mock_project = Mock()
+        mock_project.get_id.return_value = 42
+        gitlab_client.client.projects.get.return_value = mock_project
+        with patch("codebase.clients.gitlab.client.async_download_url", new=AsyncMock(return_value=b"png")) as mock_dl:
+            result = await gitlab_client.get_project_uploaded_file("group/repo", "/uploads/abc/def.png")
+
+        assert result == b"png"
+        mock_dl.assert_called_once()
+        url = mock_dl.call_args[0][0]
+        # Encoded, scoped to the uploads API under this project, token-bearing.
+        assert url == "https://gitlab.example.com/api/v4/projects/42/uploads/abc/def.png"
+        assert mock_dl.call_args[1]["headers"]["PRIVATE-TOKEN"] == "glpat-secret"

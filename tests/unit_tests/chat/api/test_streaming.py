@@ -269,11 +269,11 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     finalized FAILED, and a failed run must not pin the session ref.
 
     §F safety guarantee: the upstream RUN_ERROR event's ``.message`` can carry raw
-    exception text; it is fine to stream live (yielded to the client) but must never
-    be persisted to Run.error_message, which sessions.transcript renders verbatim in
-    the transcript on reload. The persisted reason is the same sanitized generic
-    constant used by the raised-exception path (parity with
-    ``test_events_finalizes_failed_with_generic_message_when_agent_raises``).
+    exception text. The relay replays yielded events for its TTL, so the live event is
+    rewritten to the sanitized generic constant before it is yielded — parity with the
+    raised-exception path, which persists the same constant to Run.error_message
+    (see ``test_events_finalizes_failed_with_generic_message_when_agent_raises``).
+    Neither the streamed event nor the persisted Run row may carry the raw text.
     """
     from ag_ui.core.events import RunErrorEvent
 
@@ -311,9 +311,11 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     # §F: raw event message must NOT be persisted to Run.error_message.
     assert finalize_calls[0]["error_message"] == RUN_FAILED_MESSAGE
     assert "boom in agent" not in finalize_calls[0]["error_message"]
-    # The live client still receives the original upstream message.
+    # §F: the live-streamed/replayable event is sanitized too — the raw upstream
+    # message must not reach a reader that rejoins the run via the relay.
     run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
-    assert any(getattr(e, "message", "") == "boom in agent" for e in run_error_events)
+    assert any(getattr(e, "message", "") == RUN_FAILED_MESSAGE for e in run_error_events)
+    assert all(getattr(e, "message", "") != "boom in agent" for e in run_error_events)
     assert persist_calls == []
 
 
