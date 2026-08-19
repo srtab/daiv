@@ -64,6 +64,18 @@ BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
 # picked. Steps nest one level (the rules the block re-declares), so one alternation is enough.
 MEDIA = re.compile(r"@media \([^)]*?(\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
+# The band where the sidebar is on screen and the surfaces are still bottom sheets. `40rem`
+# rather than `640px` because that is what Tailwind compiles the sidebar's own `sm:` to.
+SHEET_BAND = re.compile(r"@media \(width >= 40rem\) and \(width < (\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
+SHEET_CONTAINERS = ("composer-sheet", "picker-popover")
+SIDEBAR_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "accounts" / "_sidebar.html"
+BASE_APP_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "base_app.html"
+
+
+def _token(css: str, name: str) -> str | None:
+    found = re.search(rf"{name}:\s*([^;]+);", css)
+    return found.group(1).strip() if found else None
+
 
 def _templates_with_popovers() -> dict[str, str]:
     return {
@@ -139,6 +151,56 @@ def test_the_sheet_breakpoint_is_a_single_number():
         assert widths == {token.group(1)}, (
             f"--breakpoint-popover is {token.group(1)}px but {rule.rstrip(' {')} switches at {widths or 'nowhere'}"
         )
+
+
+def test_a_bottom_sheet_never_opens_under_the_sidebar():
+    """A sheet flush to the viewport edges is only right while the viewport *is* the content
+    area. From `sm:` up the sidebar is on screen while these are still sheets — tablets, and
+    phones in landscape — so a full-bleed sheet spanned the nav too: Chromium paints it over
+    the sidebar, and the browser this was reported from clipped the half that crossed the
+    scrolling `<main>`, cutting every line off mid-word. The band insets both families to
+    the content column and caps them, and it wins by *source order* alone — same specificity
+    as the rules it re-declares, so moving it above either one silently does nothing."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    band = SHEET_BAND.search(css)
+
+    assert band, "no `sm:`-to-popover band in input.css — a bottom sheet spans the sidebar again"
+
+    popover_breakpoint = BREAKPOINT_TOKEN.search(css)
+    assert band.group(1) == popover_breakpoint.group(1), (
+        f"the band ends at {band.group(1)}px but sheets become popovers at {popover_breakpoint.group(1)}px"
+    )
+
+    body = band.group(2)
+    assert "var(--app-sidebar-width)" in body, "the inset must come from the sidebar's own token"
+    assert "var(--sheet-max-width)" in body, "an inset sheet still spans a 1024px viewport without the cap"
+
+    selectors = body[: body.index("{")]
+    for surface in SHEET_CONTAINERS:
+        assert re.search(rf"\.{surface}(?![-\w])", selectors), f".{surface} is not in the band"
+
+        own_rules = re.finditer(rf"\.{surface}(?![-\w])\s*\{{", css)
+        elsewhere = [m.start() for m in own_rules if not band.start() <= m.start() < band.end()]
+        assert elsewhere and max(elsewhere) < band.start(), (
+            f"the band must stay after every .{surface} rule it re-declares"
+        )
+
+
+def test_the_sheet_inset_tracks_the_shell_it_dodges():
+    """The inset is the shell's own geometry restated for surfaces that can't measure it —
+    `position: fixed` reads the viewport, not the column it belongs to. Both halves come
+    from the shell: the sidebar sizes itself from the width token (a literal `w-60` back on
+    the aside is a sheet under the nav again) and `<main>` carries the gutter (`px-6` is
+    1.5rem), which is what lines the sheet up with the composer that opened it."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "w-(--app-sidebar-width)" in sidebar, "the sidebar no longer sizes itself from --app-sidebar-width"
+    assert "sm:flex" in sidebar, "the sidebar appears at some width other than `sm:` — the band's lower bound moved"
+    assert _token(css, "--app-content-gutter") == "1.5rem", "--app-content-gutter must be <main>'s `sm:px-6`"
+    assert "sm:px-6" in BASE_APP_TEMPLATE.read_text(encoding="utf-8"), (
+        "<main> no longer pads by px-6 at `sm:` — the sheet inset no longer matches the content column"
+    )
 
 
 def test_the_guards_are_actually_looking_at_something():

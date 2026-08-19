@@ -8,6 +8,12 @@
      64rem and reorders against a fixed 1100px once the root font-size passes 17.19px. */
   --breakpoint-popover: 1100px;
 
+  /* Where the app shell's content column starts from `sm:` up, and the widest a bottom
+     sheet gets once it no longer spans the viewport — see `.composer-sheet`. */
+  --app-sidebar-width: 15rem;
+  --app-content-gutter: 1.5rem;
+  --sheet-max-width: 32rem;
+
   /* Skill usage chart palette — tuned for the dark body background (#030712). */
   --chart-bar: rgba(255, 255, 255, 0.18);
   --chart-bar-hover: rgba(255, 255, 255, 0.42);
@@ -2500,6 +2506,20 @@ main:has(.chat-shell) {
 
     .picker-popover__head {
       display: flex;
+    }
+  }
+
+  /* Both sheet families in their sheet form: from `sm:` up the sidebar is on screen while
+     these are still sheets, so a full-bleed one opens under it. Stays after both. */
+  @media (width >= 40rem) and (width < 1100px) {
+    .composer-sheet,
+    .picker-popover {
+      left: calc(var(--app-sidebar-width) + var(--app-content-gutter));
+      right: var(--app-content-gutter);
+      width: auto;
+      max-width: var(--sheet-max-width);
+      margin-inline: auto;
+      border-inline: 1px solid rgba(255, 255, 255, 0.08);
     }
   }
 

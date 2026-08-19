@@ -357,11 +357,17 @@ Mobile-first approach. Common patterns:
 <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
 ```
 
-Breakpoints are viewport-relative, but dashboard pages sit next to a fixed `w-60`
-sidebar, so `sm:` fires when the content area is only ~350px — narrower than the phone
-layout it replaces. Where the switch depends on whether two blocks still fit (a title
-and its actions, a list row and its controls), wrap on content instead: see
-§Page Header.
+Breakpoints are viewport-relative, but dashboard pages sit next to a sidebar a fixed
+`--app-sidebar-width` (15rem) wide, so `sm:` fires when the content area is only ~350px
+— narrower than the phone layout it replaces. Where the switch depends on whether two
+blocks still fit (a title and its actions, a list row and its controls), wrap on content
+instead: see §Page Header.
+
+A `position: fixed` surface has the same problem with no layout to lean on: it measures
+the viewport, not the column it belongs to. From `sm:` up, bottom sheets (pickers and the
+composer's own) are therefore inset by `--app-sidebar-width` + `--app-content-gutter` and
+capped at `--sheet-max-width`, so one never opens across the sidebar. See AGENTS.md
+§Floating surfaces.
 
 ## File Paths Reference
 
