@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import quote, urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -72,6 +73,43 @@ MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.
 # attempt) until the authorization lands — re-minting instead would just produce another brand-new
 # token that hits the same window.
 CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
+
+def _safe_gitlab_upload_path(file_path: str) -> str | None:
+    """Validate and encode a GitLab project upload path for the uploads API.
+
+    ``file_path`` comes from markdown authored in an issue/MR body, so it is
+    attacker-influenced. The download is authenticated (PRIVATE-TOKEN) and follows
+    redirects, so the path must be pinned to the uploads namespace and cannot carry a
+    scheme/netloc (absolute or protocol-relative URL → token sent to another host),
+    a ``..`` segment (traversal off the uploads endpoint), or a control character
+    (header/URL-parsing tricks). Each segment is URL-encoded so an encoded traversal
+    (``%2e%2e``) stays a literal segment rather than a path component.
+
+    Returns the relative path (``uploads/<secret>/<file>``) ready to append to the
+    ``/api/v4/projects/<id>/`` prefix, or ``None`` when the path is unsafe.
+    """
+    if not file_path:
+        return None
+    # Reject control characters in the raw input: ``urlparse`` strips CR/LF/TAB, so a
+    # check on the parsed path would miss them, but they can still confuse URL parsers
+    # and HTTP clients downstream.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in file_path):
+        return None
+    parsed = urlparse(file_path)
+    # A scheme or netloc means an absolute or protocol-relative URL (`//host/...`),
+    # which would redirect the token-bearing request to another host.
+    if parsed.scheme or parsed.netloc:
+        return None
+    path = parsed.path
+    if not path.startswith("/uploads/"):
+        return None
+    segments = [seg for seg in path.split("/") if seg]
+    if len(segments) < 2 or segments[0] != "uploads":
+        return None
+    if any(seg == ".." for seg in segments):
+        return None
+    return "/".join(quote(seg, safe="") for seg in segments)
 
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
@@ -333,9 +371,20 @@ class GitLabClient(RepoClient):
     async def get_project_uploaded_file(self, repo_id: str, file_path: str) -> bytes | None:
         """
         Download a markdown uploaded file from a repository.
+
+        ``file_path`` is taken from markdown authored in an issue/MR body, so it is
+        attacker-influenced. The download is authenticated with the project's
+        PRIVATE-TOKEN and ``async_download_url`` follows redirects, so a traversal
+        (``..``) or an absolute/protocol-relative URL here would send the token to an
+        attacker-chosen path or host. ``_safe_gitlab_upload_path`` validates and
+        URL-encodes the path segment-wise, pinning it to the uploads API shape.
         """
+        safe_path = _safe_gitlab_upload_path(file_path)
+        if safe_path is None:
+            logger.warning("Rejected GitLab project upload path: %r", file_path)
+            return None
         project = self.client.projects.get(repo_id, lazy=True)
-        url = build_uri(self.client.url, f"/api/v4/projects/{project.get_id()}/{file_path}")
+        url = build_uri(self.client.url, f"/api/v4/projects/{project.get_id()}/{safe_path}")
         return await async_download_url(url, headers={"PRIVATE-TOKEN": self.client.private_token})
 
     def set_repository_webhooks(

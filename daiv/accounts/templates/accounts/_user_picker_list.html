@@ -6,11 +6,11 @@
   <li>
     <button type="button"
             class="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-gray-300 hover:bg-white/[0.06]"
-            @click="addUser({ id: {{ u.pk }}, username: '{{ u.username|escapejs }}', name: '{{ u.name|default:''|escapejs }}', email: '{{ u.email|escapejs }}', initials: '{{ u_initials|escapejs }}', color_index: {{ u_color }} })">
-      {% include "accounts/_avatar.html" with user=u %}
+            @click="addUser({ id: {{ u.pk }}, username: '{{ u.username|escapejs }}', name: '{{ u.name|default:''|escapejs }}', initials: '{{ u_initials|escapejs }}', color_index: {{ u_color }} })">
+      {% include "accounts/_avatar.html" with user=u owner_label=u.username %}
       <span class="min-w-0 flex-1 truncate">
         <span class="block text-white">{{ u.name|default:u.username }}</span>
-        <span class="block text-[12px] text-gray-500">{{ u.email }}</span>
+        <span class="block text-[12px] text-gray-500">{{ u.username }}</span>
       </span>
     </button>
   </li>

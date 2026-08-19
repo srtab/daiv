@@ -49,6 +49,6 @@ class ClearSlashCommand(SlashCommand):
                 checkpointer.delete_thread(thread_id)
             logger.info("Thread %s deleted successfully via /%s command", thread_id, self.command)
             return "✅ Conversation context cleared successfully. You can start a fresh conversation now."
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to delete thread %s via /%s command", thread_id, self.command)
-            return f"❌ Failed to clear conversation context: {e}"
+            return "❌ Failed to clear conversation context. Please try again or contact an administrator."

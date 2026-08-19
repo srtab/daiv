@@ -34,12 +34,24 @@ class TestPickerUsersView:
         response = member_client.get(reverse("picker_users"), {"q": "ali"})
         html = response.content.decode()
         assert "alice" in html
-        assert "alice@t.com" in html
+        # PII: the email must never be returned to the picker fragment.
+        assert "alice@t.com" not in html
 
     def test_matches_by_email(self, member_client):
         User.objects.create_user(username="alice", email="bob@company.com", password="x")  # noqa: S106
         response = member_client.get(reverse("picker_users"), {"q": "bob@com"})
         assert "alice" in response.content.decode()
+
+    def test_does_not_expose_email_in_response(self, member_client):
+        """The picker is reachable by any authenticated member; email is PII and must
+        never appear in the rendered fragment, neither in the row nor the click payload.
+        """
+        User.objects.create_user(username="alice", email="secret@company.com", password="x", name="Alice")  # noqa: S106
+        response = member_client.get(reverse("picker_users"), {"q": "ali"})
+        html = response.content.decode()
+        assert "secret@company.com" not in html
+        # No email field is threaded into the JS click handler either.
+        assert "email:" not in html
 
     def test_matches_by_name(self, member_client):
         User.objects.create_user(username="alice", email="a@t.com", password="x", name="Alice Doe")  # noqa: S106
@@ -76,11 +88,11 @@ class TestPickerUsersView:
         response = member_client.get(reverse("picker_users"), {"q": "ali"})
         html = response.content.decode()
         # Avatar precomputed fields (initials, color_index) ride along so the chip
-        # renders identically once the user is added to the selected list.
-        assert (
-            f"addUser({{ id: {alice.pk}, username: 'alice', name: 'Alice Doe', email: 'a@t.com', "
-            f"initials: 'AD', color_index: " in html
-        )
+        # renders identically once the user is added to the selected list. The email
+        # is deliberately absent — it is PII the picker does not need to expose.
+        assert f"addUser({{ id: {alice.pk}, username: 'alice', name: 'Alice Doe', initials: 'AD', color_index: " in html
+        assert "a@t.com" not in html
+        assert "email:" not in html
 
     def test_caps_results_at_picker_limit(self, member_client):
         from accounts.views import PICKER_USERS_LIMIT

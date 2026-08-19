@@ -1,6 +1,6 @@
 {% load avatar_tags %}
 <div class="flex items-center">
-    {% with owner_label=user.name|default:user.email %}
+    {% with owner_label=owner_label|default:user.name|default:user.email %}
     {% user_initials user as owner_initials %}
     {% user_color_index user as owner_color %}
     <span class="avatar avatar--md avatar--c{{ owner_color }}{% if group %} avatar--stacked{% endif %}"

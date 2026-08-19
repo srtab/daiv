@@ -11,6 +11,7 @@ from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
+from core.utils import is_htmx
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
 from notifications.choices import ChannelType
@@ -72,7 +73,12 @@ class BellDropdownView(LoginRequiredMixin, TemplateView):
         qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
         # Fetch before the bulk-update below so unread cues still render on first open.
         ctx["notifications"] = list(qs[:10])
-        Notification.mark_all_read_for(self.request.user)
+        # Only mark all read when the dropdown is opened via HTMX (carries the
+        # ``HX-Request`` header). A plain GET — a browser prefetch, a cross-site
+        # top-level navigation, a crawler — must not mutate state, otherwise a
+        # pre-fetch of this URL silently clears the user's unread notifications.
+        if is_htmx(self.request):
+            Notification.mark_all_read_for(self.request.user)
         return ctx
 
 
