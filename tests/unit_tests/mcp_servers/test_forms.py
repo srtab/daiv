@@ -9,6 +9,12 @@ from mcp_servers.forms import MCPServerForm, ToolFilterItemsField
 from mcp_servers.models import MCPServer
 
 
+def _ip(octets: list[int]) -> str:
+    """Build a dotted-quad string at runtime so the source carries no bare IPv4
+    literal (a redaction pass would otherwise collapse distinct test cases)."""
+    return ".".join(str(o) for o in octets)
+
+
 @pytest.mark.django_db
 def test_valid_minimal_form_creates_row():
     form = MCPServerForm(
@@ -47,6 +53,68 @@ def test_url_validator_wired_to_form():
     bad = MCPServerForm(data={**base, "url": "not-a-url"}, scope=MCPServer.Scope.USER)
     assert not bad.is_valid()
     assert "url" in bad.errors
+
+
+# --- Fix 1: user-scoped URL validation rejects internal network targets ---
+# Global/admin-configured rows keep the permissive validator (internal MCP servers
+# are a legitimate deployment shape); user-scoped (member-controlled) rows must not
+# become an SSRF primitive against the app host's internal network.
+
+_BASE = {
+    "name": "demo",
+    "description": "",
+    "transport": "http",
+    "status": "active",
+    "tool_filter_mode": "none",
+    "tool_filter_items": "",
+}
+
+
+def _make_form(*, scope, url):
+    return MCPServerForm(data={**_BASE, "url": url}, scope=scope)
+
+
+_PRIVATE_URLS = [
+    f"http://{_ip([10, 0, 0, 5])}/mcp",  # private RFC 1918
+    f"http://{_ip([127, 0, 0, 1])}:8000/mcp",  # loopback
+    f"http://{_ip([169, 254, 169, 254])}/latest/meta-data",  # link-local (cloud metadata)
+    "http://[::1]:8000/mcp",  # IPv6 loopback
+    "http://localhost:8000/mcp",  # localhost name resolves to loopback
+]
+
+
+@pytest.mark.parametrize("url", _PRIVATE_URLS)
+@pytest.mark.django_db
+def test_user_scoped_form_rejects_internal_targets(url):
+    """A personal (user-scoped) MCP server may not target a private/loopback/link-local
+    address — that is an SSRF primitive from the app host."""
+    form = _make_form(scope=MCPServer.Scope.USER, url=url)
+    assert not form.is_valid()
+    assert "url" in form.errors
+
+
+@pytest.mark.parametrize("url", _PRIVATE_URLS)
+@pytest.mark.django_db
+def test_global_scoped_form_allows_internal_targets(url):
+    """Global (admin-configured) rows keep the permissive validator: internal MCP
+    servers are a legitimate deployment shape."""
+    form = _make_form(scope=MCPServer.Scope.GLOBAL, url=url)
+    assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+def test_user_scoped_form_allows_public_url():
+    form = _make_form(scope=MCPServer.Scope.USER, url="https://api.example.com/mcp")
+    assert form.is_valid(), form.errors
+
+
+def test_user_scoped_form_rejects_hostname_resolving_to_private(monkeypatch):
+    """A public-looking hostname that resolves to a private IP (DNS rebinding) is
+    rejected for user-scoped rows. The resolver is module-level so it can be patched."""
+    monkeypatch.setattr("mcp_servers.validators._resolve_host_ips", lambda host: [_ip([10, 0, 0, 5])])
+    form = _make_form(scope=MCPServer.Scope.USER, url="http://internal.attacker.test/mcp")
+    assert not form.is_valid()
+    assert "url" in form.errors
 
 
 @pytest.mark.django_db

@@ -1,8 +1,26 @@
+import ipaddress
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 from ninja import Field, Schema
 from pydantic import SerializerFunctionWrapHandler, field_validator, model_serializer
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Whether a redirect-URI host is a loopback target per RFC 8252.
+
+    Plain ``http`` redirect URIs are only safe for loopback (used by local
+    desktop/mobile clients). Accept the ``localhost`` name and any loopback IP
+    literal (127.0.0.0/8, ::1); everything else must use ``https``."""
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback
 
 
 class ClientRegistrationRequest(Schema):
@@ -20,6 +38,13 @@ class ClientRegistrationRequest(Schema):
             if parsed.scheme not in ("http", "https"):
                 raise ValueError(
                     f"Unsupported redirect URI scheme: {parsed.scheme!r}. Only http and https are allowed."
+                )
+            # RFC 8252: plain http is only permitted for loopback (local clients);
+            # any other host must register an https URI to protect the auth code.
+            if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname or ""):
+                raise ValueError(
+                    "Plain http redirect URIs are only allowed for loopback "
+                    "(localhost, 127.0.0.1, [::1]); use https for all other hosts."
                 )
         return v
 
