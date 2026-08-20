@@ -300,6 +300,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
                 "merge_request": None,
+                "thread_ref": "",
                 "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
@@ -310,6 +311,10 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
+
+        # The pill is the working branch, mirroring the live stream's ref/MR coupling
+        # (``_applyRepoState``); ``Session.ref`` lags it on any run that never synced back.
+        ctx["thread_ref"] = (merge_request or {}).get("source_branch") or session.ref
 
         runs = list(session.runs.order_by("created_at"))
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]

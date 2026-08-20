@@ -22,6 +22,7 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
+from sessions.services import apersist_session_ref, areset_session_ref
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.graph import create_daiv_agent
@@ -35,7 +36,6 @@ from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_F
 
 from . import relay
 from .event_filter import SubagentEventFilter
-from .threads import ChatSessionService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -260,7 +260,7 @@ class ChatRunStreamer:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
     async def events(self) -> AsyncIterator[BaseEvent]:
-        last_mr: MergeRequest | None = None
+        last_mr: MergeRequest | dict | None = None
         effective_ref = self.ref
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
@@ -304,7 +304,7 @@ class ChatRunStreamer:
                         effective_ref,
                     )
                     try:
-                        await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                        await areset_session_ref(thread_id=self.thread_id, new_ref=effective_ref)
                     except Exception:
                         # The fallback clone already succeeded; a failed session re-pin must not paint
                         # a viable run as RUN_ERROR. The ref_fallback event still moves the UI.
@@ -447,7 +447,9 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, effective_ref, last_mr)
+                    await apersist_session_ref(
+                        thread_id=self.thread_id, current_ref=effective_ref, merge_request=last_mr
+                    )
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:
