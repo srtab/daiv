@@ -58,26 +58,22 @@ SHEET_HEAD = "core/_sheet_head.html"
 BACKDROP_SHOW = re.compile(r'\{% include "core/_sheet_backdrop\.html" with show_expr="([^"]*)"')
 
 INPUT_CSS = DAIV_DIR / "static_src" / "css" / "input.css"
+BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
 # Any single-condition breakpoint block, by its width alone: the file spells the same number
 # `width < N`, `width >= N` and `min-width: N`, and a rule is no less pinned for the idiom it
 # picked. Steps nest one level (the rules the block re-declares), so one alternation is enough.
 MEDIA = re.compile(r"@media \([^)]*?(\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
-# The `:root` block that insets both sheet families once the sidebar is on screen, matched by
-# the breakpoint it fires at rather than the idiom it spells — same tolerance as MEDIA above.
-# `40rem` and not `640px` because that is what Tailwind compiles the sidebar's own `sm:` to.
-SHEET_INSET_SWITCH = re.compile(r"@media \((?:width >= |min-width:\s*)40rem\) \{\s*:root \{([^{}]*)\}")
-# Read with the flush value as a fallback, so the switch alone decides the regime.
-SHEET_TOKEN_READ = re.compile(r"var\((--sheet-(?:inset-start|inset-end|width-cap|side-border))([^)]*)\)")
-SHEET_CONTAINERS = ("composer-sheet", "picker-popover")
+# The `:root` block that insets every bottom sheet once the sidebar is on screen. Its bound is
+# `sm:` itself rather than the number Tailwind compiles it to, so the two cannot drift apart.
+SHEET_INSET_SWITCH = re.compile(r"@media \(width >= theme\(--breakpoint-sm\)\) \{\s*:root \{([^{}]*)\}")
+SHEET_TOKENS = frozenset({"--sheet-inset-start", "--sheet-inset-end", "--sheet-width-cap", "--sheet-side-border"})
+# A surface pinned to the viewport, by the two properties that make one a bottom sheet.
+VIEWPORT_ANCHORED = re.compile(r"\.([\w-]+) \{([^{}]*position: fixed[^{}]*)\}")
+# The scrim is one too, and dims the whole app on purpose — see `core/_sheet_backdrop.html`.
+FULL_WIDTH_BY_DESIGN = frozenset({"sheet-backdrop"})
 SIDEBAR_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "accounts" / "_sidebar.html"
 BASE_APP_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "base_app.html"
-
-
-def _token(css: str, name: str) -> str | None:
-    """The declared value of one `@theme` custom property, or None once it is gone."""
-    found = re.search(rf"{re.escape(name)}:\s*([^;]+);", css)
-    return found.group(1).strip() if found else None
 
 
 def _templates_with_popovers() -> dict[str, str]:
@@ -144,15 +140,15 @@ def test_the_sheet_breakpoint_is_a_single_number():
     the same number from the other side: left on above it, it dims the whole app behind a
     popover anchored to a trigger the user can still see."""
     source = INPUT_CSS.read_text(encoding="utf-8")
-    declared = _token(source, "--breakpoint-popover")
+    token = BREAKPOINT_TOKEN.search(source)
 
-    assert declared, "`@theme` no longer declares --breakpoint-popover"
+    assert token, "`@theme` no longer declares --breakpoint-popover"
 
     for rule in (".picker-popover {", ".sheet-backdrop {"):
         widths = {width for width, body in MEDIA.findall(source) if rule in body}
 
-        assert widths == {declared.removesuffix("px")}, (
-            f"--breakpoint-popover is {declared} but {rule.rstrip(' {')} switches at {widths or 'nowhere'}"
+        assert widths == {token.group(1)}, (
+            f"--breakpoint-popover is {token.group(1)}px but {rule.rstrip(' {')} switches at {widths or 'nowhere'}"
         )
 
 
@@ -163,31 +159,30 @@ def test_a_bottom_sheet_never_opens_under_the_sidebar():
     sidebar, and the browser this was reported from clipped the half that crossed the
     scrolling `<main>`, cutting every line off mid-word.
 
-    The regime is one `:root` switch, the move the reduced-motion block above it already
-    makes, so this pins tokens rather than a rule block: every read carries the flush value
-    as its fallback, which is what lets the switch sit anywhere instead of having to be
-    ordered after both families."""
+    The regime is one `:root` switch, so this pins tokens rather than a rule block: a read
+    carries the flush value as its fallback, which is what lets the switch sit anywhere
+    instead of having to be ordered after every family. The families are *discovered* — a
+    third bottom sheet has to inset without anyone remembering to enrol it here."""
     css = INPUT_CSS.read_text(encoding="utf-8")
     switch = SHEET_INSET_SWITCH.search(css)
 
     assert switch, "no `sm:` sheet-inset switch in input.css — a bottom sheet spans the sidebar again"
-
     assert "var(--app-sidebar-width)" in switch.group(1), "the inset must come from the sidebar's own token"
-    assert "var(--sheet-max-width)" in switch.group(1), "an inset sheet still spans a 1024px viewport without the cap"
-
-    reads: dict[str, list[str]] = {}
-    for token, tail in SHEET_TOKEN_READ.findall(css):
-        reads.setdefault(token, []).append(tail)
 
     declared = set(re.findall(r"(--sheet-[\w-]+):", switch.group(1)))
-    assert set(reads) == declared, f"the switch declares {sorted(declared)} but the sheets read {sorted(reads)}"
-    for token, tails in reads.items():
-        assert len(tails) >= len(SHEET_CONTAINERS), (
-            f"{token} is read {len(tails)}x — every sheet family in {SHEET_CONTAINERS} has to inset"
-        )
-        assert all(tail.startswith(",") for tail in tails), (
-            f"a {token} read has no fallback — below the switch it resolves to nothing, not to flush"
-        )
+    assert declared == SHEET_TOKENS, f"the switch declares {sorted(declared)}, not {sorted(SHEET_TOKENS)}"
+
+    sheets = {cls: body for cls, body in VIEWPORT_ANCHORED.findall(css) if "bottom: 0" in body or "inset:" in body}
+    assert set(sheets) >= FULL_WIDTH_BY_DESIGN, (
+        f"{sorted(FULL_WIDTH_BY_DESIGN)} is exempt from the inset but no longer anchors to the viewport — "
+        f"found {sorted(sheets)}"
+    )
+    for cls, body in sorted(sheets.items()):
+        if cls in FULL_WIDTH_BY_DESIGN:
+            continue
+
+        unread = [token for token in sorted(declared) if f"var({token}," not in body]
+        assert not unread, f".{cls} spans the sidebar from `sm:` up: {unread} unread, or read with no flush fallback"
 
 
 def test_the_sheet_inset_tracks_the_shell_it_dodges():
@@ -214,7 +209,7 @@ def test_the_sheet_inset_tracks_the_shell_it_dodges():
 
 
 def test_the_guards_are_actually_looking_at_something():
-    """A typo in the container pattern would make both tests above vacuously pass."""
+    """A typo in the container pattern would make the popover guards above vacuously pass."""
     found = _templates_with_popovers()
 
     assert sum(len(CONTAINER.findall(source)) for source in found.values()) >= 5, (

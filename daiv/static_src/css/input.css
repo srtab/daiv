@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Prose that names a class would otherwise ship it: the `w-60` in AGENTS.md kept `.w-60`
+   alive after this repo deleted its last real use. */
+@source not "../../../**/*.md";
+
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
 
@@ -9,11 +13,9 @@
   --breakpoint-popover: 1100px;
 
   /* The app shell's content column, restated for the `position: fixed` sheets that measure
-     the viewport instead. The shell renders from these too — the sidebar is
-     `w-(--app-sidebar-width)` and `<main>` pads by the gutter. See `--sheet-inset-start`. */
+     the viewport instead. The shell renders from these too — see `--sheet-inset-start`. */
   --app-sidebar-width: 15rem;
   --app-content-gutter: 1.5rem;
-  --sheet-max-width: 32rem;
 
   /* Skill usage chart palette — tuned for the dark body background (#030712). */
   --chart-bar: rgba(255, 255, 255, 0.18);
@@ -66,19 +68,13 @@
   }
 }
 
-/* A bottom sheet is flush to the viewport edges only while the viewport *is* the content
-   area. From `sm:` up the sidebar is on screen while these are still sheets — tablets, and
-   phones in landscape — so a flush one spans the nav as well, and a browser that clips a
-   fixed panel at the scrolling `<main>` it lives in cuts the crossing half off. Switching
-   the inset here rather than re-declaring each sheet family keeps that ordering-free: the
-   use sites spell the flush values as `var()` fallbacks, so this block can sit anywhere.
-   `40rem` is what Tailwind compiles the sidebar's own `sm:` to, so the two cannot reorder
-   the way `lg` does against a fixed 1100px. */
-@media (width >= 40rem) {
+/* A bottom sheet belongs to the content column, not to the viewport: from `sm:` up the
+   sidebar is on screen while these are still sheets. Every read falls back to flush. */
+@media (width >= theme(--breakpoint-sm)) {
   :root {
     --sheet-inset-start: calc(var(--app-sidebar-width) + var(--app-content-gutter));
     --sheet-inset-end: var(--app-content-gutter);
-    --sheet-width-cap: var(--sheet-max-width);
+    --sheet-width-cap: 32rem;
     --sheet-side-border: 1px;
   }
 }
@@ -2518,8 +2514,7 @@ main:has(.chat-shell) {
       max-height: 72vh;
       max-height: 72dvh;
       overflow-y: auto;
-      margin-block: 0;
-      margin-inline: auto;
+      margin: 0 auto;
       z-index: 60;
       border-width: 1px var(--sheet-side-border, 0px) 0;
       border-radius: 18px 18px 0 0;

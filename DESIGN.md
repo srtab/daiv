@@ -59,7 +59,7 @@ The UI is **dark-mode only**. All colors are applied directly with Tailwind util
 
 Use Tailwind's default spacing scale. Common values:
 
-- **Page padding**: `px-6`
+- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
 - **Section gaps**: `gap-6`, `mt-8`
 - **Card padding**: `p-6`
 - **Component gaps**: `gap-4`, `gap-3`, `gap-2`
@@ -77,7 +77,7 @@ Use Tailwind's default spacing scale. Common values:
 ### Layout
 
 - **Max content width**: `max-w-5xl` (consistent across all pages)
-- **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (the shell's content gutter)
+- **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px)
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
