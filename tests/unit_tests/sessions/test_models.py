@@ -283,3 +283,9 @@ def test_run_message_id_defaults_blank_and_persists(session_fixture):
 def test_session_mcp_overrides_defaults_to_empty_dict():
     s = Session.objects.create(thread_id="t-mcp", origin=SessionOrigin.UI_JOB, repo_id="g/r")
     assert s.mcp_overrides == {}
+
+
+def test_run_defaults_to_classify_eligible():
+    """New runs are classify-eligible by default so the reclassify backstop stays a catch-all."""
+    run = _mk_run(_mk_session(), status=RunStatus.SUCCESSFUL)
+    assert run.classify_eligible is True

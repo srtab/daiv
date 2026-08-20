@@ -286,6 +286,7 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    classify_eligible = models.BooleanField(_("classify eligible"), default=True)
 
     objects = RunManager()
 
