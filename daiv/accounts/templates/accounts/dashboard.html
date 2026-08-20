@@ -7,8 +7,8 @@
 
 {% block app_content %}
 <!-- Title row with period filter -->
-<div class="animate-fade-up flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-    <div>
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
         <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">Welcome back, {{ user.name|default:user.email }}</p>
     </div>

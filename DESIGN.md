@@ -59,7 +59,7 @@ The UI is **dark-mode only**. All colors are applied directly with Tailwind util
 
 Use Tailwind's default spacing scale. Common values:
 
-- **Page padding**: `px-6`
+- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
 - **Section gaps**: `gap-6`, `mt-8`
 - **Card padding**: `p-6`
 - **Component gaps**: `gap-4`, `gap-3`, `gap-2`
@@ -77,8 +77,8 @@ Use Tailwind's default spacing scale. Common values:
 ### Layout
 
 - **Max content width**: `max-w-5xl` (consistent across all pages)
-- **Horizontal padding**: `px-6`
-- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px)
+- **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
+- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px)
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
 ## Component Library
@@ -135,6 +135,31 @@ Reusable partial at `accounts/templates/accounts/_quick_link_card.html`:
 ```
 
 Accepts: `url`, `icon` (icon name), `title`, `description`, `badge` (optional).
+
+### Page Header
+
+Every page title with actions at its top right is a `.page-header` holding exactly two
+children: the title block, which must carry `.page-header__title` (that class is what
+holds it open), and the action — a single control, or a `.page-header__actions` cluster
+when there is more than one:
+
+```html
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">Skills</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">Description.</p>
+    </div>
+    <a href="…" class="btn-primary">Upload skill</a>
+</div>
+```
+
+The title block takes whatever the actions leave and wraps its own text; the actions
+drop to a line of their own once it would go below `16rem`. **Never add a breakpoint
+for this**: the sidebar takes 240px out of the viewport, so `sm:` (640px) fires when
+the content area is only ~350px wide, narrower than a phone. The same wrap — grow the
+details, floor them, let the controls fall below — is how list rows with trailing
+controls stack (`mcp_servers/_server_list.html`), and it adapts per row when the
+controls are conditional.
 
 ### Badges / Pills
 
@@ -331,6 +356,18 @@ Mobile-first approach. Common patterns:
 <!-- Stack on mobile, row on sm -->
 <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
 ```
+
+Breakpoints are viewport-relative, but dashboard pages sit next to a sidebar a fixed
+`--app-sidebar-width` (15rem) wide, so `sm:` fires when the content area is only ~350px
+— narrower than the phone layout it replaces. Where the switch depends on whether two
+blocks still fit (a title and its actions, a list row and its controls), wrap on content
+instead: see §Page Header.
+
+A `position: fixed` surface has the same problem with no layout to lean on: it measures
+the viewport, not the column it belongs to. From `sm:` up, bottom sheets (pickers and the
+composer's own) are therefore inset to the content column instead, so one never opens
+across the sidebar. For the tokens and the `:root` switch that does it, see AGENTS.md
+§Floating surfaces.
 
 ## File Paths Reference
 

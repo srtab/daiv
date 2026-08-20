@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-08-14 14:58+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,8 +18,23 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "MR"
+msgstr "MR"
+
+msgid "draft"
+msgstr "rascunho"
+
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
+
+msgid "Commands and skills"
+msgstr "Comandos e competências"
+
+msgid "command"
+msgstr "comando"
+
+msgid "skill"
+msgstr "competência"
 
 msgid "Message DAIV"
 msgstr "Enviar mensagem ao DAIV"
@@ -27,17 +42,8 @@ msgstr "Enviar mensagem ao DAIV"
 msgid "Describe the change, the bug, or what to explore…"
 msgstr "Descreva a alteração, o erro ou o que explorar…"
 
-msgid "MR"
-msgstr "MR"
-
-msgid "draft"
-msgstr "rascunho"
-
 msgid "Stop"
 msgstr "Parar"
-
-msgid "Sending…"
-msgstr "A enviar…"
 
 msgid "Send"
 msgstr "Enviar"
@@ -45,14 +51,82 @@ msgstr "Enviar"
 msgid "DAIV can make mistakes. Verify important information."
 msgstr "O DAIV pode cometer erros. Verifique informações importantes."
 
-msgid "Session context"
-msgstr "Contexto da sessão"
+msgid "Session options"
+msgstr "Opções da sessão"
+
+msgid "MCP server selection differs from the default"
+msgstr "A seleção de servidores MCP difere da predefinição"
+
+msgid "Options"
+msgstr "Opções"
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Environment"
+msgstr "Ambiente"
+
+msgid "Tools"
+msgstr "Ferramentas"
+
+msgid "MCP servers"
+msgstr "Servidores MCP"
+
+msgid "on"
+msgstr "ativos"
+
+msgid "available"
+msgstr "disponíveis"
+
+msgid "Filter servers…"
+msgstr "Filtrar servidores…"
+
+msgid "Filter servers by name"
+msgstr "Filtrar servidores por nome"
+
+msgid "none"
+msgstr "nenhum"
+
+msgid "reset"
+msgstr "repor"
+
+msgid "global"
+msgstr "global"
+
+msgid "mine"
+msgstr "meu"
+
+msgid "needs authorization — unavailable this run"
+msgstr "necessita de autorização — indisponível nesta execução"
+
+msgid "No servers match"
+msgstr "Nenhum servidor corresponde"
+
+msgid "Session progress"
+msgstr "Progresso da sessão"
+
+msgid "Progress"
+msgstr "Progresso"
 
 msgid "Todos"
 msgstr "Tarefas"
 
+msgid "Nothing planned yet."
+msgstr "Ainda não há nada planeado."
+
 msgid "Files changed"
 msgstr "Ficheiros alterados"
 
+msgid "No files touched yet."
+msgstr "Ainda não foi alterado nenhum ficheiro."
+
 msgid "Show all"
 msgstr "Mostrar tudo"
+
+#, fuzzy
+#~| msgid "Session context"
+#~ msgid "Session context"
+#~ msgstr "Contexto da sessão"
+
+#~ msgid "Sending…"
+#~ msgstr "A enviar…"

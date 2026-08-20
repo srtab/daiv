@@ -119,6 +119,18 @@ def list_builtins() -> list[dict[str, str]]:
     return out
 
 
+def list_global_skills() -> dict[str, str]:
+    """Return ``{name: description}`` for the global skills, a custom upload shadowing the
+    built-in of the same name.
+
+    Sourced from the ``GlobalSkill`` rows rather than ``CUSTOM_SKILLS_PATH``, so a row whose
+    disk tree went missing is still listed — unlike ``/help``, which scans that tree.
+    """
+    skills = {entry["name"]: entry["description"] for entry in list_builtins()}
+    skills.update(GlobalSkill.objects.values_list("name", "description"))
+    return skills
+
+
 @dataclass(frozen=True, slots=True)
 class SkillPackage:
     """The validated contents of an uploaded skill zip.

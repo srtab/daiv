@@ -20,6 +20,10 @@ Parameters:
 - extra_errors (default None)   — Django ErrorList for sibling fields rendered inside the same box
 - with_x_data (default True)    — wrap in `x-data='promptBox(...)'`; set False when a parent already provides scope
 - on_change_event (default "")  — when set, promptBox dispatches this window event with detail={repos} on every chip mutation
+- variant (default "")          — "context" renders the chat composer's context-row form: an accent
+                                  "Pick a repository" trigger while nothing is selected, a chevron on
+                                  the chip instead of the remove control (the row always carries
+                                  exactly one repo). Any other value keeps the default rendering.
 
 `prompt-box.js` must be loaded for the Alpine state to bind.
 {% endcomment %}
@@ -53,25 +57,38 @@ Parameters:
                     {% icon "branch" "h-3.5 w-3.5" %}
                     <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="repo-chip__btn--branch"></span>
                 </button>
+                {% if variant == "context" %}
+                <button type="button"
+                        @click.stop="openRepoPicker(index)"
+                        :aria-label="'Change repository ' + repo.slug"
+                        class="repo-chip__caret">{% icon "chevron-down" "h-3 w-3" %}</button>
+                {% else %}
                 <button type="button"
                         @click="remove(index)"
                         :aria-label="'Remove ' + repo.slug"
                         class="repo-chip__remove">×</button>
+                {% endif %}
             </span>
         </template>
 
         <button type="button"
                 x-show="repos.length === 0"
                 @click.stop="openRepoPicker()"
-                class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
-            {% if git_platform == "github" %}
-                {% icon "github" "h-3.5 w-3.5" %}
-            {% elif git_platform == "gitlab" %}
-                {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
+                class="{% if variant == 'context' %}repo-context-trigger{% else %}inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]{% endif %}">
+            {% if variant == "context" %}
+                {% icon "repo" "h-3.5 w-3.5" %}
+                <span>{% translate "Pick a repository" %}</span>
+                {% icon "chevron-down" "h-3 w-3 opacity-70" %}
             {% else %}
-                {% icon "squares-2x2" "h-3.5 w-3.5" %}
+                {% if git_platform == "github" %}
+                    {% icon "github" "h-3.5 w-3.5" %}
+                {% elif git_platform == "gitlab" %}
+                    {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
+                {% else %}
+                    {% icon "squares-2x2" "h-3.5 w-3.5" %}
+                {% endif %}
+                <span>{{ choose_repo_label }}</span>
             {% endif %}
-            <span>{{ choose_repo_label }}</span>
         </button>
 
         <button type="button"
@@ -89,10 +106,12 @@ Parameters:
     initial sweep. openBranchPicker rewrites the branch input's hx-get (via setAttribute)
     before firing `refresh`, so the __SLUG__ placeholder is replaced with the real slug.
     {% endcomment %}
+    {% include "core/_sheet_backdrop.html" with show_expr="popover === 'repo'" %}
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="picker-popover left-3 w-80">
+         class="picker-popover picker-popover--inset">
+        {% include "core/_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="repoSearch"
                placeholder="{{ search_repos_placeholder }}"
@@ -125,10 +144,12 @@ Parameters:
         <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="picker-popover__list scrollbar-thin"></div>
     </div>
 
+    {% include "core/_sheet_backdrop.html" with show_expr="popover === 'branch'" %}
     <div x-show="popover === 'branch'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="picker-popover left-3 w-80">
+         class="picker-popover picker-popover--inset">
+        {% include "core/_sheet_head.html" with title=_("Branch") close_expr="closePopover()" %}
         <input type="search" name="q" autofocus autocomplete="off"
                x-ref="branchSearch"
                placeholder="{{ search_branches_placeholder }}"

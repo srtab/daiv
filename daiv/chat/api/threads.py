@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from sandbox_envs.models import SandboxEnvironment
 
     from accounts.models import User
-    from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.chat")
 
@@ -77,15 +76,16 @@ class ChatSessionService:
         sandbox_environment: SandboxEnvironment | None = None,
         agent_model: str = "",
         agent_thinking_level: str = "",
+        mcp_overrides: dict | None = None,
     ) -> tuple[Session, bool]:
         """First sight of ``thread_id`` creates a chat-origin ``Session`` under ``user``;
         later calls return the existing row regardless of owner. Caller must enforce
         ownership.
 
-        ``agent_model`` and ``agent_thinking_level`` are pinned at session creation:
-        they're written to ``defaults`` so the first turn fixes the override and
-        subsequent turns ignore client-supplied values (same lock semantics as
-        ``sandbox_environment``). The boolean return flag lets callers detect the
+        ``agent_model``, ``agent_thinking_level``, and ``mcp_overrides`` are pinned at
+        session creation: they're written to ``defaults`` so the first turn fixes the
+        override and subsequent turns ignore client-supplied values (same lock semantics
+        as ``sandbox_environment``). The boolean return flag lets callers detect the
         existing-session case and reject a client that tries to change the override
         after the first turn — see ``chat.api.views.create_chat_completion``.
         """
@@ -98,6 +98,7 @@ class ChatSessionService:
             "title": TitlerService.heuristic(first_message),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
+            "mcp_overrides": mcp_overrides or {},
         }
         if sandbox_environment is not None:
             defaults["sandbox_environment"] = sandbox_environment
@@ -112,24 +113,12 @@ class ChatSessionService:
         return session, created
 
     @staticmethod
-    async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:
-        """Sync ``Session.ref`` with the agent's final ``merge_request``.
+    async def set_mcp_overrides(thread_id: str, overrides: dict) -> None:
+        """Store the composer's Tools selection for ``thread_id``, overwriting any previous one.
 
-        Accepts both a live ``MergeRequest`` instance and a dict (the snapshot
-        gets rehydrated through the checkpointer as a plain dict, so resumed
-        runs land here in dict shape).
+        Unlike the model and the env this is not pinned on the first turn: the composer can
+        retune it per turn, so a reload shows what the last turn actually ran with. Callers
+        must only reach this when the client actually sent a selection — an empty dict means
+        "the pool defaults", not "no selection sent".
         """
-        if mr is None:
-            return
-        new_ref = mr.get("source_branch") if isinstance(mr, dict) else getattr(mr, "source_branch", None)
-        if new_ref and new_ref != original_ref:
-            await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
-
-    @staticmethod
-    async def reset_ref(thread_id: str, new_ref: str) -> None:
-        """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
-
-        Unlike ``persist_ref`` (success-only, driven by the agent's final MR), this fires the
-        moment the clone falls back, so the session self-heals even if the turn later fails.
-        """
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+        await Session.objects.filter(thread_id=thread_id).aupdate(mcp_overrides=overrides)

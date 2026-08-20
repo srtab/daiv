@@ -3,19 +3,31 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.schemas import Image
 from automation.agent.utils import (
     build_langsmith_config,
+    conversation_thread_id,
     extract_images_from_text,
     extract_text_content,
     get_daiv_agent_kwargs,
     images_to_content_blocks,
+    streamed_assistant_message,
 )
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
 from codebase.repo_config import AgentModelConfig, Models
 from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
+
+
+class TestConversationThreadId:
+    def test_returns_none_outside_runnable_context(self):
+        assert conversation_thread_id() is None
+
+    def test_reads_configurable(self):
+        with patch("automation.agent.utils.get_config", return_value={"configurable": {"thread_id": "t-42"}}):
+            assert conversation_thread_id() == "t-42"
 
 
 class TestImagesToContentBlocks:
@@ -552,3 +564,33 @@ def test_build_langsmith_config_omits_agent_name_when_not_provided():
     config = build_langsmith_config(_langsmith_ctx(), trigger="mention", model="m")
 
     assert "lc_agent_name" not in config["metadata"]
+
+
+async def test_streamed_assistant_message_emits_under_the_returned_message_id(emit_custom_event):
+    """A message produced without a model call streams only because of this event — chat/api/
+    streaming.py turns it into the TEXT_MESSAGE_* frames the client renders. The frame and the
+    message share an id so the client's replay dedup skips it after a mid-run reload."""
+    message = await streamed_assistant_message("stopped looping", {"cfg": 1})
+
+    name, payload = emit_custom_event.await_args.args
+    assert name == ASSISTANT_MESSAGE_EVENT
+    assert payload == {"message_id": message.id, "message": "stopped looping"}
+    assert emit_custom_event.await_args.kwargs["config"] == {"cfg": 1}
+    assert message.content == "stopped looping"
+
+
+async def test_streamed_assistant_message_defaults_to_the_ambient_config(emit_custom_event):
+    """LoopBreaker's awrap_model_call is handed no RunnableConfig; the dispatch resolves the
+    ambient one instead."""
+    await streamed_assistant_message("stopped looping")
+
+    assert emit_custom_event.await_args.kwargs["config"] is None
+
+
+async def test_streamed_assistant_message_survives_an_undeliverable_event(emit_custom_event):
+    """Streaming is cosmetic — the message still reaches the checkpoint, so it surfaces on
+    reload. A failed frame must never fail the work that produced the message."""
+    emit_custom_event.side_effect = RuntimeError("no parent run id")
+    message = await streamed_assistant_message("stopped looping")
+
+    assert message.content == "stopped looping"

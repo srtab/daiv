@@ -79,8 +79,11 @@ document.addEventListener("alpine:init", () => {
         placeholderLabel,
         changeEvent,
         LEVELS: EFFORT_LEVELS,
+        _announceOpen: null,
 
         init() {
+            this._announceOpen = surfaceGroup.join(() => this.close());
+
             // Stored spec always wins. The system default is only seeded into the
             // picker state when ``seedDefault`` is true (run-time pickers) — in
             // settings we leave the input empty so an unchanged form persists
@@ -141,6 +144,7 @@ document.addEventListener("alpine:init", () => {
         toggle() {
             this.open = !this.open;
             if (this.open) {
+                this._announceOpen();
                 this.query = "";
                 this.$nextTick(() => this.$refs.search?.focus());
                 this.ensureCatalogLoaded();
@@ -221,6 +225,7 @@ document.addEventListener("alpine:init", () => {
                 "Pick a model — no system default is configured, so a model must be selected explicitly."
             );
             this.open = true;
+            this._announceOpen();
             this.$nextTick(() => this.$refs.search?.focus());
         },
 

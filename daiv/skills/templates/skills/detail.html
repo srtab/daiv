@@ -21,10 +21,10 @@
 
 {% block app_content %}
 <div class="animate-fade-up">
-    <div class="flex items-start justify-between gap-4">
-        <h1 class="text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
+    <div class="page-header">
+        <h1 class="page-header__title text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
         {% if source == "global" %}
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="page-header__actions">
             <a href="{% url 'skills:download' skill.name %}"
                class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
                 {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}

@@ -97,7 +97,7 @@ async def test_session_turns_returns_built_turns(client, authed):
 
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=(fake_messages, False, None))):
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=(fake_messages, False, None, None))):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 200
@@ -137,7 +137,7 @@ async def test_session_turns_includes_run_status_marker_for_failed_run(client, a
 
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=(fake_messages, False, None))):
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=(fake_messages, False, None, None))):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 200
@@ -161,7 +161,7 @@ async def test_session_turns_expired(client, authed):
         active_run_id=None,
     )
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=([], True, None))):
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=([], True, None, None))):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 200
@@ -185,7 +185,7 @@ async def test_session_turns_404_for_other_users_session(client, authed):
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=other
     )
 
-    hydrate = AsyncMock(return_value=([], False, None))
+    hydrate = AsyncMock(return_value=([], False, None, None))
     with patch("sessions.api.views.ahydrate_thread", hydrate):
         resp = await client.get(f"/sessions/{session_other.thread_id}/turns", headers=_auth_headers(raw))
 

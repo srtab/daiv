@@ -69,6 +69,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_explore_fallback_model_name": ModelName.GPT_5_4_MINI,
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
+        "session_link_enabled": True,
         # Diff to Metadata
         "diff_to_metadata_model_name": ModelName.GPT_5_4_MINI,
         "diff_to_metadata_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,

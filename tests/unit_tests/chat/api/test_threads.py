@@ -1,8 +1,7 @@
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
-from sessions.models import Session, SessionOrigin
+from sessions.models import SessionOrigin
 
 from accounts.models import User
 from chat.api.threads import ChatSessionService, _extract_first_user_message
@@ -50,36 +49,6 @@ def test_extract_first_user_message_skips_non_user_roles():
         ]
     )
     assert _extract_first_user_message(msgs) == "actual ask"
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_updates_when_branch_changed():
-    user = await User.objects.acreate_user(username="u-ref-1", email="ref1@x.com", password="x")  # noqa: S106
-    await Session.objects.acreate(
-        thread_id="t-ref-1", origin=SessionOrigin.CHAT, user=user, repo_id="a/b", ref="feature-x"
-    )
-
-    await ChatSessionService.persist_ref("t-ref-1", "feature-x", SimpleNamespace(source_branch="feature-y"))
-
-    refreshed = await Session.objects.aget(thread_id="t-ref-1")
-    assert refreshed.ref == "feature-y"
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_noop_when_branch_unchanged():
-    with patch("chat.api.threads.Session.objects.filter") as filter_mock:
-        await ChatSessionService.persist_ref("t-ref-2", "feature-x", SimpleNamespace(source_branch="feature-x"))
-
-    filter_mock.assert_not_called()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_noop_when_no_mr_captured():
-    with patch("chat.api.threads.Session.objects.filter") as filter_mock:
-        await ChatSessionService.persist_ref("t-ref-3", "feature-x", None)
-
-    filter_mock.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -230,3 +199,17 @@ def test_extract_last_user_message_id_missing_id_coerced_to_empty():
     # A human message without an id (client didn't set one) → "" not the string "None".
     input_data = SimpleNamespace(messages=[SimpleNamespace(role="user", content="hi")])
     assert _extract_last_user_message_id(input_data) == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_session_stamps_mcp_overrides(member_user):
+    session, created = await ChatSessionService.get_or_create_for_user(
+        user=member_user,
+        thread_id="t-mcp-ov",
+        repo_id="g/r",
+        ref="main",
+        input_data=_fake_input(["hello"]),
+        mcp_overrides={"x": "on"},
+    )
+    assert created is True
+    assert session.mcp_overrides == {"x": "on"}

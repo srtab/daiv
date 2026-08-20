@@ -45,22 +45,47 @@
     CommitMetadata: { label: "Committing changes" },
   };
 
-  const loadInitialMergeRequest = () => {
-    const el = document.getElementById("chat-initial-merge-request");
-    if (!el) return null;
+  // Reads a Django ``json_script`` payload. Returns `fallback` when the element is
+  // absent or its content isn't valid JSON, so a missing block degrades rather than
+  // taking the whole component down at init.
+  const loadJSONScript = (id, fallback) => {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
     try {
-      const v = JSON.parse(el.textContent);
-      return v && typeof v === "object" ? v : null;
-    } catch {
-      return null;
+      return JSON.parse(el.textContent);
+    } catch (err) {
+      console.error("chat: failed to parse %s", id, err);
+      return fallback;
     }
   };
+
+  const loadInitialMergeRequest = () => {
+    const v = loadJSONScript("chat-initial-merge-request", null);
+    return v && typeof v === "object" ? v : null;
+  };
+
+  // ``{lines_added, lines_removed, files_changed}`` as the publisher measured it — never
+  // summed client-side from edit tool calls, which double-counts repeat edits and scores
+  // bash-driven changes as zero.
+  const normalizeDiffStats = (raw) => {
+    if (!raw || typeof raw !== "object") return null;
+    const added = Number(raw.lines_added);
+    const removed = Number(raw.lines_removed);
+    if (!Number.isFinite(added) || !Number.isFinite(removed)) return null;
+    return { added, removed };
+  };
+
+  const loadInitialDiffStats = () => normalizeDiffStats(loadJSONScript("chat-initial-diff-stats", null));
 
   // Tools whose args directly name a file the agent *modified*. Read-only tools
   // (read_file, grep, glob, ls) and search patterns don't qualify — they're
   // noise in the "files touched" rail. Bash-driven mutations (rm, mv, scripts,
   // find -delete, …) are folded in from the bash tool's `files_changed` result.
   const PATH_TOOLS = new Set(["write_file", "edit_file"]);
+
+  // Where this is missing, `autosize()` polyfills growth and the `:placeholder-shown`
+  // floor in input.css covers the empty box, whose wrapped placeholder JS can't measure.
+  const NATIVE_FIELD_SIZING = CSS.supports("field-sizing", "content");
 
   const uuid = () => crypto.randomUUID();
 
@@ -82,15 +107,46 @@
     return `Request failed (status ${resp.status}). Please retry.`;
   };
 
-  const loadInitialTurns = () => {
-    const el = document.getElementById("chat-initial-turns");
-    if (!el) return [];
-    try {
-      return JSON.parse(el.textContent);
-    } catch (err) {
-      console.error("chat: failed to parse server-embedded turns", err);
-      return [];
-    }
+  const loadInitialTurns = () => loadJSONScript("chat-initial-turns", []);
+
+  // Every MCP server this user could load, one row per server, `is_default` marking the
+  // ``active`` ones. Rows the health check already knows are broken carry
+  // `available: false`: they stay in the selection (so the thread keeps them once the
+  // outage is fixed) but their switch is inert.
+  const loadMcpCatalog = () => {
+    const rows = loadJSONScript("chat-mcp-servers", []);
+    return Array.isArray(rows) ? rows : [];
+  };
+
+  // The thread's stored overrides, already resolved against the live pool server-side.
+  const loadMcpSelection = () => {
+    const stored = loadJSONScript("chat-mcp-selected", null);
+    return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
+  };
+
+  // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
+  // a space or newline after the token breaks the match and closes the menu.
+  const SLASH_TOKEN_RE = /^\s*\/([a-z0-9-]*)$/;
+
+  // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
+  // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
+  const loadSlashCatalog = () => {
+    const rows = loadJSONScript("chat-slash-commands", []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row) => row && typeof row.name === "string");
+  };
+
+  // English fallbacks for the fragments the composer assembles counts from. The page
+  // passes translated ones through ``chat({labels: …})``; these only apply if it doesn't.
+  const DEFAULT_LABELS = {
+    file: "file",
+    files: "files",
+    stopped: "stopped",
+    tool: "tool",
+    tools: "tools",
+    filteredTo: "filtered to",
+    notSynced: "not synced yet",
+    mcpServers: "MCP servers",
   };
 
   const THINKING_LABELS = [
@@ -102,7 +158,34 @@
     "Running tools…",
   ];
 
-  const pickPath = (argsStr) => {
+  // Tiers mirror the ``duration`` template filter (sessions/templatetags/session_tags.py)
+  // so a run reads the same live as it does once it lands in the sessions list.
+  const formatElapsed = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  };
+
+  // The transcript getters below re-derive from `turns` on every read, and parsing the
+  // JSON payloads off each segment is what made that expensive. Memoized per segment, on
+  // the source string as well — `args` grows delta by delta while a call streams, and a
+  // result lands whole later — so a payload is parsed once per value it ever holds.
+  // `field` is bound here rather than passed per call: the segment and the string it holds
+  // can then never be mis-paired at a call site.
+  const memoizePayload = (field, parse) => {
+    const cache = new WeakMap();
+    return (seg) => {
+      const src = seg[field];
+      const hit = cache.get(seg);
+      if (hit && hit.src === src) return hit.value;
+      const value = parse(src);
+      cache.set(seg, { src, value });
+      return value;
+    };
+  };
+
+  const pickPath = memoizePayload("args", (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
       if (!args || typeof args !== "object") return null;
@@ -110,12 +193,79 @@
     } catch {
       return null;
     }
+  });
+
+  const bashFilesChanged = memoizePayload(
+    "result",
+    (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
+  );
+
+  const parseTodos = memoizePayload("args", (argsStr) => {
+    try {
+      const args = JSON.parse(argsStr || "{}");
+      return Array.isArray(args.todos) ? args.todos : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Only consider write_todos calls from the current ask. Walking backwards and bailing at
+  // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
+  // from a finished run don't linger.
+  const findLatestTodos = (turns) => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      if (turn.role === "run_status") continue;
+      if (turn.role === "user") return [];
+      for (let j = turn.segments.length - 1; j >= 0; j--) {
+        const s = turn.segments[j];
+        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
+      }
+    }
+    return [];
   };
 
-  const bashFilesChanged = (resultStr) =>
-    (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
+  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
-  const chat = (config) => ({
+  // Every file the agent has written, most-recent first: path -> { path, op, fromPath?, segmentId }.
+  const collectFilesTouched = (turns) => {
+    const map = new Map();
+    const record = (path, op, seg, extra = {}) => {
+      if (!path) return;
+      map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
+    };
+    for (const t of turns) {
+      if (t.role === "run_status") continue;
+      for (const seg of t.segments) {
+        if (seg.type !== "tool_call") continue;
+        if (PATH_TOOLS.has(seg.name)) {
+          record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
+        } else if (seg.name === "bash") {
+          for (const entry of bashFilesChanged(seg)) {
+            record(entry.path, entry.op || "modified", seg,
+              entry.from_path ? { fromPath: entry.from_path } : {});
+          }
+        }
+      }
+    }
+    return [...map.values()].reverse();
+  };
+
+  // Whether a freshly derived list still says what the published one does, by the fields a
+  // binding renders. Assigning an equal-but-new array would re-trigger every reader of it.
+  const sameList = (a, b, fields) =>
+    a.length === b.length && a.every((item, i) => fields.every((f) => item[f] === b[i][f]));
+
+  const TODO_FIELDS = ["content", "status"];
+  const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
+
+  const chat = (config) => {
+  // What the transcript effect last published. Write-side only — never read by a binding —
+  // so it is not the getter cache this replaced: it exists to keep the effect from reading
+  // its own output, which would subscribe it to what it writes.
+  let publishedTodos = [];
+  let publishedFiles = [];
+  return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
@@ -136,7 +286,6 @@
     // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
     // pill stays in sync without re-deriving the label from the raw model spec.
     lockedAgentLabel: config.initialAgentLabel || "",
-    lockedAgentEffortDots: config.initialAgentEffortDots || 0,
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
@@ -149,6 +298,9 @@
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
+    // Server-measured diff for the work published so far, refreshed by every
+    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    diffStats: loadInitialDiffStats(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
@@ -159,17 +311,56 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
-    _filesSeen: new Set(),
+    // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
+    // on the same clock its start came from (client/server skew otherwise leaks).
+    _lastFrameAt: 0,
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    _deriveTranscript: null,
+    // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
+    // `elapsed` clock; set where a run actually starts, never inferred.
+    runStartedAt: 0,
+    // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
+    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
+    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
+    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
+    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
+    // a getter*, which serves every reader after the first without touching `turns` and
+    // leaves those bindings subscribed to nothing.
+    latestTodos: [],
+    filesTouched: [],
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
+    _announceOpen: null,
+    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
+    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    sheet: "",
+    // Translated fragments the JS composes counts out of; the server owns the wording.
+    _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
+    // Tools group. The catalog is every server this user could load; the selection is a
+    // subset of the *available* ones. A never-touched thread carries no stored selection,
+    // which means "all of them" — and keeps meaning that as servers are added later.
+    mcpCatalog: loadMcpCatalog(),
+    mcpSelected: [],
+    mcpExpanded: false,
+    mcpQuery: "",
+    // Frozen row order for as long as the list stays open, so a row the user just toggled
+    // never slides out from under their finger. Recomputed on each expand.
+    mcpOrder: [],
+    // Whether the user changed the selection in this page session. Only then does submit()
+    // send one — otherwise an untouched thread keeps its NULL and picks up new servers.
+    _mcpTouched: false,
+    // "/" autocomplete: slash commands + global skills, server-rendered into the page.
+    slashCatalog: loadSlashCatalog(),
+    slashDismissed: false,
+    slashIndex: 0,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -186,12 +377,198 @@
     },
 
     applyAgentSelection(detail) {
-      // The agent picker is the single source of truth for the pill label, effort
-      // dots, and the spec submit() forwards — we just stamp whatever it dispatched.
+      // The agent picker is the single source of truth for the pill label and the spec
+      // submit() forwards — we just stamp whatever it dispatched.
       this._agentModel = detail?.model || "";
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
-      this.lockedAgentEffortDots = detail?.effort_dots || 0;
+    },
+
+    // Effort word after the model name in the composer's label. Derived rather than a
+    // second stored copy of ``_agentThinkingLevel``, which drifts the moment one of the
+    // two assignments is missed; the seed covers the render before the picker dispatches.
+    get lockedAgentThinking() {
+      return this._agentThinkingLevel || config.initialAgentThinking || "";
+    },
+
+    // ---------- Composer sheets ---------------------------------------
+
+    openSheet(name) {
+      this.sheet = name;
+      this._announceOpen();
+    },
+
+    closeSheet() {
+      this.sheet = "";
+    },
+
+    toggleSheet(name) {
+      if (this.sheet === name) this.closeSheet();
+      else this.openSheet(name);
+    },
+
+    // ---------- Tools (MCP servers) -----------------------------------
+
+    // One ordered list for every row the sheet draws — switchable first, then enabled,
+    // then by name. Order is computed once per expand and held in ``mcpOrder`` so toggling
+    // never reshuffles the list; search filters that order rather than replacing it.
+    // Unavailable servers sort last and render inert, but stay listed: dropping them here
+    // would drop them from the next selection this page posts, and keep them out of the
+    // thread long after the outage was fixed.
+    get mcpVisible() {
+      const byName = new Map(this.mcpCatalog.map((s) => [s.name, s]));
+      const ordered = this.mcpOrder.map((n) => byName.get(n)).filter(Boolean);
+      const q = this.mcpQuery.trim().toLowerCase();
+      return q ? ordered.filter((s) => s.name.toLowerCase().includes(q)) : ordered;
+    },
+
+    // Drives the badge dot on the options trigger. The env can't change mid-thread, so a
+    // selection that deviates from the pool defaults is the only thing the dot can ever be
+    // reporting — the same deviation the server stores as ``Session.mcp_overrides``.
+    get mcpDirty() {
+      const defaults = this._defaultMcpNames();
+      return this.mcpSelected.length !== defaults.length
+        || defaults.some((name) => !this.isMcpOn(name));
+    },
+
+    _defaultMcpNames() {
+      return this.mcpCatalog.filter((s) => s.is_default).map((s) => s.name);
+    },
+
+    isMcpOn(name) {
+      return this.mcpSelected.includes(name);
+    },
+
+    toggleMcp(name) {
+      // A broken server (undecryptable headers, a missing env-var reference) loads zero
+      // tools whatever the switch says, so its row is inert rather than silently useless.
+      if (!this.mcpCatalog.some((s) => s.name === name && s.available)) return;
+      this.mcpSelected = this.isMcpOn(name)
+        ? this.mcpSelected.filter((n) => n !== name)
+        : [...this.mcpSelected, name];
+      this._mcpTouched = true;
+    },
+
+    selectNoMcp() {
+      this.mcpSelected = [];
+      this._mcpTouched = true;
+    },
+
+    // Back to the pool defaults — the ``active`` servers, not every server in the list.
+    // An ``on-demand`` server is loadable but opt-in, so reset turns it back off; the
+    // server stores the resulting empty diff, which keeps tracking the admin's defaults.
+    resetMcp() {
+      this.mcpSelected = this._defaultMcpNames();
+      this._mcpTouched = true;
+    },
+
+    toggleMcpList() {
+      this.mcpExpanded = !this.mcpExpanded;
+      if (this.mcpExpanded) this._freezeMcpOrder();
+    },
+
+    _freezeMcpOrder() {
+      this.mcpOrder = [...this.mcpCatalog]
+        .sort((a, b) => {
+          const availDelta = Number(b.available) - Number(a.available);
+          const onDelta = Number(this.isMcpOn(b.name)) - Number(this.isMcpOn(a.name));
+          return availDelta || onDelta || a.name.localeCompare(b.name);
+        })
+        .map((s) => s.name);
+    },
+
+    // "31 tools · filtered to 6" — the effect of MCPServer.tool_filter_mode, not a
+    // second copy of the control.
+    mcpToolsLabel(server) {
+      if (!server.synced) return this._labels.notSynced;
+      const base = `${server.tools} ${server.tools === 1 ? this._labels.tool : this._labels.tools}`;
+      return server.filtered ? `${base} · ${this._labels.filteredTo} ${server.exposed}` : base;
+    },
+
+    // ---------- "/" autocomplete --------------------------------------
+
+    get slashToken() {
+      const m = SLASH_TOKEN_RE.exec(this.draftMessage);
+      return m ? m[1].toLowerCase() : null;
+    },
+
+    // Empty whenever the menu should be closed, so the list's `x-for` stops diffing rows
+    // into a panel nobody can see and `slashMenuOpen` derives from this alone.
+    get slashMatches() {
+      if (this.slashDismissed || this.streaming || this.resuming) return [];
+      const token = this.slashToken;
+      if (token === null) return [];
+      if (!token) return this.slashCatalog;
+      const starts = [];
+      const contains = [];
+      for (const row of this.slashCatalog) {
+        const name = row.name.toLowerCase();
+        if (name.startsWith(token)) starts.push(row);
+        else if (name.includes(token)) contains.push(row);
+      }
+      return [...starts, ...contains];
+    },
+
+    // A token that matches nothing hides the menu entirely: unlike the MCP filter's
+    // empty row inside a sheet the user opened, this menu is unsolicited.
+    get slashMenuOpen() {
+      return this.slashMatches.length > 0;
+    },
+
+    onPromptInput() {
+      // Escape holds until the draft leaves the "/token" shape. Clearing it on the next
+      // keystroke would re-arm the menu and hijack the Enter the user pressed it for.
+      if (this.slashToken === null) this.slashDismissed = false;
+      this.slashIndex = 0;
+    },
+
+    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
+    // preventDefault unconditionally, and plain Enter must keep inserting newlines
+    // whenever the menu is closed.
+    onPromptKeydown(e) {
+      // Enter commits an IME candidate; stealing it would cancel the composition.
+      if (e.isComposing || e.keyCode === 229) return;
+      if (!this.slashMenuOpen) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.moveSlashHighlight(1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        this.moveSlashHighlight(-1);
+      } else if ((e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        const row = this.slashMatches[this.slashIndex];
+        if (row) this.selectSlashCommand(row);
+      } else if (e.key === "Escape") {
+        // The topmost surface consumes Escape — don't let the dock's window-level
+        // closeSheet() listener also fire.
+        e.stopPropagation();
+        this.slashDismissed = true;
+      }
+    },
+
+    moveSlashHighlight(delta) {
+      const count = this.slashMatches.length;
+      if (!count) return;
+      this.slashIndex = (this.slashIndex + delta + count) % count;
+      this.$nextTick(() => {
+        this.$refs.slashList?.querySelector(".env-popover__row--highlighted")
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    },
+
+    // Whole-draft replacement is safe: the menu is only open while the entire draft is
+    // the token. The trailing space breaks SLASH_TOKEN_RE, which closes the menu.
+    selectSlashCommand(row) {
+      this.draftMessage = `/${row.name} `;
+      this.$nextTick(() => {
+        this.autosize();
+        const el = this.$refs.prompt;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
     },
 
     applyPolledTurns(turns) {
@@ -236,26 +613,48 @@
     },
 
     init() {
+      this._announceOpen = surfaceGroup.join(() => this.closeSheet());
+
+      // Its own surfaceGroup slot: an opening sheet dismisses the menu and vice versa.
+      // $watch fires on transitions only, giving the closed→open-only announce.
+      const announceSlashOpen = surfaceGroup.join(() => { this.slashDismissed = true; });
+      this.$watch("slashMenuOpen", (open) => {
+        if (open) announceSlashOpen();
+      });
+
       // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
 
-      // Seed _filesSeen with any paths already present in hydrated history so
-      // the "new row pulse" animation does not fire on initial load.
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const p = pickPath(seg.args);
-            if (p) this._filesSeen.add(`${seg.name}::${p}`);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              if (entry.path) this._filesSeen.add(`bash::${entry.path}`);
-            }
-          }
-        }
-      }
+      // The server already resolved the thread's stored overrides against the live pool,
+      // so this is the effective selection, not a raw list to re-interpret. It is still
+      // intersected with the catalog — and with the whole pool rather than just the
+      // servers that are healthy right now, since a broken one dropped here would be
+      // dropped from the next selection this page posts and would stay out of the thread
+      // long after the outage was fixed.
+      const stored = loadMcpSelection();
+      this.mcpSelected = stored
+        ? this.mcpCatalog.filter((s) => stored.includes(s.name)).map((s) => s.name)
+        : this._defaultMcpNames();
+      this._freezeMcpOrder();
+
+      // The one walk of the transcript. It subscribes to everything `latestTodos` and
+      // `filesTouched` read — every segment's type, name and payload — so a pushed turn, a
+      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
+      // value, and a mutation inside `turns` leaves its identity alone.
+      this._deriveTranscript = window.Alpine.effect(() => {
+        const todos = findLatestTodos(this.turns);
+        const files = collectFilesTouched(this.turns);
+        if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
+        if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+      });
+
+      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
+      // and files) would otherwise stay "open" and pop back into view on the next turn.
+      this.$watch("!progressPill", (gone) => {
+        if (gone && this.sheet === "progress") this.sheet = "";
+      });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
       // never scrolls; main holds overflow-y-auto and is the page surface.
@@ -279,16 +678,19 @@
             i = (i + 1) % THINKING_LABELS.length;
             this._thinkingPhrase = THINKING_LABELS[i];
           }, 1800);
-        } else if (this._thinkingTimer) {
+        } else {
           clearInterval(this._thinkingTimer);
           this._thinkingTimer = null;
+          this.runStartedAt = 0;
         }
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
         // Page loaded while a run is executing server-side: rejoin its event
         // stream with a full replay, deduping anything already rendered from
-        // the checkpoint hydration.
+        // the checkpoint hydration. The clock counts from the server-reported
+        // start so a rejoined run doesn't restart at 0.
+        this.runStartedAt = Date.parse(config.activeRunStartedAt || "") || Date.now();
         this._resumeRun(config.activeRunId);
       } else {
         this.resuming = false;
@@ -303,6 +705,7 @@
     },
 
     destroy() {
+      if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -316,7 +719,8 @@
     async _resumeRun(runId) {
       // LangChain message ids (turn.id) and tool_call ids from the hydrated
       // checkpoint are the same ids the AG-UI events carry — anything already
-      // rendered server-side gets skipped during replay.
+      // rendered server-side gets skipped during replay. Reasoning is the
+      // exception; ``_dropReplayedThinking`` handles it positionally.
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
@@ -362,8 +766,15 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          if (this._isReplayDuplicate(evt)) return;
-          this.dispatch(evt, turn);
+          // Server-stamped emit time (``chat.api.runner._publish``): a rejoining browser
+          // replays the whole run at once, so its own clock measures every thought as 0ms.
+          const at = evt.timestamp || Date.now();
+          this._lastFrameAt = at;
+          if (this._isReplayDuplicate(evt)) {
+            this._dropReplayedThinking(turn);
+            return;
+          }
+          this.dispatch(evt, turn, at);
         };
         source.addEventListener("end", (event) => {
           let reason = "finished";
@@ -391,13 +802,27 @@
       return false;
     },
 
+    // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
+    // in no checkpoint — so replayed thoughts are recognized by position, not by id.
+    _dropReplayedThinking(turn) {
+      if (this._reasoningIndex.size === 0) return;
+      const kept = turn.segments.filter((s) => s.type !== "thinking");
+      turn.segments = kept;
+      this._reasoningIndex.clear();
+      // ``_toolIndex`` holds positions into ``segments``; remap the survivors so a later
+      // ARGS/RESULT delta cannot land on the card that shifted into a dropped slot.
+      kept.forEach((seg, idx) => {
+        if (this._toolIndex.has(seg.id)) this._toolIndex.set(seg.id, idx);
+      });
+    },
+
     _finishTurn(turn, reason) {
       turn.streaming = false;
       turn.segments.forEach((s) => {
         if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
-          s.endedAt = Date.now();
+          s.endedAt = this._lastFrameAt || Date.now();
         }
       });
       // Terminal reasons that leave the turn in an error state ("finished" is
@@ -415,6 +840,7 @@
       this.streaming = false;
       this._activeRun = null;
       this._replayDedup = null;
+      this._lastFrameAt = 0;
       this.scrollToBottom();
     },
 
@@ -445,75 +871,61 @@
       return { tone: "thinking", label: this._thinkingPhrase };
     },
 
-    get latestTodos() {
-      // Only consider write_todos calls from the current ask. Walking backwards
-      // and bailing at the most recent user turn clears the rail on follow-up,
-      // so stale "all complete" lists from a finished run don't linger.
-      for (let i = this.turns.length - 1; i >= 0; i--) {
-        const turn = this.turns[i];
-        if (turn.role === "run_status") continue;
-        if (turn.role === "user") return [];
-        for (let j = turn.segments.length - 1; j >= 0; j--) {
-          const s = turn.segments[j];
-          if (s.type === "tool_call" && s.name === "write_todos") {
-            try {
-              const args = JSON.parse(s.args || "{}");
-              return Array.isArray(args.todos) ? args.todos : [];
-            } catch {
-              return [];
-            }
-          }
-        }
-      }
-      return [];
-    },
-
-    get todosDone() {
-      return this.latestTodos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
-    },
-
-    get filesTouched() {
-      // path -> { path, op, fromPath?, segmentId, isNew }
-      const map = new Map();
-      const seenKeys = [];
-      const record = (path, op, seg, extra = {}) => {
-        if (!path) return;
-        const key = `${seg.name}::${path}`;
-        seenKeys.push(key);
-        map.set(path, {
-          path,
-          op,
-          segmentId: `tool-${seg.id}`,
-          isNew: !this._filesSeen.has(key),
-          ...extra,
-        });
-      };
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg.args), op, seg);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              record(entry.path, entry.op || "modified", seg,
-                entry.from_path ? { fromPath: entry.from_path } : {});
-            }
-          }
-        }
-      }
-      // Reverse so most-recent comes first.
-      const arr = [...map.values()].reverse();
-      // Promote everything we just yielded into _filesSeen under the SAME
-      // composite key shape used by the `isNew` lookup so the pulse animation
-      // only fires once per (tool, path) pair.
-      for (const key of seenKeys) this._filesSeen.add(key);
-      return arr;
+    get todosProgress() {
+      const todos = this.latestTodos;
+      return `${countDone(todos)}/${todos.length}`;
     },
 
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
+    },
+
+    // ---------- Progress trigger --------------------------------------
+
+    // The composer's progress pill, or ``null`` when there is nothing behind it. The
+    // decision is made on *content*, never on run state: no todos, no files and no diff
+    // means no button, because an empty sheet is worse than no way into one.
+    //
+    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
+    // numbers would be a guess. A cancelled turn is the one state where work can sit
+    // uncommitted for good, so it keeps counts too.
+    get progressPill() {
+      const todos = this.latestTodos;
+      const files = this.filesTouched;
+      const parts = [];
+      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
+      if (files.length) parts.push(this._filesLabel(files.length));
+
+      if (this.streaming || this.resuming) {
+        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
+      }
+      // A cancelled turn can leave work uncommitted for good, so counts stay the only
+      // truth there — a line total would describe something that was never published.
+      if (this._lastRunAborted()) {
+        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
+      }
+      // ``diff`` rather than a joined label: added and removed are tinted separately,
+      // the way they are everywhere else a diff is reported.
+      const stats = this.diffStats;
+      if (stats && (stats.added || stats.removed)) {
+        return { tone: "idle", label: "", diff: stats };
+      }
+      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+    },
+
+    // What the hero's selection line shows before a thread exists: the two things the
+    // first turn will run with that aren't already on screen.
+    get heroSelectionLabel() {
+      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
+    },
+
+    _filesLabel(n) {
+      return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
+    },
+
+    _lastRunAborted() {
+      const last = this.turns[this.turns.length - 1];
+      return last?.role === "run_status" && last.status === "aborted";
     },
 
     // ---------- Rendering helpers used inline by x-html ---------------
@@ -623,23 +1035,25 @@
       if (seg.status === "running") return "Thinking…";
       if (!seg.startedAt || !seg.endedAt) return "Reasoning";
       const s = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-      return s < 60 ? `Thought for ${s}s` : `Thought for ${Math.floor(s / 60)}m ${s % 60}s`;
+      return `Thought for ${formatElapsed(s)}`;
     },
 
+    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {
-        case "added": return "+";
-        case "deleted": return "−";
-        case "renamed": return "→";
-        default: return "~";
+        case "added": return "A";
+        case "deleted": return "D";
+        case "renamed": return "R";
+        default: return "M";
       }
     },
 
     todoIcon(status) {
       const s = (status || "pending").toLowerCase();
-      if (s === "completed") return "☑";
-      if (s === "in_progress") return "◐";
-      return "☐";
+      if (s === "completed") return "✓";
+      if (s === "in_progress") return "▸";
+      return "·";
     },
 
     // ---------- User actions ------------------------------------------
@@ -652,13 +1066,25 @@
 
     autosize() {
       const el = this.$refs.prompt;
-      if (!el) return;
+      if (!el || NATIVE_FIELD_SIZING) return;
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 14 * 16) + "px";
+      el.style.height = el.scrollHeight + "px";
     },
 
     async submit() {
       if (!this.canSend() || this.streaming || this.resuming) return;
+
+      // Read the picker's selection before creating the thread: the live picker is
+      // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
+      // and the hidden-input fallback below would race Alpine's DOM flush.
+      // ``_agentModel`` is normally already set (the picker dispatches on init); the
+      // inputs cover a submit that beats that first dispatch.
+      const agentModel = this._agentModel
+        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
+        || "";
+      const agentThinkingLevel = this._agentThinkingLevel
+        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
+        || "";
 
       if (!this.thread) {
         const threadId = uuid();
@@ -705,20 +1131,15 @@
         }))
         .filter((m) => m.content);
 
-      // Use whatever the agent picker last dispatched (it dispatches both on user change
-      // and once on init for the seeded default). The hidden-input fallback covers the
-      // edge case where the picker hasn't dispatched yet at submit time (very fast first
-      // click). The server pins these to ``ChatThread.agent_model`` / ``agent_thinking_level``
-      // on first sight of the thread and ignores them on subsequent turns.
-      const agentModel = this._agentModel
-        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
-        || "";
-      const agentThinkingLevel = this._agentThinkingLevel
-        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
-        || "";
+      // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
+      // first sight of the thread and rejects a divergent value afterwards.
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
       const body = {
         threadId: this.thread.thread_id,
@@ -733,6 +1154,7 @@
       this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
+      this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
       // Forward the picker's selection so the API resolves the requested env per-request;
@@ -808,7 +1230,7 @@
       el.classList.add("chat-tool__highlight");
     },
 
-    dispatch(evt, turn) {
+    dispatch(evt, turn, at) {
       const type = evt.type;
 
       if (type === AGUI.TEXT_MESSAGE_START) {
@@ -826,7 +1248,7 @@
           type: "thinking",
           id: evt.messageId,
           content: "",
-          startedAt: Date.now(),
+          startedAt: at,
           endedAt: null,
           status: "running",
         });
@@ -840,7 +1262,7 @@
         const seg = idx != null ? turn.segments[idx] : null;
         if (seg) {
           seg.status = "done";
-          seg.endedAt = Date.now();
+          seg.endedAt = at;
         }
       } else if (type === AGUI.TOOL_CALL_START) {
         // ag_ui_langgraph re-emits START/ARGS/END from OnToolEnd whenever its
@@ -951,6 +1373,12 @@
         // unchanged merge_request. Dedupe on identity so we don't churn
         // Alpine reactivity (and the publish-phase chip sweep) per node.
         const snap = evt.snapshot || {};
+        if ("diff_stats" in snap) {
+          const stats = normalizeDiffStats(snap.diff_stats);
+          if (stats && (this.diffStats?.added !== stats.added || this.diffStats?.removed !== stats.removed)) {
+            this.diffStats = stats;
+          }
+        }
         if ("merge_request" in snap) {
           const raw = snap.merge_request;
           const key = raw ? `${raw.merge_request_id}:${raw.source_branch}:${raw.draft}` : "null";
@@ -1069,7 +1497,8 @@
         if (force) this._autoFollow = true;
       });
     },
-  });
+  };
+  };
 
   // Collapse tall user-message bubbles. Measures the rendered height once on
   // init: user text is immutable after creation, and Alpine's keyed x-for reuses
@@ -1106,8 +1535,46 @@
     },
   });
 
+  // Ticking "how long has this run been going" clock, shared by the working loader
+  // and the queued/running card. `track()` takes an ISO string or epoch ms and 0 to
+  // stop; each tick re-derives from the origin rather than incrementing, so interval
+  // clamping in a background tab costs accuracy nothing. Origin and handle stay
+  // closure-local: only `seconds` needs to be reactive.
+  const elapsed = (startedAt = 0) => {
+    let origin = 0;
+    let timer = null;
+    return {
+      seconds: 0,
+      init() {
+        this.track(startedAt);
+      },
+      get label() {
+        return formatElapsed(this.seconds);
+      },
+      track(next) {
+        const parsed = typeof next === "string" ? Date.parse(next) : next;
+        const at = Number.isFinite(parsed) ? parsed : 0;
+        if (at === origin) return;
+        origin = at;
+        clearInterval(timer);
+        timer = null;
+        this.seconds = 0;
+        if (!at) return;
+        const tick = () => {
+          this.seconds = Math.max(0, Math.floor((Date.now() - origin) / 1000));
+        };
+        tick();
+        timer = setInterval(tick, 1000);
+      },
+      destroy() {
+        clearInterval(timer);
+      },
+    };
+  };
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
     window.Alpine.data("userClamp", userClamp);
+    window.Alpine.data("elapsed", elapsed);
   });
 })();

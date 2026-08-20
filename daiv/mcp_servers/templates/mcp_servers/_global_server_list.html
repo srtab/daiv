@@ -6,33 +6,27 @@
 {% if servers %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
     {% for s in servers %}
-    <div class="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.enabled %}opacity-60{% endif %}">
-        <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-3">
-                <span class="text-[15px] font-medium text-white">{{ s.name }}</span>
-                <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
-                {% if s.enabled %}
-                <span class="status-badge status-badge-success">{% translate "Enabled" %}</span>
-                {% else %}
-                <span class="status-badge status-badge-pending">{% translate "Disabled" %}</span>
-                {% endif %}
-                {% if s.enabled and not s.health.ok %}
-                <span class="status-badge status-badge-queued">{% translate "Degraded" %}</span>
-                {% endif %}
+    <div class="border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.is_loadable %}opacity-60{% endif %}">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span class="text-[15px] font-medium text-white">{{ s.name }}</span>
+            <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
+            {% include "mcp_servers/_status_badge.html" with s=s %}
+            {% if s.is_loadable and not s.health.ok %}
+            <span class="status-badge status-badge-queued">{% translate "Degraded" %}</span>
+            {% endif %}
+        </div>
+        {% if s.description %}<div class="mt-1 truncate text-sm text-gray-400">{{ s.description }}</div>{% endif %}
+        <div class="mt-2">
+            {% if s.tools_synced_at and s.exposed %}
+            <div class="flex flex-wrap gap-1.5">
+                {% for t in s.exposed %}
+                <span class="mcp-tool-pill {% if t.read_only is True %}mcp-tool-pill--ro{% elif t.read_only is False %}mcp-tool-pill--rw{% endif %}"
+                      {% if t.description %}title="{{ t.description }}"{% endif %}>{{ t.name }}</span>
+                {% endfor %}
             </div>
-            {% if s.description %}<div class="mt-1 truncate text-sm text-gray-400">{{ s.description }}</div>{% endif %}
-            <div class="mt-2">
-                {% if s.tools_synced_at and s.exposed %}
-                <div class="flex flex-wrap gap-1.5">
-                    {% for t in s.exposed %}
-                    <span class="mcp-tool-pill {% if t.read_only is True %}mcp-tool-pill--ro{% elif t.read_only is False %}mcp-tool-pill--rw{% endif %}"
-                          {% if t.description %}title="{{ t.description }}"{% endif %}>{{ t.name }}</span>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-xs text-gray-500">{% translate "No tools exposed" %}</p>
-                {% endif %}
-            </div>
+            {% else %}
+            <p class="text-xs text-gray-500">{% translate "No tools exposed" %}</p>
+            {% endif %}
         </div>
     </div>
     {% endfor %}

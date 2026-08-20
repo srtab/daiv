@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from abc import abstractmethod
 from dataclasses import dataclass
 from textwrap import dedent
@@ -8,17 +9,19 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 
 from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
-from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.utils import redact_diff_content
+from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
+from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
@@ -29,6 +32,25 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.tools")
+
+# Git trailer token carrying the producing session's URL. A wire format read by `git log`
+# and `git interpret-trailers`, so it stays a literal rather than deriving from BOT_NAME.
+SESSION_TRAILER = "DAIV-Session"
+
+# A trailer line ("Token: value") or its folded continuation (leading whitespace).
+_TRAILER_LINE_RE = re.compile(r"[A-Za-z0-9-]+:\s|\s+\S")
+
+
+def append_trailer(commit_message: str, trailer: str) -> str:
+    """Append ``trailer`` to ``commit_message``, joining a trailer block it already ends with.
+
+    git only parses the *last* paragraph for trailers, so opening a new one would strip any
+    ``Co-authored-by``/``Closes`` lines already there of their trailer status.
+    """
+    body = commit_message.rstrip()
+    _, blank_line, last_paragraph = body.rpartition("\n\n")
+    joins_block = blank_line and all(_TRAILER_LINE_RE.match(line) for line in last_paragraph.splitlines())
+    return f"{body}{'\n' if joins_block else '\n\n'}{trailer}"
 
 
 @dataclass(frozen=True)
@@ -45,6 +67,17 @@ class PublishOutcome:
     merge_request: MergeRequest | None
     published: bool
     protected_branch_fallback_source: str | None = None
+    diff_stats: MergeRequestDiffStats | None = None
+    """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
+    pill. ``None`` only when no publish was attempted; a publish that found nothing reports
+    zeros, because the pill has to be able to go back down.
+
+    Counted from ``status_snapshot``'s diff — the merge-base delta for the very branch the
+    MR is built from, so it already *is* what the MR page shows, computed for free from a
+    string that is in memory anyway. Asking the platform instead reads worse on both
+    counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
+    (truncating it past a size cap), and a freshly-created MR whose diff is still being
+    prepared answers zero."""
 
 
 class ChangePublisher:
@@ -52,10 +85,13 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None):
+    def __init__(
+        self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None, thread_id: str | None = None
+    ):
         self.ctx = ctx
         self.client = RepoClient.create_instance()
         self.sandbox_backend = sandbox_backend
+        self.thread_id = thread_id
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -111,13 +147,16 @@ class GitChangePublisher(ChangePublisher):
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             )
 
-            if not snapshot.dirty:
-                if not snapshot.diff.strip():
-                    logger.info("No changes to publish.")
-                    return PublishOutcome(merge_request=None, published=False)
-                if merge_request is not None and not snapshot.has_unpushed:
-                    logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-                    return PublishOutcome(merge_request=merge_request, published=False)
+            # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
+            diff_stats = diff_line_stats(snapshot.diff)
+
+            if not snapshot.dirty and not snapshot.diff.strip():
+                logger.info("No changes to publish.")
+                return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+
+            if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+                logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
+                return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
             fallback_from_mr: MergeRequest | None = None
             if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -141,7 +180,9 @@ class GitChangePublisher(ChangePublisher):
 
             if snapshot.dirty:
                 commit_message = changes_metadata["commit_message"].commit_message
-                await git_manager.commit_all(f"[skip ci] {commit_message}" if skip_ci else commit_message)
+                if skip_ci:
+                    commit_message = f"[skip ci] {commit_message}"
+                await git_manager.commit_all(await self._with_session_trailer(commit_message))
 
             if merge_request is None:
                 branch_name = git_manager.unique_branch_name(
@@ -199,6 +240,7 @@ class GitChangePublisher(ChangePublisher):
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    diff_stats=diff_stats,
                 )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
@@ -225,6 +267,7 @@ class GitChangePublisher(ChangePublisher):
             merge_request=merge_request,
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
+            diff_stats=diff_stats,
         )
 
     async def _refresh_sandbox_egress(self) -> None:
@@ -394,9 +437,38 @@ class GitChangePublisher(ChangePublisher):
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
                     "fallback_from_mr": fallback_from_mr,
+                    "session_url": await self._session_link("session_merge_request"),
                 },
             ),
         )
+
+    async def _session_link(self, route: str) -> str | None:
+        """Absolute URL of ``route`` for the producing session, or None when unavailable.
+
+        This runs before the commit, so every failure degrades to no link: losing a cosmetic
+        link is always preferable to losing the run's work.
+        """
+        if not self.thread_id or not self.ctx.config.session_link or not site_settings.session_link_enabled:
+            return None
+
+        try:
+            return await sync_to_async(build_absolute_url)(reverse(route, kwargs={"thread_id": self.thread_id}))
+        except Exception:
+            logger.warning(
+                "Could not build a session link for thread_id %r; publishing without it", self.thread_id, exc_info=True
+            )
+            return None
+
+    async def _with_session_trailer(self, commit_message: str) -> str:
+        """Append the session trailer to ``commit_message``.
+
+        Unlike the description link this survives description rewrites and stays attached to the
+        commit once it is squashed or cherry-picked elsewhere.
+        """
+        session_url = await self._session_link("session_detail")
+        if not session_url:
+            return commit_message
+        return append_trailer(commit_message, f"{SESSION_TRAILER}: {session_url}")
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

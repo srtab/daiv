@@ -4,6 +4,7 @@ from sessions.views import (
     RunDownloadMarkdownView,
     SessionDetailView,
     SessionListView,
+    SessionMergeRequestRedirectView,
     SessionNewView,
     SessionStreamView,
 )
@@ -15,6 +16,7 @@ urlpatterns = [
     path("new/chat/", SessionDetailView.as_view(), name="session_new_chat"),
     path("stream/", SessionStreamView.as_view(), name="session_stream"),
     path("<slug:thread_id>/", SessionDetailView.as_view(), name="session_detail"),
+    path("<slug:thread_id>/merge-request/", SessionMergeRequestRedirectView.as_view(), name="session_merge_request"),
     path(
         "<slug:thread_id>/runs/<uuid:pk>/download/md/",
         RunDownloadMarkdownView.as_view(),

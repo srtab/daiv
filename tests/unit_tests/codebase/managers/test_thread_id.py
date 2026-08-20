@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -14,7 +14,14 @@ from codebase.utils import compute_thread_id
 @pytest.fixture
 def stub_base_init():
     """Skip BaseManager side effects (RepoClient, GitManager) — we exercise __init__ logic only."""
-    with patch.object(BaseManager, "__init__", lambda self, *, runtime_ctx: setattr(self, "ctx", runtime_ctx)):
+    with patch.object(
+        BaseManager,
+        "__init__",
+        lambda self, *, runtime_ctx, thread_id: (
+            setattr(self, "ctx", runtime_ctx),
+            setattr(self, "thread_id", thread_id),
+        ),
+    ):
         yield
 
 
@@ -57,6 +64,21 @@ class TestIssueAddressorManagerThreadId:
     def test_empty_string_rejected(self, stub_base_init):
         with pytest.raises(ValueError):
             IssueAddressorManager(issue=_issue(), runtime_ctx=_StubCtx(), thread_id="")
+
+
+class TestRecoverDraftThreadId:
+    async def test_recover_draft_uses_the_managers_thread_id(self, stub_base_init):
+        """The manager's validated thread_id is authoritative; the config is not re-parsed for it."""
+        manager = IssueAddressorManager(issue=_issue(), runtime_ctx=_StubCtx(), thread_id="explicit-id")
+        manager.ctx.sandbox = None
+        agent = Mock()
+        agent.aget_state = AsyncMock(return_value=Mock(values={"merge_request": None}))
+
+        with patch("codebase.managers.base.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
+            await manager._recover_draft(agent, {}, entity_label="issue", entity_id=1)
+
+        assert pub_cls.call_args.kwargs["thread_id"] == "explicit-id"
 
 
 class TestCommentsAddressorManagerThreadId:

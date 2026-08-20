@@ -46,8 +46,9 @@ def stub_base_init():
     """Skip BaseManager side effects (RepoClient, GitManager); we exercise ``_address_issue``
     only up to the ``create_daiv_agent`` boundary, so a stub client and store are enough."""
 
-    def _init(self, *, runtime_ctx):
+    def _init(self, *, runtime_ctx, thread_id):
         self.ctx = runtime_ctx
+        self.thread_id = thread_id
         self.client = MagicMock()
         self.store = MagicMock()
         self.git_manager = MagicMock()

@@ -1,10 +1,11 @@
-import json
 import logging
 import time
 
-from django.http import Http404, HttpRequest, StreamingHttpResponse
+from django.http import Http404, HttpRequest
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
+from asgiref.sync import sync_to_async
+from mcp_servers.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
@@ -15,6 +16,7 @@ from sessions.models import Session
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
+from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import relay, runner
 from .security import AuthBearer
@@ -29,28 +31,11 @@ HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
-# SSE reader tuning. The 300s duration cap closes the response *without* an end
-# frame — EventSource then auto-reconnects with Last-Event-ID, which keeps
-# long runs streaming while bounding per-connection worker occupancy.
+# SSE reader tuning. The 300s duration cap (``core.sse``) closes the response
+# *without* an end frame — EventSource then auto-reconnects with Last-Event-ID,
+# which keeps long runs streaming while bounding per-connection worker occupancy.
 STREAM_BLOCK_MS = 15_000
 STREAM_DRAIN_BLOCK_MS = 500
-STREAM_MAX_DURATION_S = 300.0
-
-
-def _end_frame(reason: str) -> str:
-    return f"event: end\ndata: {json.dumps({'reason': reason})}\n\n"
-
-
-def _sse_response(frames) -> StreamingHttpResponse:
-    """Wrap a relay-tail generator in the response every SSE endpoint shares.
-
-    ``X-Accel-Buffering: no`` + ``Cache-Control: no-cache`` are the load-bearing
-    headers that stop nginx from buffering the stream — keep them in one place so
-    the two callers can't drift.
-    """
-    return StreamingHttpResponse(
-        frames, content_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
 
 
 async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
@@ -72,7 +57,7 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     from a transient drop to the browser's EventSource, which would then reconnect
     forever against a still-broken backend. The explicit terminal frame stops it.
     """
-    yield "retry: 2000\n\n"
+    yield retry_frame(2000)
     start = time.monotonic()
     released_drain = False
     run_relay = relay.RunRelay(thread_id, run_id)
@@ -85,13 +70,13 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
                 for entry in entries:
                     last_id = entry.id
                     if entry.is_end:
-                        yield _end_frame("finished")
+                        yield end_frame("finished")
                         return
-                    yield f"id: {entry.id}\ndata: {entry.data}\n\n"
+                    yield data_frame(entry.data, event_id=entry.id)
                 continue
 
             if released_drain:
-                yield _end_frame("finished")
+                yield end_frame("finished")
                 return
 
             session = (
@@ -101,12 +86,12 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
                 released_drain = True
                 continue
             if session["last_active_at"] < stale_cutoff():
-                yield _end_frame("stale")
+                yield end_frame("stale")
                 return
-            yield ": keep-alive\n\n"
+            yield KEEP_ALIVE_FRAME
     except Exception:
         logger.exception("chat: relay tail failed for thread_id=%s run_id=%s", thread_id, run_id)
-        yield _end_frame("error")
+        yield end_frame("error")
 
 
 @chat_router.get("/stream", url_name="chat_run_stream")
@@ -122,7 +107,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
-    return _sse_response(_run_event_frames(thread_id, run_id, last_id))
+    return sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
 class RunHandle(Schema):
@@ -183,6 +168,18 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except AgentOverrideError as err:
         raise HttpError(400, str(err)) from err
 
+    # Absent key = "no selection sent", which leaves the thread's stored one alone;
+    # a present one is diffed against the owner's live pool.
+    raw_selection = forwarded.get("mcp_servers")
+    submitted_overrides = None
+    if raw_selection is not None:
+        try:
+            names = parse_server_names(raw_selection)
+        except ValueError as err:
+            raise HttpError(400, str(err)) from err
+        pool = await sync_to_async(build_selection_pool)(user.pk)
+        submitted_overrides = diff_selection(set(names), pool)
+
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
         env_obj = await resolve_env_for_user(user, env_header)
@@ -207,6 +204,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment=env_obj,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
+        mcp_overrides=submitted_overrides or {},
     )
     # Ownership: an existing session must be visible to the caller. A webhook-origin
     # session (user=None) is visible to anyone who can see it, so "continue as chat"
@@ -256,6 +254,13 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if not await SessionLock.try_claim(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
+    # The Tools selection is not pinned — ``build_runtime_servers`` re-resolves it every run — so
+    # any turn may retune it. Gated on the claim so a rejected duplicate remembers nothing.
+    effective_overrides = session.mcp_overrides
+    if submitted_overrides is not None and not created and submitted_overrides != effective_overrides:
+        effective_overrides = submitted_overrides
+        await ChatSessionService.set_mcp_overrides(thread_id, submitted_overrides)
+
     # Only emit the resolved-env hint when:
     # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
     # - This is a newly-created session (so the resolved env *is* what the run is using —
@@ -277,6 +282,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
+        mcp_overrides=effective_overrides,
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task
@@ -298,7 +304,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # a browser EventSource auto-reconnects with Last-Event-ID, but a raw AG-UI
         # client that doesn't must reconnect via ``GET /stream`` with a
         # ``Last-Event-ID`` header to resume a run longer than the cap.
-        return _sse_response(_run_event_frames(thread_id, run_id, "0-0"))
+        return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
 
 

@@ -277,3 +277,9 @@ def test_run_message_id_defaults_blank_and_persists(session_fixture):
     run.save(update_fields=["message_id"])
     run.refresh_from_db()
     assert run.message_id == "h-42"
+
+
+@pytest.mark.django_db
+def test_session_mcp_overrides_defaults_to_empty_dict():
+    s = Session.objects.create(thread_id="t-mcp", origin=SessionOrigin.UI_JOB, repo_id="g/r")
+    assert s.mcp_overrides == {}

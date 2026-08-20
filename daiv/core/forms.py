@@ -229,6 +229,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_fetch_max_content_chars",
             "sandbox_timeout",
             "suggest_context_file_enabled",
+            "session_link_enabled",
             "rocketchat_enabled",
             "rocketchat_url",
             "rocketchat_user_id",

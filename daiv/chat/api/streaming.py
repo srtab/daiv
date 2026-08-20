@@ -4,28 +4,38 @@ import asyncio
 import contextlib
 import logging
 import time
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
+from ag_ui.core.events import (
+    BaseEvent,
+    CustomEvent,
+    EventType,
+    RunErrorEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
+from sessions.services import apersist_session_ref, areset_session_ref
 
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from core import ui_events
 from core.checkpointer import open_checkpointer
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
 from . import relay
 from .event_filter import SubagentEventFilter
-from .threads import ChatSessionService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -71,11 +81,14 @@ async def finalize_chat_run(
     if usage:
         update.update(usage_field_updates(usage, run_ref=run_pk))
     await Run.objects.filter(pk=run_pk).aupdate(**update)
+    # ``aupdate`` fires no post_save, so the nav badge poke the Run signal would have
+    # sent has to be issued here.
+    await ui_events.publisher.aruns_changed()
 
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
 # chat client through STATE_SNAPSHOT events.
-STREAMED_STATE_KEYS = ("merge_request",)
+STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0
@@ -149,6 +162,53 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
                 agui_event.raw_event = {"metadata": provenance}
             yield agui_event
 
+        for text_event in self._assistant_message_frames(event, provenance):
+            yield text_event
+
+    @staticmethod
+    def _assistant_message_frames(event: Any, provenance: dict) -> list[BaseEvent]:
+        """Translate DAIV's ``ASSISTANT_MESSAGE_EVENT`` into the text frames the chat renders.
+
+        See ``automation.agent.utils.streamed_assistant_message`` for why a message the agent
+        produced without a model call never streams on its own.
+
+        This belongs on the event hook rather than in ``SubagentEventFilter``: the frames carry the
+        source event's ``langgraph_checkpoint_ns``, so the filter already drops them when the
+        message came from inside a subagent. Consolidating the two would lose that for free.
+
+        ``ag_ui_langgraph`` ships an equivalent handler for its own ``manually_emit_message``, and
+        reusing it would need no import — only that wire name. It is forked anyway, for two reasons
+        that are easy to miss: upstream hard-subscripts ``event["data"]["message_id"]``, so a single
+        malformed payload raises mid-stream and kills the run, and adopting the name would make an
+        undocumented upstream enum load-bearing, where a rename would silently stop these messages
+        rendering — the exact failure this whole change exists to fix. Copilotkit's
+        ``copilotkit_``-prefixed variant is separately unusable: its handler builds these three
+        frames and then discards them, dropping what ``_dispatch_event`` returns instead of
+        yielding it.
+        """
+        if not isinstance(event, dict) or event.get("event") != "on_custom_event":
+            return []
+        if event.get("name") != ASSISTANT_MESSAGE_EVENT:
+            return []
+        if (parsed := parse_assistant_message(event.get("data"))) is None:
+            logger.warning("chat: malformed %s payload; dropping frames", ASSISTANT_MESSAGE_EVENT)
+            return []
+        # Only the keys the filter reads: stamping the whole event would ship the LangGraph
+        # internals *and* a second copy of the message body on each of the three frames.
+        raw_event = {"metadata": provenance}
+        return [
+            TextMessageStartEvent(
+                type=EventType.TEXT_MESSAGE_START, role="assistant", message_id=parsed.message_id, raw_event=raw_event
+            ),
+            TextMessageContentEvent(
+                type=EventType.TEXT_MESSAGE_CONTENT,
+                message_id=parsed.message_id,
+                delta=parsed.content,
+                raw_event=raw_event,
+            ),
+            TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, message_id=parsed.message_id, raw_event=raw_event),
+        ]
+
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
         # Upstream calls ``graph.config_schema().schema()`` which recurses into
         # ``context_schema=RuntimeCtx``. RuntimeCtx holds a ``git.Repo`` field that
@@ -184,6 +244,7 @@ class ChatRunStreamer:
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
+    mcp_overrides: dict = field(default_factory=dict)
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -199,7 +260,7 @@ class ChatRunStreamer:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
     async def events(self) -> AsyncIterator[BaseEvent]:
-        last_mr: MergeRequest | None = None
+        last_mr: MergeRequest | dict | None = None
         effective_ref = self.ref
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
@@ -230,6 +291,7 @@ class ChatRunStreamer:
                     ref=self.ref,
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
+                    mcp_overrides=self.mcp_overrides,
                     fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):
@@ -242,7 +304,7 @@ class ChatRunStreamer:
                         effective_ref,
                     )
                     try:
-                        await ChatSessionService.reset_ref(self.thread_id, effective_ref)
+                        await areset_session_ref(thread_id=self.thread_id, new_ref=effective_ref)
                     except Exception:
                         # The fallback clone already succeeded; a failed session re-pin must not paint
                         # a viable run as RUN_ERROR. The ref_fallback event still moves the UI.
@@ -385,7 +447,9 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, effective_ref, last_mr)
+                    await apersist_session_ref(
+                        thread_id=self.thread_id, current_ref=effective_ref, merge_request=last_mr
+                    )
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from git import Repo
     from langchain_core.messages import AnyMessage
 
-    from codebase.base import Discussion, Note, Scope, User
+    from codebase.base import Discussion, MergeRequestDiffStats, Note, Scope, User
 
 logger = logging.getLogger("daiv.codebase")
 
@@ -33,6 +33,19 @@ def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) ->
             f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
         )
     return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
+
+
+def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
+    """Return ``thread_id``, computing the deterministic default when it is None.
+
+    An explicit empty string is a caller bug, not a request for the default: the managers hand
+    this to the publisher, where an empty value silently drops the session link and trailer.
+    """
+    if thread_id is None:
+        return compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
+    if not thread_id:
+        raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
+    return thread_id
 
 
 def get_repo_ref(repo: Repo) -> str:
@@ -108,6 +121,38 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
         else:
             messages.append(HumanMessage(id=note.id, content=note.body, name=note.author.username))
     return messages
+
+
+def diff_line_stats(diff: str) -> MergeRequestDiffStats:
+    """Count added/removed lines and touched files in a unified diff.
+
+    The same arithmetic ``git diff --numstat`` does. Position, not prefix, decides what a
+    line is: only inside a hunk (after its ``@@`` header) does a leading ``+``/``-`` mean
+    content. Testing the prefix alone would read the ``+++``/``---`` file headers as
+    content — and, worse, would then have to skip every real line that happens to start
+    with ``++`` or ``--`` to compensate, silently losing ``++i;`` and ``-- comment``.
+
+    Kept as a plain scan rather than a ``unidiff`` parse so it cannot raise on a truncated
+    diff: it feeds a status pill, and a parse error must never abort a publish.
+    """
+    from codebase.base import MergeRequestDiffStats
+
+    added = removed = 0
+    files: set[str] = set()
+    in_hunk = False
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            files.add(line)
+            in_hunk = False
+        elif line.startswith("@@"):
+            in_hunk = True
+        elif not in_hunk:
+            continue
+        elif line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return MergeRequestDiffStats(lines_added=added, lines_removed=removed, files_changed=len(files))
 
 
 def redact_diff_content(diff: str, omit_content_patterns: tuple[str, ...]) -> str:

@@ -41,11 +41,11 @@ class TestSlashCommandRegistry:
         registry = SlashCommandRegistry()
         scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
 
-        registry.register(MockCommand1, "test_command", scopes)
+        registry.register(MockCommand1, "test-command", scopes)
 
-        assert "test_command" in registry._registry
-        assert registry._registry["test_command"] == MockCommand1
-        assert getattr(MockCommand1, "command", None) == "test_command"
+        assert "test-command" in registry._registry
+        assert registry._registry["test-command"] == MockCommand1
+        assert getattr(MockCommand1, "command", None) == "test-command"
         assert getattr(MockCommand1, "scopes", None) == scopes
         assert MockCommand1 in registry._registry_by_scope[Scope.ISSUE.value]
         assert MockCommand1 in registry._registry_by_scope[Scope.MERGE_REQUEST.value]
@@ -56,6 +56,13 @@ class TestSlashCommandRegistry:
 
         with pytest.raises(AssertionError, match="must be a class that inherits from SlashCommand"):
             registry.register(NotACommand, "invalid", [Scope.ISSUE])
+
+    def test_register_invalid_command_name_raises_assertion(self):
+        """Names outside the SKILL_NAME_RE charset are unreachable in the autocomplete."""
+        registry = SlashCommandRegistry()
+
+        with pytest.raises(AssertionError, match="not a valid command name"):
+            registry.register(MockCommand1, "bad.command", [Scope.ISSUE])
 
     def test_register_non_class_raises_assertion(self):
         """Test that registering non-class raises AssertionError."""
@@ -68,26 +75,26 @@ class TestSlashCommandRegistry:
         """Test that registering same command class twice raises AssertionError."""
         registry = SlashCommandRegistry()
 
-        registry.register(MockCommand1, "first_command", [Scope.ISSUE])
+        registry.register(MockCommand1, "first-command", [Scope.ISSUE])
 
         with pytest.raises(AssertionError, match="is already registered"):
-            registry.register(MockCommand1, "second_command", [Scope.ISSUE])
+            registry.register(MockCommand1, "second-command", [Scope.ISSUE])
 
     def test_register_duplicate_command_raises_assertion(self):
         """Test that registering same command twice raises AssertionError."""
         registry = SlashCommandRegistry()
 
-        registry.register(MockCommand1, "duplicate_command", [Scope.ISSUE])
+        registry.register(MockCommand1, "duplicate-command", [Scope.ISSUE])
 
         with pytest.raises(AssertionError, match="is already registered"):
-            registry.register(MockCommand2, "duplicate_command", [Scope.ISSUE])
+            registry.register(MockCommand2, "duplicate-command", [Scope.ISSUE])
 
     def test_register_multiple_scopes(self):
         """Test registering command with multiple scopes."""
         registry = SlashCommandRegistry()
         scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
 
-        registry.register(MockCommand1, "multi_scope", scopes)
+        registry.register(MockCommand1, "multi-scope", scopes)
 
         assert MockCommand1 in registry._registry_by_scope[Scope.ISSUE.value]
         assert MockCommand1 in registry._registry_by_scope[Scope.MERGE_REQUEST.value]
@@ -97,7 +104,7 @@ class TestSlashCommandRegistry:
         registry = SlashCommandRegistry()
         scopes = [Scope.ISSUE]
 
-        registry.register(MockCommand1, "single_scope", scopes)
+        registry.register(MockCommand1, "single-scope", scopes)
 
         assert MockCommand1 in registry._registry_by_scope[Scope.ISSUE.value]
         assert (
@@ -203,9 +210,9 @@ class TestSlashCommandRegistry:
 
         try:
             scopes = [Scope.ISSUE, Scope.MERGE_REQUEST]
-            registry.register(MockCommand1, "test_attributes", scopes)
+            registry.register(MockCommand1, "test-attributes", scopes)
 
-            assert hasattr(MockCommand1, "command") and MockCommand1.command == "test_attributes"
+            assert hasattr(MockCommand1, "command") and MockCommand1.command == "test-attributes"
             assert hasattr(MockCommand1, "scopes") and MockCommand1.scopes == scopes
         finally:
             # Clean up - restore original attributes if they existed

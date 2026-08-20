@@ -6,13 +6,14 @@
  *   selectedId:      string — UUID of the currently selected env; '' means Auto (resolved at runtime).
  *   onChangeEvent:   optional window event name dispatched on selection change with {detail: {id}}.
  *   createUrl:       URL the drawer fetches when "+ New environment" is clicked.
+ *   inline:          true for the sheet variant, which expands in place rather than floating.
  *
  * Window events:
  *   env-created (received): if not already present, prepend the new env; then select it.
  *   open-env-drawer (sent): opens the create drawer with {mode, url} payload.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("envPicker", ({envs = [], selectedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
+    Alpine.data("envPicker", ({envs = [], selectedId = "", onChangeEvent = "", createUrl = "", inline = false} = {}) => ({
         envs: [...envs],
         selectedId: selectedId || "",
         onChangeEvent,
@@ -21,8 +22,12 @@ document.addEventListener("alpine:init", () => {
         query: "",
         highlightIndex: 0,
         _envCreatedHandler: null,
+        _announceOpen: null,
 
         init() {
+            // The sheet variant expands in place *inside* a composer sheet, so it is not a
+            // floating surface — announcing would dismiss the sheet that contains it.
+            this._announceOpen = inline ? null : surfaceGroup.join(() => this.close());
             this._envCreatedHandler = (e) => this.onEnvCreated(e.detail);
             window.addEventListener("env-created", this._envCreatedHandler);
             if (this.selectedId && !this.envs.some(e => e.id === this.selectedId)) {
@@ -39,6 +44,7 @@ document.addEventListener("alpine:init", () => {
         toggle() {
             this.open = !this.open;
             if (this.open) {
+                this._announceOpen?.();
                 this.query = "";
                 this.$nextTick(() => {
                     this.highlightIndex = this._isAutoSelected()

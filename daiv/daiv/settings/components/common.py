@@ -83,6 +83,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
                 "accounts.context_processors.nav",
+                "core.context_processors.build_info",
             ]
         },
     }
@@ -115,7 +116,8 @@ AUTH_USER_MODEL = "accounts.User"
 
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "sessions"
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 30  # 30 days (sliding; refreshed on activity)
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_NAME = "__Secure-sessionid"
 SESSION_COOKIE_SECURE = True

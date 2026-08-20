@@ -48,6 +48,7 @@ The bell entry is written for **notify-worthy** runs — those classified as fou
 
 - The bell dropdown shows your ten most recent notifications and marks them read when you open it.
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
+- The unread badge — and the **N running** badge next to *Sessions* in the sidebar — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
 
 ### Email
 

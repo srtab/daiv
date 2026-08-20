@@ -18,6 +18,7 @@ from langsmith import get_current_run_tree
 from automation.agent.git_manager import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
+from automation.agent.utils import conversation_thread_id
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -93,6 +94,15 @@ class GitState(AgentState):
     code_changes: Annotated[bool, PrivateStateAttr]
     """
     Whether the agent produced code changes that were published to the repository.
+    """
+
+    diff_stats: NotRequired[dict[str, int]]
+    """
+    ``{"lines_added", "lines_removed", "files_changed"}`` for the work published so far.
+    Public on the output schema like ``merge_request``, so the chat composer's ``+x −y``
+    pill updates from the same ``STATE_SNAPSHOT`` that carries the MR. A plain dict rather
+    than the pydantic model: three ints have nothing to gain from an ``lc:2`` envelope
+    round-trip through the checkpointer.
     """
 
     protected_branch_fallback_source: Annotated[str | None, PrivateStateAttr]
@@ -409,8 +419,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if not self.auto_commit_changes:
             return update or None
 
-        publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
+        publisher = GitChangePublisher(
+            runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
+        )
         outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
+
+        if outcome.diff_stats is not None:
+            update["diff_stats"] = outcome.diff_stats.model_dump()
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

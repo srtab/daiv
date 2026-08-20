@@ -77,21 +77,57 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def running_jobs_count(request, user) -> int:
-    """Return the user's running-jobs count, memoized per-request.
+def visible_runs(user):
+    """The runs ``user`` may see, as a queryset.
 
-    The first caller hits the database; subsequent callers on the same request reuse the
-    value via ``request._daiv_running_jobs``. Falls back to 0 and logs on ``DatabaseError``
-    so a transient DB failure degrades the nav badge rather than breaking page rendering.
+    Split from the count so a long-lived reader (the nav SSE stream) resolves platform
+    identity once per connection instead of once per recount — the same hoist
+    ``SessionStreamView._stream`` documents.
+
+    SYNC ONLY — ``visible_to`` resolves that identity with a DB read at query-build time;
+    async callers must wrap this in ``sync_to_async``.
+    """
+    from sessions.models import Run  # local import to avoid circulars
+
+    return Run.objects.visible_to(user)
+
+
+def count_running(visible) -> int:
+    """RUNNING rows in a queryset from ``visible_runs``.
+
+    ``values("pk")`` keeps the DISTINCT of the visibility join off every Run column.
+    """
+    from sessions.models import RunStatus  # local import to avoid circulars
+
+    return visible.filter(status=RunStatus.RUNNING).values("pk").count()
+
+
+def query_running_jobs(user) -> int:
+    """Count the runs ``user`` can see that are currently RUNNING.
+
+    The nav badge's single source of truth: the first page render reads it through
+    ``nav`` below, and every subsequent update comes from the SSE endpoint
+    (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Raises on
+    ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
+    but a live stream must keep the browser's last value rather than push a zero it
+    cannot distinguish from a real one.
+
+    SYNC ONLY — see ``visible_runs``.
+    """
+    return count_running(visible_runs(user))
+
+
+def running_jobs_count(request, user) -> int:
+    """``query_running_jobs`` memoized per-request via ``request._daiv_running_jobs``.
+
+    Degrades to 0 on ``DatabaseError`` so a transient DB failure costs the badge rather
+    than the whole page render.
     """
     cached = getattr(request, "_daiv_running_jobs", None)
     if cached is not None:
         return cached
-
-    from sessions.models import Run, RunStatus  # local import to avoid circulars
-
     try:
-        running = Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
+        running = query_running_jobs(user)
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
         running = 0

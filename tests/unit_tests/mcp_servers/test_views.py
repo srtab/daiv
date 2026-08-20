@@ -27,7 +27,7 @@ def _create_post_data(name="srv", url="https://srv.test/mcp"):
         "description": "",
         "transport": "http",
         "url": url,
-        "enabled": "on",
+        "status": "active",
         "tool_filter_mode": "none",
         "tool_filter_items": "",
         "headers-TOTAL_FORMS": "0",
@@ -69,7 +69,7 @@ def test_member_can_create_personal_server(member_client, member_user):
             "description": "",
             "transport": "http",
             "url": "https://u.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "headers-TOTAL_FORMS": "0",
             "headers-INITIAL_FORMS": "0",
@@ -229,7 +229,7 @@ def test_create_post_creates_server(client, admin_user):
             "name": "from-ui",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -253,7 +253,7 @@ def test_edit_custom_updates_fields(client, admin_user):
             "name": "ed",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -328,7 +328,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
             "name": "rt",
             "transport": "http",
             "url": "http://rt.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "3",
@@ -361,7 +361,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
 @pytest.mark.django_db
 def test_edit_builtin_full_form_persists(client, admin_user):
     obj = MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp"
     )
     client.force_login(admin_user)
     resp = client.post(
@@ -371,7 +371,7 @@ def test_edit_builtin_full_form_persists(client, admin_user):
             "description": "repointed at on-prem bridge",
             "transport": "http",
             "url": "https://bridge.internal/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -390,7 +390,7 @@ def test_edit_builtin_full_form_persists(client, admin_user):
 @pytest.mark.django_db
 def test_edit_builtin_rename_rejected(client, admin_user):
     obj = MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp"
     )
     client.force_login(admin_user)
     resp = client.post(
@@ -439,16 +439,17 @@ def test_delete_builtin_redirects_with_error(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_toggle_flips_enabled(client, admin_user):
-    obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", enabled=True)
+def test_set_status_cycles_through_values(client, admin_user):
+    obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", status=MCPServer.Status.ACTIVE)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
+    resp = client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "disabled"})
     assert resp.status_code == 302
     obj.refresh_from_db()
-    assert obj.enabled is False
-    client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
+    assert obj.status == MCPServer.Status.DISABLED
+    resp = client.post(reverse("mcp_servers:set_status", args=[obj.pk]), {"status": "active"})
+    assert resp.status_code == 302
     obj.refresh_from_db()
-    assert obj.enabled is True
+    assert obj.status == MCPServer.Status.ACTIVE
 
 
 @pytest.mark.django_db
@@ -578,7 +579,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
             "name": "multi",
             "transport": "http",
             "url": "http://multi.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "allow",
             "tool_filter_items": ["alpha", "beta", "gamma"],
             "headers-TOTAL_FORMS": "0",
@@ -609,7 +610,7 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
             "name": "synced",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -638,7 +639,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
             "name": "synced-create",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -667,7 +668,7 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
             "name": "warned",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -700,7 +701,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
             "name": "locked",
             "transport": "http",
             "url": "http://new.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -727,7 +728,7 @@ def test_create_rejects_reserved_name(client, admin_user):
             "name": "new",
             "transport": "http",
             "url": "http://x.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -749,7 +750,6 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
         transport="http",
         url="http://broken.test",
         headers=[{"name": "Authorization", "mode": "env_ref", "value": "DEFINITELY_NOT_SET"}],
-        enabled=True,
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
@@ -767,7 +767,7 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
         transport="http",
         url="http://x.test",
         headers=[{"name": "X", "mode": "env_ref", "value": "ALSO_NOT_SET"}],
-        enabled=False,
+        status=MCPServer.Status.DISABLED,
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
@@ -875,7 +875,6 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
         name="withtools",
         transport="http",
         url="http://x.test",
-        enabled=True,
         discovered_tools=[
             {"name": "create_pr", "description": "", "read_only": False},
             {"name": "get_file", "description": "", "read_only": True},
@@ -893,7 +892,7 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
 @pytest.mark.django_db
 def test_list_shows_not_synced_when_never_synced(client, admin_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
-    MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
+    MCPServer.objects.create(name="nosync", transport="http", url="http://x.test")
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:global_list"))
     assert b"not synced yet" in resp.content.lower()
@@ -908,9 +907,39 @@ def test_list_shows_your_servers_section_to_member(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_list_shadow_badge_ignores_disabled_globals(member_client, member_user):
+    """Shadow badge mirrors deduped_pool_rows: a non-disabled global shadows a same-named
+    user row (it won't load at runtime), but a disabled global does not — that user row still
+    loads, so it must not be flagged."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    for name, gstatus in (("act", MCPServer.Status.ACTIVE), ("dis", MCPServer.Status.DISABLED)):
+        MCPServer.objects.create(
+            name=name,
+            scope=MCPServer.Scope.GLOBAL,
+            transport=MCPServer.Transport.HTTP,
+            url=f"http://g-{name}",
+            status=gstatus,
+        )
+        MCPServer.objects.create(
+            name=name,
+            scope=MCPServer.Scope.USER,
+            user=member_user,
+            transport=MCPServer.Transport.HTTP,
+            url=f"http://u-{name}",
+            status=MCPServer.Status.ACTIVE,
+        )
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    your = {s.name: s for s in resp.context["your_servers"]}
+    assert your["act"].shadowed is True
+    assert your["dis"].shadowed is False
+
+
+@pytest.mark.django_db
 def test_member_list_hides_global_health_reason(member_client):
     g = _global()
-    g.enabled = True
     # Force a degraded health with a reason that names an env var.
     g.headers = [{"name": "A", "mode": "env_ref", "value": "SECRET_HOST_VAR"}]
     g.save()
@@ -1175,25 +1204,31 @@ def test_test_endpoint_undecryptable_borrow_returns_400(member_client, member_us
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+@pytest.mark.parametrize("route", ["set_status", "delete", "refresh_tools"])
 def test_member_cannot_manage_global(member_client, route):
-    """A member cannot toggle/delete/refresh a global server (admin-only) → 403."""
+    """A member cannot set_status/delete/refresh a global server (admin-only) → 403."""
     g = _global(name="glob")
-    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]))
+    data = {"status": "disabled"} if route == "set_status" else {}
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]), data)
     assert resp.status_code == 403
-    g.refresh_from_db()
-    assert g.enabled is True  # toggle had no effect
     assert MCPServer.objects.filter(pk=g.pk).exists()  # delete had no effect
+    if route == "set_status":
+        g.refresh_from_db()
+        assert g.status == MCPServer.Status.ACTIVE  # set_status had no effect
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+@pytest.mark.parametrize("route", ["set_status", "delete", "refresh_tools"])
 def test_member_cannot_manage_other_users_server(member_client, admin_user, route):
-    """A member cannot toggle/delete/refresh another user's personal server → 404."""
+    """A member cannot set_status/delete/refresh another user's personal server → 404."""
     other = _user_server(admin_user, name="theirs")
-    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]))
+    data = {"status": "disabled"} if route == "set_status" else {}
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]), data)
     assert resp.status_code == 404
     assert MCPServer.objects.filter(pk=other.pk).exists()  # delete had no effect
+    if route == "set_status":
+        other.refresh_from_db()
+        assert other.status == MCPServer.Status.ACTIVE  # set_status had no effect
 
 
 @pytest.mark.django_db
@@ -1372,17 +1407,17 @@ def test_global_section_is_read_only_on_personal_page_even_for_admin(admin_clien
 
 
 @pytest.mark.django_db
-def test_toggle_global_redirects_to_global_list(admin_client):
+def test_set_status_global_redirects_to_global_list(admin_client):
     g = _global(name="tgl")
-    resp = admin_client.post(reverse("mcp_servers:toggle", args=[g.pk]))
+    resp = admin_client.post(reverse("mcp_servers:set_status", args=[g.pk]), {"status": "disabled"})
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:global_list")
 
 
 @pytest.mark.django_db
-def test_toggle_personal_redirects_to_list(member_client, member_user):
+def test_set_status_personal_redirects_to_list(member_client, member_user):
     s = _user_server(member_user)
-    resp = member_client.post(reverse("mcp_servers:toggle", args=[s.pk]))
+    resp = member_client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "disabled"})
     assert resp.url == reverse("mcp_servers:list")
 
 
@@ -1402,7 +1437,7 @@ def test_edit_global_save_redirects_to_global_list(admin_client):
             "name": "edg",
             "transport": "http",
             "url": "http://edg.test",
-            "enabled": "on",
+            "status": "active",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
@@ -1419,14 +1454,14 @@ def test_edit_global_save_redirects_to_global_list(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_form_header_hosts_enabled_toggle(admin_client):
+def test_create_form_renders_status_segmented_control(admin_client):
     resp = admin_client.get(reverse("mcp_servers:create"))
     body = resp.content.decode()
     assert 'id="mcp-server-form"' in body
-    # The toggle lives outside <form> and binds via the form attribute, checked by default.
-    assert 'form="mcp-server-form"' in body
-    toggle = next(seg for seg in body.split("<input") if 'form="mcp-server-form"' in seg)
-    assert "checked" in toggle
+    # The status segmented control renders exactly the three Status choices as radio inputs.
+    assert body.count('name="status"') == len(MCPServer.Status.choices)
+    for value, _label in MCPServer.Status.choices:
+        assert f'value="{value}"'.encode() in resp.content
 
 
 # --- Tool-filter visibility gating ---
@@ -1493,3 +1528,35 @@ def test_edit_refresh_is_icon_button_with_metadata(admin_client):
     body = resp.content.decode()
     assert 'form="refresh-tools-form"' in body  # icon button submits the hidden form
     assert "2 tools" in body  # discovered count in the legend metadata
+
+
+@pytest.mark.django_db
+def test_set_status_view_updates_status(client, admin_user):
+    s = MCPServer.objects.create(
+        name="s",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        status=MCPServer.Status.ACTIVE,
+    )
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "on-demand"})
+    assert resp.status_code in (302, 303)
+    s.refresh_from_db()
+    assert s.status == MCPServer.Status.ON_DEMAND
+
+
+@pytest.mark.django_db
+def test_set_status_view_rejects_unknown_status(client, admin_user):
+    s = MCPServer.objects.create(
+        name="s2",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        status=MCPServer.Status.ACTIVE,
+    )
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:set_status", args=[s.pk]), {"status": "banana"})
+    assert resp.status_code == 400
+    s.refresh_from_db()
+    assert s.status == MCPServer.Status.ACTIVE

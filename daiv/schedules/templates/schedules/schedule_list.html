@@ -10,12 +10,12 @@
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div class="animate-fade-up flex items-center justify-between">
-    <div>
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
         <h1 class="text-2xl font-bold tracking-tight">{% translate "Scheduled Jobs" %}</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">{% translate "Automate agent runs on repositories with recurring schedules." %}</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="page-header__actions">
         {% if schedule_templates %}
         <button type="button"
                 onclick="window.dispatchEvent(new CustomEvent('open-template-gallery'))"

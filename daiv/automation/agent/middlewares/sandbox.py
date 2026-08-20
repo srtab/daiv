@@ -14,12 +14,12 @@ from langchain.agents.middleware import AgentMiddleware, AgentState, ModelReques
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
-from langgraph.config import get_config
 from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
+from automation.agent.utils import conversation_thread_id
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -471,25 +471,6 @@ class SandboxMiddleware(AgentMiddleware):
             self._sandbox_backend.bind_session(session_id)
 
     @staticmethod
-    def _conversation_thread_id() -> str | None:
-        """Read the conversation ``thread_id`` from the active run config.
-
-        Agent-level middleware hooks receive a langgraph ``Runtime`` (which has no ``config``
-        attribute), so the thread_id is read from the run config contextvar via ``get_config()``.
-        Returns None when called outside a runnable context — the session is then force-removed
-        (the behavior for non-chat automation runs).
-        """
-        try:
-            config = get_config()
-        except RuntimeError:
-            # No runnable context (e.g. a non-chat automation run): disable reuse silently but
-            # leave a breadcrumb so a future invocation path that unexpectedly lacks the context
-            # — and thus never reuses sessions — is diagnosable rather than invisible.
-            logger.debug("No runnable context; sandbox session reuse disabled for this run")
-            return None
-        return config.get("configurable", {}).get("thread_id")
-
-    @staticmethod
     async def _session_exists(client: DAIVSandboxClient, session_id: str) -> bool:
         """Whether ``session_id`` still exists on the sandbox (restarting it if stopped).
 
@@ -641,7 +622,11 @@ class SandboxMiddleware(AgentMiddleware):
         client = self._client
         if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
             session_id = state["session_id"]
-            resumable = self._conversation_thread_id() is not None
+            resumable = conversation_thread_id() is not None
+            if not resumable:
+                # Breadcrumb so an invocation path that unexpectedly lacks the run config — and thus
+                # never reuses sessions — is diagnosable rather than invisible.
+                logger.debug("No conversation thread_id; sandbox session reuse disabled for this run")
             try:
                 await client.close_session(session_id, force=not resumable)
             except httpx.HTTPStatusError as exc:

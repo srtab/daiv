@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models.signals import post_save
 from django.dispatch import Signal, receiver
 
@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
 from jobs.tasks import run_job_task
 
+from core import ui_events
 from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
@@ -70,6 +71,39 @@ def backfill_session_user(sender: type, instance: Any, created: bool, **kwargs: 
 
     if updated_sessions:
         logger.info("Backfilled %d sessions for new user %s (pk=%s)", updated_sessions, instance.username, instance.pk)
+
+
+# ``agent_sessions`` (not ``sessions``) — see ``SessionsConfig.label``. A lazy sender string
+# keeps ``sessions.models`` out of this module's import graph, as the local imports below do.
+@receiver(post_save, sender="agent_sessions.Run", dispatch_uid="sessions.publish_nav_runs_changed")
+def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Poke the nav SSE readers whenever a Run's status may have moved.
+
+    The sidebar's "N running" badge is per-viewer, so readers recompute their own
+    count from this poke (see ``core.ui_events``). Deferred to commit so the recount
+    cannot read a pre-write snapshot.
+
+    On an update the gate is a deliberate superset — a full save carries no
+    ``update_fields`` to inspect — because an extra poke costs one COUNT per reader
+    while a missed one leaves a stale badge until the connection's next resync. A
+    create is exact instead: the status is in hand, and every other run creation
+    (``READY``/``QUEUED`` from the webhook, API, MCP, schedule and batch paths) is a
+    row no reader's count can include.
+
+    Writes that bypass this signal (``Run.objects...aupdate()`` in
+    ``chat.api.streaming.finalize_chat_run``, the ``.update()`` in the
+    ``sync_stuck_runs`` reaper) publish for themselves.
+    """
+    from sessions.models import RunStatus  # local import to avoid circulars
+
+    if created:
+        if instance.status == RunStatus.RUNNING:
+            transaction.on_commit(ui_events.publisher.runs_changed)
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "status" not in update_fields:
+        return
+    transaction.on_commit(ui_events.publisher.runs_changed)
 
 
 def emit_run_finished_if_terminal(run: Any, previous_status: str | None, *, skip_dispatch: bool = False) -> None:
