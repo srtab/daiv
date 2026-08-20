@@ -209,6 +209,10 @@ def reclassify_missing_envelopes_cron_task():
     A FAILED run with no envelope is likewise re-targeted and gets its ``failed`` envelope with no LLM
     call.
 
+    Only ``classify_eligible`` runs are swept: pre-deploy rows are backfilled ineligible so a
+    coverage-widening deploy never retro-classifies (and never retro-notifies) the backlog, while
+    everything created afterward defaults eligible and stays a catch-all.
+
     Both the grace cutoff and the recency floor are keyed on ``finished_at``, not ``created_at``:
     batch siblings and orphan-queued recovery can make created_at→finished_at gaps exceed a day, so a
     ``created_at`` floor would permanently skip a run that finishes long after creation.
@@ -228,6 +232,7 @@ def reclassify_missing_envelopes_cron_task():
             trigger_type__in=get_classify_origins(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
+            classify_eligible=True,
             # Keyed on finished_at (see docstring); terminal runs always have it set.
             finished_at__lt=grace_cutoff,
             finished_at__gte=age_floor,

@@ -29,10 +29,18 @@ def test_sync_stuck_runs_cron_task_dispatches_command():
 # --- reclassify_missing_envelopes_cron_task (Epic 1 review backstop) --------
 
 
-def _stranded_run(*, status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.SCHEDULE, finished_age=None) -> Run:
+def _stranded_run(
+    *, status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.SCHEDULE, finished_age=None, classify_eligible=True
+) -> Run:
     """A terminal Run whose finished_at is pushed past the grace window (and inside the max-age floor)."""
     session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="group/repo")
-    run = Run.objects.create(session=session, trigger_type=trigger_type, repo_id="group/repo", status=status)
+    run = Run.objects.create(
+        session=session,
+        trigger_type=trigger_type,
+        repo_id="group/repo",
+        status=status,
+        classify_eligible=classify_eligible,
+    )
     finished = timezone.now() - (finished_age if finished_age is not None else RECLASSIFY_GRACE + timedelta(minutes=1))
     Run.objects.filter(pk=run.pk).update(finished_at=finished)
     run.refresh_from_db()
@@ -79,3 +87,13 @@ def test_reclassify_keys_on_finished_at_not_created_at():
     with patch("sessions.tasks.classify_run_task") as task:
         reclassify_missing_envelopes_cron_task.func()
     assert {call.args[0] for call in task.enqueue.call_args_list} == {str(run.pk)}
+
+
+@pytest.mark.django_db
+def test_reclassify_skips_ineligible_runs():
+    """Pre-deploy runs (classify_eligible=False) are out of scope; eligible siblings are still re-enqueued."""
+    eligible = _stranded_run(classify_eligible=True)
+    _stranded_run(classify_eligible=False)  # pre-deploy backlog: must be skipped
+    with patch("sessions.tasks.classify_run_task") as task:
+        reclassify_missing_envelopes_cron_task.func()
+    assert {call.args[0] for call in task.enqueue.call_args_list} == {str(eligible.pk)}
