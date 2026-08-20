@@ -273,27 +273,17 @@ def notify_worthy(status: str) -> bool:
 
 
 def _within_relevance_window(finished_at) -> bool:
-    """Notify only for runs that finished recently and after the coverage-widening cutoff.
+    """Notify only for runs that finished recently.
 
     The window reuses ``RECLASSIFY_MAX_AGE`` (one shared knob): inside it we prefer late delivery over
     dropping, so an outage-delayed but genuinely-recent run still notifies.
     """
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
-    from notifications.conf import settings as notif_settings
-
     if finished_at is None:
         return False
     now = timezone.now()
-    if finished_at < now - RECLASSIFY_MAX_AGE:
-        return False
-    not_before = notif_settings.NOTIFY_NOT_BEFORE
-    if not_before is not None:
-        if timezone.is_naive(not_before):
-            not_before = timezone.make_aware(not_before)
-        if finished_at < not_before:
-            return False
-    return True
+    return not finished_at < now - RECLASSIFY_MAX_AGE
 
 
 @receiver(run_classified, dispatch_uid="notifications.on_run_classified")
