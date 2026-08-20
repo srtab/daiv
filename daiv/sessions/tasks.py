@@ -27,9 +27,9 @@ RECLASSIFY_MAX_AGE = timedelta(hours=24)  # tunable
 
 @task(dedup=True)
 async def classify_run_task(run_id: str) -> None:
-    """Classify a finished scheduled run's prose report into its :class:`~sessions.models.RunEnvelope`.
+    """Classify a finished non-chat run's prose report into its :class:`~sessions.models.RunEnvelope`.
 
-    Enqueued by the ``classify_on_run_finished`` receiver (SCHEDULE-only, terminal-only). Runs
+    Enqueued by the ``classify_on_run_finished`` receiver (all non-chat origins, terminal-only). Runs
     out-of-band and never writes to or mutates ``Run``/``Run.task_result`` — it reads the run
     (including ``response_text``) as its input and the only row it creates is its own envelope.
 
