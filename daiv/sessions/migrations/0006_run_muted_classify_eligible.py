@@ -1,6 +1,14 @@
 from django.db import migrations, models
 
 
+def backfill_run_muted(apps, schema_editor):
+    """Run.notify_on=None → muted=None (inherit); any non-null notify_on → muted=False (a prior explicit
+    "never" is intentionally not preserved as silence). Schedule/template rows already default to
+    muted=False via AddField."""
+    Run = apps.get_model("agent_sessions", "Run")
+    Run.objects.filter(notify_on__isnull=False).update(muted=False)
+
+
 def backfill_ineligible(apps, schema_editor):
     """Pre-deploy terminal runs are out of scope for the reclassify backstop.
 
@@ -13,9 +21,17 @@ def backfill_ineligible(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0008_merge_0005_session_mcp_overrides_0007_drop_notify_on")]
+    dependencies = [("agent_sessions", "0005_session_mcp_overrides")]
 
     operations = [
+        migrations.AddField(
+            model_name="run",
+            name="muted",
+            field=models.BooleanField(blank=True, default=None, null=True, verbose_name="muted"),
+        ),
+        migrations.RunPython(backfill_run_muted, migrations.RunPython.noop),
+        migrations.RemoveConstraint(model_name="run", name="run_notify_on_valid"),
+        migrations.RemoveField(model_name="run", name="notify_on"),
         migrations.AddField(
             model_name="run",
             name="classify_eligible",
