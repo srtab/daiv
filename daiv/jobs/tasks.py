@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from django_tasks import task
 from sessions.locks import SessionLock
@@ -66,25 +66,6 @@ async def _persist_resolved_agent(
         logger.exception("run_job_task: failed to persist resolved agent model for thread_id=%s", thread_id)
 
 
-async def _persist_published_ref(*, thread_id: str, current_ref: str, snapshot: Any) -> None:
-    """Sync ``Session.ref`` with the branch this run published to.
-
-    The chat streamer reads that branch off its final ``STATE_SNAPSHOT``; a job run has no
-    stream, so it reads the same value off the persisted checkpoint. Best-effort like the
-    resolved-model write above — a cosmetic pointer must never fail a run that published.
-    """
-    # Local import: ``sessions.services`` imports this module at module level.
-    from sessions.services import apersist_session_ref
-
-    values = getattr(snapshot, "values", None) or {}
-    try:
-        await apersist_session_ref(
-            thread_id=thread_id, current_ref=current_ref, merge_request=values.get("merge_request")
-        )
-    except Exception:
-        logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
-
-
 async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
     while True:
         await asyncio.sleep(LOCK_HEARTBEAT_INTERVAL_S)
@@ -129,6 +110,9 @@ async def run_job_task(
     """
     # Heavy imports live here so enqueue-side importers of this module stay light.
     from langchain_core.messages import HumanMessage
+
+    # Local for the cycle, not the weight: ``sessions.services`` imports this module.
+    from sessions.services import apersist_session_ref
 
     from automation.agent.graph import create_daiv_agent
     from automation.agent.results import build_agent_result
@@ -220,8 +204,15 @@ async def run_job_task(
     response_text = extract_text_content(messages[-1].content)
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
+    # The chat streamer takes this off its final STATE_SNAPSHOT; a job run has no stream, so it
+    # reads the branch it published to off the checkpoint ``build_agent_result`` needs anyway.
     snapshot = await daiv_agent.aget_state(config=config)
-    await _persist_published_ref(thread_id=thread_id, current_ref=ref or "", snapshot=snapshot)
+    try:
+        await apersist_session_ref(
+            thread_id=thread_id, current_ref=ref or "", merge_request=snapshot.values.get("merge_request")
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
     return await build_agent_result(
         daiv_agent,
         config,

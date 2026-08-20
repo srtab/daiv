@@ -122,13 +122,3 @@ class ChatSessionService:
         "the pool defaults", not "no selection sent".
         """
         await Session.objects.filter(thread_id=thread_id).aupdate(mcp_overrides=overrides)
-
-    @staticmethod
-    async def reset_ref(thread_id: str, new_ref: str) -> None:
-        """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
-
-        Unlike ``apersist_session_ref`` (success-only, driven by the agent's final MR), this
-        fires the moment the clone falls back, so the session self-heals even if the turn
-        later fails.
-        """
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)

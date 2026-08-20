@@ -17,10 +17,14 @@ from sessions.services import (
     acreate_run,
     aget_or_create_session,
     apersist_session_ref,
+    areset_session_ref,
     asubmit_batch_runs,
     submit_batch_runs,
 )
 from sessions.validators import validate_repo_list
+
+from codebase.base import MergeRequest
+from codebase.base import User as CodebaseUser
 
 pytestmark = pytest.mark.django_db
 
@@ -666,54 +670,54 @@ class TestCreateRunNotifyOn:
 # ---------------------------------------------------------------------------
 
 
+def _mr(branch: str) -> MergeRequest:
+    return MergeRequest(
+        repo_id="a/b",
+        merge_request_id=7,
+        source_branch=branch,
+        target_branch="main",
+        title="t",
+        description="d",
+        author=CodebaseUser(id=1, username="daiv"),
+    )
+
+
 @pytest.mark.django_db(transaction=True)
-async def test_persist_session_ref_updates_when_branch_changed():
+@pytest.mark.parametrize("merge_request", [_mr("feature-y"), {"source_branch": "feature-y"}], ids=["model", "dict"])
+async def test_persist_session_ref_updates_when_branch_changed(merge_request):
+    # The two shapes a caller can hold: the checkpoint revives a ``MergeRequest``, while an
+    # AG-UI snapshot carries the dict its JSON encoder produced.
     await Session.objects.acreate(thread_id="t-ref-1", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
 
-    await apersist_session_ref(
-        thread_id="t-ref-1", current_ref="feature-x", merge_request=SimpleNamespace(source_branch="feature-y")
-    )
+    await apersist_session_ref(thread_id="t-ref-1", current_ref="feature-x", merge_request=merge_request)
 
     refreshed = await Session.objects.aget(thread_id="t-ref-1")
     assert refreshed.ref == "feature-y"
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_persist_session_ref_accepts_a_rehydrated_dict():
-    # The checkpointer revives the snapshot's merge_request as a plain dict on resumed runs.
-    await Session.objects.acreate(thread_id="t-ref-4", origin=SessionOrigin.UI_JOB, repo_id="a/b", ref="main")
-
-    await apersist_session_ref(thread_id="t-ref-4", current_ref="main", merge_request={"source_branch": "feature-z"})
-
-    refreshed = await Session.objects.aget(thread_id="t-ref-4")
-    assert refreshed.ref == "feature-z"
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_session_ref_noop_when_branch_unchanged():
+@pytest.mark.parametrize(
+    ("current_ref", "merge_request"),
+    [
+        ("feature-x", _mr("feature-x")),
+        ("feature-x", None),
+        ("main", {"source_branch": object()}),
+        ("main", SimpleNamespace(source_branch="feature-y")),
+    ],
+    ids=["branch-unchanged", "nothing-published", "branch-not-a-string", "unknown-shape"],
+)
+async def test_persist_session_ref_never_writes_without_a_new_branch(current_ref, merge_request):
     with patch("sessions.services.Session.objects.filter") as filter_mock:
-        await apersist_session_ref(
-            thread_id="t-ref-2", current_ref="feature-x", merge_request=SimpleNamespace(source_branch="feature-x")
-        )
+        await apersist_session_ref(thread_id="t-ref", current_ref=current_ref, merge_request=merge_request)
 
     filter_mock.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_persist_session_ref_noop_when_no_mr_captured():
-    with patch("sessions.services.Session.objects.filter") as filter_mock:
-        await apersist_session_ref(thread_id="t-ref-3", current_ref="feature-x", merge_request=None)
+async def test_reset_session_ref_repins_the_row():
+    await Session.objects.acreate(thread_id="t-ref-6", origin=SessionOrigin.CHAT, repo_id="a/b", ref="gone")
 
-    filter_mock.assert_not_called()
+    await areset_session_ref(thread_id="t-ref-6", new_ref="main")
 
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_session_ref_ignores_a_branch_that_is_not_a_string():
-    # The branch survives a Redis round-trip before landing here; a non-str would only
-    # surface as a DataError on the CharField write.
-    with patch("sessions.services.Session.objects.filter") as filter_mock:
-        await apersist_session_ref(
-            thread_id="t-ref-5", current_ref="main", merge_request=SimpleNamespace(source_branch=object())
-        )
-
-    filter_mock.assert_not_called()
+    refreshed = await Session.objects.aget(thread_id="t-ref-6")
+    assert refreshed.ref == "main"

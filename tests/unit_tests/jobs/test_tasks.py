@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, contextmanager, suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -286,8 +286,8 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
     assert run.agent_model == ""
 
 
-def _publishing_agent(merge_request):
-    """An agent stub whose run produced ``merge_request`` in its persisted checkpoint."""
+def _agent_with_mr(merge_request):
+    """An agent stub whose run left ``merge_request`` in its persisted checkpoint."""
     last_message = MagicMock()
     last_message.content = "ok"
     agent = AsyncMock()
@@ -296,8 +296,8 @@ def _publishing_agent(merge_request):
     return agent
 
 
-@asynccontextmanager
-async def _job_scaffolding(agent):
+@contextmanager
+def _job_scaffolding(agent):
     with (
         patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer"),
@@ -324,7 +324,7 @@ async def test_run_job_task_syncs_the_session_ref_with_the_published_branch():
     """
     await Session.objects.acreate(thread_id="t-ref-job", origin=SessionOrigin.UI_JOB, repo_id="owner/repo", ref="main")
 
-    async with _job_scaffolding(_publishing_agent({"source_branch": "feat/published"})):
+    with _job_scaffolding(_agent_with_mr({"source_branch": "feat/published"})):
         await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job")
 
     refreshed = await Session.objects.aget(thread_id="t-ref-job")
@@ -337,7 +337,7 @@ async def test_run_job_task_leaves_the_session_ref_alone_when_nothing_published(
         thread_id="t-ref-job-2", origin=SessionOrigin.UI_JOB, repo_id="owner/repo", ref="main"
     )
 
-    async with _job_scaffolding(_publishing_agent(None)):
+    with _job_scaffolding(_agent_with_mr(None)):
         await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-2")
 
     refreshed = await Session.objects.aget(thread_id="t-ref-job-2")
@@ -353,8 +353,10 @@ async def test_run_job_task_survives_a_failed_ref_sync():
         thread_id="t-ref-job-3", origin=SessionOrigin.UI_JOB, repo_id="owner/repo", ref="main"
     )
 
-    async with _job_scaffolding(_publishing_agent({"source_branch": "feat/published"})):
-        with patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))):
-            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
+    with (
+        _job_scaffolding(_agent_with_mr({"source_branch": "feat/published"})),
+        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=RuntimeError("db down"))),
+    ):
+        result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
 
     assert result == {"response": "ok"}

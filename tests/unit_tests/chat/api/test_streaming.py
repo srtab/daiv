@@ -212,8 +212,8 @@ async def test_events_skips_persist_ref_when_run_errored():
     persist_calls: list = []
     release_calls: list = []
 
-    async def _capture_persist(**kwargs):
-        persist_calls.append(kwargs)
+    async def _capture_persist(*, thread_id, current_ref, merge_request):
+        persist_calls.append((thread_id, current_ref, merge_request))
 
     async def _capture_release(*args):
         release_calls.append(args)
@@ -288,8 +288,8 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     persist_calls: list = []
 
-    async def _capture_persist(**kwargs):
-        persist_calls.append(kwargs)
+    async def _capture_persist(*, thread_id, current_ref, merge_request):
+        persist_calls.append((thread_id, current_ref, merge_request))
 
     streamed_events: list = []
 
@@ -842,7 +842,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
 
     reset_calls = []
 
-    async def _capture_reset(thread_id, new_ref):
+    async def _capture_reset(*, thread_id, new_ref):
         reset_calls.append((thread_id, new_ref))
 
     emitted = []
@@ -856,7 +856,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.start_chat_run", new=start_chat_run),
         patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
-        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=_capture_reset),
+        patch("chat.api.streaming.areset_session_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -893,7 +893,7 @@ async def test_events_ref_fallback_survives_reset_ref_failure():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
-        patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=RuntimeError("db down")),
+        patch("chat.api.streaming.areset_session_ref", side_effect=RuntimeError("db down")),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):

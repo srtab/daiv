@@ -300,6 +300,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
                 "merge_request": None,
+                "thread_ref": "",
                 "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
