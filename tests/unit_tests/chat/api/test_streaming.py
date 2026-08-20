@@ -99,8 +99,8 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
     persist_calls = []
     release_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
-        persist_calls.append((thread_id, original_ref, captured_mr))
+    async def _capture_persist(*, thread_id, current_ref, merge_request):
+        persist_calls.append((thread_id, current_ref, merge_request))
 
     async def _capture_release(thread_id, run_id):
         release_calls.append((thread_id, run_id))
@@ -110,7 +110,7 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot])),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -142,15 +142,15 @@ async def test_events_captures_latest_merge_request_when_multiple_snapshots():
 
     persist_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
-        persist_calls.append((thread_id, original_ref, captured_mr))
+    async def _capture_persist(*, thread_id, current_ref, merge_request):
+        persist_calls.append((thread_id, current_ref, merge_request))
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap_first, snap_last])),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -163,7 +163,7 @@ async def test_events_captures_latest_merge_request_when_multiple_snapshots():
 @pytest.mark.django_db(transaction=True)
 async def test_events_persists_none_when_no_state_snapshot_carries_merge_request():
     # A run that never emits a snapshot with ``merge_request`` should leave the
-    # thread's ref untouched. We assert this via persist_ref receiving None.
+    # thread's ref untouched. We assert this via apersist_session_ref receiving None.
     snapshot_no_mr = StateSnapshotEvent(
         type=EventType.STATE_SNAPSHOT,
         raw_event={"metadata": {"langgraph_checkpoint_ns": ""}},
@@ -172,15 +172,15 @@ async def test_events_persists_none_when_no_state_snapshot_carries_merge_request
 
     persist_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
-        persist_calls.append((thread_id, original_ref, captured_mr))
+    async def _capture_persist(*, thread_id, current_ref, merge_request):
+        persist_calls.append((thread_id, current_ref, merge_request))
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot_no_mr])),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -212,8 +212,8 @@ async def test_events_skips_persist_ref_when_run_errored():
     persist_calls: list = []
     release_calls: list = []
 
-    async def _capture_persist(*args):
-        persist_calls.append(args)
+    async def _capture_persist(**kwargs):
+        persist_calls.append(kwargs)
 
     async def _capture_release(*args):
         release_calls.append(args)
@@ -223,7 +223,7 @@ async def test_events_skips_persist_ref_when_run_errored():
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -237,7 +237,7 @@ async def test_events_skips_persist_ref_when_run_errored():
 
 @pytest.mark.django_db(transaction=True)
 async def test_events_releases_run_even_when_persist_ref_raises():
-    # Regression: a DB hiccup in persist_ref must not leave the per-thread
+    # Regression: a DB hiccup in the ref sync must not leave the per-thread
     # slot permanently claimed.
     release_calls = []
 
@@ -252,7 +252,7 @@ async def test_events_releases_run_even_when_persist_ref_raises():
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_persist_boom),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_persist_boom),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -288,8 +288,8 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     persist_calls: list = []
 
-    async def _capture_persist(*args):
-        persist_calls.append(args)
+    async def _capture_persist(**kwargs):
+        persist_calls.append(kwargs)
 
     streamed_events: list = []
 
@@ -299,7 +299,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([err])),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_capture_persist),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -342,7 +342,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -539,7 +539,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
         patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
         patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -585,7 +585,7 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner_mock),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -635,7 +635,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
         # Cancel flag never set: the stop is driven purely by the lost slot.
         patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=False)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
     ):
         seen = [e async for e in _streamer().events()]
@@ -705,7 +705,7 @@ async def test_events_buffers_text_deltas_into_result_summary():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent(events)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
@@ -855,7 +855,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("chat.api.streaming.start_chat_run", new=start_chat_run),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=_capture_reset),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
@@ -892,7 +892,7 @@ async def test_events_ref_fallback_survives_reset_ref_failure():
         patch("chat.api.streaming.set_runtime_ctx", _fallback_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.ChatSessionService.reset_ref", side_effect=RuntimeError("db down")),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),

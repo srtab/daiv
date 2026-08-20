@@ -757,3 +757,48 @@ def test_detail_diff_stats_none_when_the_checkpoint_has_none(member_client, memb
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["diff_stats"] is None
+
+
+@pytest.mark.django_db
+def test_detail_seeds_the_ref_pill_with_the_published_branch(member_client, member_user):
+    """The pill must agree with the MR rendered beside it. ``Session.ref`` lags the published
+    branch on any run that never synced it back, and the live stream moves both together.
+    """
+    session = _create_session(user=member_user, ref="main")
+    mr = {"merge_request_id": 7, "source_branch": "feat/published", "web_url": "https://x/7"}
+    tup = MagicMock(checkpoint={"channel_values": {"messages": [], "merge_request": mr}})
+
+    with (
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)) as fallback,
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["thread_ref"] == "feat/published"
+    # Closes the loop through the template: the composer seeds ``thread.ref`` from this.
+    assert 'ref: "feat/published"' in resp.content.decode()
+    fallback.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(member_client, member_user):
+    session = _create_session(user=member_user, ref="main")
+    tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
+
+    with (
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["thread_ref"] == "main"
+    assert 'ref: "main"' in resp.content.decode()

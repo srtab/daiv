@@ -80,7 +80,7 @@
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",
            repo_id: "{{ session.repo_id|escapejs }}",
-           ref: "{{ session.ref|escapejs }}",
+           ref: "{{ thread_ref|escapejs }}",
            merge_request: null
          }{% else %}null{% endif %},
          selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",

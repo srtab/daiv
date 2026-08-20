@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,6 +16,7 @@ from sessions.services import (
     RepoTarget,
     acreate_run,
     aget_or_create_session,
+    apersist_session_ref,
     asubmit_batch_runs,
     submit_batch_runs,
 )
@@ -657,3 +659,61 @@ class TestCreateRunNotifyOn:
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
         run = Run.objects.create(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="x/y", user=member_user)
         assert run.notify_on is None
+
+
+# ---------------------------------------------------------------------------
+# apersist_session_ref tests (ported from chat/api/test_threads.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_session_ref_updates_when_branch_changed():
+    await Session.objects.acreate(thread_id="t-ref-1", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
+
+    await apersist_session_ref(
+        thread_id="t-ref-1", current_ref="feature-x", merge_request=SimpleNamespace(source_branch="feature-y")
+    )
+
+    refreshed = await Session.objects.aget(thread_id="t-ref-1")
+    assert refreshed.ref == "feature-y"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_session_ref_accepts_a_rehydrated_dict():
+    # The checkpointer revives the snapshot's merge_request as a plain dict on resumed runs.
+    await Session.objects.acreate(thread_id="t-ref-4", origin=SessionOrigin.UI_JOB, repo_id="a/b", ref="main")
+
+    await apersist_session_ref(thread_id="t-ref-4", current_ref="main", merge_request={"source_branch": "feature-z"})
+
+    refreshed = await Session.objects.aget(thread_id="t-ref-4")
+    assert refreshed.ref == "feature-z"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_session_ref_noop_when_branch_unchanged():
+    with patch("sessions.services.Session.objects.filter") as filter_mock:
+        await apersist_session_ref(
+            thread_id="t-ref-2", current_ref="feature-x", merge_request=SimpleNamespace(source_branch="feature-x")
+        )
+
+    filter_mock.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_session_ref_noop_when_no_mr_captured():
+    with patch("sessions.services.Session.objects.filter") as filter_mock:
+        await apersist_session_ref(thread_id="t-ref-3", current_ref="feature-x", merge_request=None)
+
+    filter_mock.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_session_ref_ignores_a_branch_that_is_not_a_string():
+    # The branch survives a Redis round-trip before landing here; a non-str would only
+    # surface as a DataError on the CharField write.
+    with patch("sessions.services.Session.objects.filter") as filter_mock:
+        await apersist_session_ref(
+            thread_id="t-ref-5", current_ref="main", merge_request=SimpleNamespace(source_branch=object())
+        )
+
+    filter_mock.assert_not_called()

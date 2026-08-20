@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django_tasks import task
 from sessions.locks import SessionLock
@@ -64,6 +64,25 @@ async def _persist_resolved_agent(
         await Session.objects.filter(pk=thread_id).aupdate(**fields)
     except Exception:
         logger.exception("run_job_task: failed to persist resolved agent model for thread_id=%s", thread_id)
+
+
+async def _persist_published_ref(*, thread_id: str, current_ref: str, snapshot: Any) -> None:
+    """Sync ``Session.ref`` with the branch this run published to.
+
+    The chat streamer reads that branch off its final ``STATE_SNAPSHOT``; a job run has no
+    stream, so it reads the same value off the persisted checkpoint. Best-effort like the
+    resolved-model write above — a cosmetic pointer must never fail a run that published.
+    """
+    # Local import: ``sessions.services`` imports this module at module level.
+    from sessions.services import apersist_session_ref
+
+    values = getattr(snapshot, "values", None) or {}
+    try:
+        await apersist_session_ref(
+            thread_id=thread_id, current_ref=current_ref, merge_request=values.get("merge_request")
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
 
 
 async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
@@ -201,6 +220,12 @@ async def run_job_task(
     response_text = extract_text_content(messages[-1].content)
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
+    snapshot = await daiv_agent.aget_state(config=config)
+    await _persist_published_ref(thread_id=thread_id, current_ref=ref or "", snapshot=snapshot)
     return await build_agent_result(
-        daiv_agent, config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+        daiv_agent,
+        config,
+        response=response_text,
+        usage=build_usage_summary(usage_handler).to_dict(),
+        snapshot=snapshot,
     )

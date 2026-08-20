@@ -22,6 +22,7 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
+from sessions.services import apersist_session_ref
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.graph import create_daiv_agent
@@ -447,7 +448,9 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, effective_ref, last_mr)
+                    await apersist_session_ref(
+                        thread_id=self.thread_id, current_ref=effective_ref, merge_request=last_mr
+                    )
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from notifications.choices import NotifyOn
 
     from accounts.models import User
+    from codebase.base import MergeRequest
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")
@@ -99,6 +100,25 @@ async def aget_or_create_session(
     if not created:
         await session.atouch()
     return session
+
+
+async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None) -> None:
+    """Sync ``Session.ref`` with the branch the agent published to.
+
+    ``Session.ref`` is the branch a session is *working on*, not the one it started from —
+    that stays on every ``Run.ref``, which nothing rewrites — so the composer pill and the
+    session list keep agreeing with the merge request beside them. Accepts a live
+    ``MergeRequest`` or the dict the checkpointer rehydrates it as; anything else no-ops.
+    """
+    if merge_request is None:
+        return
+    new_ref = (
+        merge_request.get("source_branch")
+        if isinstance(merge_request, dict)
+        else getattr(merge_request, "source_branch", None)
+    )
+    if isinstance(new_ref, str) and new_ref and new_ref != current_ref:
+        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
 async def acreate_run(
