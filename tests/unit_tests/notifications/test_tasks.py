@@ -4,11 +4,13 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
-from notifications.choices import DeliveryStatus
+from notifications.choices import DeliveryStatus, EventType
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
 from notifications.models import Notification
 from notifications.tasks import _deliver_notification, redrive_missing_notifications_cron_task
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
+
+from accounts.models import User
 
 
 @pytest.mark.django_db
@@ -138,3 +140,76 @@ def test_redrive_skips_all_clear_and_out_of_window(member_user, email_binding):
     Run.objects.filter(pk=stale.pk).update(finished_at=timezone.now() - RECLASSIFY_MAX_AGE - timedelta(hours=2))
     redrive_missing_notifications_cron_task.func()
     assert Notification.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_redrive_skips_muted_run(member_user, email_binding):
+    run = _classified_finished_run(member_user)
+    Run.objects.filter(pk=run.pk).update(muted=True)  # run-level mute wins in effective_muted
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_id=str(run.pk)).count() == 0
+
+
+@pytest.mark.django_db
+def test_redrive_fills_missing_recipient_after_partial_fanout(member_user, run_schedule, email_binding):
+    """A crash between the per-recipient commits leaves some recipients without a row. The re-drive
+    must re-emit for the missing recipients — not skip the whole run because one recipient's row exists."""
+    sub = User.objects.create_user(username="redrive_sub", email="redrive_sub@test.com", password="x")  # noqa: S106
+    run_schedule.subscribers.add(sub)
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.SCHEDULE,
+        repo_id="x/y",
+        user=member_user,
+        scheduled_job=run_schedule,
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        repo_id="x/y",
+        status=RunStatus.FAILED,
+        user=member_user,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=EnvelopeStatus.FAILED, summary="s")
+    # Only the owner's row was committed before the simulated crash; the subscriber is missing.
+    Notification.objects.create(
+        recipient=member_user,
+        event_type=EventType.SCHEDULE_FINISHED,
+        source_type="sessions.Run",
+        source_id=str(run.pk),
+        subject="s",
+        body="b",
+    )
+
+    redrive_missing_notifications_cron_task.func()
+
+    per_run = Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk))
+    assert per_run.filter(recipient=member_user).count() == 1  # not duplicated
+    assert per_run.filter(recipient=sub).count() == 1  # backfilled
+
+
+@pytest.mark.django_db
+def test_redrive_batch_delivers_single_rollup(member_user, email_binding):
+    batch_id = uuid.uuid4()
+    for _ in range(2):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=member_user
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="x/y",
+            status=RunStatus.FAILED,
+            user=member_user,
+            finished_at=timezone.now(),
+            batch_id=batch_id,
+        )
+        RunEnvelope.objects.create(run=run, status=EnvelopeStatus.FAILED, summary="s")
+
+    redrive_missing_notifications_cron_task.func()
+
+    rollups = Notification.objects.filter(
+        source_type="sessions.Batch", source_id=str(batch_id), event_type=EventType.JOB_BATCH_FINISHED
+    )
+    assert rollups.count() == 1

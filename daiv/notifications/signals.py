@@ -69,22 +69,28 @@ def _render_payload_run(run, envelope) -> tuple[str, str, dict]:
     status = envelope.status
     count = envelope.count
 
+    # Callers gate on notify_worthy() first, so status is one of found-issues / needs-attention / failed;
+    # an unhandled value would silently render as "failed", so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
             subject = _("'%(name)s' found %(count)d issue(s) on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("'%(name)s' needs attention on %(repo)s — %(owner)s") % params
-        else:  # FAILED
+        elif status == EnvelopeStatus.FAILED:
             subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
+        else:
+            raise ValueError(f"unexpected notify-worthy envelope status {status!r}")
     else:
         params = {"repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
             subject = _("Agent run on %(repo)s found %(count)d issue(s)") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("Agent run on %(repo)s needs attention") % params
-        else:  # FAILED
+        elif status == EnvelopeStatus.FAILED:
             subject = _("Agent run on %(repo)s failed") % params
+        else:
+            raise ValueError(f"unexpected notify-worthy envelope status {status!r}")
 
     body = envelope.summary or subject
 
@@ -244,7 +250,7 @@ def _render_batch_payload_run(
         "trigger_owner": owner,
         "repo_id": repo_ids[0] if len(repo_ids) == 1 else "",
         "repo_ids": repo_ids,
-        "duration_seconds": _batch_duration([(r, s, e, st) for r, s, e, st in rows]),
+        "duration_seconds": _batch_duration(rows),
         "batch_id": str(run.batch_id),
         "input_tokens": usage["input_tokens"],
         "output_tokens": usage["output_tokens"],
@@ -269,8 +275,8 @@ def notify_worthy(status: str) -> bool:
 def _within_relevance_window(finished_at) -> bool:
     """Notify only for runs that finished recently and after the coverage-widening cutoff.
 
-    NOTIFY_MAX_AGE == RECLASSIFY_MAX_AGE (one shared knob): inside the window we prefer late delivery
-    over dropping, so an outage-delayed but genuinely-recent run still notifies.
+    The window reuses ``RECLASSIFY_MAX_AGE`` (one shared knob): inside it we prefer late delivery over
+    dropping, so an outage-delayed but genuinely-recent run still notifies.
     """
     from sessions.tasks import RECLASSIFY_MAX_AGE
 

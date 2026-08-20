@@ -92,8 +92,9 @@ def redrive_missing_notifications_cron_task():
 
     If a worker dies after the envelope is written but before run_classified is delivered, the run has
     an envelope (so the reclassify backstop skips it) and the notification would be lost forever. This
-    sweep re-emits run_classified for classified, notify-worthy, in-window, un-muted runs that still have
-    no Notification row; the per-run/batch unique constraints make the re-emit idempotent.
+    sweep re-emits run_classified for classified, notify-worthy, in-window, un-muted runs that are still
+    missing at least one recipient's Notification row; the per-run/batch unique constraints make the
+    re-emit idempotent, so recipients that already have a row are left untouched.
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
@@ -101,8 +102,14 @@ def redrive_missing_notifications_cron_task():
     from sessions.signals import get_classify_origins, run_classified
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
+    from notifications.choices import EventType
     from notifications.models import Notification
-    from notifications.signals import _notify_worthy_statuses, _within_relevance_window
+    from notifications.signals import (
+        _is_schedule_run,
+        _notify_worthy_statuses,
+        _resolve_recipients_run,
+        _within_relevance_window,
+    )
 
     now = timezone.now()
     candidates = (
@@ -123,14 +130,34 @@ def redrive_missing_notifications_cron_task():
     for run in candidates:
         if not _within_relevance_window(run.finished_at) or run.effective_muted:
             continue
-        if run.batch_id is not None:
-            already = Notification.objects.filter(source_type="sessions.Batch", source_id=str(run.batch_id)).exists()
-        else:
-            already = Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).exists()
-        if already:
+        # Skip only when EVERY expected recipient already has a row. A partial fan-out — a crash between
+        # the per-recipient commits — must still be re-driven for the recipients that missed out.
+        expected = set(_resolve_recipients_run(run))
+        if not expected:
             continue
-        run_classified.send_robust(sender=Run, run=run, envelope=run.envelope)
-        redriven += 1
+        if run.batch_id is not None:
+            source_type, source_id, event_type = "sessions.Batch", str(run.batch_id), EventType.JOB_BATCH_FINISHED
+        else:
+            source_type, source_id = "sessions.Run", str(run.pk)
+            event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
+        delivered = set(
+            Notification.objects.filter(
+                source_type=source_type, source_id=source_id, event_type=event_type
+            ).values_list("recipient_id", flat=True)
+        )
+        if expected.issubset(delivered):
+            continue
+        results = run_classified.send_robust(sender=Run, run=run, envelope=run.envelope)
+        failures = [(recv, response) for recv, response in results if isinstance(response, Exception)]
+        for recv, response in failures:
+            logger.error(
+                "redrive: run_classified receiver %s failed for run=%s",
+                getattr(recv, "__name__", recv),
+                run.pk,
+                exc_info=response,
+            )
+        if not failures:
+            redriven += 1
 
     if redriven:
-        logger.info("redrive_missing_notifications: re-drove %d notification(s)", redriven)
+        logger.info("redrive_missing_notifications: re-emitted run_classified for %d run(s)", redriven)
