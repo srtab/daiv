@@ -64,6 +64,17 @@ BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
 # picked. Steps nest one level (the rules the block re-declares), so one alternation is enough.
 MEDIA = re.compile(r"@media \([^)]*?(\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
+# The `:root` block that insets every bottom sheet once the sidebar is on screen. Its bound is
+# `sm:` itself rather than the number Tailwind compiles it to, so the two cannot drift apart.
+SHEET_INSET_SWITCH = re.compile(r"@media \(width >= theme\(--breakpoint-sm\)\) \{\s*:root \{([^{}]*)\}")
+SHEET_TOKENS = frozenset({"--sheet-inset-start", "--sheet-inset-end", "--sheet-width-cap", "--sheet-side-border"})
+# A surface pinned to the viewport, by the two properties that make one a bottom sheet.
+VIEWPORT_ANCHORED = re.compile(r"\.([\w-]+) \{([^{}]*position: fixed[^{}]*)\}")
+# The scrim is one too, and dims the whole app on purpose — see `core/_sheet_backdrop.html`.
+FULL_WIDTH_BY_DESIGN = frozenset({"sheet-backdrop"})
+SIDEBAR_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "accounts" / "_sidebar.html"
+BASE_APP_TEMPLATE = DAIV_DIR / "accounts" / "templates" / "base_app.html"
+
 
 def _templates_with_popovers() -> dict[str, str]:
     return {
@@ -141,8 +152,64 @@ def test_the_sheet_breakpoint_is_a_single_number():
         )
 
 
+def test_a_bottom_sheet_never_opens_under_the_sidebar():
+    """A sheet flush to the viewport edges is only right while the viewport *is* the content
+    area. From `sm:` up the sidebar is on screen while these are still sheets — tablets, and
+    phones in landscape — so a flush sheet spanned the nav too: Chromium paints it over the
+    sidebar, and the browser this was reported from clipped the half that crossed the
+    scrolling `<main>`, cutting every line off mid-word.
+
+    The regime is one `:root` switch, so this pins tokens rather than a rule block: a read
+    carries the flush value as its fallback, which is what lets the switch sit anywhere
+    instead of having to be ordered after every family. The families are *discovered* — a
+    third bottom sheet has to inset without anyone remembering to enrol it here."""
+    css = INPUT_CSS.read_text(encoding="utf-8")
+    switch = SHEET_INSET_SWITCH.search(css)
+
+    assert switch, "no `sm:` sheet-inset switch in input.css — a bottom sheet spans the sidebar again"
+    assert "var(--app-sidebar-width)" in switch.group(1), "the inset must come from the sidebar's own token"
+
+    declared = set(re.findall(r"(--sheet-[\w-]+):", switch.group(1)))
+    assert declared == SHEET_TOKENS, f"the switch declares {sorted(declared)}, not {sorted(SHEET_TOKENS)}"
+
+    sheets = {cls: body for cls, body in VIEWPORT_ANCHORED.findall(css) if "bottom: 0" in body or "inset:" in body}
+    assert set(sheets) >= FULL_WIDTH_BY_DESIGN, (
+        f"{sorted(FULL_WIDTH_BY_DESIGN)} is exempt from the inset but no longer anchors to the viewport — "
+        f"found {sorted(sheets)}"
+    )
+    for cls, body in sorted(sheets.items()):
+        if cls in FULL_WIDTH_BY_DESIGN:
+            continue
+
+        unread = [token for token in sorted(declared) if f"var({token}," not in body]
+        assert not unread, f".{cls} spans the sidebar from `sm:` up: {unread} unread, or read with no flush fallback"
+
+
+def test_the_sheet_inset_tracks_the_shell_it_dodges():
+    """The inset is the shell's own geometry, restated for the surfaces that cannot measure
+    it — `position: fixed` reads the viewport, not the column it belongs to. So both halves
+    have to *be* the shell's: the sidebar sizes itself from the width token, and `<main>`
+    pads by the gutter one rather than spelling `px-6` a second time.
+
+    Scoped to each tag, not to the file: `<header>` carries a gutter of its own and
+    `sm:flex-col` contains `sm:flex`, so a whole-file substring passes either regression."""
+    aside = re.search(r"<aside\s[^>]*>", SIDEBAR_TEMPLATE.read_text(encoding="utf-8"))
+    main = re.search(r"<main\s[^>]*>", BASE_APP_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert aside, "_sidebar.html no longer opens with an <aside>"
+    assert main, "base_app.html no longer opens a <main>"
+
+    assert "w-(--app-sidebar-width)" in aside.group(), "the sidebar no longer sizes itself from --app-sidebar-width"
+    assert re.search(r"sm:flex(?![-\w])", aside.group()), (
+        "the sidebar appears at some width other than `sm:` — the switch's lower bound moved with it"
+    )
+    assert "sm:px-(--app-content-gutter)" in main.group(), (
+        "<main> spells its own gutter again — the sheet inset can now drift from the content column"
+    )
+
+
 def test_the_guards_are_actually_looking_at_something():
-    """A typo in the container pattern would make both tests above vacuously pass."""
+    """A typo in the container pattern would make the popover guards above vacuously pass."""
     found = _templates_with_popovers()
 
     assert sum(len(CONTAINER.findall(source)) for source in found.values()) >= 5, (
