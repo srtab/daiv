@@ -21,7 +21,7 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 # storming the queue in a single pass.
 RECLASSIFY_BATCH_LIMIT = 200
 # Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
-# run into paid classification, and the notification relevance window (NOTIFY_MAX_AGE) shares this knob.
+# run into paid classification; the notification relevance window reuses this same value.
 RECLASSIFY_MAX_AGE = timedelta(hours=24)  # tunable
 
 
@@ -79,7 +79,7 @@ async def classify_run_task(run_id: str) -> None:
             )
         except IntegrityError:
             # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
-            # wrote it and we lost — the raced loser returns WITHOUT emitting (fire-once, F2). Any other
+            # wrote it and we lost — the raced loser returns WITHOUT emitting (fire-once). Any other
             # IntegrityError must surface as a FAILED task, not be disguised as a race.
             if await RunEnvelope.objects.filter(run=run).aexists():
                 logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
@@ -228,9 +228,7 @@ def reclassify_missing_envelopes_cron_task():
             trigger_type__in=get_classify_origins(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
-            # Key the grace AND the floor on finished_at: batch siblings and orphan-queued recovery can
-            # make created_at→finished_at gaps exceed a day, so a created_at floor would permanently skip
-            # a run that finishes long after creation. Terminal runs always have finished_at set.
+            # Keyed on finished_at (see docstring); terminal runs always have it set.
             finished_at__lt=grace_cutoff,
             finished_at__gte=age_floor,
         )

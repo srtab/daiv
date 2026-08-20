@@ -245,7 +245,7 @@ class Run(models.Model):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # noqa: DJ001 — null = inherit
+    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")

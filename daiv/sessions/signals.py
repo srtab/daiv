@@ -250,7 +250,7 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
 
     Universal gate: every terminal, non-chat run gets a RunEnvelope. ``skip_dispatch=True`` marks
     re-emits from dispatch/link failures; a FAILED re-emit still deserves a ``failed`` envelope
-    + failure notification (F5), so only the non-FAILED skip_dispatch case returns early.
+    + failure notification, so only the non-FAILED skip_dispatch case returns early.
 
     Exception-safe: classification must never affect the run lifecycle. ``RunStatus`` is imported
     locally (``sessions.models`` cannot be imported at this module's top without a cycle);
@@ -259,8 +259,7 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
     from sessions.models import RunStatus
 
     try:
-        # skip_dispatch re-emits are dispatch/link failures; a FAILED one still deserves a `failed`
-        # envelope + failure notification (F5). Only the dispatcher's (non-failed) re-entry is skipped.
+        # A FAILED skip_dispatch re-emit still needs its `failed` envelope; only non-FAILED re-entry skips.
         if kwargs.get("skip_dispatch") and run.status != RunStatus.FAILED:
             return
         if run.trigger_type not in get_classify_origins():

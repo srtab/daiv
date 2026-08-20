@@ -2,8 +2,8 @@ from django.db import migrations
 
 
 def backfill_run_muted(apps, schema_editor):
-    """F6/data migration: Run.notify_on=None → muted=None (inherit); any non-null notify_on → muted=False
-    (never preserved as silence — owned in the changelog). Schedule/template rows already default to
+    """Run.notify_on=None → muted=None (inherit); any non-null notify_on → muted=False (a prior explicit
+    "never" is intentionally not preserved as silence). Schedule/template rows already default to
     muted=False via AddField."""
     Run = apps.get_model("agent_sessions", "Run")
     Run.objects.filter(notify_on__isnull=False).update(muted=False)
