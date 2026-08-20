@@ -77,7 +77,7 @@ Use Tailwind's default spacing scale. Common values:
 ### Layout
 
 - **Max content width**: `max-w-5xl` (consistent across all pages)
-- **Horizontal padding**: `px-6`
+- **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (the shell's content gutter)
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px)
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
@@ -365,8 +365,8 @@ instead: see §Page Header.
 
 A `position: fixed` surface has the same problem with no layout to lean on: it measures
 the viewport, not the column it belongs to. From `sm:` up, bottom sheets (pickers and the
-composer's own) are therefore inset by `--app-sidebar-width` + `--app-content-gutter` and
-capped at `--sheet-max-width`, so one never opens across the sidebar. See AGENTS.md
+composer's own) are therefore inset to the content column instead, so one never opens
+across the sidebar. For the tokens and the `:root` switch that does it, see AGENTS.md
 §Floating surfaces.
 
 ## File Paths Reference
