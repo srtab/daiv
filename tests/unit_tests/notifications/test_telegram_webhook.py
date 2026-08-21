@@ -5,7 +5,9 @@ import time
 
 from django.urls import reverse
 
+import httpx
 import pytest
+from notifications.api.telegram_handlers import MSG_BARE_START, MSG_CONNECTED, MSG_LINK_EXPIRED, MSG_PRIVATE_ONLY
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 from notifications.telegram.tokens import TOKEN_TTL_SECONDS, mint_token
@@ -19,6 +21,7 @@ pytestmark = pytest.mark.django_db
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"  # noqa: S105 — a header name, not a secret
 URL = "/api/notifications/callbacks/telegram/"
 URL_NO_SLASH = "/api/notifications/callbacks/telegram"
+SEND_MESSAGE_URL = "https://api.telegram.org/bot123:ABC/sendMessage"
 
 
 def _post(client, payload, *, secret="s3cret", url=URL):  # noqa: S107 — matches the telegram_configured fixture
@@ -39,11 +42,17 @@ def _stop(chat_id=555):
 
 
 @pytest.fixture(autouse=True)
-def _swallow_replies(httpx_mock):
-    """Every reply is a best-effort sendMessage; let them all succeed silently."""
+def _swallow_replies(request, httpx_mock):
+    """Every reply is a best-effort sendMessage; let them all succeed silently.
+
+    Tests marked ``own_replies`` opt out: pytest-httpx serves the first *not yet called* matching
+    response, so this blanket one would shadow whatever such a test registers.
+    """
+    if request.node.get_closest_marker("own_replies"):
+        return
     httpx_mock.add_response(
         method="POST",
-        url="https://api.telegram.org/bot123:ABC/sendMessage",
+        url=SEND_MESSAGE_URL,
         json={"ok": True, "result": {"message_id": 1}},
         status_code=200,
         is_optional=True,
@@ -54,6 +63,11 @@ def _swallow_replies(httpx_mock):
 def _token_for(user):
     address, verified_at = binding_state(user)
     return mint_token(user.pk, address=address, verified_at=verified_at)
+
+
+def _last_reply(httpx_mock) -> dict:
+    """The JSON body of the most recent sendMessage."""
+    return json.loads(httpx_mock.get_requests(url=SEND_MESSAGE_URL)[-1].content)
 
 
 class TestRouteRegistration:
@@ -103,20 +117,23 @@ class TestStart:
         assert binding.is_verified is True
         assert binding.extra_config == {"handle": "alice"}
 
-    def test_an_expired_token_replies_without_a_4xx(self, client, member_user):
+    def test_an_expired_token_replies_without_a_4xx(self, client, member_user, httpx_mock):
         # Telegram retries non-2xx and eventually disables a webhook that keeps failing.
         stale = mint_token(member_user.pk, address="", verified_at="", now=int(time.time()) - TOKEN_TTL_SECONDS - 1)
         assert _post(client, _start(stale)).status_code == 204
+        assert _last_reply(httpx_mock) == {"chat_id": 555, "text": str(MSG_LINK_EXPIRED)}
         assert not UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM).exists()
 
-    def test_a_bare_start_replies_with_guidance_and_binds_nothing(self, client):
+    def test_a_bare_start_replies_with_guidance_and_binds_nothing(self, client, httpx_mock):
         assert _post(client, _start("")).status_code == 204
+        assert _last_reply(httpx_mock) == {"chat_id": 555, "text": str(MSG_BARE_START)}
         assert not UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM).exists()
 
-    def test_a_group_chat_start_refuses(self, client, member_user):
+    def test_a_group_chat_start_refuses(self, client, member_user, httpx_mock):
         # Binding a room would make it the recipient of one account's notifications.
         payload = _start(_token_for(member_user), chat_id=-1001234, chat_type="supergroup")
         assert _post(client, payload).status_code == 204
+        assert _last_reply(httpx_mock) == {"chat_id": -1001234, "text": str(MSG_PRIVATE_ONLY)}
         assert not UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM).exists()
 
     def test_a_token_minted_before_a_bind_stops_working_after_it(self, client, member_user):
@@ -156,6 +173,57 @@ class TestStop:
 
     def test_stop_from_an_unbound_chat_is_a_no_op(self, client):
         assert _post(client, _stop(chat_id=999)).status_code == 204
+
+
+@pytest.mark.usefixtures("telegram_configured")
+class TestReplyDelivery:
+    """The reply is best-effort: it must land on the happy path and never fail the update."""
+
+    @pytest.mark.own_replies
+    def test_the_confirmation_reaches_the_chat(self, client, member_user, httpx_mock):
+        # A non-optional response, so a route that stopped replying fails at fixture teardown.
+        httpx_mock.add_response(method="POST", url=SEND_MESSAGE_URL, json={"ok": True, "result": {"message_id": 1}})
+        assert _post(client, _start(_token_for(member_user))).status_code == 204
+        assert _last_reply(httpx_mock) == {"chat_id": 555, "text": str(MSG_CONNECTED)}
+
+    @pytest.mark.own_replies
+    @pytest.mark.parametrize("failure", ["transport", "http_500"])
+    def test_a_failing_reply_still_lets_the_bind_land(self, client, member_user, httpx_mock, failure):
+        # The broad catch in _reply is the only thing between a Bot API outage and the
+        # retry-storm-then-webhook-disabled outcome. The two cases reach it as different
+        # exception types: httpx raises the transport error, _tg_post wraps the 5xx.
+        if failure == "transport":
+            httpx_mock.add_exception(httpx.ConnectError("no route to host"), method="POST", url=SEND_MESSAGE_URL)
+        else:
+            httpx_mock.add_response(
+                method="POST",
+                url=SEND_MESSAGE_URL,
+                json={"ok": False, "error_code": 500, "description": "busy"},
+                status_code=500,
+            )
+        assert _post(client, _start(_token_for(member_user))).status_code == 204
+        binding = UserChannelBinding.objects.get(user=member_user, channel_type=ChannelType.TELEGRAM)
+        assert binding.address == "555"
+        assert binding.is_verified is True
+
+    @pytest.mark.own_replies
+    def test_a_missing_bot_token_skips_the_reply_and_still_binds(self, client, member_user, site_settings_override):
+        # No response is registered at all, so a request here fails the run.
+        site_settings_override(telegram_bot_token=None)
+        assert _post(client, _start(_token_for(member_user))).status_code == 204
+        assert UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM).exists()
+
+    @pytest.mark.own_replies
+    def test_an_unreadable_bot_token_still_lets_the_bind_land(self, client, member_user, site_settings_override):
+        # from_site_settings decrypts an encrypted field, so it can raise after the bind has
+        # committed — which is why it is resolved inside the try rather than above it.
+        class _Unreadable:
+            def get_secret_value(self):
+                raise RuntimeError("decrypt failed")
+
+        site_settings_override(telegram_bot_token=_Unreadable())
+        assert _post(client, _start(_token_for(member_user))).status_code == 204
+        assert UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM).exists()
 
 
 @pytest.mark.usefixtures("telegram_configured")

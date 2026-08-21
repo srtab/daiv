@@ -62,14 +62,15 @@ def _reply(chat_id: int, text: str) -> None:
 
     A failed sendMessage must not turn a successful bind into a 500 and a retry storm.
     """
-    client = TGClient.from_site_settings()
-    if client is None:
-        logger.warning("Telegram: cannot reply to chat %s, no bot token configured", chat_id)
-        return
     try:
+        # Resolved inside the try: from_site_settings reads an encrypted field, so it can hit the
+        # DB and decrypt — either able to raise after the binding write has already committed.
+        client = TGClient.from_site_settings()
+        if client is None:
+            logger.warning("Telegram: cannot reply to chat %s, no bot token configured", chat_id)
+            return
         client.send_message({"chat_id": chat_id, "text": text})
-    except Exception as exc:
-        # Any failure here is cosmetic by construction: the binding write already landed.
+    except Exception as exc:  # noqa: BLE001 — any failure here is cosmetic by construction
         logger.warning("Telegram: reply to chat %s failed: %s", chat_id, exc)
 
 
