@@ -164,6 +164,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             "web_fetch_auth_headers_formset": headers_formset,
             "web_fetch_auth_headers_env_locked": headers_env_locked,
             "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
+            "telegram_bot_username": (site_settings.telegram_bot_username if self.group.key == "telegram" else None),
         }
 
     @staticmethod
