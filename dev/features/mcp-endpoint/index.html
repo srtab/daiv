@@ -1718,7 +1718,7 @@
 </tr>
 <tr>
 <td><code>schedule_job</code></td>
-<td>Create a recurring or one-off scheduled run owned by you. Takes <code>name</code>, <code>prompt</code>, a 1–20 entry <code>repos</code> list, and a <code>frequency</code> (<code>hourly</code>/<code>daily</code>/<code>weekdays</code>/<code>weekly</code>/<code>custom</code>/<code>once</code>) with its companion field (<code>time</code> for daily/weekdays/weekly, <code>cron_expression</code> for custom, <code>run_at</code> for once). Optional <code>agent_model</code>, <code>agent_thinking_level</code>, <code>environment</code>, and <code>notify_on</code> mirror <code>submit_job</code>.</td>
+<td>Create a recurring or one-off scheduled run owned by you. Takes <code>name</code>, <code>prompt</code>, a 1–20 entry <code>repos</code> list, and a <code>frequency</code> (<code>hourly</code>/<code>daily</code>/<code>weekdays</code>/<code>weekly</code>/<code>custom</code>/<code>once</code>) with its companion field (<code>time</code> for daily/weekdays/weekly, <code>cron_expression</code> for custom, <code>run_at</code> for once). Optional <code>agent_model</code>, <code>agent_thinking_level</code>, <code>environment</code>, and <code>muted</code> mirror <code>submit_job</code>.</td>
 </tr>
 <tr>
 <td><code>list_scheduled_jobs</code></td>
@@ -1732,7 +1732,7 @@
 <ul>
 <li><code>agent_model</code> — override the default model as a <code>provider_slug:model_name</code> string (e.g. <code>openrouter:anthropic/claude-sonnet-4.6</code>); the provider slug must match an enabled provider. Omit to use the system default.</li>
 <li><code>agent_thinking_level</code> — control reasoning effort: one of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, or <code>xhigh</code>. Omit to inherit the system default.</li>
-<li><code>notify_on</code> — when to be notified for each job: one of <code>never</code>, <code>always</code>, <code>on_success</code>, or <code>on_failure</code>. Omit to fall back to your default preference.</li>
+<li><code>muted</code> — mute this run's notifications; default false. <code>notify_on</code> is no longer accepted (removed); sending it returns an unknown-argument error.</li>
 <li><code>environment</code> — the <a href="../sandbox/">sandbox environment</a> to run every job in, given as its name or UUID (discover names via <code>list_environments</code>). Omit to auto-resolve a runtime per repository.</li>
 <li><code>thread_id</code> — continue an existing thread by passing the UUID from a prior <code>submit_job</code> or <code>get_job_status</code> response. Continuation requires exactly one repository, whose latest activity must belong to you.</li>
 </ul>
@@ -1771,7 +1771,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 20:22:30 UTC">August 21, 2026</span>
   </span>
 
     
@@ -1781,7 +1781,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 20:22:30 UTC">August 21, 2026</span>
   </span>
 
     

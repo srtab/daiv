@@ -807,41 +807,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choosing-when-to-be-notified" class="md-nav__link">
+  <a href="#muting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choosing when to be notified
+        Muting
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Choosing when to be notified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#where-the-effective-value-comes-from" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where the effective value comes from
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#setting-notify-on-per-run" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setting "Notify on" per run
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1535,41 +1507,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choosing-when-to-be-notified" class="md-nav__link">
+  <a href="#muting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choosing when to be notified
+        Muting
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Choosing when to be notified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#where-the-effective-value-comes-from" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where the effective value comes from
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#setting-notify-on-per-run" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setting "Notify on" per run
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1680,10 +1624,11 @@
 
 
 <h1 id="notifications">Notifications</h1>
-<p>DAIV tells you when your work finishes. When an agent run, a multi-repository batch, or a scheduled job reaches a terminal state, DAIV writes an in-app notification and — depending on your preference — also delivers it to external channels like email and Rocket Chat. You decide <em>when</em> to be told (never, always, only on success, only on failure) and <em>where</em> the message lands.</p>
+<p>DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email and Rocket Chat. Clean runs stay silent and appear only in the Feed.</p>
 <p>Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.</p>
 <h2 id="what-produces-a-notification">What produces a notification</h2>
-<p>DAIV emits a notification when a run finishes. There are three event types:</p>
+<p>DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are <strong>found-issues</strong>, <strong>needs-attention</strong>, and <strong>failed</strong>. Runs classified <strong>all-clear</strong> are silent — they live in the Feed but generate no notification.</p>
+<p>There are three event types:</p>
 <table>
 <thead>
 <tr>
@@ -1695,7 +1640,7 @@
 <tbody>
 <tr>
 <td><strong>Job finished</strong> (<code>job.finished</code>)</td>
-<td>A single agent run reaches a terminal state (successful or failed)</td>
+<td>A single agent run finishes with a notify-worthy classification</td>
 <td>The user who started the run</td>
 </tr>
 <tr>
@@ -1705,18 +1650,18 @@
 </tr>
 <tr>
 <td><strong>Schedule finished</strong> (<code>schedule.finished</code>)</td>
-<td>A run tied to a <a href="../scheduled-jobs/">scheduled job</a> finishes</td>
+<td>A run tied to a <a href="../scheduled-jobs/">scheduled job</a> finishes with a notify-worthy classification</td>
 <td>The schedule owner and its subscribers</td>
 </tr>
 </tbody>
 </table>
 <div class="admonition note">
 <p class="admonition-title">Batches collapse into one message</p>
-<p>A batch is a group of runs sharing a batch ID — for example a <a href="../scheduled-jobs/">scheduled job</a> that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single <strong>Job batch finished</strong> rollup once the last sibling is terminal, summarising how many runs succeeded and failed.</p>
+<p>A batch is a group of runs sharing a batch ID — for example a <a href="../scheduled-jobs/">scheduled job</a> that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single <strong>Job batch finished</strong> rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.</p>
 </div>
 <div class="admonition info">
-<p class="admonition-title">Webhook-triggered runs are silent</p>
-<p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) do <strong>not</strong> generate notifications — those flows already report back inside the issue or MR/PR thread.</p>
+<p class="admonition-title">Webhook-triggered runs notify on worthy outcomes</p>
+<p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.</p>
 </div>
 <h2 id="channels">Channels</h2>
 <p>DAIV reaches you through channels. The in-app bell is always available; email and Rocket Chat are external delivery channels.</p>
@@ -1737,61 +1682,21 @@
 </ul>
 </div>
 <h3 id="the-in-app-bell-and-list">The in-app bell and list</h3>
-<p>The bell entry is written for <strong>every</strong> terminal run that has a recipient, regardless of your notification preference — so the dashboard always reflects what happened. Your "Notify on" preference only controls whether DAIV <em>also</em> delivers to external channels (email, Rocket Chat).</p>
+<p>The bell entry is written for <strong>notify-worthy</strong> runs — those classified as found-issues, needs-attention, or failed. All-clear runs are silent and do not produce a bell entry.</p>
 <ul>
 <li>The bell dropdown shows your ten most recent notifications and marks them read when you open it.</li>
 <li><code>/dashboard/notifications/</code> lists your full history with <code>All</code> / <code>Unread</code> / <code>Read</code> filters and a <strong>Mark all as read</strong> action.</li>
 <li>The unread badge — and the <strong>N running</strong> badge next to <em>Sessions</em> in the sidebar — update live over a server-sent-events stream (<code>GET /api/nav/events</code>), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.</li>
 </ul>
 <h3 id="email">Email</h3>
-<p>Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email delivery is gated by your "Notify on" preference like any other external channel.</p>
+<p>Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email is delivered for any notify-worthy, un-muted run.</p>
 <h3 id="rocket-chat">Rocket Chat</h3>
 <p>Rocket Chat is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Rocket Chat handle so DAIV can DM you.</p>
-<h2 id="choosing-when-to-be-notified">Choosing when to be notified</h2>
-<p>Every run carries a <strong>Notify on</strong> setting with four values:</p>
-<table>
-<thead>
-<tr>
-<th>Value</th>
-<th>Behaviour</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Never</strong> (<code>never</code>)</td>
-<td>No external delivery</td>
-</tr>
-<tr>
-<td><strong>Always</strong> (<code>always</code>)</td>
-<td>Deliver on any terminal outcome (success or failure)</td>
-</tr>
-<tr>
-<td><strong>On success only</strong> (<code>on_success</code>)</td>
-<td>Deliver only when the run succeeds</td>
-</tr>
-<tr>
-<td><strong>On failure only</strong> (<code>on_failure</code>)</td>
-<td>Deliver only when the run fails</td>
-</tr>
-</tbody>
-</table>
-<p>This setting gates external channels only — the in-app bell entry is always recorded.</p>
-<h3 id="where-the-effective-value-comes-from">Where the effective value comes from</h3>
-<p>DAIV resolves the preference that applies to a finished run by precedence, taking the first that is set:</p>
-<ol>
-<li><strong>The run's own "Notify on" override</strong> — chosen when you start the run.</li>
-<li><strong>The schedule's "Notify on"</strong> — for <a href="../scheduled-jobs/">scheduled-job</a> runs that did not set a per-run override. Schedules default to <strong>Never</strong>.</li>
-<li><strong>Your default preference</strong> — your account's <code>notify_on_jobs</code>, which applies to runs you start from the UI, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>. It defaults to <strong>On failure only</strong>.</li>
-<li>Otherwise, <strong>Never</strong>.</li>
-</ol>
-<h3 id="setting-notify-on-per-run">Setting "Notify on" per run</h3>
-<ul>
-<li><strong>Run composer</strong> — the <strong>Dashboard &gt; Runs</strong> composer (<code>/dashboard/runs/</code>) has a <strong>Notify me</strong> field, pre-filled from your default preference.</li>
-<li><strong><a href="../jobs-api/">Jobs API</a></strong> — pass <code>notify_on</code> in the submit payload.</li>
-<li><strong><a href="../mcp-endpoint/">MCP endpoint</a></strong> — pass the <code>notify_on</code> argument to <code>submit_job</code>.</li>
-<li><strong><a href="../scheduled-jobs/">Scheduled jobs</a></strong> — the schedule's <strong>Notify on</strong> field, applied to every run it fans out (defaults to <strong>Never</strong>).</li>
-</ul>
-<p>Omit <code>notify_on</code> on a run and it falls through to the next level in the precedence chain above.</p>
+<h2 id="muting">Muting</h2>
+<p>Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is <strong>Mute</strong>.</p>
+<p><strong>Per-schedule mute</strong> — each schedule has a <strong>Mute</strong> checkbox (default off). When enabled, it silences <em>all</em> notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via <code>Run.muted</code> (the same field the <code>muted</code> flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.</p>
+<p><strong>Non-scheduled runs</strong> — runs started from the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a> notify their initiator on a notify-worthy outcome. Pass the <code>muted</code> flag in the API or MCP call to silence a specific run.</p>
+<p>Muting a schedule produces full silence. Disconnecting your email channel (from <code>/accounts/channels/</code>) suppresses email delivery without silencing in-app notifications.</p>
 <h2 id="connecting-rocket-chat">Connecting Rocket Chat</h2>
 <p>If your administrator has enabled Rocket Chat for the instance, bind your handle so DAIV can message you:</p>
 <ol>
@@ -1809,22 +1714,22 @@
 <p>The Rocket Chat instance URL, bot user ID, and auth token are configured under <strong>Dashboard &gt; Configuration &gt; Rocket Chat</strong> (<code>/dashboard/configuration/rocketchat/</code>), which requires the <strong>admin</strong> role. Until an admin enables it there, the channel does not appear on your channels page.</p>
 </div>
 <h2 id="how-delivery-works">How delivery works</h2>
-<p>When a run finishes, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:</p>
+<p>When a run finishes with a notify-worthy classification, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:</p>
 <ul>
 <li>A channel with no usable binding (for example Rocket Chat before you connect, or an unknown channel) is recorded as <strong>skipped</strong> rather than attempted.</li>
 <li>Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked <strong>failed</strong> and not retried.</li>
-<li>The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails.</li>
+<li>The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)</li>
 </ul>
 <h2 id="related-pages">Related pages</h2>
 <div class="grid cards">
 <ul>
 <li>
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12.5 7.25a.75.75 0 0 0-1.5 0v5.5c0 .27.144.518.378.651l3.5 2a.75.75 0 0 0 .744-1.302L12.5 12.315z"/><path d="M12 1c6.075 0 11 4.925 11 11s-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1M2.5 12a9.5 9.5 0 0 0 9.5 9.5 9.5 9.5 0 0 0 9.5-9.5A9.5 9.5 0 0 0 12 2.5 9.5 9.5 0 0 0 2.5 12"/></svg></span> <strong><a href="../scheduled-jobs/">Scheduled Jobs</a></strong></p>
-<p>Recurring runs with their own <strong>Notify on</strong> setting and subscriber list.</p>
+<p>Recurring runs with a mute toggle and subscriber list.</p>
 </li>
 <li>
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.25 12a.75.75 0 0 1-.22.53l-2.75 2.75a.75.75 0 0 1-1.06-1.06L7.44 12 5.22 9.78a.75.75 0 1 1 1.06-1.06l2.75 2.75c.141.14.22.331.22.53m2 2a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z"/><path d="M0 4.75C0 3.784.784 3 1.75 3h20.5c.966 0 1.75.784 1.75 1.75v14.5A1.75 1.75 0 0 1 22.25 21H1.75A1.75 1.75 0 0 1 0 19.25Zm1.75-.25a.25.25 0 0 0-.25.25v14.5c0 .138.112.25.25.25h20.5a.25.25 0 0 0 .25-.25V4.75a.25.25 0 0 0-.25-.25Z"/></svg></span> <strong><a href="../jobs-api/">Jobs API</a></strong></p>
-<p>Submit runs programmatically with a per-run <code>notify_on</code>.</p>
+<p>Submit runs programmatically with a <code>muted</code> flag.</p>
 </li>
 <li>
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.002 2.5a.75.75 0 0 1 .691.464l6.302 15.305 2.56-6.301a.75.75 0 0 1 .695-.468h4a.75.75 0 0 1 0 1.5h-3.495l-3.06 7.532a.75.75 0 0 1-1.389.004L8.997 5.21l-3.054 7.329A.75.75 0 0 1 5.25 13H.75a.75.75 0 0 1 0-1.5h4l3.558-8.538a.75.75 0 0 1 .694-.462"/></svg></span> <strong><a href="../sessions/">Sessions</a></strong></p>
@@ -1832,7 +1737,7 @@
 </li>
 <li>
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 11.5H2.938c-.794 0-1.438.644-1.438 1.437v8.313a.75.75 0 0 1-1.5 0v-8.312A2.94 2.94 0 0 1 2.937 10H7V6.151c0-.897.678-1.648 1.57-1.74l6.055-.626 1.006-1.174A1.75 1.75 0 0 1 16.96 2h1.29c.966 0 1.75.784 1.75 1.75V6h3.25a.75.75 0 0 1 0 1.5H20V14h3.25a.75.75 0 0 1 0 1.5H20v2.25a1.75 1.75 0 0 1-1.75 1.75h-1.29a1.75 1.75 0 0 1-1.329-.611l-1.006-1.174-6.055-.627A1.75 1.75 0 0 1 7 15.348Zm9.77-7.913zl-1.201 1.4a.75.75 0 0 1-.492.258l-6.353.657a.25.25 0 0 0-.224.249v9.196a.25.25 0 0 0 .224.249l6.353.657c.191.02.368.112.493.258l1.2 1.401a.25.25 0 0 0 .19.087h1.29a.25.25 0 0 0 .25-.25v-14a.25.25 0 0 0-.25-.25h-1.29a.25.25 0 0 0-.19.087"/></svg></span> <strong><a href="../mcp-endpoint/">MCP Endpoint</a></strong></p>
-<p>Submit jobs from MCP clients, with <code>notify_on</code> support.</p>
+<p>Submit jobs from MCP clients, with a <code>muted</code> flag.</p>
 </li>
 </ul>
 </div>
@@ -1858,7 +1763,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 20:22:30 UTC">August 21, 2026</span>
   </span>
 
     
@@ -1868,7 +1773,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2026 23:25:49 UTC">August 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 20:22:30 UTC">August 21, 2026</span>
   </span>
 
     
