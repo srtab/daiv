@@ -180,7 +180,7 @@ services:
 
   worker:
     image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
-    command: sh /home/daiv/start-worker
+    command: sh /home/daiv/start-worker default
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -204,6 +204,31 @@ services:
     deploy:
       <<: *deploy_defaults
       replicas: 1 (9)
+
+  worker-interactive:
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
+    command: sh /home/daiv/start-worker interactive
+    environment:
+      <<: *app_environment_defaults
+    secrets:
+      - django_secret_key
+      - db_password
+      - codebase_gitlab_auth_token
+      - codebase_gitlab_webhook_secret
+      - daiv_sandbox_api_key
+      - openrouter_api_key
+      - email_host_password
+    networks:
+      - internal
+    healthcheck:
+      test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      <<: *deploy_defaults
+      replicas: 1
 
   scheduler:
     image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
@@ -283,8 +308,12 @@ secrets:
 1. See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 1. **Required**: Sandbox needs Docker socket access to create isolated containers
 1. **Optional**: Remove this volume if you don't need private registry access
-1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+
+Task queues
+
+Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
 MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
 
@@ -419,7 +448,7 @@ services:
 
   worker:
     <<: *x_app_default
-    command: sh /home/daiv/start-worker
+    command: sh /home/daiv/start-worker default
     # volumes:  (15)
     #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
@@ -431,6 +460,23 @@ services:
     ports: []
     deploy:
       replicas: 1 (14)
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+
+  worker-interactive:
+    <<: *x_app_default
+    command: sh /home/daiv/start-worker interactive
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    ports: []
+    deploy:
+      replicas: 1
     depends_on:
       app:
         condition: service_healthy
@@ -482,9 +528,13 @@ volumes:
 1. **Use the same API key** as defined in annotation 9
 1. **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 1. **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
-1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
 1. **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for the `app`, `worker`, and `scheduler` services (which share this anchor)
+
+Task queues
+
+Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
 MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
 
