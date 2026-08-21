@@ -13,7 +13,7 @@
     <tr>
         <td style="padding: 10px 0; font-size: 13px; color: #9ca3af; border-bottom: 1px solid #f3f4f6;">{% translate "Status" %}</td>
         <td style="padding: 10px 0; font-size: 13px; color: #111827; text-align: right; border-bottom: 1px solid #f3f4f6;">
-            <span style="display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; {% if ctx.status_tone == 'warning' %}background-color: #fffbeb; color: #b45309;{% elif ctx.is_successful %}background-color: #ecfdf5; color: #047857;{% else %}background-color: #fef2f2; color: #b91c1c;{% endif %}">
+            <span style="display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; {% if ctx.status_tone == 'warning' %}background-color: #fffbeb; color: #b45309;{% elif ctx.status_tone == 'failure' %}background-color: #fef2f2; color: #b91c1c;{% elif ctx.status_tone == 'success' or ctx.is_successful %}background-color: #ecfdf5; color: #047857;{% else %}background-color: #fef2f2; color: #b91c1c;{% endif %}">
                 {{ ctx.status_label }}
             </span>
         </td>

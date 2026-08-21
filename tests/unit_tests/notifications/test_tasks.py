@@ -1,3 +1,4 @@
+import logging
 import uuid
 from unittest.mock import patch
 
@@ -119,6 +120,20 @@ def test_redrive_delivers_missing_notification(member_user, email_binding):
     assert Notification.objects.filter(source_id=str(run.pk)).count() == 0
     redrive_missing_notifications_cron_task.func()
     assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_logs_error_when_delivery_stays_missing(member_user, email_binding, caplog):
+    """If a persistent create failure leaves a recipient without a row even after the re-emit, the
+    re-drive surfaces it at ERROR — the operator's only signal of a genuinely stuck delivery."""
+    run = _classified_finished_run(member_user)
+    with (
+        patch("notifications.run_notifiers.notify"),  # no-op: the re-emit writes no Notification row
+        caplog.at_level(logging.ERROR, logger="daiv.notifications"),
+    ):
+        redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_id=str(run.pk)).count() == 0
+    assert any("still missing notification after re-emit" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.django_db

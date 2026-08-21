@@ -286,6 +286,8 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
+    # backlog; every new run is eligible. Chat is excluded by origin (get_classify_origins), not this.
     classify_eligible = models.BooleanField(_("classify eligible"), default=True)
 
     objects = RunManager()

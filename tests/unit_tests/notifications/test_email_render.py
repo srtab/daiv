@@ -52,6 +52,21 @@ def test_per_run_failure_pill_stays_red():
     assert AMBER_BG not in html
 
 
+def test_status_tone_failure_beats_is_successful():
+    # A found-issues/failed run can finish successfully (is_successful True); the pill must follow the
+    # envelope tone, not the run's own success, so it stays red rather than going green.
+    html, _text = _render({"status_label": "Failed", "status_tone": "failure", "is_successful": True})
+    assert RED_BG in html
+    assert GREEN_BG not in html
+
+
+def test_per_run_found_issues_renders_amber():
+    html, _text = _render({"status_label": "Found issues", "status_tone": "warning", "is_successful": True})
+    assert "Found issues" in html
+    assert AMBER_BG in html
+    assert GREEN_BG not in html
+
+
 def test_no_status_label_drops_the_pill_row():
     html, text = _render({"duration_seconds": 12})
     assert "Status" not in html

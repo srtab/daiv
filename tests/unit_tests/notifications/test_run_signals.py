@@ -223,6 +223,49 @@ class TestRunBatchRollup:
         assert Notification.objects.filter(recipient=member_user, event_type="job_batch.finished").count() == 1
         assert Notification.objects.filter(recipient=sub, event_type="job_batch.finished").count() == 1
 
+    def test_batch_without_recipients_logs_warning(self, caplog):
+        """A completed, notable batch whose runs resolve no recipient (webhook actor with no account)
+        is a dropped rollup — it logs a warning rather than vanishing silently."""
+        a, b = _make_run_batch(None, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
+        for r in (a, b):
+            self._finish(r)
+        _classify(a, EnvelopeStatus.FAILED)
+        _classify(b, EnvelopeStatus.FAILED)
+        run_classified.send(sender=Run, run=a, envelope=a.envelope)
+        with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
+            run_classified.send(sender=Run, run=b, envelope=b.envelope)
+        assert Notification.objects.filter(event_type="job_batch.finished").count() == 0
+        assert any("no resolvable recipients" in rec.message for rec in caplog.records)
+
+    def test_batch_duration_spans_earliest_start_to_latest_finish(self, member_user, email_binding):
+        """The rollup's duration is the wall-clock span across siblings (earliest start → latest
+        finish), not any single run's duration."""
+        from datetime import timedelta
+
+        a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
+        t0 = timezone.now() - timedelta(minutes=5)
+        a.started_at, a.finished_at = t0, t0 + timedelta(seconds=30)
+        a.save(update_fields=["started_at", "finished_at"])
+        b.started_at, b.finished_at = t0 + timedelta(seconds=10), t0 + timedelta(seconds=90)
+        b.save(update_fields=["started_at", "finished_at"])
+        for r, status in ((a, EnvelopeStatus.FOUND_ISSUES), (b, EnvelopeStatus.FAILED)):
+            run_classified.send(sender=Run, run=r, envelope=_classify(r, status))
+
+        ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
+        assert ctx["duration_seconds"] == 90.0  # t0 → t0+90s
+
+    def test_webhook_batch_subject_names_repos_and_truncates(self, member_user, email_binding):
+        """A webhook/API batch has no name or owner in its subject, so it names the repos, truncating
+        past three with 'and N more'."""
+        runs = _make_run_batch(
+            member_user, statuses=[RunStatus.SUCCESSFUL] * 4, repos=["acme/a", "acme/b", "acme/c", "acme/d"]
+        )
+        for r in runs:
+            self._finish(r)
+            run_classified.send(sender=Run, run=r, envelope=_classify(r, EnvelopeStatus.FAILED))
+        subject = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").subject
+        assert "acme/a, acme/b, acme/c and 1 more" in subject
+
 
 @pytest.mark.django_db
 class TestNotificationPolicy:
@@ -288,6 +331,37 @@ class TestNotificationPolicy:
         run_classified.send(sender=Run, run=run, envelope=envelope)
         assert Notification.objects.filter(recipient=member_user).count() == 1
 
+    def test_webhook_run_without_recipient_logs_and_drops(self, caplog):
+        """A webhook run whose external actor has no DAIV account resolves no recipient. Rather than
+        drop it silently, the emit path logs a warning (matching the batch path) and writes nothing."""
+        session = _session(origin=SessionOrigin.ISSUE_WEBHOOK, thread_id=str(uuid.uuid4()))
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=None
+        )
+        with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.count() == 0
+        assert any("no resolvable recipient" in rec.message for rec in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("status", "tone", "label"),
+        [
+            (EnvelopeStatus.FOUND_ISSUES, "warning", "Found issues"),
+            (EnvelopeStatus.NEEDS_ATTENTION, "warning", "Needs attention"),
+            (EnvelopeStatus.FAILED, "failure", "Failed"),
+        ],
+    )
+    def test_per_run_pill_tone_follows_envelope_not_run_status(self, member_user, email_binding, status, tone, label):
+        """The pill/attachment tone is driven by the envelope, never the run's own success: a
+        found-issues run finishes successfully (is_successful True) yet must not render green."""
+        session = _session(user=member_user)
+        run, envelope = _classified_run(session, status=status, user=member_user)
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+        ctx = Notification.objects.get(recipient=member_user, event_type="job.finished").context
+        assert ctx["status_tone"] == tone
+        assert ctx["status_label"] == label
+        assert ctx["is_successful"] is True  # run succeeded; the tone still is not green
+
     def test_notification_context_carries_run_metadata(self, member_user, run_schedule):
         from decimal import Decimal
 
@@ -320,6 +394,21 @@ class TestNotificationPolicy:
         with caplog.at_level(logging.DEBUG, logger="daiv.notifications"):
             run_classified.send(sender=Run, run=run, envelope=envelope)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 1
+
+    def test_integrity_error_without_existing_row_is_logged_as_unexpected(self, member_user, email_binding, caplog):
+        """An IntegrityError that is NOT the benign dedup race (no row exists after it) is a real bug
+        and must surface at ERROR, not be swallowed as 'already delivered'."""
+        from django.db import IntegrityError
+
+        session = _session(user=member_user)
+        run, envelope = _classified_run(session, status=EnvelopeStatus.FAILED, user=member_user)
+        with (
+            patch("notifications.run_notifiers.notify", side_effect=IntegrityError("boom")),
+            patch("notifications.run_notifiers._notification_exists", return_value=False),
+            caplog.at_level(logging.ERROR, logger="daiv.notifications"),
+        ):
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert any("Unexpected IntegrityError" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.django_db
@@ -362,7 +451,7 @@ class TestRunFanoutToSubscribers:
                 raise RuntimeError("boom")
             return real_notify(recipient=recipient, **kwargs)
 
-        mocker.patch("notifications.signals.notify", side_effect=flaky_notify)
+        mocker.patch("notifications.run_notifiers.notify", side_effect=flaky_notify)
 
         session = _session(origin=SessionOrigin.SCHEDULE, thread_id=str(uuid.uuid4()), scheduled_job=run_schedule)
         run, envelope = _classified_run(

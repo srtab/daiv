@@ -121,6 +121,19 @@ class TestJobFinishedRenderer:
         assert text.startswith("❌ ")
         assert attachments[0]["color"] == COLOR_FAILURE
 
+    def test_warning_tone_renders_amber_and_warning_emoji(self):
+        notif = _stub_notification(context={"status_tone": "warning", "trigger_label": "Manual"})
+        text, attachments = JobFinishedRenderer().render(notif)
+        assert text.startswith("⚠️ ")
+        assert attachments[0]["color"] == COLOR_PARTIAL
+
+    def test_status_tone_overrides_is_successful(self):
+        # A found-issues run finishes successfully (is_successful True) but its envelope tone is a
+        # warning; the attachment must follow the tone, not go green.
+        notif = _stub_notification(context={"status_tone": "warning", "is_successful": True})
+        _text, attachments = JobFinishedRenderer().render(notif)
+        assert attachments[0]["color"] == COLOR_PARTIAL
+
     def test_usage_and_cost_fields_omitted_when_data_missing(self):
         notif = _stub_notification(context={"is_successful": True, "trigger_label": "Manual"})
         _text, attachments = JobFinishedRenderer().render(notif)
@@ -171,6 +184,7 @@ class TestJobBatchFinishedRenderer:
             "all_clear_count": 1,
             "notable_count": 4,
             "total": 5,
+            "status_tone": "warning",  # the notifier stamps this; the renderer reads it (not the counts)
             "duration_seconds": 371,
             "trigger_owner": "alice",
             "repo_ids": ["acme/api", "acme/web", "acme/cli", "acme/db", "acme/legacy"],
@@ -195,13 +209,13 @@ class TestJobBatchFinishedRenderer:
         assert "acme/api" in fields["Repositories"]
 
     def test_all_notable_uses_red(self):
-        notif = _stub_notification(context=self._ctx(notable_count=5, all_clear_count=0))
+        notif = _stub_notification(context=self._ctx(notable_count=5, all_clear_count=0, status_tone="failure"))
         text, attachments = JobBatchFinishedRenderer().render(notif)
         assert text.startswith("❌ ")
         assert attachments[0]["color"] == COLOR_FAILURE
 
     def test_none_notable_uses_green(self):
-        notif = _stub_notification(context=self._ctx(notable_count=0, all_clear_count=5))
+        notif = _stub_notification(context=self._ctx(notable_count=0, all_clear_count=5, status_tone="success"))
         text, attachments = JobBatchFinishedRenderer().render(notif)
         assert text.startswith("✅ ")
         assert attachments[0]["color"] == COLOR_SUCCESS

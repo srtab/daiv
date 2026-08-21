@@ -57,7 +57,8 @@ async def classify_run_task(run_id: str) -> None:
 
     run = (
         await Run.objects
-        .select_related("task_result", "session", "session__scheduled_job", "session__scheduled_job__user")
+        # "user" is loaded because run_classified → resolve_recipients reads run.user for non-schedule runs.
+        .select_related("task_result", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
         .filter(pk=run_id)
         .afirst()
     )

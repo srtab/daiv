@@ -104,12 +104,8 @@ def redrive_missing_notifications_cron_task():
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
     from notifications.models import Notification
-    from notifications.signals import (
-        _notify_worthy_statuses,
-        _resolve_recipients_run,
-        _within_relevance_window,
-        notification_source_for_run,
-    )
+    from notifications.policy import notification_source_for_run, notify_worthy_statuses, within_relevance_window
+    from notifications.run_notifiers import resolve_recipients
 
     def _delivered(source_type: str, source_id: str, event_type: str) -> set:
         return set(
@@ -124,22 +120,24 @@ def redrive_missing_notifications_cron_task():
         .filter(
             trigger_type__in=get_classify_origins(),
             status__in=RunStatus.terminal(),
+            classify_eligible=True,
             envelope__isnull=False,
-            envelope__status__in=_notify_worthy_statuses(),
+            envelope__status__in=notify_worthy_statuses(),
             finished_at__isnull=False,
             finished_at__gte=now - RECLASSIFY_MAX_AGE,
         )
         .select_related("envelope", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
+        .prefetch_related("session__scheduled_job__subscribers")
         .order_by("finished_at")[:REDRIVE_BATCH_LIMIT]
     )
 
     redriven = 0
     for run in candidates:
-        if not _within_relevance_window(run.finished_at) or run.effective_muted:
+        if not within_relevance_window(run.finished_at) or run.effective_muted:
             continue
         # Skip only when EVERY expected recipient already has a row. A partial fan-out — a crash between
         # the per-recipient commits — must still be re-driven for the recipients that missed out.
-        expected = set(_resolve_recipients_run(run))
+        expected = set(resolve_recipients(run))
         if not expected:
             continue
         # Resolve the notification key exactly as the emit did: a single-repo submit carries a
@@ -160,9 +158,9 @@ def redrive_missing_notifications_cron_task():
         if expected.issubset(_delivered(source_type, source_id, event_type)):
             continue
         run_classified.send_robust(sender=Run, run=run, envelope=run.envelope)
-        # on_run_classified swallows its own errors, so send_robust never reports one — re-read the
-        # rows instead. A recipient still missing after the re-emit is a genuinely stuck delivery
-        # (a persistent create failure), not this tick's success; only a clean fan-out is counted.
+        # send_robust can't tell us whether the row landed, so re-read instead. A recipient still
+        # missing after the re-emit is a genuinely stuck delivery (a persistent create failure), not
+        # this tick's success; only a clean fan-out is counted.
         still_missing = expected - _delivered(source_type, source_id, event_type)
         if still_missing:
             logger.error(

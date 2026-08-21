@@ -2,23 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from notifications.channels.rocketchat_renderers.base import (
-    COLOR_FAILURE,
-    COLOR_PARTIAL,
-    COLOR_SUCCESS,
-    FOOTER,
-    RocketChatRenderer,
-)
+from notifications.channels.rocketchat_renderers.base import RocketChatRenderer
 from notifications.channels.rocketchat_renderers.registry import register_renderer
 from notifications.choices import EventType
-from notifications.signals import batch_status_tone
 
 if TYPE_CHECKING:
     from notifications.models import Notification
 
 
 _REPO_BREAKDOWN_LIMIT = 8
-_TONE_STYLE = {"success": (COLOR_SUCCESS, "✅"), "failure": (COLOR_FAILURE, "❌"), "warning": (COLOR_PARTIAL, "⚠️")}
 
 
 @register_renderer
@@ -34,7 +26,7 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
         needs = ctx.get("needs_attention_count", 0)
         clear = ctx.get("all_clear_count", 0)
 
-        color, emoji = _TONE_STYLE[batch_status_tone(notable, total)]
+        color, emoji = self._tone_style(ctx)
 
         fields: list[dict] = [
             {"title": "Results", "value": f"⚑ {notable} · ✓ {clear} of {total}", "short": True},
@@ -50,15 +42,7 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
         if repo_ids := ctx.get("repo_ids"):
             fields.append({"title": "Repositories", "value": self._repo_list(repo_ids), "short": False})
 
-        attachment = {
-            "color": color,
-            "title": notification.subject,
-            "title_link": self._link(notification),
-            "fields": fields,
-            "footer": FOOTER,
-            "ts": int(notification.created.timestamp()),
-        }
-        return f"{emoji} {notification.subject}", [attachment]
+        return self._message(notification, color, emoji, fields)
 
     @staticmethod
     def _repo_list(repo_ids: list[str]) -> str:
