@@ -355,7 +355,9 @@ class ScheduleTemplate(TimeStampedModel):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
+    muted = models.BooleanField(
+        _("muted"), default=False, help_text=_("Default mute state copied to schedules created from this template.")
+    )
     intent = models.CharField(
         _("intent"),
         max_length=16,

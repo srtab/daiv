@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta
 from uuid import UUID
 
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from crontask import cron
@@ -102,14 +103,20 @@ def redrive_missing_notifications_cron_task():
     from sessions.signals import get_classify_origins, run_classified
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
-    from notifications.choices import EventType
     from notifications.models import Notification
     from notifications.signals import (
-        _is_schedule_run,
         _notify_worthy_statuses,
         _resolve_recipients_run,
         _within_relevance_window,
+        notification_source_for_run,
     )
+
+    def _delivered(source_type: str, source_id: str, event_type: str) -> set:
+        return set(
+            Notification.objects.filter(
+                source_type=source_type, source_id=source_id, event_type=event_type
+            ).values_list("recipient_id", flat=True)
+        )
 
     now = timezone.now()
     candidates = (
@@ -135,28 +142,35 @@ def redrive_missing_notifications_cron_task():
         expected = set(_resolve_recipients_run(run))
         if not expected:
             continue
+        # Resolve the notification key exactly as the emit did: a single-repo submit carries a
+        # batch_id but is delivered per-run (the rollup needs >1 sibling). Keying it as a batch here
+        # would look up a rollup that never exists and re-emit it on every tick.
         if run.batch_id is not None:
-            source_type, source_id, event_type = "sessions.Batch", str(run.batch_id), EventType.JOB_BATCH_FINISHED
-        else:
-            source_type, source_id = "sessions.Run", str(run.pk)
-            event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
-        delivered = set(
-            Notification.objects.filter(
-                source_type=source_type, source_id=source_id, event_type=event_type
-            ).values_list("recipient_id", flat=True)
-        )
-        if expected.issubset(delivered):
-            continue
-        results = run_classified.send_robust(sender=Run, run=run, envelope=run.envelope)
-        failures = [(recv, response) for recv, response in results if isinstance(response, Exception)]
-        for recv, response in failures:
-            logger.error(
-                "redrive: run_classified receiver %s failed for run=%s",
-                getattr(recv, "__name__", recv),
-                run.pk,
-                exc_info=response,
+            counts = Run.objects.by_batch(run.batch_id).aggregate(
+                total=Count("id"), classified=Count("id", filter=Q(envelope__isnull=False))
             )
-        if not failures:
+            total = counts["total"]
+            # A >1 batch rollup is only deliverable once every sibling is classified; an incomplete
+            # batch is pending (the reclassify backstop will classify the stragglers), not stuck.
+            if total > 1 and counts["classified"] < total:
+                continue
+        else:
+            total = 1
+        source_type, source_id, event_type = notification_source_for_run(run, total)
+        if expected.issubset(_delivered(source_type, source_id, event_type)):
+            continue
+        run_classified.send_robust(sender=Run, run=run, envelope=run.envelope)
+        # on_run_classified swallows its own errors, so send_robust never reports one — re-read the
+        # rows instead. A recipient still missing after the re-emit is a genuinely stuck delivery
+        # (a persistent create failure), not this tick's success; only a clean fan-out is counted.
+        still_missing = expected - _delivered(source_type, source_id, event_type)
+        if still_missing:
+            logger.error(
+                "redrive: run=%s still missing notification after re-emit for recipient_pk(s)=%s",
+                run.pk,
+                sorted(str(pk) for pk in still_missing),
+            )
+        else:
             redriven += 1
 
     if redriven:

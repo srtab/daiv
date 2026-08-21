@@ -213,3 +213,49 @@ def test_redrive_batch_delivers_single_rollup(member_user, email_binding):
         source_type="sessions.Batch", source_id=str(batch_id), event_type=EventType.JOB_BATCH_FINISHED
     )
     assert rollups.count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_skips_single_repo_batch_run_already_delivered(member_user, email_binding):
+    """A single-repo submit carries a batch_id but is delivered per-run (a rollup needs >1 sibling).
+    The re-drive must key it per-run and recognise the delivered row — otherwise it looks up a phantom
+    sessions.Batch rollup, never matches, and re-emits run_classified on every tick for 24h."""
+    run = _classified_finished_run(member_user)
+    Run.objects.filter(pk=run.pk).update(batch_id=uuid.uuid4())  # single-repo "batch" (total == 1)
+
+    redrive_missing_notifications_cron_task.func()  # first pass delivers the per-run notification
+    per_run = Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk))
+    assert per_run.count() == 1
+
+    # Second pass must recognise the per-run row as delivered and not re-emit.
+    with patch("sessions.signals.run_classified.send_robust") as send_mock:
+        redrive_missing_notifications_cron_task.func()
+    send_mock.assert_not_called()
+    assert per_run.count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_skips_batch_not_yet_fully_classified(member_user, email_binding):
+    """A >1 batch rollup is only deliverable once every sibling is classified. A candidate sibling of
+    a batch with an unclassified straggler must be left for the reclassify backstop, not re-emitted
+    (which would produce nothing and, with the delivery re-check, log a spurious 'still missing')."""
+    batch_id = uuid.uuid4()
+    classified = _classified_finished_run(member_user)
+    Run.objects.filter(pk=classified.pk).update(batch_id=batch_id)
+    straggler_session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=member_user
+    )
+    Run.objects.create(  # sibling with no envelope yet
+        session=straggler_session,
+        trigger_type=SessionOrigin.API_JOB,
+        repo_id="x/y",
+        status=RunStatus.SUCCESSFUL,
+        user=member_user,
+        finished_at=timezone.now(),
+        batch_id=batch_id,
+    )
+
+    with patch("sessions.signals.run_classified.send_robust") as send_mock:
+        redrive_missing_notifications_cron_task.func()
+    send_mock.assert_not_called()
+    assert Notification.objects.filter(source_id=str(batch_id)).count() == 0

@@ -16,7 +16,9 @@ class Migration(migrations.Migration):
             model_name="scheduletemplate",
             name="muted",
             field=models.BooleanField(
-                default=False, help_text="Mute notifications for this schedule.", verbose_name="muted"
+                default=False,
+                help_text="Default mute state copied to schedules created from this template.",
+                verbose_name="muted",
             ),
         ),
         migrations.RemoveField(model_name="scheduledjob", name="notify_on"),

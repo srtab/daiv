@@ -187,6 +187,8 @@ class TestJobBatchFinishedRenderer:
         assert text.startswith("⚠️ ")
         assert attachments[0]["color"] == COLOR_PARTIAL
         fields = _fields_by_title(attachments[0])
+        assert fields["Results"] == "⚑ 4 · ✓ 1 of 5"
+        assert fields["Breakdown"] == "found 2 · needs 1 · failed 1"
         assert fields["Owner"] == "alice"
         assert fields["Usage"] == "184.2k in · 412.8k out"
         assert fields["Total cost"] == "$0.83"

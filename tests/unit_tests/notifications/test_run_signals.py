@@ -136,6 +136,43 @@ class TestRunBatchRollup:
         assert rollup.context["notable_count"] == 1
         assert rollup.context["total"] == 2
 
+    def test_rollup_breakdown_counts_each_envelope_status(self, member_user, email_binding):
+        """The rollup decomposes the batch per envelope status. A one-of-each mix catches a swapped
+        Count(filter=...) that the notable-only assertion above would miss."""
+        runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL] * 4)
+        statuses = [
+            EnvelopeStatus.FOUND_ISSUES,
+            EnvelopeStatus.NEEDS_ATTENTION,
+            EnvelopeStatus.FAILED,
+            EnvelopeStatus.ALL_CLEAR,
+        ]
+        for run, status in zip(runs, statuses, strict=True):
+            self._finish(run)
+            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+
+        ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
+        assert ctx["found_count"] == 1
+        assert ctx["needs_attention_count"] == 1
+        assert ctx["failed_count"] == 1
+        assert ctx["all_clear_count"] == 1
+        assert ctx["notable_count"] == 3
+        assert ctx["total"] == 4
+        # notable (3) < total (4) → the partial "warning" tone the email pill colours amber.
+        assert ctx["status_tone"] == "warning"
+        assert ctx["status_label"] == "Needs attention"
+
+    def test_rollup_tone_is_failure_when_every_run_is_notable(self, member_user, email_binding):
+        """When no run is all-clear (notable == total) the tone escalates to failure (red pill),
+        mirroring the RocketChat renderer's notable-vs-total thresholds."""
+        runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.FAILED])
+        for run, status in zip(runs, [EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.FAILED], strict=True):
+            self._finish(run)
+            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+
+        ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
+        assert ctx["notable_count"] == ctx["total"] == 2
+        assert ctx["status_tone"] == "failure"
+
     def test_all_clear_batch_is_silent(self, member_user, email_binding):
         a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])
         for r, env_status in ((a, EnvelopeStatus.ALL_CLEAR), (b, EnvelopeStatus.ALL_CLEAR)):

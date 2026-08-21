@@ -70,7 +70,7 @@ def _render_payload_run(run, envelope) -> tuple[str, str, dict]:
     count = envelope.count
 
     # Callers gate on notify_worthy() first, so status is one of found-issues / needs-attention / failed;
-    # an unhandled value would silently render as "failed", so the else raises instead of guessing.
+    # an unmatched status would leave subject unbound, so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
@@ -209,6 +209,17 @@ def _handle_batch_completion_run(run, siblings, total: int) -> None:
             )
 
 
+def batch_status_tone(notable: int, total: int) -> str:
+    """Single source of truth for a batch's aggregate tone, shared by the email pill and the
+    RocketChat attachment so the two channels can never disagree. ``notable == 0`` is all-clear
+    (only reachable defensively — a notified batch always has notable > 0)."""
+    if notable == 0:
+        return "success"
+    if notable == total:
+        return "failure"
+    return "warning"
+
+
 def _render_batch_payload_run(
     run, rows: list[tuple], total: int, agg: dict, notable: int, usage: dict
 ) -> tuple[str, str, dict]:
@@ -245,6 +256,8 @@ def _render_batch_payload_run(
         "all_clear_count": agg["clear"],
         "notable_count": notable,
         "total": total,
+        "status_label": _("Needs attention"),
+        "status_tone": batch_status_tone(notable, total),
         "trigger_label": run.get_trigger_type_display(),
         "trigger_name": name,
         "trigger_owner": owner,
@@ -283,7 +296,21 @@ def _within_relevance_window(finished_at) -> bool:
     if finished_at is None:
         return False
     now = timezone.now()
-    return not finished_at < now - RECLASSIFY_MAX_AGE
+    return finished_at >= now - RECLASSIFY_MAX_AGE
+
+
+def notification_source_for_run(run, total: int) -> tuple[str, str, EventType]:
+    """The (source_type, source_id, event_type) a classified run's notification is keyed on.
+
+    A batch of >1 rolls up to one JOB_BATCH_FINISHED per (recipient, batch); a single-repo submit
+    (total == 1, but still carries a batch_id) and webhook runs are per-run. The re-drive reads this
+    key back to decide "already delivered?", so it must resolve it exactly as the emit did — hence
+    one function, and hence the ``total > 1`` gate mirrors the batch branch in ``on_run_classified``.
+    """
+    if run.batch_id is not None and total > 1:
+        return "sessions.Batch", str(run.batch_id), EventType.JOB_BATCH_FINISHED
+    event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
+    return "sessions.Run", str(run.pk), event_type
 
 
 @receiver(run_classified, dispatch_uid="notifications.on_run_classified")
@@ -319,15 +346,16 @@ def on_run_classified(sender, run, envelope, **kwargs) -> None:
         channels = [cls.channel_type for cls in enabled_channels()]
         subject, body, context = _render_payload_run(run, envelope)
         link_url = reverse("session_detail", kwargs={"thread_id": run.session_id})
-        event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
+        # Reached only when this is not a >1 batch (that branch returned above), so key it per-run.
+        source_type, source_id, event_type = notification_source_for_run(run, total=1)
 
         for recipient in recipients.values():
             try:
                 notify(
                     recipient=recipient,
                     event_type=event_type,
-                    source_type="sessions.Run",
-                    source_id=str(run.pk),
+                    source_type=source_type,
+                    source_id=source_id,
                     subject=subject,
                     body=body,
                     link_url=link_url,

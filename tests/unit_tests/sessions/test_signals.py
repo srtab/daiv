@@ -528,3 +528,11 @@ class TestClassifyOnRunFinished:
         with patch("sessions.signals.classify_run_task") as task_mock:
             run_finished.send(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+
+def test_classify_origins_is_every_origin_but_chat():
+    """Classification is "universal for non-chat". Pinning the set as a denylist forces a newly-added
+    SessionOrigin to make a deliberate decision instead of silently escaping classification."""
+    from sessions.signals import get_classify_origins
+
+    assert get_classify_origins() == frozenset(SessionOrigin.values) - {SessionOrigin.CHAT}

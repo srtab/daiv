@@ -11,12 +11,14 @@ from notifications.channels.rocketchat_renderers.base import (
 )
 from notifications.channels.rocketchat_renderers.registry import register_renderer
 from notifications.choices import EventType
+from notifications.signals import batch_status_tone
 
 if TYPE_CHECKING:
     from notifications.models import Notification
 
 
 _REPO_BREAKDOWN_LIMIT = 8
+_TONE_STYLE = {"success": (COLOR_SUCCESS, "✅"), "failure": (COLOR_FAILURE, "❌"), "warning": (COLOR_PARTIAL, "⚠️")}
 
 
 @register_renderer
@@ -32,12 +34,7 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
         needs = ctx.get("needs_attention_count", 0)
         clear = ctx.get("all_clear_count", 0)
 
-        if notable == 0:
-            color, emoji = COLOR_SUCCESS, "✅"
-        elif notable == total:
-            color, emoji = COLOR_FAILURE, "❌"
-        else:
-            color, emoji = COLOR_PARTIAL, "⚠️"
+        color, emoji = _TONE_STYLE[batch_status_tone(notable, total)]
 
         fields: list[dict] = [
             {"title": "Results", "value": f"⚑ {notable} · ✓ {clear} of {total}", "short": True},

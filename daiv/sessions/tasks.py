@@ -22,7 +22,7 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 RECLASSIFY_BATCH_LIMIT = 200
 # Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
 # run into paid classification; the notification relevance window reuses this same value.
-RECLASSIFY_MAX_AGE = timedelta(hours=24)  # tunable
+RECLASSIFY_MAX_AGE = timedelta(hours=24)
 
 
 @task(dedup=True)
@@ -56,7 +56,10 @@ async def classify_run_task(run_id: str) -> None:
     from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus
 
     run = (
-        await Run.objects.select_related("task_result", "session", "session__scheduled_job").filter(pk=run_id).afirst()
+        await Run.objects
+        .select_related("task_result", "session", "session__scheduled_job", "session__scheduled_job__user")
+        .filter(pk=run_id)
+        .afirst()
     )
     if run is None:
         logger.warning("classify_run_task: run %s not found, skipping", run_id)
