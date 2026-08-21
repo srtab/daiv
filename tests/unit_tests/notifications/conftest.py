@@ -68,6 +68,77 @@ def rocketchat_channel_enabled(db):
 
 
 @pytest.fixture
+def telegram_configured():
+    """Point ``site_settings`` at a fake Telegram bot with real ``SecretStr`` semantics.
+
+    Same discipline as ``rocketchat_configured``: ``site_settings`` resolves fields via
+    ``__getattr__`` rather than holding real instance attributes, so we poke ``__dict__``
+    directly and pop on teardown. ``monkeypatch.setattr`` would leak an instance attribute
+    past teardown that shadows the ``__getattr__`` fallback later DB-backed fixtures need.
+    """
+    from core.site_settings import site_settings
+
+    overrides = {
+        "telegram_enabled": True,
+        "telegram_bot_username": "daiv_bot",
+        "telegram_bot_token": SecretStr("123:ABC"),
+        "telegram_webhook_secret": SecretStr("s3cret"),
+    }
+    for name, value in overrides.items():
+        site_settings.__dict__[name] = value
+    try:
+        yield
+    finally:
+        for name in overrides:
+            site_settings.__dict__.pop(name, None)
+
+
+@pytest.fixture
+def site_settings_override():
+    """Temporarily override ``site_settings`` fields, popping them on teardown.
+
+    Use this instead of ``monkeypatch.setattr(site_settings, …)``. ``site_settings`` resolves
+    fields through ``__getattr__``, so monkeypatch reads a *computed* value as the "old" one and
+    restores it as a real instance attribute — which then shadows ``__getattr__`` for every
+    later test, silently ignoring any DB-backed fixture that sets the same field.
+
+    Call it once with several keywords, or repeatedly to change a value mid-test.
+    """
+    from core.site_settings import site_settings
+
+    applied: set[str] = set()
+
+    def _override(**values) -> None:
+        for name, value in values.items():
+            site_settings.__dict__[name] = value
+            applied.add(name)
+
+    try:
+        yield _override
+    finally:
+        for name in applied:
+            site_settings.__dict__.pop(name, None)
+
+
+@pytest.fixture
+def telegram_channel_enabled(db):
+    # Mirrors ``rocketchat_channel_enabled``: DB rows roll back with ``django_db``, but the
+    # ``SiteConfiguration`` cache is process-local, so evict it on teardown.
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.objects.get_instance()
+    config.telegram_enabled = True
+    config.telegram_bot_username = "daiv_bot"
+    config.telegram_bot_token = "123:ABC"  # noqa: S105 — test constant
+    config.telegram_webhook_secret = "s3cret"  # noqa: S105 — test constant
+    config.save()
+    try:
+        yield config
+    finally:
+        SiteConfiguration._invalidate_cache()
+
+
+@pytest.fixture
 def email_binding(member_user):
     """Ensure the member_user has a verified email channel binding."""
     binding, _ = UserChannelBinding.objects.get_or_create(
