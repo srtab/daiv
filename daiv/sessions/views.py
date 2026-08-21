@@ -450,7 +450,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         return source
 
     def get_initial(self) -> dict:
-        initial: dict = {"notify_on": self.request.user.notify_on_jobs}
+        initial: dict = {}
         source = self.source_run
         if source is not None:
             initial.update({
@@ -490,7 +490,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 repos=repos,
                 agent_model=form.cleaned_data["agent_model"],
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
-                notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
                 mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )

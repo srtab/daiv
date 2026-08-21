@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 from django.utils.translation import gettext
 
+from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
@@ -19,13 +20,16 @@ RECLASSIFY_GRACE = timedelta(minutes=15)
 # Bounded per tick so a backlog after a long provider/broker outage drains steadily rather than
 # storming the queue in a single pass.
 RECLASSIFY_BATCH_LIMIT = 200
+# Recency floor so a first deploy of universal classification never sweeps every historical webhook/job
+# run into paid classification; the notification relevance window reuses this same value.
+RECLASSIFY_MAX_AGE = timedelta(hours=24)
 
 
 @task(dedup=True)
 async def classify_run_task(run_id: str) -> None:
-    """Classify a finished scheduled run's prose report into its :class:`~sessions.models.RunEnvelope`.
+    """Classify a finished non-chat run's prose report into its :class:`~sessions.models.RunEnvelope`.
 
-    Enqueued by the ``classify_on_run_finished`` receiver (SCHEDULE-only, terminal-only). Runs
+    Enqueued by the ``classify_on_run_finished`` receiver (all non-chat origins, terminal-only). Runs
     out-of-band and never writes to or mutates ``Run``/``Run.task_result`` — it reads the run
     (including ``response_text``) as its input and the only row it creates is its own envelope.
 
@@ -52,7 +56,11 @@ async def classify_run_task(run_id: str) -> None:
     from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus
 
     run = (
-        await Run.objects.select_related("task_result", "session", "session__scheduled_job").filter(pk=run_id).afirst()
+        await Run.objects
+        # "user" is loaded because run_classified → resolve_recipients reads run.user for non-schedule runs.
+        .select_related("task_result", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
+        .filter(pk=run_id)
+        .afirst()
     )
     if run is None:
         logger.warning("classify_run_task: run %s not found, skipping", run_id)
@@ -67,19 +75,34 @@ async def classify_run_task(run_id: str) -> None:
         # Write exactly one envelope. ``count`` is always ``len(actionable)`` (derived here so the two
         # can never disagree). The ``aexists`` guard above is check-then-act, so a concurrent task can
         # still race past it; the OneToOne then rejects the second insert with an ``IntegrityError``.
+        from sessions.signals import run_classified  # local import: sessions.signals imports sessions.tasks
+
         try:
-            await RunEnvelope.objects.acreate(
+            envelope = await RunEnvelope.objects.acreate(
                 run=run, status=status, count=len(actionable), summary=summary, actionable=actionable
             )
         except IntegrityError:
             # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
-            # wrote it and we lost. Any *other* IntegrityError (a genuine constraint violation) must
-            # surface as a FAILED task, not be silently disguised as a race — otherwise the run is left
-            # unclassified with no signal.
+            # wrote it and we lost — the raced loser returns WITHOUT emitting (fire-once). Any other
+            # IntegrityError must surface as a FAILED task, not be disguised as a race.
             if await RunEnvelope.objects.filter(run=run).aexists():
                 logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
                 return
             raise
+        # Emit on the success path only. Bridge to the sync executor: every receiver (notify() and its
+        # recipient/subscriber queries) is synchronous ORM and would raise SynchronousOnlyOperation on
+        # the event loop. thread_sensitive=True runs them in the shared sync executor.
+        results = await sync_to_async(run_classified.send_robust, thread_sensitive=True)(
+            sender=type(run), run=run, envelope=envelope
+        )
+        for recv, response in results:
+            if isinstance(response, Exception):
+                logger.error(
+                    "run_classified receiver %s failed for run=%s",
+                    getattr(recv, "__name__", recv),
+                    run.pk,
+                    exc_info=response,
+                )
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and
     # without — any LLM call. Its prose report may be empty, so the summary comes from error_message.
@@ -184,29 +207,44 @@ def reclassify_missing_envelopes_cron_task():
     failed unrecoverably (provider errors past all retries + fallback) or an ``.enqueue()`` that was
     dropped (a broker/DB blip, swallowed in ``classify_on_run_finished``) would otherwise strand the
     run at "classifying…" forever — nothing re-fires the signal. This periodic sweep re-targets
-    terminal SCHEDULE runs that still have no ``RunEnvelope`` and re-enqueues classification, which is
-    idempotent (``dedup=True`` + the in-task ``aexists`` guard) so re-enqueuing an in-flight or
-    already-classified run is a safe no-op. A FAILED run with no envelope is likewise re-targeted and
-    gets its ``failed`` envelope with no LLM call.
+    terminal non-chat runs (all origins returned by ``get_classify_origins()``) that still have no
+    ``RunEnvelope`` and re-enqueues classification, which is idempotent (``dedup=True`` + the in-task
+    ``aexists`` guard) so re-enqueuing an in-flight or already-classified run is a safe no-op.
+    A FAILED run with no envelope is likewise re-targeted and gets its ``failed`` envelope with no LLM
+    call.
+
+    Only ``classify_eligible`` runs are swept: pre-deploy rows are backfilled ineligible so a
+    coverage-widening deploy never retro-classifies (and never retro-notifies) the backlog, while
+    everything created afterward defaults eligible and stays a catch-all.
+
+    Both the grace cutoff and the recency floor are keyed on ``finished_at``, not ``created_at``:
+    batch siblings and orphan-queued recovery can make created_at→finished_at gaps exceed a day, so a
+    ``created_at`` floor would permanently skip a run that finishes long after creation.
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock, so a pass
     that overruns the interval is never double-dispatched.
     """
-    from sessions.models import Run, RunStatus, SessionOrigin
+    from sessions.models import Run, RunStatus
+    from sessions.signals import get_classify_origins
 
-    cutoff = timezone.now() - RECLASSIFY_GRACE
+    now = timezone.now()
+    grace_cutoff = now - RECLASSIFY_GRACE
+    age_floor = now - RECLASSIFY_MAX_AGE
     stranded_ids = list(
         Run.objects
         .filter(
-            trigger_type=SessionOrigin.SCHEDULE,
+            trigger_type__in=get_classify_origins(),
             status__in=RunStatus.terminal(),
             envelope__isnull=True,
-            created_at__lt=cutoff,
+            classify_eligible=True,
+            # Keyed on finished_at (see docstring); terminal runs always have it set.
+            finished_at__lt=grace_cutoff,
+            finished_at__gte=age_floor,
         )
-        .order_by("created_at")
+        .order_by("finished_at")
         .values_list("pk", flat=True)[:RECLASSIFY_BATCH_LIMIT]
     )
     for run_id in stranded_ids:
         classify_run_task.enqueue(str(run_id))
     if stranded_ids:
-        logger.info("reclassify_missing_envelopes: re-enqueued %d stranded scheduled run(s)", len(stranded_ids))
+        logger.info("reclassify_missing_envelopes: re-enqueued %d stranded run(s)", len(stranded_ids))

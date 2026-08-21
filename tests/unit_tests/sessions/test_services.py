@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from notifications.choices import NotifyOn
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
@@ -197,7 +196,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="do it",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -226,9 +224,7 @@ class TestSubmitBatchRunsSync:
         with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="dev" if i % 2 else "") for i in range(5)]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 5
         assert {r.batch_id for r in result.runs} == {result.batch_id}
@@ -245,9 +241,7 @@ class TestSubmitBatchRunsSync:
     def test_oversized_repos_raises_value_error(self, member_user):
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):
-            submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
     def test_partial_enqueue_failure_is_best_effort(self, member_user):
         call_count = {"n": 0}
@@ -265,9 +259,7 @@ class TestSubmitBatchRunsSync:
                 RepoTarget(repo_id="o/b", ref=""),
                 RepoTarget(repo_id="o/c", ref=""),
             ]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 2
         assert len(result.failed) == 1
@@ -295,9 +287,7 @@ class TestSubmitBatchRunsSync:
         m_task.aenqueue = _aenqueue
         with patch_create, patch_task:
             repos = [RepoTarget(repo_id="o/a", ref=""), RepoTarget(repo_id="o/b", ref="")]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 1
         assert len(result.failed) == 1
@@ -324,7 +314,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
@@ -352,7 +341,6 @@ class TestAsubmitBatchRuns:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.API_JOB,
             )
 
@@ -377,7 +365,7 @@ class TestBatchTitleEnqueue:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(4)]
             result = submit_batch_runs(
-                user=member_user, prompt="add login", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
+                user=member_user, prompt="add login", repos=repos, trigger_type=SessionOrigin.UI_JOB
             )
 
         assert len(result.runs) == 4
@@ -404,7 +392,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
@@ -420,7 +407,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="o/r", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -440,7 +426,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="add login",
                 repos=[RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(3)],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -638,31 +623,6 @@ async def test_continuation_submit_does_not_clobber_stored_overrides():
         thread_id="t-keep", origin=SessionOrigin.UI_JOB, repo_id="g/r", mcp_overrides={"b": "on"}
     )
     assert again.mcp_overrides == {"a": "off"}
-
-
-# ---------------------------------------------------------------------------
-# notify_on tests (ported from TestCreateActivityNotifyOn / TestEffectiveNotifyOn)
-# ---------------------------------------------------------------------------
-
-
-class TestCreateRunNotifyOn:
-    def test_explicit_notify_on_is_persisted(self, member_user):
-
-        # Need a session first
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(
-            session=session,
-            trigger_type=SessionOrigin.UI_JOB,
-            repo_id="x/y",
-            user=member_user,
-            notify_on=NotifyOn.NEVER,
-        )
-        assert run.notify_on == NotifyOn.NEVER
-
-    def test_no_notify_on_leaves_null(self, member_user):
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="x/y", user=member_user)
-        assert run.notify_on is None
 
 
 # ---------------------------------------------------------------------------

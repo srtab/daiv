@@ -12,7 +12,6 @@ from django.utils.translation import gettext_lazy as _
 
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
-from notifications.choices import NotifyOn
 from sessions.validators import validate_repo_list
 
 from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
@@ -63,7 +62,7 @@ _TEMPLATE_SHARED_FIELDS = (
     "time",
     "agent_model",
     "agent_thinking_level",
-    "notify_on",
+    "muted",
     "intent",
 )
 
@@ -175,7 +174,7 @@ class ScheduledJob(TimeStampedModel):
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
-    notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
     intent = models.CharField(
         _("intent"),
         max_length=16,
@@ -335,7 +334,6 @@ class ScheduleTemplate(TimeStampedModel):
         "time",
         "agent_model",
         "agent_thinking_level",
-        "notify_on",
     )
 
     name = models.CharField(_("name"), max_length=200, unique=True)
@@ -357,7 +355,9 @@ class ScheduleTemplate(TimeStampedModel):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    muted = models.BooleanField(
+        _("muted"), default=False, help_text=_("Default mute state copied to schedules created from this template.")
+    )
     intent = models.CharField(
         _("intent"),
         max_length=16,
@@ -443,7 +443,6 @@ class ScheduleTemplate(TimeStampedModel):
             "repos_summary": self.repos_summary,
             "frequency_display": self.get_frequency_display(),
             "frequency_summary": self.frequency_summary,
-            "notify_on_display": self.get_notify_on_display(),
             "agent_model": self.agent_model,
             "agent_model_display": display_model_name(str(self.agent_model), max_len=MODEL_NAME_MAX_LEN),
             "agent_thinking_level": self.agent_thinking_level,

@@ -6,7 +6,6 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment, Scope
 
 from schedules.forms import ScheduledJobCreateForm
@@ -23,7 +22,6 @@ def _valid_data(**overrides):
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
-        "notify_on": NotifyOn.NEVER,
         "intent": "watch-find",
     }
     data.update(overrides)

@@ -453,13 +453,46 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
-    def test_skips_non_schedule_trigger(self):
+    def test_enqueues_for_webhook_and_prompt_driven_origins(self):
         from sessions.signals import classify_on_run_finished
 
-        session = _make_session()
-        run = _create_run(session=session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+        for origin in (
+            SessionOrigin.ISSUE_WEBHOOK,
+            SessionOrigin.MR_WEBHOOK,
+            SessionOrigin.API_JOB,
+            SessionOrigin.MCP_JOB,
+            SessionOrigin.UI_JOB,
+        ):
+            session = _make_session()
+            run = _create_run(session=session, trigger_type=origin, status=RunStatus.SUCCESSFUL)
+            with patch("sessions.signals.classify_run_task") as task_mock:
+                classify_on_run_finished(sender=Run, run=run)
+            task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_skips_chat_trigger(self):
+        from sessions.signals import classify_on_run_finished
+
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="acme/api")
+        run = _create_run(session=session, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL)
         with patch("sessions.signals.classify_run_task") as task_mock:
             classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
+    def test_failed_run_classifies_even_on_skip_dispatch(self):
+        # F5: a skip_dispatch re-emit that is FAILED still deserves a `failed` envelope + notification.
+        run = self._schedule_run(status=RunStatus.FAILED)
+        from sessions.signals import classify_on_run_finished
+
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_non_failed_skip_dispatch_still_skips(self):
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        from sessions.signals import classify_on_run_finished
+
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
         task_mock.enqueue.assert_not_called()
 
     def test_skips_non_terminal_status(self):
@@ -495,3 +528,11 @@ class TestClassifyOnRunFinished:
         with patch("sessions.signals.classify_run_task") as task_mock:
             run_finished.send(sender=Run, run=run)
         task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+
+def test_classify_origins_is_every_origin_but_chat():
+    """Classification is "universal for non-chat". Pinning the set as a denylist forces a newly-added
+    SessionOrigin to make a deliberate decision instead of silently escaping classification."""
+    from sessions.signals import get_classify_origins
+
+    assert get_classify_origins() == frozenset(SessionOrigin.values) - {SessionOrigin.CHAT}

@@ -22,8 +22,6 @@ from sessions.validators import MAX_REPOS_PER_BATCH
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from notifications.choices import NotifyOn
-
     from accounts.models import User
     from codebase.base import MergeRequest
     from schedules.models import ScheduledJob
@@ -142,7 +140,7 @@ async def acreate_run(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: NotifyOn | None = None,
+    muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
@@ -189,7 +187,7 @@ async def acreate_run(
         prompt=prompt,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
-        notify_on=notify_on,
+        muted=muted,
         batch_id=batch_id,
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
@@ -233,7 +231,7 @@ async def asubmit_batch_runs(
     repos: list[RepoTarget],
     agent_model: str = "",
     agent_thinking_level: str = "",
-    notify_on: NotifyOn | None = None,
+    muted: bool | None = None,
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
@@ -285,7 +283,7 @@ async def asubmit_batch_runs(
             "scheduled_job": scheduled_job,
             "user": user,
             "external_username": external_username,
-            "notify_on": notify_on,
+            "muted": muted,
             "batch_id": batch_id,
             "thread_id": effective_thread_id,
             "title": run_title,

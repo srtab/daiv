@@ -7,7 +7,6 @@ from django.urls import reverse
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from notifications.choices import NotifyOn
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import User
@@ -32,10 +31,10 @@ def schedule(member_user):
 
 @pytest.mark.django_db
 class TestScheduleCreateView:
-    def test_form_renders_notify_on_field(self, member_client):
+    def test_form_renders_muted_checkbox(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         assert response.status_code == 200
-        assert "notify_on" in response.content.decode()
+        assert 'name="muted"' in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -373,7 +372,6 @@ class TestScheduleCreateViewSubscribers:
             "cron_expression": "",
             "time": "09:00",
             "use_max": "false",
-            "notify_on": "never",
             "intent": "watch-find",
             "subscribers": [str(alice.pk)],
         }
@@ -394,7 +392,6 @@ class TestScheduleCreateViewSubscribers:
             "cron_expression": "",
             "time": "09:00",
             "use_max": "false",
-            "notify_on": "never",
             "intent": "watch-find",
             "subscribers": [str(member_user.pk)],
         }
@@ -452,7 +449,6 @@ class TestScheduleUpdateViewSubscribers:
             "cron_expression": "",
             "time": "09:00",
             "use_max": "false",
-            "notify_on": "never",
             "intent": "watch-find",
             "is_enabled": "true",
             "subscribers": [str(alice.pk)],
@@ -541,7 +537,6 @@ class TestScheduleListViewTemplateContext:
             description="Runs nightly.",
             prompt="Scan.",
             frequency=Frequency.HOURLY,
-            notify_on=NotifyOn.NEVER,
             created_by=admin_user,
         )
         response = member_client.get(reverse("schedule_list"))
@@ -557,14 +552,10 @@ class TestScheduleListViewTemplateContext:
 
     def test_orders_templates_by_usage_count_then_name(self, member_client, member_user, admin_user):
         popular = ScheduleTemplate.objects.create(
-            name="Popular", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+            name="Popular", prompt="p", frequency=Frequency.HOURLY, created_by=admin_user
         )
-        ScheduleTemplate.objects.create(
-            name="Zebra", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
-        )
-        ScheduleTemplate.objects.create(
-            name="Alpha", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
-        )
+        ScheduleTemplate.objects.create(name="Zebra", prompt="p", frequency=Frequency.HOURLY, created_by=admin_user)
+        ScheduleTemplate.objects.create(name="Alpha", prompt="p", frequency=Frequency.HOURLY, created_by=admin_user)
         ScheduledJob.objects.create(
             user=member_user,
             name="From popular",
@@ -581,10 +572,10 @@ class TestScheduleListViewTemplateContext:
         # Locks the secondary ``name`` sort: a refactor to ``order_by("-usage_count")``
         # alone would silently regress without this assertion.
         beta = ScheduleTemplate.objects.create(
-            name="Beta", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+            name="Beta", prompt="p", frequency=Frequency.HOURLY, created_by=admin_user
         )
         alpha = ScheduleTemplate.objects.create(
-            name="Alpha", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+            name="Alpha", prompt="p", frequency=Frequency.HOURLY, created_by=admin_user
         )
         for tpl in (alpha, beta):
             ScheduledJob.objects.create(
@@ -604,9 +595,7 @@ class TestScheduleListViewTemplateContext:
         # triggers a deferred-field SELECT per row. Pins the contract called out at
         # ``schedules/models.py`` PICKER_FIELDS to catch silent regressions.
         for name in ("A", "B", "C"):
-            ScheduleTemplate.objects.create(
-                name=name, prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
-            )
+            ScheduleTemplate.objects.create(name=name, prompt="p", frequency=Frequency.HOURLY, created_by=admin_user)
         from schedules.views import _template_picker_payload
 
         with django_assert_num_queries(1):
@@ -627,7 +616,6 @@ class TestScheduleCreateViewSourceTemplate:
             "cron_expression": "",
             "time": "09:00",
             "use_max": "false",
-            "notify_on": "never",
             "intent": "watch-find",
         }
         base.update(overrides)
@@ -683,7 +671,6 @@ class TestScheduleListViewGalleryWiring:
             prompt="Scan.",
             frequency=Frequency.DAILY,
             time=time(2, 0),
-            notify_on=NotifyOn.NEVER,
             created_by=admin_user,
         )
 
@@ -883,7 +870,6 @@ class TestScheduleDuplicateFlow:
                 "time": "",
                 "run_at": past.strftime("%Y-%m-%dT%H:%M"),
                 "use_max": False,
-                "notify_on": NotifyOn.NEVER,
                 "intent": Intent.WATCH_FIND,
             },
         )
@@ -909,7 +895,6 @@ class TestScheduleViewsEnvContext:
             repos=[{"repo_id": "r/x", "ref": "main"}],
             frequency=Frequency.DAILY,
             time="03:00:00",
-            notify_on="never",
         )
 
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
@@ -930,7 +915,6 @@ class TestScheduleViewsEnvContext:
             repos=[{"repo_id": "r/x", "ref": "main"}],
             frequency=Frequency.DAILY,
             time="03:00:00",
-            notify_on="never",
             sandbox_environment=env,
         )
 

@@ -40,7 +40,7 @@ def _create_run(user, **kwargs) -> Run:
 
 
 def _post_data(repo_id="acme/repo", ref=""):
-    return {"prompt": "go", "repos": json.dumps([{"repo_id": repo_id, "ref": ref}]), "notify_on": "never"}
+    return {"prompt": "go", "repos": json.dumps([{"repo_id": repo_id, "ref": ref}])}
 
 
 def _fake_result(*, runs=1, failed=0, session_id="sess-123"):

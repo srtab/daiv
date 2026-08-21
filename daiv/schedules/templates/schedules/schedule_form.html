@@ -133,7 +133,13 @@
 
             <div class="mt-6 border-t border-white/[0.06]"></div>
 
-            {% include "notifications/_notify_on_radio.html" with form=form %}
+            <div class="mt-6">
+                <label class="flex cursor-pointer items-center gap-3">
+                    <input type="checkbox" name="muted" value="true" {% if form.muted.value %}checked{% endif %}>
+                    <span class="text-[15px] font-medium text-gray-400">{% translate "Mute notifications" %}</span>
+                </label>
+                {% if form.muted.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.muted.errors.0 }}</p>{% endif %}
+            </div>
 
             {% include "schedules/_intent_radio.html" with form=form %}
 
