@@ -82,7 +82,7 @@ url = "https://daiv.example.com/mcp/"
 | `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones), ordered by scope then name. Supports `limit` (default 20, max 50) and `cursor`; use a returned `name` or `id` as `submit_job`'s `environment` argument. |
 | `get_environment` | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes. |
 | `list_jobs` | List your recent agent runs (newest first), optionally filtered by `repo_id` and `status`. Supports `limit` (default 20, max 50) and `cursor`. Returns a lean summary per run plus `next_cursor` — use `get_job_status` for a single run's full result text. |
-| `schedule_job` | Create a recurring or one-off scheduled run owned by you. Takes `name`, `prompt`, a 1–20 entry `repos` list, and a `frequency` (`hourly`/`daily`/`weekdays`/`weekly`/`custom`/`once`) with its companion field (`time` for daily/weekdays/weekly, `cron_expression` for custom, `run_at` for once). Optional `agent_model`, `agent_thinking_level`, `environment`, and `notify_on` mirror `submit_job`. |
+| `schedule_job` | Create a recurring or one-off scheduled run owned by you. Takes `name`, `prompt`, a 1–20 entry `repos` list, and a `frequency` (`hourly`/`daily`/`weekdays`/`weekly`/`custom`/`once`) with its companion field (`time` for daily/weekdays/weekly, `cron_expression` for custom, `run_at` for once). Optional `agent_model`, `agent_thinking_level`, `environment`, and `muted` mirror `submit_job`. |
 | `list_scheduled_jobs` | List your scheduled jobs (newest first), optionally filtered by `enabled_only` or `repo_id`. Supports `limit` (default 20, max 50) and `cursor`. |
 
 The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environments`) share one pagination contract: pass an optional `limit` and `cursor`, and read back `{ "<items>": [...], "next_cursor": <token or null> }`. To page, call again with `cursor` set to the previous response's `next_cursor` until it comes back `null`; a cursor encodes only sort position, so reuse it with the **same** filters. `list_repositories` is also served from the database but never paginates — it returns the same shape for consistency (narrow with `search`/`topics` instead).
@@ -93,7 +93,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 
 - `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the system default.
 - `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
-- `notify_on` — when to be notified for each job: one of `never`, `always`, `on_success`, or `on_failure`. Omit to fall back to your default preference.
+- `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](sandbox.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
 - `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you.
 

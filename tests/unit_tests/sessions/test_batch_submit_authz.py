@@ -18,11 +18,7 @@ async def test_denied_user_gets_no_runs(member_user):
         pytest.raises(RepositoryAccessDenied),
     ):
         await asubmit_batch_runs(
-            user=member_user,
-            prompt="p",
-            repos=[RepoTarget(repo_id="a/b", ref="")],
-            notify_on=None,
-            trigger_type=SessionOrigin.API_JOB,
+            user=member_user, prompt="p", repos=[RepoTarget(repo_id="a/b", ref="")], trigger_type=SessionOrigin.API_JOB
         )
     assert await Run.objects.acount() == 0
 
@@ -36,7 +32,6 @@ async def test_webhook_style_submission_skips_check():
             user=None,
             prompt="p",
             repos=[RepoTarget(repo_id="a/b", ref="")],
-            notify_on=None,
             trigger_type=SessionOrigin.SCHEDULE,
             external_username="webhooker",
         )

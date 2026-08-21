@@ -167,17 +167,6 @@ def test_session_agent_thinking_level_check_constraint_rejects_unknown_value():
         _mk_session(agent_thinking_level="ludicrous")
 
 
-def test_run_notify_on_check_constraint():
-    """NULL ("no override") and valid NotifyOn values pass; an unknown value is rejected."""
-    from notifications.choices import NotifyOn
-
-    session = _mk_session()
-    _mk_run(session, notify_on=None)  # no override
-    _mk_run(session, status=RunStatus.QUEUED, notify_on=NotifyOn.ALWAYS)
-    with pytest.raises(IntegrityError):
-        _mk_run(session, status=RunStatus.QUEUED, notify_on="sometimes")
-
-
 def test_run_status_superset_of_task_result_status():
     """``Run.sync_from_task_result`` assigns ``DBTaskResult.status`` straight into
     ``Run.status``, so every django-tasks status must be a valid ``RunStatus`` member —
@@ -230,25 +219,49 @@ def test_run_by_owner_matches_subscribed_schedule(django_user_model):
     assert run.pk in set(Run.objects.by_owner(sub).values_list("pk", flat=True))
 
 
-# --- effective_notify_on ---------------------------------------------------
+@pytest.mark.django_db
+class TestEffectiveMuted:
+    def _run(self, *, muted=None, schedule=None):
+        origin = SessionOrigin.SCHEDULE if schedule else SessionOrigin.API_JOB
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=origin, repo_id="x/y", scheduled_job=schedule
+        )
+        return Run.objects.create(
+            session=session, trigger_type=origin, repo_id="x/y", status=RunStatus.SUCCESSFUL, muted=muted
+        )
 
+    def test_run_override_wins(self, member_user):
+        from schedules.models import Frequency, ScheduledJob
 
-def test_effective_notify_on_explicit_override_wins(django_user_model):
-    from notifications.choices import NotifyOn
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="n",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            muted=True,
+        )
+        assert self._run(muted=False, schedule=schedule).effective_muted is False
+        assert self._run(muted=True, schedule=schedule).effective_muted is True
 
-    user = django_user_model.objects.create_user(username="n1", email="n1@x.io", password="x")  # noqa: S106
-    session = _mk_session(user=user)
-    run = _mk_run(session, user=user, notify_on=NotifyOn.ALWAYS)
-    # Even though the user default would apply, the explicit per-run override takes precedence.
-    assert run.effective_notify_on == NotifyOn.ALWAYS
+    def test_inherits_schedule_when_no_override(self, member_user):
+        from schedules.models import Frequency, ScheduledJob
 
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="n",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            muted=True,
+        )
+        assert self._run(muted=None, schedule=schedule).effective_muted is True
 
-def test_effective_notify_on_falls_back_to_never_without_override_schedule_or_user():
-    from notifications.choices import NotifyOn
-
-    session = _mk_session(user=None)
-    run = _mk_run(session, user=None, notify_on=None)
-    assert run.effective_notify_on == NotifyOn.NEVER
+    def test_non_scheduled_defaults_false(self):
+        assert self._run(muted=None, schedule=None).effective_muted is False
+        assert self._run(muted=True, schedule=None).effective_muted is True
 
 
 def test_run_message_id_defaults_blank_and_persists(session_fixture):
@@ -270,3 +283,9 @@ def test_run_message_id_defaults_blank_and_persists(session_fixture):
 def test_session_mcp_overrides_defaults_to_empty_dict():
     s = Session.objects.create(thread_id="t-mcp", origin=SessionOrigin.UI_JOB, repo_id="g/r")
     assert s.mcp_overrides == {}
+
+
+def test_run_defaults_to_classify_eligible():
+    """New runs are classify-eligible by default so the reclassify backstop stays a catch-all."""
+    run = _mk_run(_mk_session(), status=RunStatus.SUCCESSFUL)
+    assert run.classify_eligible is True

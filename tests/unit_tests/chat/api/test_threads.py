@@ -1,8 +1,7 @@
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
-from sessions.models import Session, SessionOrigin
+from sessions.models import SessionOrigin
 
 from accounts.models import User
 from chat.api.threads import ChatSessionService, _extract_first_user_message
@@ -50,36 +49,6 @@ def test_extract_first_user_message_skips_non_user_roles():
         ]
     )
     assert _extract_first_user_message(msgs) == "actual ask"
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_updates_when_branch_changed():
-    user = await User.objects.acreate_user(username="u-ref-1", email="ref1@x.com", password="x")  # noqa: S106
-    await Session.objects.acreate(
-        thread_id="t-ref-1", origin=SessionOrigin.CHAT, user=user, repo_id="a/b", ref="feature-x"
-    )
-
-    await ChatSessionService.persist_ref("t-ref-1", "feature-x", SimpleNamespace(source_branch="feature-y"))
-
-    refreshed = await Session.objects.aget(thread_id="t-ref-1")
-    assert refreshed.ref == "feature-y"
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_noop_when_branch_unchanged():
-    with patch("chat.api.threads.Session.objects.filter") as filter_mock:
-        await ChatSessionService.persist_ref("t-ref-2", "feature-x", SimpleNamespace(source_branch="feature-x"))
-
-    filter_mock.assert_not_called()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_persist_ref_noop_when_no_mr_captured():
-    with patch("chat.api.threads.Session.objects.filter") as filter_mock:
-        await ChatSessionService.persist_ref("t-ref-3", "feature-x", None)
-
-    filter_mock.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)

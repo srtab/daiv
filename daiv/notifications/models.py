@@ -53,14 +53,14 @@ class Notification(TimeStampedModel):
             models.Index(fields=["recipient", "-created"], name="notif_recipient_created_idx"),
         ]
         constraints = [
-            # At most one batch-finished Notification per (recipient, batch). The batch_id
-            # lives in source_id; two workers can race when the last sibling jobs finish
-            # near-simultaneously, so we let the DB elect a single winner and the losing
-            # insert is swallowed at the application layer.
+            # Exactly-once per (recipient, source, event_type) across the per-run and batch events:
+            # racing emits and the re-drive backstop all elect one DB winner; the loser is swallowed.
             models.UniqueConstraint(
                 fields=["recipient", "source_type", "source_id", "event_type"],
-                condition=models.Q(event_type=EventType.JOB_BATCH_FINISHED),
-                name="notif_unique_per_batch_recipient",
+                condition=models.Q(
+                    event_type__in=[EventType.JOB_BATCH_FINISHED, EventType.JOB_FINISHED, EventType.SCHEDULE_FINISHED]
+                ),
+                name="notif_unique_per_source_recipient",
             )
         ]
         ordering = ["-created"]

@@ -16,7 +16,6 @@ from django.utils.dateparse import parse_datetime
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -140,14 +139,7 @@ async def submit_job(
             description="Optional thinking effort: minimal/low/medium/high. Omit to inherit from the system default."
         ),
     ] = None,
-    notify_on: Annotated[
-        NotifyOn | None,
-        Field(
-            description=(
-                "When to receive notifications for each job. When omitted, falls back to the user's default preference."
-            )
-        ),
-    ] = None,
+    muted: Annotated[bool, Field(description="Mute notifications for every job in this batch.")] = False,
     wait: Annotated[
         bool,
         Field(
@@ -260,7 +252,7 @@ async def submit_job(
         repos=targets,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
-        notify_on=notify_on,
+        muted=muted,
         trigger_type=SessionOrigin.MCP_JOB,
         thread_id=thread_id_str,
     )
@@ -790,7 +782,7 @@ async def schedule_job(
     environment: Annotated[
         str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
     ] = None,
-    notify_on: Annotated[NotifyOn | None, Field(description="When to notify for this schedule's runs.")] = None,
+    muted: Annotated[bool, Field(description="Mute notifications for this schedule's runs.")] = False,
     intent: Annotated[
         Intent | None, Field(description="watch-find | do-change | report. Omit for the default (watch-find).")
     ] = None,
@@ -853,7 +845,7 @@ async def schedule_job(
             agent_model=agent_model or "",
             agent_thinking_level=str(agent_thinking_level) if agent_thinking_level else "",
             sandbox_environment=env_row,
-            notify_on=notify_on or NotifyOn.NEVER,
+            muted=muted,
             intent=intent or Intent.WATCH_FIND,
         )
     except ValidationError as err:
@@ -887,7 +879,7 @@ def _serialize_scheduled_job(schedule: ScheduledJob) -> dict:
         "last_run_at": schedule.last_run_at.isoformat() if schedule.last_run_at else None,
         "run_count": schedule.run_count,
         "is_enabled": schedule.is_enabled,
-        "notify_on": str(schedule.notify_on),
+        "muted": schedule.muted,
         "intent": str(schedule.intent),
         "agent_model": schedule.agent_model or None,
         "agent_thinking_level": schedule.agent_thinking_level or None,

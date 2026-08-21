@@ -1,7 +1,7 @@
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import pytest
-from notifications.choices import DeliveryStatus
+from notifications.choices import DeliveryStatus, EventType
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 
 
@@ -143,3 +143,35 @@ class TestUserChannelBinding:
             UserChannelBinding.objects.create(
                 user=member_user, channel_type="slack", address="u-1", is_verified=True, verified_at=None
             )
+
+
+@pytest.mark.django_db
+def test_per_run_event_dedup_constraint_rejects_duplicate(member_user):
+    kwargs = dict(  # noqa: C408
+        recipient=member_user,
+        event_type=EventType.JOB_FINISHED,
+        source_type="sessions.Run",
+        source_id="run-123",
+        subject="s",
+        body="b",
+        link_url="/",
+    )
+    Notification.objects.create(**kwargs)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Notification.objects.create(**kwargs)
+
+
+@pytest.mark.django_db
+def test_schedule_finished_event_dedup_constraint_rejects_duplicate(member_user):
+    kwargs = dict(  # noqa: C408
+        recipient=member_user,
+        event_type=EventType.SCHEDULE_FINISHED,
+        source_type="sessions.Run",
+        source_id="run-xyz",
+        subject="s",
+        body="b",
+        link_url="/",
+    )
+    Notification.objects.create(**kwargs)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Notification.objects.create(**kwargs)

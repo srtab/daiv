@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Prose that names a class would otherwise ship it: the `w-60` in AGENTS.md kept `.w-60`
+   alive after this repo deleted its last real use. */
+@source not "../../../**/*.md";
+
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
 
@@ -7,6 +11,11 @@
      A layout that swaps with them (`popover:` / default) must use this, not `lg`: `lg` is
      64rem and reorders against a fixed 1100px once the root font-size passes 17.19px. */
   --breakpoint-popover: 1100px;
+
+  /* The app shell's content column, restated for the `position: fixed` sheets that measure
+     the viewport instead. The shell renders from these too — see `--sheet-inset-start`. */
+  --app-sidebar-width: 15rem;
+  --app-content-gutter: 1.5rem;
 
   /* Skill usage chart palette — tuned for the dark body background (#030712). */
   --chart-bar: rgba(255, 255, 255, 0.18);
@@ -56,6 +65,17 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --surface-rise-duration: 0.01ms;
+  }
+}
+
+/* A bottom sheet belongs to the content column, not to the viewport: from `sm:` up the
+   sidebar is on screen while these are still sheets. Every read falls back to flush. */
+@media (width >= theme(--breakpoint-sm)) {
+  :root {
+    --sheet-inset-start: calc(var(--app-sidebar-width) + var(--app-content-gutter));
+    --sheet-inset-end: var(--app-content-gutter);
+    --sheet-width-cap: 32rem;
+    --sheet-side-border: 1px;
   }
 }
 
@@ -1957,13 +1977,16 @@ main:has(.chat-shell) {
 
   .composer-sheet {
     position: fixed;
-    left: 0;
-    right: 0;
+    left: var(--sheet-inset-start, 0px);
+    right: var(--sheet-inset-end, 0px);
     bottom: 0;
+    max-width: var(--sheet-width-cap, none);
+    margin-inline: auto;
     z-index: 60;
     display: flex;
     flex-direction: column;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-inline: var(--sheet-side-border, 0px) solid rgba(255, 255, 255, 0.08);
     border-radius: 18px 18px 0 0;
     background: #0d1117;
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
@@ -2485,14 +2508,15 @@ main:has(.chat-shell) {
   @media (width < 1100px) {
     .picker-popover {
       position: fixed;
-      inset: auto 0 0 0;
+      inset: auto var(--sheet-inset-end, 0px) 0 var(--sheet-inset-start, 0px);
       width: auto;
+      max-width: var(--sheet-width-cap, none);
       max-height: 72vh;
       max-height: 72dvh;
       overflow-y: auto;
-      margin: 0;
+      margin: 0 auto;
       z-index: 60;
-      border-width: 1px 0 0;
+      border-width: 1px var(--sheet-side-border, 0px) 0;
       border-radius: 18px 18px 0 0;
       box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
       --surface-rise-from: 12px;

@@ -11,8 +11,6 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from notifications.choices import NotifyOn
-
 from automation.agent.results import parse_agent_result
 from core.models import ThinkingLevelChoices
 from sessions.envelopes import validate_actionable
@@ -262,9 +260,7 @@ class Run(models.Model):
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
-    notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
-        _("notify on"), max_length=16, choices=NotifyOn.choices, null=True, blank=True
-    )
+    muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
     mention_comment_id = models.CharField(_("mention comment ID"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
@@ -290,6 +286,9 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
+    # backlog; every new run is eligible. Chat is excluded by origin (get_classify_origins), not this.
+    classify_eligible = models.BooleanField(_("classify eligible"), default=True)
 
     objects = RunManager()
 
@@ -329,26 +328,19 @@ class Run(models.Model):
                 | models.Q(agent_thinking_level__in=ThinkingLevelChoices.values),
                 name="run_agent_thinking_level_valid",
             ),
-            # NULL ("no override", distinct from explicit "never") or a valid NotifyOn value.
-            models.CheckConstraint(
-                condition=models.Q(notify_on__isnull=True) | models.Q(notify_on__in=NotifyOn.values),
-                name="run_notify_on_valid",
-            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
     @property
-    def effective_notify_on(self) -> NotifyOn:
-        if self.notify_on:
-            return NotifyOn(self.notify_on)
+    def effective_muted(self) -> bool:
+        if self.muted is not None:
+            return self.muted
         schedule = self.session.scheduled_job if self.session_id else None
         if schedule is not None:
-            return NotifyOn(schedule.notify_on)
-        if self.user_id is not None and self.user is not None:
-            return NotifyOn(self.user.notify_on_jobs)
-        return NotifyOn.NEVER
+            return schedule.muted
+        return False  # non-scheduled runs notify unless the run itself is muted
 
     @property
     def is_retryable(self) -> bool:

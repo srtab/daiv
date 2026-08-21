@@ -22,7 +22,7 @@ Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 | **Frequency**           | How often the job runs (see [Frequency options](#frequency-options)) |
 | **Time**                | Time of day for Daily, Weekdays, and Weekly schedules |
 | **Date & time**         | The specific date and time a one-off (**Once**) schedule fires |
-| **Notify on**           | When the owner (and any [subscribers](#subscribers)) get a finish notification — defaults to *Never* |
+| **Mute**                | When checked, silences all notifications for this schedule's runs (bell and external channels). Off by default — notifications fire automatically on notify-worthy outcomes |
 | **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers)) |
 | **Sandbox environment** | The named [sandbox](sandbox.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution |
 
@@ -99,7 +99,7 @@ Each schedule card shows its name, status (**Active**, **Paused**, or **Fired**)
 
 Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:
 
-- Receive the same notification as the owner whenever the schedule's `Notify on` condition matches (e.g., "On success only" or "Always").
+- Receive the same notifications as the owner on notify-worthy outcomes, unless the schedule is muted.
 - Gain **read-only** access to the sessions produced by the schedule — they can click through from the notification and view the session detail, transcript, and run timeline.
 - Do **not** see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.
 
@@ -114,7 +114,7 @@ Only the owner (or an admin) can change a schedule's subscribers.
 When a subscriber opens a session produced by a schedule they are CC'd on, the session detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
 
 !!! note "Notification preferences"
-    All subscribers inherit the schedule's `Notify on` setting. There is no per-subscriber override today. If the owner changes the setting, every subscriber's notification behavior changes with it.
+    Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
 
 ## Relationship with the Jobs API
 

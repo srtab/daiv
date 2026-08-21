@@ -12,7 +12,6 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from mcp_servers.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
-from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
@@ -95,7 +94,6 @@ class AgentRunFieldsMixin(forms.Form):
     agent_thinking_level = forms.ChoiceField(
         label=_("Thinking effort"), choices=[("", "")] + list(ThinkingLevelChoices.choices), required=False
     )
-    notify_on = forms.ChoiceField(label=_("Notify me"), choices=NotifyOn.choices, required=True)
     sandbox_environment = forms.ModelChoiceField(
         # Queryset is scoped to the caller in ``__init__``; an empty default avoids
         # leaking other users' USER-scoped envs if a subclass forgets to pass ``user``.

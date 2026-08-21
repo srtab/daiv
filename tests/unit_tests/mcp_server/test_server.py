@@ -208,26 +208,45 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
     assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_notify_on_to_activity():
-    """MCP submit tool threads ``notify_on`` into ``acreate_run``."""
-    from notifications.choices import NotifyOn
+def _capture_asubmit_batch_runs(captured: dict):
+    """Patch ``mcp_server.server.asubmit_batch_runs`` to record kwargs and return one run."""
+    from sessions.services import BatchSubmitResult
 
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[_FakeRun(task_result_id=None)], failed=[])
+
+    return patch("mcp_server.server.asubmit_batch_runs", side_effect=_fake)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_muted_at_batch_boundary():
+    """MCP submit tool forwards ``muted`` to asubmit_batch_runs."""
+    captured: dict = {}
+    with _capture_asubmit_batch_runs(captured):
+        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True)
+
+    assert captured.get("muted") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_muted_to_runs():
+    """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
-        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", notify_on=NotifyOn.ALWAYS)
+        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", muted=True)
 
-    assert mock_create.await_args.kwargs["notify_on"] == NotifyOn.ALWAYS
+    assert mock_create.await_args.kwargs["muted"] is True
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_notify_on_defaults_to_none():
-    """Omitting ``notify_on`` forwards ``None`` to the run."""
+async def test_submit_job_muted_defaults_to_false():
+    """Omitting ``muted`` defaults to False."""
     with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
-    assert mock_create.await_args.kwargs["notify_on"] is None
+    assert mock_create.await_args.kwargs["muted"] is False
 
 
 @pytest.mark.django_db(transaction=True)

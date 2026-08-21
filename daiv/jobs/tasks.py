@@ -111,6 +111,9 @@ async def run_job_task(
     # Heavy imports live here so enqueue-side importers of this module stay light.
     from langchain_core.messages import HumanMessage
 
+    # Local for the cycle, not the weight: ``sessions.services`` imports this module.
+    from sessions.services import apersist_session_ref
+
     from automation.agent.graph import create_daiv_agent
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
@@ -201,6 +204,19 @@ async def run_job_task(
     response_text = extract_text_content(messages[-1].content)
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
+    # The chat streamer takes this off its final STATE_SNAPSHOT; a job run has no stream, so it
+    # reads the branch it published to off the checkpoint ``build_agent_result`` needs anyway.
+    snapshot = await daiv_agent.aget_state(config=config)
+    try:
+        await apersist_session_ref(
+            thread_id=thread_id, current_ref=ref or "", merge_request=snapshot.values.get("merge_request")
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
     return await build_agent_result(
-        daiv_agent, config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+        daiv_agent,
+        config,
+        response=response_text,
+        usage=build_usage_summary(usage_handler).to_dict(),
+        snapshot=snapshot,
     )

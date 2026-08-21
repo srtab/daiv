@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 import pytest
-from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, Intent, ScheduleTemplate
 
@@ -18,7 +17,6 @@ class TestScheduleTemplateClean:
             "repos": [{"repo_id": "owner/repo", "ref": ""}],
             "frequency": Frequency.DAILY,
             "time": time(2, 0),
-            "notify_on": NotifyOn.NEVER,
         }
         defaults.update(overrides)
         return ScheduleTemplate(**defaults)
@@ -140,7 +138,6 @@ class TestScheduleTemplateToPickerDict:
             "repos": [{"repo_id": "owner/repo", "ref": "main"}],
             "frequency": Frequency.DAILY,
             "time": time(2, 0),
-            "notify_on": NotifyOn.ALWAYS,
             "agent_model": "openrouter:anthropic/claude-opus-4.6",
             "agent_thinking_level": "high",
         }
@@ -158,7 +155,6 @@ class TestScheduleTemplateToPickerDict:
             "repos_summary",
             "frequency_display",
             "frequency_summary",
-            "notify_on_display",
             "agent_model",
             "agent_model_display",
             "agent_thinking_level",
@@ -182,7 +178,6 @@ class TestScheduleTemplateToPickerDict:
         assert row["agent_thinking_level_display"] == ""
         assert row["frequency_display"] == "Daily"
         assert row["frequency_summary"] == "Daily at 02:00"
-        assert row["notify_on_display"] == "Always"
 
     def test_display_strips_provider_prefix(self):
         tpl = self._make_tpl(agent_model="openrouter:anthropic/claude-opus-4.6", agent_thinking_level="high")

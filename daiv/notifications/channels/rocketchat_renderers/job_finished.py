@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from notifications.channels.rocketchat_renderers.base import FOOTER, RocketChatRenderer
+from notifications.channels.rocketchat_renderers.base import RocketChatRenderer
 from notifications.channels.rocketchat_renderers.registry import register_renderer
 from notifications.choices import EventType
 
@@ -16,8 +16,7 @@ class JobFinishedRenderer(RocketChatRenderer):
 
     def render(self, notification: Notification) -> tuple[str, list[dict]]:
         ctx = notification.context
-        ok = ctx.get("is_successful", False)
-        emoji = "✅" if ok else "❌"
+        color, emoji = self._tone_style(ctx)
 
         fields: list[dict] = [
             {"title": "Trigger", "value": ctx.get("trigger_label") or "—", "short": True},
@@ -28,12 +27,4 @@ class JobFinishedRenderer(RocketChatRenderer):
         if (cost := self._cost_field(ctx)) is not None:
             fields.append(cost)
 
-        attachment = {
-            "color": self._color(ctx),
-            "title": notification.subject,
-            "title_link": self._link(notification),
-            "fields": fields,
-            "footer": FOOTER,
-            "ts": int(notification.created.timestamp()),
-        }
-        return f"{emoji} {notification.subject}", [attachment]
+        return self._message(notification, color, emoji, fields)

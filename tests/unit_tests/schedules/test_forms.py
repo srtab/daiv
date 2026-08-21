@@ -5,7 +5,6 @@ from django.utils import timezone
 
 import pytest
 from mcp_servers.models import MCPServer
-from notifications.choices import NotifyOn
 
 from accounts.models import User
 from core.models import Provider, ProviderType
@@ -30,7 +29,6 @@ def _valid_data(**overrides):
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
-        "notify_on": NotifyOn.NEVER,
         "intent": Intent.WATCH_FIND,
     }
     data.update(overrides)
@@ -51,8 +49,8 @@ class TestScheduledJobCreateForm:
         )
         assert form.is_valid(), form.errors
 
-    def test_valid_with_notify_always(self, member_user):
-        form = ScheduledJobCreateForm(data=_valid_data(notify_on=NotifyOn.ALWAYS), owner=member_user)
+    def test_valid_with_muted(self, member_user):
+        form = ScheduledJobCreateForm(data=_valid_data(muted="on"), owner=member_user)
         assert form.is_valid(), form.errors
 
     def test_save_persists_repos(self, member_user):
@@ -125,7 +123,6 @@ def _once_data(_run_at, **overrides):
         "cron_expression": "",
         "time": "",
         "run_at": _run_at.strftime("%Y-%m-%dT%H:%M"),
-        "notify_on": NotifyOn.NEVER,
         "intent": Intent.WATCH_FIND,
     }
     data.update(overrides)
@@ -214,7 +211,6 @@ def _valid_template_data(**overrides):
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
-        "notify_on": NotifyOn.NEVER,
         "intent": Intent.WATCH_FIND,
     }
     data.update(overrides)
@@ -283,6 +279,39 @@ class TestScheduleTemplateFormIntent:
 
 
 @pytest.mark.django_db
+def test_schedule_form_has_muted_not_notify_on(member_user):
+    from schedules.forms import ScheduledJobCreateForm
+
+    form = ScheduledJobCreateForm(owner=member_user, user=member_user)
+    assert "muted" in form.fields
+    assert "notify_on" not in form.fields
+
+
+@pytest.mark.django_db
+def test_schedule_form_persists_muted(member_user):
+    from schedules.forms import ScheduledJobCreateForm
+
+    form = ScheduledJobCreateForm(
+        data={
+            "name": "n",
+            "prompt": "p",
+            "repos": '[{"repo_id": "x/y", "ref": ""}]',
+            "frequency": "daily",
+            "time": "12:00",
+            "intent": "watch-find",
+            "muted": "on",
+        },
+        owner=member_user,
+        user=member_user,
+    )
+    assert form.is_valid(), form.errors
+    schedule = form.save(commit=False)
+    schedule.user = member_user
+    schedule.save()
+    schedule.refresh_from_db()
+    assert schedule.muted is True
+
+
 def test_schedule_form_pool_uses_owner_not_editing_admin(member_user, admin_user):
     from mcp_servers.models import MCPServer
 

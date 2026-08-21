@@ -757,3 +757,31 @@ def test_detail_diff_stats_none_when_the_checkpoint_has_none(member_client, memb
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["diff_stats"] is None
+
+
+@pytest.mark.django_db
+def test_detail_seeds_the_ref_pill_with_the_published_branch(member_client, member_user):
+    """The pill must agree with the MR rendered beside it. ``Session.ref`` lags the published
+    branch on any run that never synced it back, and the live stream moves both together.
+    """
+    session = _create_session(user=member_user, ref="main")
+    mr = {"id": 7, "url": "https://x/7", "source_branch": "feat/published"}
+
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, mr, None))):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["thread_ref"] == "feat/published"
+    # Closes the loop through the template: the composer seeds ``thread.ref`` from this.
+    assert 'ref: "feat/published"' in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(member_client, member_user):
+    session = _create_session(user=member_user, ref="main")
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["thread_ref"] == "main"
+    assert 'ref: "main"' in resp.content.decode()

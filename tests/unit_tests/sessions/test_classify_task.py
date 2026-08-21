@@ -435,3 +435,54 @@ async def test_non_successful_run_is_skipped_without_llm_call():
 
     build.assert_not_called()
     assert await sync_to_async(RunEnvelope.objects.for_run)(run) is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_emits_run_classified_once_on_success(member_user):
+    from sessions.signals import run_classified
+
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="")  # empty prose → all-clear fast path
+    received = []
+
+    def _spy(sender, run, envelope, **kwargs):
+        # Sync ORM inside the receiver proves the sync_to_async bridge works (no SynchronousOnlyOperation).
+        assert RunEnvelope.objects.filter(pk=envelope.pk).exists()
+        received.append((run.pk, envelope.status))
+
+    run_classified.connect(_spy, dispatch_uid="test-emit-once")
+    try:
+        await classify_run_task.func(str(run.pk))
+    finally:
+        run_classified.disconnect(dispatch_uid="test-emit-once")
+
+    assert received == [(run.pk, EnvelopeStatus.ALL_CLEAR)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_raced_loser_does_not_emit():
+    from sessions.signals import run_classified
+
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
+    classification = RunClassification(status="all-clear", summary="loser", actionable=[])
+    received = []
+
+    async def _winner_then_raise(**kwargs):
+        winner = RunEnvelope(run=run, status=EnvelopeStatus.ALL_CLEAR, count=0, summary="winner", actionable=[])
+        await winner.asave()
+        raise IntegrityError("duplicate key value violates unique constraint")
+
+    def _spy(sender, run, envelope, **kwargs):
+        received.append(envelope.pk)
+
+    run_classified.connect(_spy, dispatch_uid="test-raced-loser")
+    try:
+        with (
+            patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)),
+            patch.object(RunEnvelope.objects, "acreate", AsyncMock(side_effect=_winner_then_raise)),
+        ):
+            await classify_run_task.func(str(run.pk))  # must not raise
+    finally:
+        run_classified.disconnect(dispatch_uid="test-raced-loser")
+
+    assert received == []  # the raced loser never emits
+    assert await RunEnvelope.objects.filter(run=run).acount() == 1
