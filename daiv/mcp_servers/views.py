@@ -371,8 +371,7 @@ class MCPServerTestView(LoginRequiredMixin, View):
             return JsonResponse({"ok": False, "error": "Enter a valid http(s) URL."}, status=400)
         if not request.user.is_admin and is_internal_network_target(url):
             return JsonResponse(
-                {"ok": False, "error": "URLs targeting private or internal addresses are not allowed."},
-                status=400,
+                {"ok": False, "error": "URLs targeting private or internal addresses are not allowed."}, status=400
             )
         # Re-testing a saved server: the form blanks preserved literal values (see
         # _existing_headers_for_formset), so resolve them from the stored row here —

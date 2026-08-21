@@ -41,14 +41,7 @@ def _is_private_ip(ip: ipaddress._BaseAddress) -> bool:
     """Whether an IP literal is in a non-routable range (private, loopback,
     link-local, reserved, unspecified, multicast). Cloud-metadata endpoints
     (169.254.169.254) land here via ``is_link_local``."""
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_unspecified
-        or ip.is_multicast
-    )
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified or ip.is_multicast
 
 
 def _is_private_ip_str(ip_str: str) -> bool:

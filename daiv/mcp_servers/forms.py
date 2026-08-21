@@ -156,10 +156,7 @@ class MCPServerForm(forms.ModelForm):
             return url
         if self.scope == MCPServer.Scope.USER and is_internal_network_target(url):
             raise forms.ValidationError(
-                _(
-                    "URLs targeting private, loopback, or link-local addresses "
-                    "are not allowed for personal servers."
-                ),
+                _("URLs targeting private, loopback, or link-local addresses are not allowed for personal servers."),
                 code="private_target",
             )
         return url
