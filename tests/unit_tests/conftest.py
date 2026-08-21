@@ -222,3 +222,11 @@ def mock_repo_authorization():
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
     ):
         yield
+
+
+@pytest.fixture
+def database_task_backend(settings):
+    """Swap the suite's immediate backend for the database one production enqueues through."""
+    settings.TASKS = {
+        "default": {**settings.TASKS["default"], "BACKEND": "core.backends.deduplicating.DeduplicatingDatabaseBackend"}
+    }

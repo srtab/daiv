@@ -86,7 +86,7 @@ Add at least one LLM provider key to `docker/local/app/config.secrets.env` — i
 container start — then bring the stack up:
 
 ```bash
-docker compose up --build  # db, redis, app, worker, scheduler
+docker compose up --build  # db, redis, app, worker, worker-interactive, scheduler
 ```
 
 - **Running DAIV for real** → [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/), then [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/) to connect GitLab or GitHub.

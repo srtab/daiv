@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
+from core.constants import TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.sessions")
@@ -25,7 +26,7 @@ RECLASSIFY_BATCH_LIMIT = 200
 RECLASSIFY_MAX_AGE = timedelta(hours=24)
 
 
-@task(dedup=True)
+@task(dedup=True, queue_name=TASK_QUEUE_INTERACTIVE)
 async def classify_run_task(run_id: str) -> None:
     """Classify a finished non-chat run's prose report into its :class:`~sessions.models.RunEnvelope`.
 

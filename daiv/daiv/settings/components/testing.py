@@ -40,7 +40,10 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 # TASKS
 
-TASKS = {"default": {"BACKEND": "core.backends.immediate.ImmediateBackend"}}
+# Bound by ``components/tasks.py``: split-settings execs every component into one namespace.
+_production_tasks = TASKS["default"]  # ty: ignore[unresolved-reference]  # noqa: F821
+
+TASKS = {"default": {**_production_tasks, "BACKEND": "core.backends.immediate.ImmediateBackend"}}
 
 
 # LOGGING
