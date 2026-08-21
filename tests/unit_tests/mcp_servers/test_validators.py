@@ -83,7 +83,7 @@ def test_is_internal_network_target_detects_private(url):
 
 
 _PUBLIC_URLS = [
-    _url(_ip([203, 0, 113, 1])),  # TEST-NET-1 documentation range: is_global, not private
+    _url(_ip([8, 8, 8, 8])),  # public routable IPv4 (Google DNS): not private on any Python
     "https://api.example.com/mcp",  # public hostname (unresolvable here → not confirmed internal)
     "http://mcp_rt:8000/mcp",  # internal single-label name; not an IP, unresolvable → allowed
     "not-a-url",  # unparseable → not confirmed internal
@@ -104,7 +104,7 @@ def test_is_internal_network_target_catches_hostname_resolving_to_private(monkey
 
 
 def test_is_internal_network_target_allows_hostname_resolving_to_public(monkeypatch):
-    monkeypatch.setattr("mcp_servers.validators._resolve_host_ips", lambda host: [_ip([203, 0, 113, 1])])
+    monkeypatch.setattr("mcp_servers.validators._resolve_host_ips", lambda host: [_ip([8, 8, 8, 8])])
     assert is_internal_network_target("http://public.attacker.test/mcp") is False
 
 

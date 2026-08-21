@@ -108,6 +108,7 @@ def test_user_scoped_form_allows_public_url():
     assert form.is_valid(), form.errors
 
 
+@pytest.mark.django_db
 def test_user_scoped_form_rejects_hostname_resolving_to_private(monkeypatch):
     """A public-looking hostname that resolves to a private IP (DNS rebinding) is
     rejected for user-scoped rows. The resolver is module-level so it can be patched."""
