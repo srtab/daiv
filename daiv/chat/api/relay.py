@@ -22,44 +22,30 @@ Organization: a run's relay state (its event stream + cancel flag) is a single
 ``RunRelay`` object bound to ``(thread_id, run_id)`` — every operation for one run
 lives there, and the Redis wire format (field names, sentinel convention, ``xread``
 shape) is its private concern. Process-wide connection lifecycle is a separate,
-module-level concern (``get_redis`` / the lazy singleton); ``RunRelay`` accepts an
-explicit ``client`` for tests and otherwise resolves the singleton lazily.
+module-level concern (``get_redis``, over the ``core.redis`` singleton); ``RunRelay``
+accepts an explicit ``client`` for tests and otherwise resolves it lazily.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.conf import settings
-
-import redis.asyncio as aioredis
+from core.redis import redis_connections
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-_client: Redis | None = None
-
-
-def _build_client() -> Redis:
-    if not settings.DJANGO_REDIS_URL:
-        raise RuntimeError("DJANGO_REDIS_URL is not configured; the chat event relay requires Redis.")
-    return aioredis.Redis.from_url(settings.DJANGO_REDIS_URL, decode_responses=True)
-
 
 def get_redis() -> Redis:
-    """Lazy process-wide client. Web workers run a single event loop, so one
-    shared connection pool is safe; tests patch this function instead.
+    """The process-wide async client (``core.redis``); tests patch this function.
 
-    Must only be used from the web-worker event loop: ``redis.asyncio`` binds
-    pooled connections to the loop that created them, so reusing this singleton
-    from an ad-hoc loop (a management command's ``asyncio.run(...)``, a fresh
-    test loop) would raise ``RuntimeError: got Future attached to a different
-    loop``. Such callers should build their own client via ``_build_client``.
+    Must only be used from the web-worker event loop: ``redis.asyncio`` binds pooled
+    connections to the loop that created them, so reusing this singleton from an ad-hoc
+    loop (a management command's ``asyncio.run(...)``, a fresh test loop) would raise
+    ``RuntimeError: got Future attached to a different loop``. Such callers should build
+    their own via ``redis_connections.build_async_client()``.
     """
-    global _client  # noqa: PLW0603
-    if _client is None:
-        _client = _build_client()
-    return _client
+    return redis_connections.async_client()
 
 
 class StreamEntry(NamedTuple):

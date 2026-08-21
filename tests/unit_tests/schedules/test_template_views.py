@@ -4,7 +4,6 @@ from datetime import time
 from django.urls import reverse
 
 import pytest
-from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
@@ -18,7 +17,6 @@ def template(admin_user):
         repos=[{"repo_id": "owner/repo", "ref": ""}],
         frequency=Frequency.DAILY,
         time=time(2, 0),
-        notify_on=NotifyOn.ALWAYS,
         created_by=admin_user,
     )
 
@@ -55,7 +53,6 @@ class TestTemplateAdminGating:
                 "frequency": Frequency.WEEKLY,
                 "cron_expression": "",
                 "time": "09:00",
-                "notify_on": NotifyOn.NEVER,
                 "intent": "watch-find",
             },
         )
@@ -73,7 +70,6 @@ class TestTemplateAdminGating:
                 "frequency": Frequency.DAILY,
                 "cron_expression": "",
                 "time": "09:00",
-                "notify_on": NotifyOn.NEVER,
                 "intent": "watch-find",
             },
         )
@@ -91,7 +87,6 @@ class TestTemplateDeleteSafety:
             repos=template.repos,
             frequency=template.frequency,
             time=template.time,
-            notify_on=template.notify_on,
         )
         admin_client.post(reverse("schedule_template_delete", args=[template.pk]))
         assert not ScheduleTemplate.objects.filter(pk=template.pk).exists()
@@ -148,7 +143,6 @@ class TestScheduleCreatePrefill:
             repos=[{"repo_id": "a/b", "ref": ""}],
             frequency=Frequency.CUSTOM,
             cron_expression="0 */6 * * *",
-            notify_on=NotifyOn.NEVER,
             created_by=admin_user,
         )
         response = member_client.get(reverse("schedule_create") + f"?template={tpl.pk}")
@@ -165,7 +159,6 @@ class TestScheduleCreatePrefill:
                 "frequency": Frequency.DAILY,
                 "cron_expression": "",
                 "time": "10:00",
-                "notify_on": NotifyOn.NEVER,
                 "intent": "watch-find",
             },
         )
@@ -193,7 +186,6 @@ class TestScheduleTemplateFormConditionalClean:
                 "frequency": Frequency.DAILY,
                 "cron_expression": "0 */6 * * *",
                 "time": "09:00",
-                "notify_on": NotifyOn.NEVER,
                 "intent": "watch-find",
             },
         )
@@ -212,7 +204,6 @@ class TestScheduleTemplateFormConditionalClean:
                 "frequency": Frequency.HOURLY,
                 "cron_expression": "",
                 "time": "09:00",
-                "notify_on": NotifyOn.NEVER,
                 "intent": "watch-find",
             },
         )
@@ -242,7 +233,6 @@ class TestTemplateFormAgentPickerContext:
             prompt="p",
             frequency=Frequency.DAILY,
             time=time(2, 0),
-            notify_on=NotifyOn.NEVER,
             agent_model="openrouter:anthropic/claude-opus-4.6",
             agent_thinking_level="high",
             created_by=admin_user,
@@ -267,7 +257,6 @@ class TestScheduleCreateViewTemplateContext:
             repos=[{"repo_id": "owner/repo", "ref": "main"}],
             frequency=Frequency.WEEKLY,
             time=time(9, 0),
-            notify_on=NotifyOn.ON_SUCCESS,
             agent_model="openrouter:anthropic/claude-opus-4.6",
             agent_thinking_level="high",
             created_by=admin_user,
@@ -303,7 +292,6 @@ class TestScheduleFormGalleryWiring:
             prompt="Scan.",
             frequency=Frequency.DAILY,
             time=time(2, 0),
-            notify_on=NotifyOn.NEVER,
             created_by=admin_user,
         )
 
@@ -328,7 +316,6 @@ class TestScheduleFormGalleryWiring:
             repos=[{"repo_id": "o/r", "ref": ""}],
             frequency=Frequency.DAILY,
             time=time(3, 0),
-            notify_on=NotifyOn.NEVER,
         )
         schedule.compute_next_run()
         schedule.save()

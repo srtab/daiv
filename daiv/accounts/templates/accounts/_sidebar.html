@@ -1,7 +1,7 @@
 {% load i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
-       class="shrink-0 overflow-y-auto bg-[#030712] {{ sidebar_root_class|default:'hidden w-60 border-r border-white/[0.06] sm:flex sm:flex-col' }}"
+       class="shrink-0 overflow-y-auto bg-[#030712] {{ sidebar_root_class|default:'hidden w-(--app-sidebar-width) border-r border-white/[0.06] sm:flex sm:flex-col' }}"
        x-cloak>
   <div class="flex items-center gap-2.5 px-5 pt-5 pb-5">
     <span class="inline-block h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-500"></span>
@@ -34,12 +34,12 @@
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'sessions' %}opacity-0{% endif %}"></span>
       {% icon "chat-bubble" "h-4 w-4" %}
       <span class="flex-1">{% translate "Sessions" %}</span>
-      {% if nav_running_jobs %}
+      {% comment %}Count and label come from the `nav` store, seeded in base_app.html.
+      `x-cloak` so the badge cannot flash at zero before Alpine boots.{% endcomment %}
       <span data-testid="nav-running-badge"
-            class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
-        {% blocktranslate count counter=nav_running_jobs %}{{ counter }} running{% plural %}{{ counter }} running{% endblocktranslate %}
-      </span>
-      {% endif %}
+            x-show="$store.nav.running > 0" x-cloak
+            x-text="$store.nav.runningLabel"
+            class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300"></span>
     </a>
 
     <a href="{% url 'schedule_list' %}"

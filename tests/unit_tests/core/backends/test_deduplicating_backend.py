@@ -9,21 +9,8 @@ def sample_issue_task(repo_id: str, issue_iid: int, *, priority: str = "normal")
     return f"{repo_id}:{issue_iid}:{priority}"
 
 
-@pytest.fixture
-def dedup_backend(settings):
-    settings.TASKS = {
-        "default": {"BACKEND": "core.backends.deduplicating.DeduplicatingDatabaseBackend", "QUEUES": ["default"]}
-    }
-
-    from django.tasks import task_backends
-
-    task_backends._settings = None
-    task_backends._connections = type(task_backends._connections)()
-    return task_backends["default"]
-
-
 @pytest.mark.django_db
-def test_dedup_backend_skips_duplicate_enqueue_for_matching_args(dedup_backend):
+def test_dedup_backend_skips_duplicate_enqueue_for_matching_args(database_task_backend):
     result = sample_issue_task.enqueue("repo-1", 99, priority="high")
     duplicate_result = sample_issue_task.enqueue("repo-1", 99, priority="high")
 
@@ -35,7 +22,7 @@ def test_dedup_backend_skips_duplicate_enqueue_for_matching_args(dedup_backend):
 
 
 @pytest.mark.django_db
-def test_dedup_backend_reuses_task_after_success(dedup_backend):
+def test_dedup_backend_reuses_task_after_success(database_task_backend):
     result = sample_issue_task.enqueue("repo-1", 42)
     db_result = DBTaskResult.objects.get(id=result.id)
     db_result.set_successful(return_value=None)
@@ -47,7 +34,7 @@ def test_dedup_backend_reuses_task_after_success(dedup_backend):
 
 
 @pytest.mark.django_db
-def test_dedup_backend_allows_new_after_failure(dedup_backend):
+def test_dedup_backend_allows_new_after_failure(database_task_backend):
     result = sample_issue_task.enqueue("repo-1", 100)
     db_result = DBTaskResult.objects.get(id=result.id)
     db_result.set_failed(RuntimeError("boom"))
@@ -59,7 +46,7 @@ def test_dedup_backend_allows_new_after_failure(dedup_backend):
 
 
 @pytest.mark.django_db
-def test_dedup_backend_creates_new_for_different_args(dedup_backend):
+def test_dedup_backend_creates_new_for_different_args(database_task_backend):
     result = sample_issue_task.enqueue("repo-1", 10, priority="high")
     second_result = sample_issue_task.enqueue("repo-1", 11, priority="high")
 

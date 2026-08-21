@@ -26,6 +26,12 @@
     {% block head_extra %}{% endblock %}
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    {% comment %}Ahead of the block: Alpine starts on the microtask after its own tag, so a
+    component's `init()` runs before anything loaded further down.{% endcomment %}
+    <script defer src="{% static 'core/js/surface-group.js' %}"></script>
+    {% comment %}Stores, not plugins: every page overriding `alpine_plugins` drops what the
+    block held, so anything the shell needs on every page needs a block of its own.{% endcomment %}
+    {% block alpine_stores %}{% endblock %}
     {% block alpine_plugins %}{% endblock %}
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
             integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"

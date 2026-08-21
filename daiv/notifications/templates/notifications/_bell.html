@@ -1,9 +1,7 @@
 {% load i18n icon_tags %}
-<div id="notifications-bell" class="relative"
-     hx-get="{% url 'notifications:bell_badge' %}"
-     hx-trigger="every 10s [document.visibilityState === 'visible']"
-     hx-swap="outerHTML"
-     x-data="{ open: false }">
+{% comment %}The badge is bound to the `nav` store (fed by the SSE stream in
+`core/js/nav-events.js`); nothing here may re-render this element, which owns `open`.{% endcomment %}
+<div id="notifications-bell" class="relative" x-data="{ open: false }">
   <button type="button" @click="open = !open; if(open) htmx.trigger($el, 'load-dropdown')"
           hx-get="{% url 'notifications:bell_dropdown' %}"
           hx-target="#notifications-dropdown"
@@ -12,14 +10,12 @@
           class="relative flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/[0.05]"
           aria-label="{% translate 'Notifications' %}">
     {% icon "bell" "h-5 w-5" %}
-    {% if unread_count %}
-      <span class="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
-        {{ unread_count }}
-      </span>
-    {% endif %}
+    {% comment %}Opening the dropdown marks everything read server-side, which pushes a fresh
+    snapshot — the badge clears from the stream, not optimistically.{% endcomment %}
+    <span x-show="$store.nav.unread > 0" x-text="$store.nav.unread" x-cloak
+          class="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"></span>
   </button>
 
-  {# `x-cloak` keeps the 10s badge swap from re-running the open animation on a closed dropdown. #}
   <div x-show="open" @click.outside="open = false" x-cloak
        class="surface-rise absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] shadow-xl">
     <div id="notifications-dropdown" class="max-h-96 overflow-y-auto">

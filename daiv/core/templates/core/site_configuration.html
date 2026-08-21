@@ -7,6 +7,7 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
+<script defer src="{% static 'core/js/config-section-picker.js' %}"></script>
 {# All model_name settings render the shared agent picker, so load the bundle on every group. #}
 <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
 {% if active_group.key == "providers" %}
@@ -26,8 +27,10 @@
     </p>
 </div>
 
-<div class="animate-fade-up mt-8 grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start" style="animation-delay: 100ms">
-    <aside class="flex flex-col" aria-label="Configuration sections">
+<div class="animate-fade-up mt-8 grid gap-8 popover:grid-cols-[200px_minmax(0,1fr)] popover:items-start" style="animation-delay: 100ms">
+    {% include "core/_config_section_picker.html" %}
+
+    <aside class="hidden popover:flex flex-col" aria-label="Configuration sections">
         {% regroup all_groups by category as grouped %}
         {% for category in grouped %}
         <div class="{% if not forloop.first %}mt-5 {% endif %}mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">

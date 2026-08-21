@@ -124,6 +124,18 @@
     return Array.isArray(stored) ? stored.filter((n) => typeof n === "string") : null;
   };
 
+  // Menu-while-token form of the backend bare-command parser (slash_commands/parser.py):
+  // a space or newline after the token breaks the match and closes the menu.
+  const SLASH_TOKEN_RE = /^\s*\/([a-z0-9-]*)$/;
+
+  // Shape-filtered like loadMcpSelection: a row without a name would throw inside the
+  // getters the menu, its $watch and its x-for all read, rather than degrade to no menu.
+  const loadSlashCatalog = () => {
+    const rows = loadJSONScript("chat-slash-commands", []);
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row) => row && typeof row.name === "string");
+  };
+
   // English fallbacks for the fragments the composer assembles counts from. The page
   // passes translated ones through ``chat({labels: …})``; these only apply if it doesn't.
   const DEFAULT_LABELS = {
@@ -155,7 +167,25 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  const pickPath = (argsStr) => {
+  // The transcript getters below re-derive from `turns` on every read, and parsing the
+  // JSON payloads off each segment is what made that expensive. Memoized per segment, on
+  // the source string as well — `args` grows delta by delta while a call streams, and a
+  // result lands whole later — so a payload is parsed once per value it ever holds.
+  // `field` is bound here rather than passed per call: the segment and the string it holds
+  // can then never be mis-paired at a call site.
+  const memoizePayload = (field, parse) => {
+    const cache = new WeakMap();
+    return (seg) => {
+      const src = seg[field];
+      const hit = cache.get(seg);
+      if (hit && hit.src === src) return hit.value;
+      const value = parse(src);
+      cache.set(seg, { src, value });
+      return value;
+    };
+  };
+
+  const pickPath = memoizePayload("args", (argsStr) => {
     try {
       const args = JSON.parse(argsStr);
       if (!args || typeof args !== "object") return null;
@@ -163,10 +193,21 @@
     } catch {
       return null;
     }
-  };
+  });
 
-  const bashFilesChanged = (resultStr) =>
-    (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
+  const bashFilesChanged = memoizePayload(
+    "result",
+    (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
+  );
+
+  const parseTodos = memoizePayload("args", (argsStr) => {
+    try {
+      const args = JSON.parse(argsStr || "{}");
+      return Array.isArray(args.todos) ? args.todos : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
@@ -178,26 +219,52 @@
       if (turn.role === "user") return [];
       for (let j = turn.segments.length - 1; j >= 0; j--) {
         const s = turn.segments[j];
-        if (s.type === "tool_call" && s.name === "write_todos") {
-          try {
-            const args = JSON.parse(s.args || "{}");
-            return Array.isArray(args.todos) ? args.todos : [];
-          } catch {
-            return [];
-          }
-        }
+        if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
     return [];
   };
 
-  // These caches live here, not on the returned data object: Alpine makes every own
-  // property reactive, so a cache read inside the getter would subscribe each reader to it
-  // and the release below would re-trigger them all, forever. Per-instance — Alpine calls
-  // this factory once per component.
+  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
+
+  // Every file the agent has written, most-recent first: path -> { path, op, fromPath?, segmentId }.
+  const collectFilesTouched = (turns) => {
+    const map = new Map();
+    const record = (path, op, seg, extra = {}) => {
+      if (!path) return;
+      map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
+    };
+    for (const t of turns) {
+      if (t.role === "run_status") continue;
+      for (const seg of t.segments) {
+        if (seg.type !== "tool_call") continue;
+        if (PATH_TOOLS.has(seg.name)) {
+          record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
+        } else if (seg.name === "bash") {
+          for (const entry of bashFilesChanged(seg)) {
+            record(entry.path, entry.op || "modified", seg,
+              entry.from_path ? { fromPath: entry.from_path } : {});
+          }
+        }
+      }
+    }
+    return [...map.values()].reverse();
+  };
+
+  // Whether a freshly derived list still says what the published one does, by the fields a
+  // binding renders. Assigning an equal-but-new array would re-trigger every reader of it.
+  const sameList = (a, b, fields) =>
+    a.length === b.length && a.every((item, i) => fields.every((f) => item[f] === b[i][f]));
+
+  const TODO_FIELDS = ["content", "status"];
+  const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
+
   const chat = (config) => {
-  let filesCache = null;
-  let todosCache = null;
+  // What the transcript effect last published. Write-side only — never read by a binding —
+  // so it is not the getter cache this replaced: it exists to keep the effect from reading
+  // its own output, which would subscribe it to what it writes.
+  let publishedTodos = [];
+  let publishedFiles = [];
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -244,19 +311,34 @@
     _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
+    // Emit time of the last relay frame, so a thought closed by the turn ending is stamped
+    // on the same clock its start came from (client/server skew otherwise leaks).
+    _lastFrameAt: 0,
     _scrollQueued: false,
     _autoFollow: true,
     _thinkingTimer: null,
     _scrollListener: null,
     _thinkingPhrase: THINKING_LABELS[0],
+    _deriveTranscript: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
+    // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
+    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
+    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
+    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
+    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
+    // a getter*, which serves every reader after the first without touching `turns` and
+    // leaves those bindings subscribed to nothing.
+    latestTodos: [],
+    filesTouched: [],
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
+    _announceOpen: null,
     // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
     // are separate surfaces on purpose (what you configure vs. what the run produced).
     sheet: "",
@@ -275,6 +357,10 @@
     // Whether the user changed the selection in this page session. Only then does submit()
     // send one — otherwise an untouched thread keeps its NULL and picks up new servers.
     _mcpTouched: false,
+    // "/" autocomplete: slash commands + global skills, server-rendered into the page.
+    slashCatalog: loadSlashCatalog(),
+    slashDismissed: false,
+    slashIndex: 0,
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -309,6 +395,7 @@
 
     openSheet(name) {
       this.sheet = name;
+      this._announceOpen();
     },
 
     closeSheet() {
@@ -316,7 +403,8 @@
     },
 
     toggleSheet(name) {
-      this.sheet = this.sheet === name ? "" : name;
+      if (this.sheet === name) this.closeSheet();
+      else this.openSheet(name);
     },
 
     // ---------- Tools (MCP servers) -----------------------------------
@@ -397,6 +485,92 @@
       return server.filtered ? `${base} · ${this._labels.filteredTo} ${server.exposed}` : base;
     },
 
+    // ---------- "/" autocomplete --------------------------------------
+
+    get slashToken() {
+      const m = SLASH_TOKEN_RE.exec(this.draftMessage);
+      return m ? m[1].toLowerCase() : null;
+    },
+
+    // Empty whenever the menu should be closed, so the list's `x-for` stops diffing rows
+    // into a panel nobody can see and `slashMenuOpen` derives from this alone.
+    get slashMatches() {
+      if (this.slashDismissed || this.streaming || this.resuming) return [];
+      const token = this.slashToken;
+      if (token === null) return [];
+      if (!token) return this.slashCatalog;
+      const starts = [];
+      const contains = [];
+      for (const row of this.slashCatalog) {
+        const name = row.name.toLowerCase();
+        if (name.startsWith(token)) starts.push(row);
+        else if (name.includes(token)) contains.push(row);
+      }
+      return [...starts, ...contains];
+    },
+
+    // A token that matches nothing hides the menu entirely: unlike the MCP filter's
+    // empty row inside a sheet the user opened, this menu is unsolicited.
+    get slashMenuOpen() {
+      return this.slashMatches.length > 0;
+    },
+
+    onPromptInput() {
+      // Escape holds until the draft leaves the "/token" shape. Clearing it on the next
+      // keystroke would re-arm the menu and hijack the Enter the user pressed it for.
+      if (this.slashToken === null) this.slashDismissed = false;
+      this.slashIndex = 0;
+    },
+
+    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
+    // preventDefault unconditionally, and plain Enter must keep inserting newlines
+    // whenever the menu is closed.
+    onPromptKeydown(e) {
+      // Enter commits an IME candidate; stealing it would cancel the composition.
+      if (e.isComposing || e.keyCode === 229) return;
+      if (!this.slashMenuOpen) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.moveSlashHighlight(1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        this.moveSlashHighlight(-1);
+      } else if ((e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        const row = this.slashMatches[this.slashIndex];
+        if (row) this.selectSlashCommand(row);
+      } else if (e.key === "Escape") {
+        // The topmost surface consumes Escape — don't let the dock's window-level
+        // closeSheet() listener also fire.
+        e.stopPropagation();
+        this.slashDismissed = true;
+      }
+    },
+
+    moveSlashHighlight(delta) {
+      const count = this.slashMatches.length;
+      if (!count) return;
+      this.slashIndex = (this.slashIndex + delta + count) % count;
+      this.$nextTick(() => {
+        this.$refs.slashList?.querySelector(".env-popover__row--highlighted")
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    },
+
+    // Whole-draft replacement is safe: the menu is only open while the entire draft is
+    // the token. The trailing space breaks SLASH_TOKEN_RE, which closes the menu.
+    selectSlashCommand(row) {
+      this.draftMessage = `/${row.name} `;
+      this.$nextTick(() => {
+        this.autosize();
+        const el = this.$refs.prompt;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    },
+
     applyPolledTurns(turns) {
       // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
       // detached and never publish to the chat relay, so there is no live stream
@@ -439,6 +613,15 @@
     },
 
     init() {
+      this._announceOpen = surfaceGroup.join(() => this.closeSheet());
+
+      // Its own surfaceGroup slot: an opening sheet dismisses the menu and vice versa.
+      // $watch fires on transitions only, giving the closed→open-only announce.
+      const announceSlashOpen = surfaceGroup.join(() => { this.slashDismissed = true; });
+      this.$watch("slashMenuOpen", (open) => {
+        if (open) announceSlashOpen();
+      });
+
       // Seed + 60s ticker (the `now` field explains why reassignment re-renders labels).
       this.now = Date.now();
       this._nowTimer = setInterval(() => { this.now = Date.now(); }, 60000);
@@ -454,6 +637,18 @@
         ? this.mcpCatalog.filter((s) => stored.includes(s.name)).map((s) => s.name)
         : this._defaultMcpNames();
       this._freezeMcpOrder();
+
+      // The one walk of the transcript. It subscribes to everything `latestTodos` and
+      // `filesTouched` read — every segment's type, name and payload — so a pushed turn, a
+      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
+      // value, and a mutation inside `turns` leaves its identity alone.
+      this._deriveTranscript = window.Alpine.effect(() => {
+        const todos = findLatestTodos(this.turns);
+        const files = collectFilesTouched(this.turns);
+        if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
+        if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+      });
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
       // and files) would otherwise stay "open" and pop back into view on the next turn.
@@ -510,6 +705,7 @@
     },
 
     destroy() {
+      if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -523,7 +719,8 @@
     async _resumeRun(runId) {
       // LangChain message ids (turn.id) and tool_call ids from the hydrated
       // checkpoint are the same ids the AG-UI events carry — anything already
-      // rendered server-side gets skipped during replay.
+      // rendered server-side gets skipped during replay. Reasoning is the
+      // exception; ``_dropReplayedThinking`` handles it positionally.
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
@@ -569,8 +766,15 @@
             console.error("chat: malformed SSE frame, skipping", err);
             return;
           }
-          if (this._isReplayDuplicate(evt)) return;
-          this.dispatch(evt, turn);
+          // Server-stamped emit time (``chat.api.runner._publish``): a rejoining browser
+          // replays the whole run at once, so its own clock measures every thought as 0ms.
+          const at = evt.timestamp || Date.now();
+          this._lastFrameAt = at;
+          if (this._isReplayDuplicate(evt)) {
+            this._dropReplayedThinking(turn);
+            return;
+          }
+          this.dispatch(evt, turn, at);
         };
         source.addEventListener("end", (event) => {
           let reason = "finished";
@@ -598,13 +802,27 @@
       return false;
     },
 
+    // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
+    // in no checkpoint — so replayed thoughts are recognized by position, not by id.
+    _dropReplayedThinking(turn) {
+      if (this._reasoningIndex.size === 0) return;
+      const kept = turn.segments.filter((s) => s.type !== "thinking");
+      turn.segments = kept;
+      this._reasoningIndex.clear();
+      // ``_toolIndex`` holds positions into ``segments``; remap the survivors so a later
+      // ARGS/RESULT delta cannot land on the card that shifted into a dropped slot.
+      kept.forEach((seg, idx) => {
+        if (this._toolIndex.has(seg.id)) this._toolIndex.set(seg.id, idx);
+      });
+    },
+
     _finishTurn(turn, reason) {
       turn.streaming = false;
       turn.segments.forEach((s) => {
         if (s.type === "tool_call" && s.status === "running") s.status = "done";
         if (s.type === "thinking" && s.status === "running") {
           s.status = "done";
-          s.endedAt = Date.now();
+          s.endedAt = this._lastFrameAt || Date.now();
         }
       });
       // Terminal reasons that leave the turn in an error state ("finished" is
@@ -622,6 +840,7 @@
       this.streaming = false;
       this._activeRun = null;
       this._replayDedup = null;
+      this._lastFrameAt = 0;
       this.scrollToBottom();
     },
 
@@ -652,52 +871,9 @@
       return { tone: "thinking", label: this._thinkingPhrase };
     },
 
-    get latestTodos() {
-      // Cached for the rest of the microtask like ``filesTouched``, for the same reason:
-      // the progress pill and sheet read this a dozen-plus times per Alpine flush, and
-      // each read re-walked the transcript and re-parsed the todo args.
-      if (todosCache) return todosCache;
-      todosCache = findLatestTodos(this.turns);
-      queueMicrotask(() => { todosCache = null; });
-      return todosCache;
-    },
-
-    get todosDone() {
-      return this.latestTodos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
-    },
-
-    get filesTouched() {
-      // Alpine re-evaluates every binding that reads this in a single flush — the pill,
-      // its class, the crowded modifier, the sheet's rows, the $watch. Caching for the
-      // rest of the current microtask collapses those into one transcript walk; releasing
-      // it there means no mutation can ever be observed through a stale cache, since
-      // `turns` only changes between events.
-      if (filesCache) return filesCache;
-      // path -> { path, op, fromPath?, segmentId }
-      const map = new Map();
-      const record = (path, op, seg, extra = {}) => {
-        if (!path) return;
-        map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
-      };
-      for (const t of this.turns) {
-        if (t.role === "run_status") continue;
-        for (const seg of t.segments) {
-          if (seg.type !== "tool_call") continue;
-          if (PATH_TOOLS.has(seg.name)) {
-            const op = seg.name === "write_file" ? "added" : "modified";
-            record(pickPath(seg.args), op, seg);
-          } else if (seg.name === "bash") {
-            for (const entry of bashFilesChanged(seg.result)) {
-              record(entry.path, entry.op || "modified", seg,
-                entry.from_path ? { fromPath: entry.from_path } : {});
-            }
-          }
-        }
-      }
-      // Reverse so most-recent comes first.
-      filesCache = [...map.values()].reverse();
-      queueMicrotask(() => { filesCache = null; });
-      return filesCache;
+    get todosProgress() {
+      const todos = this.latestTodos;
+      return `${countDone(todos)}/${todos.length}`;
     },
 
     get showJumpToLatest() {
@@ -717,7 +893,7 @@
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const parts = [];
-      if (todos.length) parts.push(`${this.todosDone}/${todos.length}`);
+      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
       if (files.length) parts.push(this._filesLabel(files.length));
 
       if (this.streaming || this.resuming) {
@@ -1054,7 +1230,7 @@
       el.classList.add("chat-tool__highlight");
     },
 
-    dispatch(evt, turn) {
+    dispatch(evt, turn, at) {
       const type = evt.type;
 
       if (type === AGUI.TEXT_MESSAGE_START) {
@@ -1072,7 +1248,7 @@
           type: "thinking",
           id: evt.messageId,
           content: "",
-          startedAt: Date.now(),
+          startedAt: at,
           endedAt: null,
           status: "running",
         });
@@ -1086,7 +1262,7 @@
         const seg = idx != null ? turn.segments[idx] : null;
         if (seg) {
           seg.status = "done";
-          seg.endedAt = Date.now();
+          seg.endedAt = at;
         }
       } else if (type === AGUI.TOOL_CALL_START) {
         // ag_ui_langgraph re-emits START/ARGS/END from OnToolEnd whenever its

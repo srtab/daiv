@@ -74,7 +74,8 @@ Parameters:
         ],
         selectedId: "{{ selected_id|default:''|escapejs }}",
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
-        createUrl: "{{ env_create_url|escapejs }}"
+        createUrl: "{{ env_create_url|escapejs }}",
+        inline: {% if variant == "sheet" %}true{% else %}false{% endif %}
      })'
      class="{% if variant == 'sheet' %}w-full{% else %}relative inline-flex{% endif %}">
 
@@ -172,6 +173,7 @@ Parameters:
         <span class="env-pill__caret" aria-hidden="true">▾</span>
     </button>
 
+    {% include "core/_sheet_backdrop.html" with show_expr="open" %}
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"

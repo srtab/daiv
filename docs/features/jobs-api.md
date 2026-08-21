@@ -73,12 +73,12 @@ POST /api/jobs
 | `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`. |
 | `agent_model`          | string           | no       | Override the model used for this batch. Invalid model / thinking-level combinations are rejected with `400`. |
 | `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
-| `notify_on`            | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`. |
+| `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default false. |
 | `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
 
 !!! note
-    The request body is validated strictly: unknown fields (including the removed `use_max` toggle) are rejected with `422`. Use `agent_model` and `agent_thinking_level` to control the model instead.
+    The request body is validated strictly: unknown fields (including the removed `use_max` toggle and the removed `notify_on` field) are rejected with `422`. Use `muted` to silence notifications; use `agent_model` and `agent_thinking_level` to control the model.
 
 **Example:**
 
@@ -160,7 +160,7 @@ For `POST /api/jobs`:
 | Code | When |
 |------|------|
 | `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
-| `422` | Malformed body or unknown fields (e.g. the removed `use_max`). |
+| `422` | Malformed body or unknown fields (e.g. the removed `use_max` or `notify_on`). |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
 | `401` | Missing or invalid API key |
 

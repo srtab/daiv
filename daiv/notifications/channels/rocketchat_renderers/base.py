@@ -16,6 +16,9 @@ COLOR_SUCCESS = "#22c55e"  # green
 COLOR_FAILURE = "#ef4444"  # red
 COLOR_PARTIAL = "#eab308"  # yellow
 
+# (color, emoji) per tone, keyed by the ``status_tone`` the notifiers stamp on the context.
+TONE_STYLE = {"success": (COLOR_SUCCESS, "✅"), "failure": (COLOR_FAILURE, "❌"), "warning": (COLOR_PARTIAL, "⚠️")}
+
 FOOTER = "DAIV"
 
 
@@ -85,6 +88,25 @@ class RocketChatRenderer(ABC):
     def _link(notification: Notification) -> str:
         return build_absolute_url(notification.link_url) if notification.link_url else ""
 
+    def _message(
+        self, notification: Notification, color: str, emoji: str, fields: list[dict]
+    ) -> tuple[str, list[dict]]:
+        """Assemble the shared ``(text, [attachment])`` shape every renderer returns."""
+        attachment = {
+            "color": color,
+            "title": notification.subject,
+            "title_link": self._link(notification),
+            "fields": fields,
+            "footer": FOOTER,
+            "ts": int(notification.created.timestamp()),
+        }
+        return f"{emoji} {notification.subject}", [attachment]
+
     @staticmethod
-    def _color(ctx: dict) -> str:
-        return COLOR_SUCCESS if ctx.get("is_successful") else COLOR_FAILURE
+    def _tone_style(ctx: dict) -> tuple[str, str]:
+        """(color, emoji) for a single run, from the envelope-driven ``status_tone``. Falls back to
+        the legacy ``is_successful`` when a context predates the tone key."""
+        tone = ctx.get("status_tone")
+        if tone in TONE_STYLE:
+            return TONE_STYLE[tone]
+        return TONE_STYLE["success"] if ctx.get("is_successful") else TONE_STYLE["failure"]

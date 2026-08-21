@@ -120,4 +120,10 @@ class TestNotify:
             )
 
         assert notification.deliveries.filter(status=DeliveryStatus.PENDING).count() == 1
-        assert len(callbacks) == 1
+        # Assert the effect, not the callback count: `create_notification` now also
+        # defers a nav badge poke, and a bare length would break on every future
+        # deferred side effect.
+        with patch("notifications.tasks.deliver_notification_task") as mock_task:
+            for callback in callbacks:
+                callback()
+        assert mock_task.enqueue.call_count == 1

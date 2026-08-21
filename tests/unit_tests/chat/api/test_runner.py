@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -30,6 +31,23 @@ async def test_run_to_relay_publishes_each_event_then_sentinel(fake_redis):
     assert '"type":"CUSTOM"' in payloads[0]["data"]
     assert json.loads(payloads[1]["data"])["value"] == 2
     assert payloads[2] == {"end": "1"}
+
+
+async def test_run_to_relay_stamps_every_event_with_its_emit_time(fake_redis):
+    """``chat-stream.js`` clocks a turn's reasoning segments from ``timestamp``: a rejoining
+    browser replays the whole run in one burst, so its own clock measures every thought as
+    instantaneous. The stamp covers the synthesized cancel event too — one contract, no
+    event the client has to time itself.
+    """
+
+    async def _events():
+        yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value={"id": "e-1"})
+
+    await runner.run_to_relay(_stub_streamer(_events))
+
+    entries = fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]
+    stamped = json.loads(entries[0][1]["data"])["timestamp"]
+    assert abs(stamped - int(time.time() * 1000)) < 60_000
 
 
 async def test_run_to_relay_publishes_sentinel_even_when_stream_raises(fake_redis):
@@ -170,6 +188,7 @@ async def test_run_to_relay_publishes_run_cancelled_on_user_stop(fake_redis):
 
     payloads = [fields for _id, fields in fake_redis.streams[run_relay.events_key]]
     assert json.loads(payloads[0]["data"])["code"] == "run_cancelled"
+    assert "timestamp" in json.loads(payloads[0]["data"])
     assert payloads[-1] == {"end": "1"}
 
 

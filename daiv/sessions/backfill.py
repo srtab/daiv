@@ -56,7 +56,6 @@ RUN_COPY_FIELDS = [
     "prompt",
     "agent_model",
     "agent_thinking_level",
-    "notify_on",
     "mention_comment_id",
     "merge_request_iid",
     "merge_request_web_url",

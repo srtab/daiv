@@ -263,14 +263,17 @@ class TestSend:
         d.address = "alice"
         d.save()
         n.event_type = EventType.JOB_BATCH_FINISHED
-        n.subject = "'nightly' batch: 1/2 succeeded — alice"
+        n.subject = "'nightly' batch: 1/2 need a look — alice"
         n.context = {
-            "successful_count": 1,
-            "failed_count": 1,
+            "found_count": 1,
+            "needs_attention_count": 0,
+            "failed_count": 0,
+            "all_clear_count": 1,
+            "notable_count": 1,
             "total": 2,
             "duration_seconds": 90,
             "trigger_owner": "alice",
-            "repo_results": [{"repo": "acme/api", "ok": True}, {"repo": "acme/legacy", "ok": False}],
+            "repo_ids": ["acme/api", "acme/legacy"],
         }
         n.save()
 
@@ -281,9 +284,8 @@ class TestSend:
 
         body = json.loads(httpx_mock.get_requests()[0].content)
         fields_by_title = {f["title"]: f["value"] for f in body["attachments"][0]["fields"]}
-        assert fields_by_title["Results"] == "✓ 1 · ✗ 1 of 2"
-        assert "✓ acme/api" in fields_by_title["Repositories"]
-        assert "✗ acme/legacy" in fields_by_title["Repositories"]
+        assert "acme/api" in fields_by_title["Repositories"]
+        assert "acme/legacy" in fields_by_title["Repositories"]
 
     def test_permanent_rc_error_raises_unrecoverable(
         self, httpx_mock, notification_with_delivery, rocketchat_configured

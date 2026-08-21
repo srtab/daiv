@@ -5,13 +5,12 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import pytest
-from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.mark.django_db
-class TestScheduledJobNotifyOn:
+class TestScheduledJobMuted:
     def _make(self, user, **overrides):
         defaults = {
             "user": user,
@@ -24,14 +23,15 @@ class TestScheduledJobNotifyOn:
         defaults.update(overrides)
         return ScheduledJob(**defaults)
 
-    def test_defaults_to_never(self, member_user):
+    def test_defaults_to_unmuted(self, member_user):
         s = self._make(member_user)
         s.full_clean()
-        assert s.notify_on == NotifyOn.NEVER
+        assert s.muted is False
 
-    def test_accepts_always(self, member_user):
-        s = self._make(member_user, notify_on=NotifyOn.ALWAYS)
+    def test_accepts_muted(self, member_user):
+        s = self._make(member_user, muted=True)
         s.full_clean()  # no error
+        assert s.muted is True
 
 
 @pytest.mark.django_db
@@ -225,7 +225,7 @@ class TestScheduledJobToScheduleKwargs:
             run_at=future,
             agent_model="openrouter:anthropic/claude-opus-4.6",
             agent_thinking_level="high",
-            notify_on=NotifyOn.ALWAYS,
+            muted=True,
         )
         kwargs = job.to_schedule_kwargs()
         assert kwargs == {
@@ -238,7 +238,7 @@ class TestScheduledJobToScheduleKwargs:
             "run_at": future,
             "agent_model": "openrouter:anthropic/claude-opus-4.6",
             "agent_thinking_level": "high",
-            "notify_on": NotifyOn.ALWAYS,
+            "muted": True,
             "intent": Intent.WATCH_FIND,
             "sandbox_environment": None,
         }

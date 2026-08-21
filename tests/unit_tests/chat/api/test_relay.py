@@ -8,8 +8,8 @@ not exist. Assert it exactly.
 
 import pytest
 
-from chat.api import relay
 from chat.api.relay import RunRelay
+from core.redis import redis_connections
 
 
 def test_events_key_embeds_thread_and_run_id():
@@ -52,7 +52,7 @@ async def test_cancel_roundtrip(fake_redis):
 
 
 def test_build_client_raises_without_configured_url(settings):
-    # ``_build_client`` (not ``get_redis``) so the module-level singleton stays untouched.
+    # ``build_async_client`` (not ``get_redis``) so the process-wide singleton stays untouched.
     settings.DJANGO_REDIS_URL = None
     with pytest.raises(RuntimeError, match="DJANGO_REDIS_URL"):
-        relay._build_client()
+        redis_connections.build_async_client()

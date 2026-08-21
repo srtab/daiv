@@ -24,7 +24,7 @@ from codebase.base import (
     NotePositionType,
     Scope,
 )
-from codebase.utils import compute_thread_id
+from codebase.utils import resolve_thread_id
 from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
 
@@ -208,18 +208,17 @@ class CommentsAddressorManager(BaseManager):
         runtime_ctx: RuntimeCtx,
         thread_id: str | None = None,
     ):
-        super().__init__(runtime_ctx=runtime_ctx)
+        super().__init__(
+            runtime_ctx=runtime_ctx,
+            thread_id=resolve_thread_id(
+                thread_id,
+                repo_slug=runtime_ctx.repository.slug,
+                scope=Scope.MERGE_REQUEST,
+                entity_iid=merge_request.merge_request_id,
+            ),
+        )
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        if thread_id is None:
-            thread_id = compute_thread_id(
-                repo_slug=self.ctx.repository.slug,
-                scope=Scope.MERGE_REQUEST,
-                entity_iid=self.merge_request.merge_request_id,
-            )
-        elif not thread_id:
-            raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
-        self.thread_id = thread_id
 
     @classmethod
     async def address_comments(

@@ -1,7 +1,21 @@
 @import "tailwindcss";
 
+/* Prose that names a class would otherwise ship it: the `w-60` in AGENTS.md kept `.w-60`
+   alive after this repo deleted its last real use. */
+@source not "../../../**/*.md";
+
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+
+  /* The width where floating surfaces stop being bottom sheets — see `.picker-popover`.
+     A layout that swaps with them (`popover:` / default) must use this, not `lg`: `lg` is
+     64rem and reorders against a fixed 1100px once the root font-size passes 17.19px. */
+  --breakpoint-popover: 1100px;
+
+  /* The app shell's content column, restated for the `position: fixed` sheets that measure
+     the viewport instead. The shell renders from these too — see `--sheet-inset-start`. */
+  --app-sidebar-width: 15rem;
+  --app-content-gutter: 1.5rem;
 
   /* Skill usage chart palette — tuned for the dark body background (#030712). */
   --chart-bar: rgba(255, 255, 255, 0.18);
@@ -12,6 +26,8 @@
   --chart-tooltip-fg: rgba(255, 255, 255, 0.92);
 }
 
+/* Entrance animations fill `backwards`, never `both`: a filling `transform` computes to an
+   identity matrix, which makes the element a containing block for `position: fixed` children. */
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -38,9 +54,10 @@
 .surface-rise,
 .picker-popover,
 .composer-sheet,
+.composer-autocomplete,
 .filter-menu,
 .card__menu-panel {
-  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out both;
+  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out backwards;
 }
 
 /* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
@@ -48,6 +65,17 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --surface-rise-duration: 0.01ms;
+  }
+}
+
+/* A bottom sheet belongs to the content column, not to the viewport: from `sm:` up the
+   sidebar is on screen while these are still sheets. Every read falls back to flush. */
+@media (width >= theme(--breakpoint-sm)) {
+  :root {
+    --sheet-inset-start: calc(var(--app-sidebar-width) + var(--app-content-gutter));
+    --sheet-inset-end: var(--app-content-gutter);
+    --sheet-width-cap: 32rem;
+    --sheet-side-border: 1px;
   }
 }
 
@@ -82,7 +110,7 @@ main:has(.chat-shell) {
 }
 
 .animate-fade-up {
-  animation: fade-up 0.5s ease-out both;
+  animation: fade-up 0.5s ease-out backwards;
 }
 
 @keyframes number-in {
@@ -93,7 +121,7 @@ main:has(.chat-shell) {
 }
 
 .animate-number {
-  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: number-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 @keyframes bar-grow {
@@ -103,7 +131,7 @@ main:has(.chat-shell) {
 }
 
 .animate-bar {
-  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: bar-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transform-origin: left;
 }
 
@@ -118,6 +146,26 @@ main:has(.chat-shell) {
 
 .pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* -- Page header --------------------------------------------------------- */
+
+@layer components {
+  /* Title plus the actions at its top right — wraps on content, never at a
+     breakpoint. See DESIGN.md §Page Header for why a breakpoint can't work here. */
+  .page-header {
+    @apply flex flex-wrap items-center gap-4;
+  }
+
+  /* Takes whatever the actions leave and wraps its own text; the floor is what
+     drops the actions to a line of their own instead of squeezing them. */
+  .page-header__title {
+    @apply min-w-0 grow basis-64;
+  }
+
+  .page-header__actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
 }
 
 /* -- Button component styles -------------------------------------------- */
@@ -496,7 +544,7 @@ main:has(.chat-shell) {
     max-width: 34rem;
     margin: 10vh auto 0;
     padding: 2rem 1rem;
-    animation: fade-up 0.6s ease-out both;
+    animation: fade-up 0.6s ease-out backwards;
   }
 
   .chat-hero__eyebrow {
@@ -698,7 +746,7 @@ main:has(.chat-shell) {
 
   .chat-turn {
     padding: 0.5rem 0;
-    animation: fade-up 0.45s ease-out both;
+    animation: fade-up 0.45s ease-out backwards;
     /* Breathing room left above a turn the page scrolls to, so it reads as the
        top of a block rather than as content clipped by the viewport edge.
        Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
@@ -747,7 +795,6 @@ main:has(.chat-shell) {
 
   .chat-turn--user .chat-text {
     white-space: pre-wrap;
-    overflow-wrap: break-word;
   }
 
   /* Collapsible tall user messages: clamp to a line budget with a bottom fade
@@ -855,6 +902,12 @@ main:has(.chat-shell) {
   }
   .chat-run-status--aborted {
     @apply border-white/10 bg-white/[0.03] text-gray-400;
+  }
+
+  /* `anywhere`, never `break-word`: only `anywhere` shrinks the box's min-content width,
+     and chat text is sized intrinsically, so break-word paints a pasted URL outside it. */
+  .chat-text {
+    overflow-wrap: anywhere;
   }
 
   .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl) {
@@ -1081,6 +1134,9 @@ main:has(.chat-shell) {
     color: #e2e8f0;
     font-weight: 600;
     letter-spacing: 0.01em;
+    /* Short enough that keeping a header whole can't widen the table; `anywhere` would
+       otherwise break "Key" over two lines. */
+    overflow-wrap: normal;
   }
 
   .chat-text td {
@@ -1288,7 +1344,7 @@ main:has(.chat-shell) {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    animation: fade-up 0.2s ease-out both;
+    animation: fade-up 0.2s ease-out backwards;
   }
 
   .chat-tool__block {
@@ -1509,7 +1565,14 @@ main:has(.chat-shell) {
       0 16px 48px -16px rgba(124, 58, 237, 0.35);
   }
 
-  .chat-composer--sending {
+  /* In flight, the composer reads as inert — control by control, never as one fade on the
+     form. An `opacity` there is a stacking context, and it holds the sheets opened from the
+     action row: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
+     faded with the rest of the subtree, panel background included. */
+  .chat-composer--sending .chat-composer__textarea,
+  .chat-composer--sending .composer-trigger,
+  .chat-composer--sending .model-label,
+  .chat-composer--sending .composer-send {
     opacity: 0.72;
   }
 
@@ -1773,7 +1836,7 @@ main:has(.chat-shell) {
     font-family: "JetBrains Mono", ui-monospace, monospace;
     cursor: pointer;
     backdrop-filter: blur(8px);
-    animation: fade-up 0.3s ease-out both;
+    animation: fade-up 0.3s ease-out backwards;
   }
 
   /* Context row — repo · branch (+ MR). Lives in the dock, above the composer box, so it
@@ -1868,6 +1931,42 @@ main:has(.chat-shell) {
     color: #e5e7eb;
   }
 
+  /* "/" autocomplete. Not a picker-popover and not a sheet: it spans the composer's own
+     width (no phone overflow to solve) and a bottom sheet would cover the textarea being
+     typed in — so one geometry at every width, anchored above the composer box. */
+
+  .composer-autocomplete {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: #0d1117;
+    box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
+    padding: 8px;
+    --surface-rise-from: 6px;
+  }
+
+  /* `dvh` and a low cap because the panel grows *upward* from a dock pinned to the
+     bottom: overflow leaves the top rows above the visible area, which the list's own
+     scrollbar cannot reach, and a software keyboard is what makes that space scarce. */
+  .composer-autocomplete__list {
+    max-height: min(30dvh, 280px);
+    overflow-y: auto;
+  }
+
+  /* Skill descriptions are written to trigger a model, so several open with the same
+     40-odd characters — one truncated line renders them identically. */
+  .composer-autocomplete .env-popover__row-subtitle {
+    @apply whitespace-normal line-clamp-2;
+  }
+
+  .composer-autocomplete__icon {
+    @apply h-3.5 w-3.5 mt-1 shrink-0 opacity-70;
+  }
+
   /* Sheets. Same markup at every width: a bottom sheet below 1100px, an anchored
      popover above the trigger at or above it. */
 
@@ -1878,13 +1977,16 @@ main:has(.chat-shell) {
 
   .composer-sheet {
     position: fixed;
-    left: 0;
-    right: 0;
+    left: var(--sheet-inset-start, 0px);
+    right: var(--sheet-inset-end, 0px);
     bottom: 0;
+    max-width: var(--sheet-width-cap, none);
+    margin-inline: auto;
     z-index: 60;
     display: flex;
     flex-direction: column;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-inline: var(--sheet-side-border, 0px) solid rgba(255, 255, 255, 0.08);
     border-radius: 18px 18px 0 0;
     background: #0d1117;
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
@@ -1892,11 +1994,19 @@ main:has(.chat-shell) {
     --surface-rise-from: 12px;
   }
 
-  .composer-sheet__backdrop {
+  /* One scrim for every bottom sheet, the composer's and the pickers' alike. It has to
+     render outside the surface it dims — see `core/_sheet_backdrop.html`. */
+  .sheet-backdrop {
     position: fixed;
     inset: 0;
     z-index: 55;
     background: rgba(3, 7, 18, 0.6);
+  }
+
+  @media (width >= 1100px) {
+    .sheet-backdrop {
+      display: none;
+    }
   }
 
   @media (min-width: 1100px) {
@@ -1910,10 +2020,6 @@ main:has(.chat-shell) {
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
-    }
-
-    .composer-sheet__backdrop {
-      display: none;
     }
   }
 
@@ -1934,7 +2040,7 @@ main:has(.chat-shell) {
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: #64748b;
+    color: #8592a8;
   }
 
   .composer-sheet__close,
@@ -1976,13 +2082,13 @@ main:has(.chat-shell) {
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: #64748b;
+    color: #8592a8;
     margin-bottom: 8px;
   }
 
   .composer-sheet__empty {
     font-size: 12.5px;
-    color: #64748b;
+    color: #8592a8;
   }
 
   .composer-sheet__file {
@@ -2007,7 +2113,7 @@ main:has(.chat-shell) {
     flex: 0 0 12px;
     text-align: center;
     font-weight: 600;
-    color: #64748b;
+    color: #8592a8;
   }
 
   /* Added / removed line counts, tinted the same everywhere they appear. */
@@ -2040,7 +2146,7 @@ main:has(.chat-shell) {
   .composer-sheet__more {
     padding: 6px 4px 0;
     font-size: 11.5px;
-    color: #64748b;
+    color: #8592a8;
     cursor: pointer;
   }
 
@@ -2219,7 +2325,7 @@ main:has(.chat-shell) {
 
   .sheet-row__meta {
     font-size: 11.5px;
-    color: #64748b;
+    color: #8592a8;
   }
 
   /* Single-select rows (Environment) mark the current value instead of switching it. */
@@ -2397,18 +2503,20 @@ main:has(.chat-shell) {
   /* A trigger anywhere but hard left puts a 320px panel over the right edge of a phone,
      and no anchor tweak fixes every case — so below 1100px every picker is a bottom
      sheet, the same surface the chat composer's options and progress already use.
-     Stays last: it re-declares geometry and `display` the rules above set. */
+     Stays last: it re-declares geometry and `display` the rules above set.
+     `--breakpoint-popover` is this number as a variant; keep the two in step. */
   @media (width < 1100px) {
     .picker-popover {
       position: fixed;
-      inset: auto 0 0 0;
+      inset: auto var(--sheet-inset-end, 0px) 0 var(--sheet-inset-start, 0px);
       width: auto;
+      max-width: var(--sheet-width-cap, none);
       max-height: 72vh;
       max-height: 72dvh;
       overflow-y: auto;
-      margin: 0;
+      margin: 0 auto;
       z-index: 60;
-      border-width: 1px 0 0;
+      border-width: 1px var(--sheet-side-border, 0px) 0;
       border-radius: 18px 18px 0 0;
       box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
       --surface-rise-from: 12px;

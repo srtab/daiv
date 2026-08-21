@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from notifications.choices import NotifyOn
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
     acreate_run,
     aget_or_create_session,
+    apersist_session_ref,
+    areset_session_ref,
     asubmit_batch_runs,
     submit_batch_runs,
 )
 from sessions.validators import validate_repo_list
+
+from codebase.base import MergeRequest
+from codebase.base import User as CodebaseUser
 
 pytestmark = pytest.mark.django_db
 
@@ -191,7 +196,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="do it",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -220,9 +224,7 @@ class TestSubmitBatchRunsSync:
         with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="dev" if i % 2 else "") for i in range(5)]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 5
         assert {r.batch_id for r in result.runs} == {result.batch_id}
@@ -239,9 +241,7 @@ class TestSubmitBatchRunsSync:
     def test_oversized_repos_raises_value_error(self, member_user):
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):
-            submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
     def test_partial_enqueue_failure_is_best_effort(self, member_user):
         call_count = {"n": 0}
@@ -259,9 +259,7 @@ class TestSubmitBatchRunsSync:
                 RepoTarget(repo_id="o/b", ref=""),
                 RepoTarget(repo_id="o/c", ref=""),
             ]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 2
         assert len(result.failed) == 1
@@ -289,9 +287,7 @@ class TestSubmitBatchRunsSync:
         m_task.aenqueue = _aenqueue
         with patch_create, patch_task:
             repos = [RepoTarget(repo_id="o/a", ref=""), RepoTarget(repo_id="o/b", ref="")]
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
-            )
+            result = submit_batch_runs(user=member_user, prompt="p", repos=repos, trigger_type=SessionOrigin.UI_JOB)
 
         assert len(result.runs) == 1
         assert len(result.failed) == 1
@@ -318,7 +314,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
@@ -346,7 +341,6 @@ class TestAsubmitBatchRuns:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.API_JOB,
             )
 
@@ -371,7 +365,7 @@ class TestBatchTitleEnqueue:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(4)]
             result = submit_batch_runs(
-                user=member_user, prompt="add login", repos=repos, notify_on=None, trigger_type=SessionOrigin.UI_JOB
+                user=member_user, prompt="add login", repos=repos, trigger_type=SessionOrigin.UI_JOB
             )
 
         assert len(result.runs) == 4
@@ -398,7 +392,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
@@ -414,7 +407,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="o/r", ref="")],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -434,7 +426,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="add login",
                 repos=[RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(3)],
-                notify_on=None,
                 trigger_type=SessionOrigin.UI_JOB,
             )
 
@@ -635,25 +626,58 @@ async def test_continuation_submit_does_not_clobber_stored_overrides():
 
 
 # ---------------------------------------------------------------------------
-# notify_on tests (ported from TestCreateActivityNotifyOn / TestEffectiveNotifyOn)
+# apersist_session_ref tests (ported from chat/api/test_threads.py)
 # ---------------------------------------------------------------------------
 
 
-class TestCreateRunNotifyOn:
-    def test_explicit_notify_on_is_persisted(self, member_user):
+def _mr(branch: str) -> MergeRequest:
+    return MergeRequest(
+        repo_id="a/b",
+        merge_request_id=7,
+        source_branch=branch,
+        target_branch="main",
+        title="t",
+        description="d",
+        author=CodebaseUser(id=1, username="daiv"),
+    )
 
-        # Need a session first
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(
-            session=session,
-            trigger_type=SessionOrigin.UI_JOB,
-            repo_id="x/y",
-            user=member_user,
-            notify_on=NotifyOn.NEVER,
-        )
-        assert run.notify_on == NotifyOn.NEVER
 
-    def test_no_notify_on_leaves_null(self, member_user):
-        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="x/y")
-        run = Run.objects.create(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="x/y", user=member_user)
-        assert run.notify_on is None
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("merge_request", [_mr("feature-y"), {"source_branch": "feature-y"}], ids=["model", "dict"])
+async def test_persist_session_ref_updates_when_branch_changed(merge_request):
+    # The two shapes a caller can hold: the checkpoint revives a ``MergeRequest``, while an
+    # AG-UI snapshot carries the dict its JSON encoder produced.
+    await Session.objects.acreate(thread_id="t-ref-1", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
+
+    await apersist_session_ref(thread_id="t-ref-1", current_ref="feature-x", merge_request=merge_request)
+
+    refreshed = await Session.objects.aget(thread_id="t-ref-1")
+    assert refreshed.ref == "feature-y"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("current_ref", "merge_request"),
+    [
+        ("feature-x", _mr("feature-x")),
+        ("feature-x", None),
+        ("main", {"source_branch": object()}),
+        ("main", SimpleNamespace(source_branch="feature-y")),
+    ],
+    ids=["branch-unchanged", "nothing-published", "branch-not-a-string", "unknown-shape"],
+)
+async def test_persist_session_ref_never_writes_without_a_new_branch(current_ref, merge_request):
+    with patch("sessions.services.Session.objects.filter") as filter_mock:
+        await apersist_session_ref(thread_id="t-ref", current_ref=current_ref, merge_request=merge_request)
+
+    filter_mock.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_reset_session_ref_repins_the_row():
+    await Session.objects.acreate(thread_id="t-ref-6", origin=SessionOrigin.CHAT, repo_id="a/b", ref="gone")
+
+    await areset_session_ref(thread_id="t-ref-6", new_ref="main")
+
+    refreshed = await Session.objects.aget(thread_id="t-ref-6")
+    assert refreshed.ref == "main"

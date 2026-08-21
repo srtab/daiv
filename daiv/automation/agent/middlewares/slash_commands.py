@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING
 
 from deepagents.middleware.skills import SkillMetadata, _parse_skill_metadata
 from langchain.agents.middleware import AgentMiddleware, hook_config
-from langchain_core.messages import AIMessage, AnyMessage, RemoveMessage  # noqa: TC002
+from langchain_core.messages import AnyMessage, RemoveMessage  # noqa: TC002
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.skills import DAIVSkillsState
-from automation.agent.utils import extract_text_content
+from automation.agent.utils import extract_text_content, streamed_assistant_message
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
@@ -84,9 +84,11 @@ class SlashCommandMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(self, state: dict, runtime: Runtime[RuntimeCtx], config: RunnableConfig) -> dict | None:
-        return await self._apply_builtin_slash_commands(state["messages"], runtime.context)
+        return await self._apply_builtin_slash_commands(state["messages"], runtime.context, config)
 
-    async def _apply_builtin_slash_commands(self, messages: list[AnyMessage], context: RuntimeCtx) -> dict | None:
+    async def _apply_builtin_slash_commands(
+        self, messages: list[AnyMessage], context: RuntimeCtx, config: RunnableConfig
+    ) -> dict | None:
         slash_command = self._extract_slash_command(messages, context.bot_username)
         if not slash_command:
             return None
@@ -122,13 +124,15 @@ class SlashCommandMiddleware(AgentMiddleware):
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
             # Do NOT honor resets_thread here: if execute_for_agent raised, any checkpointer-side wipe
             # may not have run, so keeping in-memory history avoids diverging from the Redis checkpoint.
-            return {"messages": [AIMessage(content=f"Failed to execute `{slash_command.raw}`.")], "jump_to": "end"}
+            reply = await streamed_assistant_message(f"Failed to execute `{slash_command.raw}`.", config)
+            return {"messages": [reply], "jump_to": "end"}
         else:
             logger.info("[%s] `%s` slash command completed", self.name, slash_command.raw)
             # resets_thread commands (e.g. /clear) must drop in-memory history, else the final
             # checkpoint write re-persists every prior message under the same thread_id.
             reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
-            update: dict = {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
+            reply = await streamed_assistant_message(result, config)
+            update: dict = {"messages": [*reset_prefix, reply], "jump_to": "end"}
             if command.resets_thread:
                 # The wipe also clears private state: a read-only skill (e.g. /plan sets
                 # active_skill_mode="read-only") must not survive onto the fresh thread, where

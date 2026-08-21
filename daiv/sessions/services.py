@@ -13,6 +13,7 @@ from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
 from automation.titling.tasks import generate_batch_title_task
+from chat.repo_state import mr_to_payload
 from codebase.authorization import aassert_can_run
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
@@ -21,9 +22,8 @@ from sessions.validators import MAX_REPOS_PER_BATCH
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from notifications.choices import NotifyOn
-
     from accounts.models import User
+    from codebase.base import MergeRequest
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")
@@ -101,6 +101,29 @@ async def aget_or_create_session(
     return session
 
 
+async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None) -> None:
+    """Sync ``Session.ref`` with the branch the agent published to.
+
+    ``Session.ref`` is the branch a session is *working on*, not the one it started from —
+    that stays on every ``Run.ref``, which nothing rewrites — so the composer pill and the
+    session list keep agreeing with the merge request beside them. Normalizing through
+    ``mr_to_payload`` takes both shapes a caller can hold: a live ``MergeRequest`` (off the
+    checkpoint) and the dict an AG-UI snapshot carries.
+    """
+    new_ref = (mr_to_payload(merge_request) or {}).get("source_branch")
+    if isinstance(new_ref, str) and new_ref and new_ref != current_ref:
+        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+
+async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
+    """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
+
+    Unlike :func:`apersist_session_ref` (success-only, driven by the agent's final MR), this
+    fires the moment the clone falls back, so the session self-heals even if the turn fails.
+    """
+    await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+
 async def acreate_run(
     *,
     trigger_type: str,
@@ -117,7 +140,7 @@ async def acreate_run(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
-    notify_on: NotifyOn | None = None,
+    muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
@@ -164,7 +187,7 @@ async def acreate_run(
         prompt=prompt,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
-        notify_on=notify_on,
+        muted=muted,
         batch_id=batch_id,
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
@@ -208,7 +231,7 @@ async def asubmit_batch_runs(
     repos: list[RepoTarget],
     agent_model: str = "",
     agent_thinking_level: str = "",
-    notify_on: NotifyOn | None = None,
+    muted: bool | None = None,
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
@@ -260,7 +283,7 @@ async def asubmit_batch_runs(
             "scheduled_job": scheduled_job,
             "user": user,
             "external_username": external_username,
-            "notify_on": notify_on,
+            "muted": muted,
             "batch_id": batch_id,
             "thread_id": effective_thread_id,
             "title": run_title,

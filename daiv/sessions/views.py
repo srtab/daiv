@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.text import slugify
@@ -31,6 +31,7 @@ from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
@@ -40,6 +41,7 @@ from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.transcript import annotate_transcript
+from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -48,7 +50,6 @@ if TYPE_CHECKING:
 
 
 POLL_INTERVAL = 2.0
-MAX_DURATION = 300.0
 
 
 class SessionStreamView(View):
@@ -70,11 +71,7 @@ class SessionStreamView(View):
         if not uuids:
             return HttpResponse(status=400)
 
-        return StreamingHttpResponse(
-            self._stream(uuids, user),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        return sse_response(self._stream(uuids, user))
 
     async def _stream(self, run_ids: list[uuid.UUID], user):
         """Stream current Run state to the browser.
@@ -86,14 +83,14 @@ class SessionStreamView(View):
         # Authorize the requested ids once: run visibility is stable for the life of the
         # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
         # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
-        # of spinning to MAX_DURATION on ids the caller can't see. ``visible_to`` resolves the
+        # of spinning to the duration cap on ids the caller can't see. ``visible_to`` resolves the
         # caller's platform identity with a sync DB read, so build the queryset off-loop.
         visible = await sync_to_async(Run.objects.visible_to)(user)
         tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
-        while tracking and (time.monotonic() - start) < MAX_DURATION:
+        while tracking and (time.monotonic() - start) < STREAM_MAX_DURATION_S:
             await asyncio.sleep(POLL_INTERVAL)
 
             runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
@@ -105,13 +102,12 @@ class SessionStreamView(View):
 
                 if last_emitted.get(run.id) != current_state:
                     last_emitted[run.id] = current_state
-                    data = json.dumps({
+                    yield data_frame({
                         "id": str(run.id),
                         "status": run.status,
                         "started_at": started_iso,
                         "finished_at": finished_iso,
                     })
-                    yield f"data: {data}\n\n"
 
                 if run.status in terminal:
                     tracking.discard(run.id)
@@ -119,8 +115,7 @@ class SessionStreamView(View):
         # ``complete`` distinguishes a clean finish (all tracked runs reached a
         # terminal state) from a timeout with runs still pending, so the client
         # can decide whether to re-subscribe rather than freeze on stale state.
-        done = json.dumps({"done": True, "complete": not tracking})
-        yield f"data: {done}\n\n"
+        yield data_frame({"done": True, "complete": not tracking})
 
 
 class SessionListView(LoginRequiredMixin, FilterView):
@@ -177,6 +172,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
+        context["current_mr"] = cleaned.get("mr") or ""
         context["current_schedule"] = cleaned.get("schedule") or ""
         context["current_batch"] = cleaned.get("batch") or ""
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
@@ -192,6 +188,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_status"],
             context["current_trigger"],
             context["current_repo"],
+            context["current_mr"],
             context["current_schedule"],
             context["current_batch"],
             context["current_range"],
@@ -216,6 +213,30 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return context
 
 
+class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
+    """Target of the session link DAIV writes into merge request descriptions.
+
+    Resolving the merge request here rather than at publish time is what lets the description
+    carry a stable URL: the IID does not exist yet when the description is rendered, and later
+    sessions keep attaching to the same request. Redirects are deliberately temporary — the
+    same thread resolves to the session list once its run backfills the IID.
+    """
+
+    def get(self, request, thread_id):
+        session = Session.objects.visible_to(request.user).filter(pk=thread_id).first()
+        if session is None:
+            raise Http404
+
+        # thread_id alone cannot say *which* request the reader came from, so a thread that
+        # produced several resolves to the session itself rather than guessing one.
+        iids = session.merge_request_iids()
+        if len(iids) != 1 or not session.repo_id:
+            return redirect(reverse("session_detail", kwargs={"thread_id": session.pk}))
+
+        query = urlencode({"repo": session.repo_id, "mr": iids.pop()})
+        return redirect(f"{reverse('session_list')}?{query}")
+
+
 class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
     """Single front door: choose Chat ('work with the agent') or Run ('hand off a task').
 
@@ -229,7 +250,7 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
         return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
-class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
+class SessionDetailView(LoginRequiredMixin, DetailView):
     """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
     model = Session
@@ -269,6 +290,8 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
 
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
+        ctx["slash_command_rows"] = composer_command_rows()
+
         if session is None:
             ctx.update({
                 "turns": [],
@@ -277,6 +300,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
                 "merge_request": None,
+                "thread_ref": "",
                 "diff_stats": None,
                 "runs": [],
                 "is_in_flight": False,
@@ -287,6 +311,10 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
+
+        # The pill is the working branch, mirroring the live stream's ref/MR coupling
+        # (``_applyRepoState``); ``Session.ref`` lags it on any run that never synced back.
+        ctx["thread_ref"] = (merge_request or {}).get("source_branch") or session.ref
 
         runs = list(session.runs.order_by("created_at"))
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
@@ -342,16 +370,6 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         )
 
         return ctx
-
-    def get_breadcrumbs(self):
-        sessions_url = reverse("session_list")
-        session = getattr(self, "object", None)
-        if session is None:
-            return [{"label": "Sessions", "url": sessions_url}, {"label": "New", "url": None}]
-        return [
-            {"label": "Sessions", "url": sessions_url},
-            {"label": session.title or session.thread_id[:8], "url": None},
-        ]
 
 
 class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
@@ -432,7 +450,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         return source
 
     def get_initial(self) -> dict:
-        initial: dict = {"notify_on": self.request.user.notify_on_jobs}
+        initial: dict = {}
         source = self.source_run
         if source is not None:
             initial.update({
@@ -472,7 +490,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 repos=repos,
                 agent_model=form.cleaned_data["agent_model"],
                 agent_thinking_level=form.cleaned_data["agent_thinking_level"],
-                notify_on=form.cleaned_data["notify_on"],
                 trigger_type=SessionOrigin.UI_JOB,
                 mcp_overrides=form.cleaned_data.get("mcp_overrides", {}),
             )

@@ -23,9 +23,10 @@ import asyncio
 import contextlib
 import contextvars
 import logging
+import time
 from typing import TYPE_CHECKING
 
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import BaseEvent, EventType, RunErrorEvent
 from asgiref.sync import ThreadSensitiveContext
 
 from core.constants import CANCELLED_BY_USER_MESSAGE
@@ -36,6 +37,17 @@ if TYPE_CHECKING:
     from .streaming import ChatRunStreamer
 
 logger = logging.getLogger("daiv.chat")
+
+
+async def _publish(run_relay: relay.RunRelay, event: BaseEvent) -> None:
+    """Serialize one AG-UI event to the relay, stamped with its emit time.
+
+    The chat client clocks a turn's reasoning segments from ``timestamp`` (epoch ms): a
+    rejoining browser replays the whole run at once, so its own clock would measure every
+    thought as instantaneous. Only this side knows when the event actually happened.
+    """
+    event.timestamp = event.timestamp or int(time.time() * 1000)
+    await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
 
 
 async def run_to_relay(streamer: ChatRunStreamer) -> None:
@@ -67,7 +79,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     try:
         async with ThreadSensitiveContext():
             async for event in streamer.events():
-                await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
+                await _publish(run_relay, event)
     except asyncio.CancelledError:
         # The cancelled streamer can't yield its own RUN_ERROR(run_cancelled); publish it
         # here so the live client marks the turn stopped. Gate on the cancel flag so a
@@ -75,10 +87,9 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
         # Best-effort: a teardown-time Redis failure must not mask the cancellation.
         with contextlib.suppress(Exception):
             if await run_relay.cancel_requested():
-                await run_relay.publish_event(
-                    RunErrorEvent(
-                        type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled"
-                    ).model_dump_json(by_alias=True, exclude_none=True)
+                await _publish(
+                    run_relay,
+                    RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled"),
                 )
         raise
     except Exception:

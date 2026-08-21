@@ -3,7 +3,6 @@ from typing import Literal
 from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
-from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
 from pydantic import ConfigDict
 
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
@@ -24,7 +23,7 @@ class JobSubmitRequest(Schema):
     prompt: str = Field(min_length=1)
     agent_model: str | None = None
     agent_thinking_level: ThinkingLevelChoices | None = None
-    notify_on: NotifyOn | None = None
+    muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None
 

@@ -28,14 +28,13 @@
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
-{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
-
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
   {{ diff_stats|json_script:"chat-initial-diff-stats" }}
   {{ mcp_server_rows|json_script:"chat-mcp-servers" }}
   {{ mcp_servers_selected|json_script:"chat-mcp-selected" }}
+  {{ slash_command_rows|json_script:"chat-slash-commands" }}
 
   {% if poll_transcript %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
@@ -81,7 +80,7 @@
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",
            repo_id: "{{ session.repo_id|escapejs }}",
-           ref: "{{ session.ref|escapejs }}",
+           ref: "{{ thread_ref|escapejs }}",
            merge_request: null
          }{% else %}null{% endif %},
          selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
