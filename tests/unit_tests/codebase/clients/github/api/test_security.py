@@ -50,3 +50,17 @@ def test_validate_github_webhook(mock_request, secret_configured, signature_head
 
         # Assert
         assert result == expected_result
+
+
+def test_a_non_ascii_signature_is_rejected_rather_than_raising(mock_request):
+    """A non-ASCII signature body must return False, not raise.
+
+    The ``sha256=`` prefix check passes on an attacker-supplied header whose remainder is
+    non-ASCII, and ``hmac.compare_digest`` raises ``TypeError`` comparing that as ``str`` — a 500
+    on an unauthenticated endpoint instead of the intended 401.
+    """
+    with patch("codebase.clients.github.api.security.settings") as mock_settings:
+        mock_settings.GITHUB_WEBHOOK_SECRET = SecretStr("test_secret")
+        mock_request.headers["X-Hub-Signature-256"] = "sha256=" + b"\xe9".decode("latin-1")
+
+        assert validate_github_webhook(mock_request) is False
