@@ -26,6 +26,7 @@ import logging
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
 from ninja import Router
+from ninja.security import django_auth
 
 from core.site_settings import site_settings
 from notifications.api.telegram_handlers import MSG_PRIVATE_ONLY, handle_my_chat_member
@@ -35,7 +36,9 @@ from notifications.telegram.schemas import is_private_chat, parse_command, parse
 
 logger = logging.getLogger("daiv.notifications")
 
-router = Router(tags=["notifications"])
+# Closed by default so a future route here is authenticated unless it opts out; the callback
+# below opts out with ``auth=None``, which ninja honours only because it is not ``NOT_SET``.
+router = Router(tags=["notifications"], auth=django_auth)
 
 _SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"  # noqa: S105 — a header name, not a secret
 
