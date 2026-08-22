@@ -46,6 +46,15 @@ def sync_telegram() -> list[str]:
     if client is None:
         if enabled:
             warnings.append(str(_("Telegram is enabled but no bot token is configured.")))
+        else:
+            warnings.append(
+                str(
+                    _(
+                        "The bot token was removed while the channel is disabled. The Telegram webhook could not be "
+                        "deregistered. Remove it in BotFather, or restore the token and disable the channel again."
+                    )
+                )
+            )
         return warnings
 
     if not enabled:

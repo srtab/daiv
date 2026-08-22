@@ -138,6 +138,25 @@ class TestSyncWhenDisabled:
         assert warnings and "token" in warnings[0].lower()
         assert httpx_mock.get_requests() == []
 
+    def test_a_delete_webhook_failure_warns_without_raising(self, httpx_mock, site_settings_override):
+        from pydantic import SecretStr
+
+        site_settings_override(telegram_enabled=False, telegram_bot_token=SecretStr("123:ABC"))
+        httpx_mock.add_response(
+            method="POST",
+            url=DELETE_WEBHOOK,
+            json={"ok": False, "error_code": 400, "description": "bad request"},
+            status_code=400,
+        )
+        warnings = sync_telegram()
+        assert warnings and "webhook" in warnings[0].lower()
+
+    def test_disabled_with_no_token_warns_about_unremovable_webhook(self, httpx_mock, site_settings_override):
+        site_settings_override(telegram_enabled=False, telegram_bot_token=None)
+        warnings = sync_telegram()
+        assert warnings and "BotFather" in warnings[0]
+        assert httpx_mock.get_requests() == []
+
 
 @pytest.mark.django_db
 class TestConfigurationSaveHook:
@@ -188,5 +207,6 @@ class TestConfigurationSaveHook:
         assert SiteConfiguration.objects.get(pk=1).telegram_bot_username == "daiv_bot"
 
     def test_saving_a_different_group_never_calls_telegram(self, admin_client, httpx_mock):
-        admin_client.post("/dashboard/configuration/jobs/", {"jobs_throttle_rate": "10/hour"})
+        response = admin_client.post("/dashboard/configuration/jobs/", {"jobs_throttle_rate": "10/hour"})
+        assert response.status_code == 302
         assert httpx_mock.get_requests() == []
