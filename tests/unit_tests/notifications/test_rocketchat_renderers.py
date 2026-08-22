@@ -21,7 +21,7 @@ from notifications.choices import EventType
 def _stub_build_absolute_url(monkeypatch):
     # Renderer tests don't need the Sites framework; mock the helper that would hit the DB.
     monkeypatch.setattr(
-        "notifications.channels.rocketchat_renderers.base.build_absolute_url", lambda path: f"https://example.com{path}"
+        "notifications.channels.renderers.base.build_absolute_url", lambda path: f"https://example.com{path}"
     )
 
 

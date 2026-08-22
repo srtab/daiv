@@ -10,9 +10,6 @@ if TYPE_CHECKING:
     from notifications.models import Notification
 
 
-_REPO_BREAKDOWN_LIMIT = 8
-
-
 @register_renderer
 class JobBatchFinishedRenderer(RocketChatRenderer):
     event_type = EventType.JOB_BATCH_FINISHED
@@ -43,14 +40,3 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
             fields.append({"title": "Repositories", "value": self._repo_list(repo_ids), "short": False})
 
         return self._message(notification, color, emoji, fields)
-
-    @staticmethod
-    def _repo_list(repo_ids: list[str]) -> str:
-        if not repo_ids:
-            return ""
-        head = repo_ids[:_REPO_BREAKDOWN_LIMIT]
-        overflow = len(repo_ids) - len(head)
-        parts = list(head)
-        if overflow > 0:
-            parts.append(f"… and {overflow} more")
-        return " · ".join(parts)
