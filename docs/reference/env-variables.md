@@ -151,6 +151,15 @@ When enabled, Rocket Chat becomes available as a notification channel that users
 | `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
 | `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
+### Telegram
+
+When enabled, Telegram becomes available as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret automatically.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_TELEGRAM_ENABLED` | Offer Telegram as a notification channel for users | `false` | `true` |
+| `DAIV_TELEGRAM_BOT_TOKEN` :material-lock: | Bot token issued by @BotFather, in the form `123456:ABC-DEF` | *(none)* | |
+
 ### Other
 
 | Variable                | Description                        | Default        | Example         |

@@ -299,3 +299,48 @@ msgstr "Não lidas"
 
 msgid "Read"
 msgstr "Lidas"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "That link has expired. Start again from your DAIV notification channels page."
+msgstr "Esse link expirou. Comece de novo na página de canais de notificação do DAIV."
+
+msgid "Open your DAIV notification channels page and select Connect to link this chat."
+msgstr "Abra a página de canais de notificação do DAIV e selecione Ligar para associar esta conversa."
+
+msgid "Message me directly — DAIV notifications are per-account and cannot go to a group."
+msgstr "Fale comigo em privado — as notificações do DAIV são por conta e não podem ir para um grupo."
+
+msgid "Connected. DAIV will send your notifications here."
+msgstr "Ligado. O DAIV vai enviar as suas notificações para aqui."
+
+msgid "Disconnected. DAIV will stop sending notifications here."
+msgstr "Desligado. O DAIV vai parar de enviar notificações para aqui."
+
+msgid "This chat is not connected to a DAIV account."
+msgstr "Esta conversa não está ligada a nenhuma conta DAIV."
+
+msgid "Telegram is not fully set up yet. Ask an administrator to finish the configuration."
+msgstr "O Telegram ainda não está totalmente configurado. Peça a um administrador para terminar a configuração."
+
+msgid "Not ready — ask an administrator to finish the Telegram setup."
+msgstr "Indisponível — peça a um administrador para terminar a configuração do Telegram."
+
+msgid "Telegram is enabled but no bot token is configured."
+msgstr "O Telegram está ativo mas não há nenhum token de bot configurado."
+
+msgid "The bot token was removed while the channel is disabled. The Telegram webhook could not be deregistered. Remove it in BotFather, or restore the token and disable the channel again."
+msgstr "O token do bot foi removido enquanto o canal estava desativado. Não foi possível remover o webhook do Telegram. Remova-o no BotFather, ou restaure o token e desative o canal novamente."
+
+#, python-format
+msgid "Could not remove the Telegram webhook: %(err)s"
+msgstr "Não foi possível remover o webhook do Telegram: %(err)s"
+
+#, python-format
+msgid "Could not read the Telegram bot username: %(err)s"
+msgstr "Não foi possível ler o nome de utilizador do bot do Telegram: %(err)s"
+
+#, python-format
+msgid "Could not register the Telegram webhook: %(err)s"
+msgstr "Não foi possível registar o webhook do Telegram: %(err)s"
