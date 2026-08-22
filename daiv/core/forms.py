@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
@@ -15,6 +16,8 @@ from core.models import Provider, ProviderType, SiteConfiguration, ThinkingLevel
 
 if TYPE_CHECKING:
     from core.models import FieldGroup
+
+logger = logging.getLogger("daiv.core")
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -195,6 +198,10 @@ class SiteConfigurationForm(forms.ModelForm):
     SECRET_FIELDS: ClassVar[tuple[str, ...]] = tuple(
         name for name in SiteConfiguration.ENCRYPTED_FIELDS if name != "telegram_webhook_secret"
     )
+
+    # Set by ``_validate_telegram_token`` when Telegram was unreachable; surfaced by the view
+    # as a warning beside the success banner, following ``_collect_provider_warnings``.
+    telegram_token_warning: str | None = None
 
     class Meta:
         model = SiteConfiguration
@@ -448,6 +455,7 @@ class SiteConfigurationForm(forms.ModelForm):
         self._validate_model_api_keys(cleaned_data)
         self._validate_web_search_api_key(cleaned_data)
         self._validate_auth_credentials(cleaned_data)
+        self._validate_telegram_token(cleaned_data)
         return cleaned_data
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
@@ -498,6 +506,33 @@ class SiteConfigurationForm(forms.ModelForm):
             self.add_error("auth_client_secret", _("OAuth requires both a client ID and a client secret."))
         elif has_secret and not has_client_id:
             self.add_error("auth_client_id", _("OAuth requires both a client ID and a client secret."))
+
+    def _validate_telegram_token(self, cleaned_data: dict[str, Any]) -> None:
+        """Check a *typed* bot token against getMe.
+
+        A form may do network I/O here — ``RocketChatBindingForm.clean`` already calls
+        ``verify_username``. The outcome splits: a definitive rejection is a validation error,
+        while a transport failure lets the save through with a warning, so a Telegram outage
+        cannot block an unrelated configuration edit.
+        """
+        # An env-locked field is disabled, so Django cleans its *initial* value — the masked
+        # ``str(SecretStr)``, never the token. The post-commit hook syncs the effective one.
+        if "telegram_bot_token" in self.env_locked_fields:
+            return
+        token = cleaned_data.get("telegram_bot_token")
+        if not token:
+            return
+        from notifications.telegram.client import TelegramPermanentError, TGClient
+
+        try:
+            TGClient(token=token).get_me()
+        except TelegramPermanentError as exc:
+            self.add_error("telegram_bot_token", _("Telegram rejected this bot token: %(err)s") % {"err": exc})
+        except Exception as exc:  # noqa: BLE001 — an unreachable Telegram is a warning, not an error
+            logger.warning("Telegram getMe failed while validating a typed bot token: %s", exc)
+            self.telegram_token_warning = str(
+                _("Could not reach Telegram to verify the bot token; it was saved unverified.")
+            )
 
     def _has_api_key(self, field_name: str, cleaned_data: dict[str, Any]) -> bool:
         """Check if an API key is available via env var, form submission, or existing DB value."""
