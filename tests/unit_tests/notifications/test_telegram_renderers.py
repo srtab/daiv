@@ -172,7 +172,7 @@ class TestJobBatchFinishedRenderer:
 
     def test_renders_results_breakdown_and_repositories(self):
         text, _markup = JobBatchFinishedRenderer().render(_notif(context=self._ctx()))
-        # R11: assert the rendered fragment, not incidental digits
+        # assert the rendered fragment, not incidental digits
         assert "⚑ 4 · ✓ 1 of 5" in text
         assert "acme/api" in text and "acme/web" in text
 

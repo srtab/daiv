@@ -192,8 +192,16 @@ class TestBlockedBotUnverifies:
     def test_the_flip_only_touches_the_delivering_address(
         self, httpx_mock, member_user, notification_with_delivery, telegram_configured
     ):
+        # Two Telegram bindings for one user: only the address that got the 403 may flip.
+        # user_channel_binding_unique is per-(user, channel_type, address), so this is a legal row pair.
         n, d = self._bound_delivery(member_user, notification_with_delivery, address="555")
-        UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.EMAIL).update(is_verified=True)
+        UserChannelBinding.objects.create(
+            user=member_user,
+            channel_type=ChannelType.TELEGRAM,
+            address="999",
+            is_verified=True,
+            verified_at=timezone.now(),
+        )
         httpx_mock.add_response(
             method="POST",
             url=SEND_URL,
@@ -202,4 +210,7 @@ class TestBlockedBotUnverifies:
         )
         with pytest.raises(UnrecoverableDeliveryError):
             TelegramChannel().send(n, d)
-        assert UserChannelBinding.objects.get(user=member_user, channel_type=ChannelType.EMAIL).is_verified is True
+
+        rows = UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM)
+        assert rows.get(address="555").is_verified is False
+        assert rows.get(address="999").is_verified is True

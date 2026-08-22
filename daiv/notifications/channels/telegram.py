@@ -22,10 +22,8 @@ logger = logging.getLogger("daiv.notifications")
 
 
 def _compose_text(notification: Notification) -> str:
-    # Kept as a local copy rather than shared with rocketchat._compose_text: rocketchat's
-    # version calls build_absolute_url, and its test suite patches that name by module path
-    # (notifications.channels.rocketchat.build_absolute_url). A shared function would delete
-    # that patch target and break that suite.
+    # Local copy, not shared: rocketchat's version binds build_absolute_url by module path in its
+    # test suite (rocketchat.build_absolute_url); hoisting would delete that patch target.
     parts = [notification.subject, "", notification.body]
     if notification.link_url:
         parts.extend(["", build_absolute_url(notification.link_url)])
@@ -72,7 +70,7 @@ class TelegramChannel(NotificationChannel):
             if is_blocked_error(str(exc)):
                 # Never recovers on its own; flip the binding so resolve_address returns None
                 # and later notifications record as skipped instead of burning three retries.
-                flipped = unverify_binding(notification.recipient_id, delivery.address)  # R17
+                flipped = unverify_binding(notification.recipient_id, delivery.address)
                 logger.warning(
                     "Telegram delivery %s: chat %s blocked the bot; unverified %d binding(s)",
                     delivery.id,
