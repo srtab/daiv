@@ -35,39 +35,24 @@
           </span>
         {% endif %}
 
-        {% if row.binding and row.disconnect_url %}
-          <form method="post" action="{{ row.disconnect_url }}">
-            {% csrf_token %}
-            <button type="submit" class="btn-channel-action">
-              {% translate "Disconnect" %}
-            </button>
-          </form>
-        {% elif row.connect_style == "link" %}
+        {% if row.binding %}
           {% comment %}
-            A link-style channel hands the user off to an external handshake, so the row is a
-            single button. It is suppressed entirely until the deep link has somewhere to point.
+            An unverified binding is not a usable one, and only a fresh connect makes it usable
+            again — so the connect control is rendered alongside Disconnect, not instead of it.
           {% endcomment %}
-          {% if row.connect_ready %}
-            <form method="post" action="{{ row.connect_url }}">
+          {% if not row.binding.is_verified %}
+            {% include "notifications/_channel_connect.html" %}
+          {% endif %}
+          {% if row.disconnect_url %}
+            <form method="post" action="{{ row.disconnect_url }}">
               {% csrf_token %}
               <button type="submit" class="btn-channel-action">
-                {% translate "Connect" %}
+                {% translate "Disconnect" %}
               </button>
             </form>
-          {% else %}
-            <span class="text-xs text-gray-500">
-              {% translate "Not ready — ask an administrator to finish the Telegram setup." %}
-            </span>
           {% endif %}
-        {% elif row.connect_url %}
-          <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
-            {% csrf_token %}
-            <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
-                   class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
-            <button type="submit" class="btn-channel-action">
-              {% translate "Connect" %}
-            </button>
-          </form>
+        {% else %}
+          {% include "notifications/_channel_connect.html" %}
         {% endif %}
       </div>
     </div>

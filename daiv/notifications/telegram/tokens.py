@@ -17,6 +17,9 @@ _PACK_FORMAT = ">QI"  # 8-byte big-endian pk (DEFAULT_AUTO_FIELD is BigAutoField
 _PACKED_SIZE = 12
 _MAC_SIZE = 16  # 128-bit truncation — standard, and what the 64-character budget affords.
 _TOKEN_BYTES = _PACKED_SIZE + _MAC_SIZE  # 28 bytes → exactly 38 unpadded base64url characters.
+# ``>Q`` decodes up to 2**64-1, but the pk reaches a query before the MAC is checked and SQLite
+# raises ``OverflowError`` on anything past a signed 64-bit integer.
+_MAX_USER_PK = 2**63 - 1
 
 
 def _mac(packed: bytes, address: str, verified_at: str) -> bytes:
@@ -49,6 +52,8 @@ def _decode(token: str, now: int | None) -> tuple[int, bytes, bytes] | None:
         return None
     packed, mac = raw[:_PACKED_SIZE], raw[_PACKED_SIZE:]
     user_pk, expiry = struct.unpack(_PACK_FORMAT, packed)
+    if not 0 < user_pk <= _MAX_USER_PK:
+        return None
     if expiry <= (int(time.time()) if now is None else now):
         return None
     return user_pk, packed, mac

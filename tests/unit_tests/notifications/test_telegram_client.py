@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import traceback
+
 import httpx
 import pytest
-from notifications.telegram.client import TelegramPermanentError, TGClient, _tg_post, is_blocked_error
+from notifications.telegram.client import (
+    TelegramPermanentError,
+    TelegramTransportError,
+    TGClient,
+    _tg_post,
+    is_blocked_error,
+)
 
 CLIENT = TGClient(token="123:ABC")  # noqa: S106 — test constant
 SEND_URL = "https://api.telegram.org/bot123:ABC/sendMessage"
@@ -77,8 +85,31 @@ class TestTgPost:
 
     def test_transport_error_propagates_for_retry(self, httpx_mock):
         httpx_mock.add_exception(httpx.ConnectError("no route to host"))
-        with pytest.raises(httpx.RequestError):
+        with pytest.raises(TelegramTransportError) as exc:
             _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+        # Transient: a permanent error would stop the delivery task's three-attempt ladder.
+        assert not isinstance(exc.value, TelegramPermanentError)
+        assert isinstance(exc.value, Exception)
+
+    def test_a_transport_error_keeps_no_httpx_frames_and_names_no_url(self, httpx_mock):
+        # httpx's own frames hold the request URL in their locals, and the Bot API puts the
+        # token in that URL's path — a captured traceback would ship the credential.
+        httpx_mock.add_exception(httpx.ConnectError("no route to host"))
+        with pytest.raises(TelegramTransportError) as exc:
+            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.__cause__ is None
+        assert exc.value.__suppress_context__ is True
+        assert "123:ABC" not in str(exc.value)
+        assert not [frame for frame in traceback.extract_tb(exc.value.__traceback__) if "httpx" in frame.filename]
+
+    def test_a_non_json_2xx_is_transient(self, httpx_mock):
+        # A proxy or captive portal answering 200 with HTML is not a Bot API verdict; filing it
+        # as permanent would drop the notification, and a bare ValueError would too.
+        httpx_mock.add_response(method="POST", url=SEND_URL, content=b"<html>hi</html>", status_code=200)
+        with pytest.raises(TelegramTransportError) as exc:
+            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+        assert not isinstance(exc.value, TelegramPermanentError)
+        assert "123:ABC" not in str(exc.value)
 
     def test_permanent_error_without_a_description_falls_back_to_the_status(self, httpx_mock):
         httpx_mock.add_response(method="POST", url=SEND_URL, content=b"<html>nope</html>", status_code=400)

@@ -23,6 +23,9 @@ _ELLIPSIS = "…"
 # Notification.subject is a 255-char CharField; the budget is a little above that so a normal
 # subject is never cut, while a pathological one still cannot crowd out the rest of the message.
 _SUBJECT_BUDGET = 300
+# Fixed rows read from ``Notification.context``, which is free-form JSON: ``repo_id`` and
+# ``trigger_owner`` are as long as whatever wrote them, so no row may be left unbounded.
+_ROW_BUDGET = 200
 
 
 def truncate_escaped(escaped: str, limit: int) -> str:
@@ -84,14 +87,19 @@ class TelegramRenderer(BaseRenderer):
     ) -> tuple[str, dict]:
         """Build the shared message shape.
 
-        ``rows`` are ``(label, value)`` pairs, both escaped here; they are short by
-        construction. ``extra`` is the one variable-length region — ``(label, already-escaped
+        ``rows`` are ``(label, value)`` pairs, both escaped here and each value capped at
+        ``_ROW_BUDGET`` so no single row can eat the 4096 budget — Telegram answers an
+        over-length message with a 400, which the channel files as a permanent failure and the
+        message is lost. ``extra`` is the one variable-length region — ``(label, already-escaped
         text)`` — and is fitted to whatever the fixed skeleton leaves of the 4096 budget.
         """
         emoji = TONE_EMOJI[self._tone(ctx)]
         subject = truncate_escaped(self.esc(notification.subject), _SUBJECT_BUDGET)
         lines = [f"{emoji} <b>{subject}</b>", ""]
-        lines += [f"<b>{self.esc(label)}:</b> {self.esc(value)}" for label, value in rows]
+        lines += [
+            f"<b>{truncate_escaped(self.esc(label), _ROW_BUDGET)}:</b> {truncate_escaped(self.esc(value), _ROW_BUDGET)}"
+            for label, value in rows
+        ]
         text = "\n".join(lines)
         if extra is not None:
             label, escaped_value = extra

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 
+import pytest
 from notifications.telegram.tokens import TOKEN_TTL_SECONDS, mint_token, peek_user_pk, verify_token
 
 # The deep-link payload alphabet Telegram accepts. Violating it fails in production only.
@@ -73,6 +74,19 @@ class TestMalformedInput:
         for bad in ["", "not-a-token", "!!!!", "A" * 65, mint_token(42, **NO_BINDING)[:-4]]:
             assert peek_user_pk(bad) is None
             assert verify_token(bad, **NO_BINDING) is None
+
+    @pytest.mark.parametrize("user_pk", [0, 2**63, 2**64 - 1])
+    def test_an_out_of_range_pk_is_rejected_before_it_reaches_a_query(self, user_pk):
+        # ``peek_user_pk`` feeds an unauthenticated pk straight into a binding lookup, and the
+        # ``>Q`` codec would otherwise hand it a value SQLite answers with OverflowError.
+        token = mint_token(user_pk, **NO_BINDING)
+        assert peek_user_pk(token) is None
+        assert verify_token(token, **NO_BINDING) is None
+
+    def test_the_largest_legal_pk_still_round_trips(self):
+        token = mint_token(2**63 - 1, **NO_BINDING)
+        assert peek_user_pk(token) == 2**63 - 1
+        assert verify_token(token, **NO_BINDING) == 2**63 - 1
 
     def test_a_tampered_mac_is_rejected(self):
         token = mint_token(42, **NO_BINDING)

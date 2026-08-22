@@ -26,6 +26,15 @@ class TelegramPermanentError(Exception):
     """Raised when Telegram returns a failure that will never succeed on retry."""
 
 
+class TelegramTransportError(Exception):
+    """Raised when the Bot API could not be reached, or answered something unreadable.
+
+    A plain ``Exception``, never a ``TelegramPermanentError``: the caller's retry ladder has to
+    keep engaging. Always raised ``from None`` — the suppressed frames belong to httpx, whose
+    locals hold the request URL, and the Bot API carries the token in that URL's path.
+    """
+
+
 def is_blocked_error(description: str) -> bool:
     """True when a permanent failure is specifically "the user blocked this bot"."""
     return _TG_BLOCKED_DESCRIPTION in description.lower()
@@ -36,7 +45,10 @@ class TGClient:
     """The bot token plus convenience Bot API calls.
 
     ``token`` is excluded from the default repr: it is a full-control credential and would
-    otherwise reach log lines, tracebacks, and test output.
+    otherwise reach log lines, tracebacks, and test output. The repr guard is only half of it —
+    the Bot API also carries the token in the request *path*, which is why ``post`` re-raises
+    ``from None`` (httpx frames hold the URL in their locals) and why ``settings/components/
+    sentry.py`` redacts it from breadcrumbs and spans.
     """
 
     token: str = field(repr=False)
@@ -49,7 +61,10 @@ class TGClient:
         return cls(token=token.get_secret_value())
 
     def post(self, method: str, payload: dict) -> httpx.Response:
-        return httpx.post(f"{_TG_API_BASE}/bot{self.token}/{method}", json=payload, timeout=_TG_TIMEOUT_SECONDS)
+        try:
+            return httpx.post(f"{_TG_API_BASE}/bot{self.token}/{method}", json=payload, timeout=_TG_TIMEOUT_SECONDS)
+        except httpx.HTTPError as exc:
+            raise TelegramTransportError(f"Telegram {method} transport failure: {type(exc).__name__}") from None
 
     def send_message(self, payload: dict) -> dict:
         return _tg_post(self, "sendMessage", payload)
@@ -99,7 +114,14 @@ def _tg_post(client: TGClient, method: str, payload: dict) -> dict:
         logger.warning("Telegram %s returned HTTP %s: %s", method, status, error)
         raise TelegramPermanentError(error)
 
-    body = response.json()
+    try:
+        body = response.json()
+    except ValueError:
+        # A 2xx that is not a Bot API envelope means something interposed (a proxy, a captive
+        # portal); the next attempt may well reach Telegram, so this is transient, not permanent.
+        logger.warning("Telegram %s returned a non-JSON body with HTTP %s", method, status)
+        raise TelegramTransportError(f"Telegram {method} returned a non-JSON body with HTTP {status}") from None
+
     if body.get("ok") is True:
         return body
 

@@ -102,7 +102,9 @@ class TestVisibility:
         assert "staging.example.com" in caplog.text
         assert SET_WEBHOOK in [str(r.url) for r in httpx_mock.get_requests()]
 
-    def test_a_dying_webhook_is_logged(self, httpx_mock, caplog):
+    def test_a_dying_webhook_is_logged_and_re_registered(self, httpx_mock, caplog):
+        # A matching URL is not enough to call the webhook healthy: the stored secret can have
+        # diverged from Telegram's, which 401s every update forever and no other path repairs.
         from notifications.telegram.config import webhook_url
 
         _info(
@@ -111,10 +113,59 @@ class TestVisibility:
             last_error_message="Wrong response from the webhook: 401",
             pending_update_count=42,
         )
+        _ok(httpx_mock, GET_ME, {"id": 1, "username": "daiv_bot"})
+        _ok(httpx_mock, SET_WEBHOOK)
         with caplog.at_level("WARNING", logger="daiv.notifications"):
             telegram_webhook_reconcile_cron_task.func()
         assert "401" in caplog.text
         assert "42" in caplog.text
+        assert SET_WEBHOOK in [str(r.url) for r in httpx_mock.get_requests()]
+
+    def test_a_re_registration_re_asserts_the_stored_secret(self, httpx_mock, site_settings_override):
+        from notifications.telegram.config import webhook_url
+        from pydantic import SecretStr
+
+        site_settings_override(
+            telegram_enabled=True,
+            telegram_bot_token=SecretStr("123:ABC"),
+            telegram_bot_username="daiv_bot",
+            telegram_webhook_secret=SecretStr("s3cret"),
+        )
+        _info(httpx_mock, url=webhook_url(), last_error_message="Wrong response from the webhook: 401")
+        _ok(httpx_mock, GET_ME, {"id": 1, "username": "daiv_bot"})
+        httpx_mock.add_response(
+            method="POST",
+            url=SET_WEBHOOK,
+            json={"ok": True, "result": True},
+            status_code=200,
+            match_json={
+                "url": webhook_url(),
+                "secret_token": "s3cret",
+                "allowed_updates": ["message", "my_chat_member"],
+            },
+        )
+        telegram_webhook_reconcile_cron_task.func()
+        assert SET_WEBHOOK in [str(r.url) for r in httpx_mock.get_requests()]
+
+    def test_a_healthy_webhook_still_returns_after_a_single_call(self, httpx_mock):
+        from notifications.telegram.config import webhook_url
+
+        _info(httpx_mock, url=webhook_url(), last_error_message=None, pending_update_count=0)
+        telegram_webhook_reconcile_cron_task.func()
+        assert [str(r.url) for r in httpx_mock.get_requests()] == [INFO]
+
+    def test_an_unbuildable_webhook_url_warns_instead_of_killing_the_tick(self, httpx_mock, caplog, monkeypatch):
+        from django.contrib.sites.models import Site
+
+        def _boom():
+            raise Site.DoesNotExist("no Site row")
+
+        monkeypatch.setattr("notifications.telegram.config.webhook_url", _boom)
+        _info(httpx_mock, url="https://old.example.com/api/notifications/callbacks/telegram/")
+        with caplog.at_level("WARNING", logger="daiv.notifications"):
+            telegram_webhook_reconcile_cron_task.func()
+        assert "webhook URL" in caplog.text
+        assert [str(r.url) for r in httpx_mock.get_requests()] == [INFO]
 
     def test_a_get_webhook_info_failure_is_logged_and_the_tick_gives_up(self, httpx_mock, caplog):
         import httpx

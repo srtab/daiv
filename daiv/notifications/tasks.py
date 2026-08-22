@@ -187,7 +187,13 @@ def telegram_webhook_reconcile_cron_task():
     registered webhook, and Telegram silently disables a webhook that keeps failing.
 
     ``getWebhookInfo`` does not report whether a secret is set, so that half is checked against
-    the stored value; an in-sync tick is a single call. This never touches bindings.
+    the stored value; a healthy tick is a single call. This never touches bindings.
+
+    A reported ``last_error_message`` is never healthy, so it re-syncs rather than returning. The
+    condition that needs it is a stored secret that has diverged from Telegram's registered one —
+    an admin save racing this cron during first sync mints two and only one reaches the DB — after
+    which every update 401s forever and the URL still matches. ``setWebhook`` is idempotent, so
+    re-asserting the stored secret repairs that and every other divergence for free.
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
@@ -214,8 +220,21 @@ def telegram_webhook_reconcile_cron_task():
             info.get("pending_update_count"),
         )
 
-    desired = webhook_url()
+    try:
+        desired = webhook_url()
+    except Exception as exc:  # noqa: BLE001 — a Site misconfiguration must not kill the tick
+        logger.warning("Telegram reconcile could not build the webhook URL: %s", exc)
+        return
+
     current = info.get("url") or ""
+    healthy = (
+        not last_error
+        and current == desired
+        and site_settings.telegram_bot_username
+        and site_settings.telegram_webhook_secret
+    )
+    if healthy:
+        return
     if current and current != desired:
         logger.warning(
             "Telegram webhook points at a foreign URL %r; re-registering as %r. Telegram allows one "
@@ -223,8 +242,6 @@ def telegram_webhook_reconcile_cron_task():
             current,
             desired,
         )
-    elif current == desired and site_settings.telegram_bot_username and site_settings.telegram_webhook_secret:
-        return
 
     for warning in sync_telegram():
         logger.warning("Telegram reconcile: %s", warning)

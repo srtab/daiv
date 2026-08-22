@@ -204,6 +204,22 @@ class TestLengthCap:
         assert len(text) <= TG_MAX_CHARS
         assert text.count("<b>") == text.count("</b>")
 
+    def test_a_pathological_fixed_row_cannot_blow_the_budget(self):
+        # ``repo_id`` is free-form context, not a bounded field: an unbounded fixed row pushes
+        # the message past 4096 and Telegram's 400 is filed as permanent, losing the message.
+        text, _markup = ScheduleFinishedRenderer().render(
+            _notif(context={"status_tone": "success", "repo_id": "a" * 9000, "trigger_owner": "b" * 9000})
+        )
+        assert len(text) <= TG_MAX_CHARS
+        assert text.count("<b>") == text.count("</b>")
+
+    def test_a_pathological_fixed_row_is_escaped_before_it_is_cut(self):
+        text, _markup = ScheduleFinishedRenderer().render(
+            _notif(context={"status_tone": "success", "repo_id": "&" * 9000})
+        )
+        assert len(text) <= TG_MAX_CHARS
+        assert re.search(r"&(?![a-z]+;|#\d+;)", text) is None
+
     def test_the_cut_never_leaves_a_dangling_tag_or_entity(self):
         text, _markup = JobBatchFinishedRenderer().render(
             _notif(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import NamedTuple
+from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -176,7 +177,7 @@ class ConnectTelegramView(LoginRequiredMixin, View):
             return HttpResponseRedirect(reverse("user_channels"))
         address, verified_at = binding_state(request.user)
         token = mint_token(request.user.pk, address=address, verified_at=verified_at)
-        return HttpResponseRedirect(f"https://t.me/{bot_username}?start={token}")
+        return HttpResponseRedirect(f"https://t.me/{quote(bot_username, safe='')}?start={token}")
 
 
 @method_decorator(require_POST, name="dispatch")

@@ -104,7 +104,10 @@ If your administrator has enabled Telegram for the instance, link your chat so D
 
 Verification is inherent to this flow — you demonstrably messaged the bot — so there is nothing else to confirm.
 
-To stop delivery, either select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. All three unlink the chat.
+To stop delivery, either select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. All three unlink the chat, and the row goes back to **Not configured** — select **Connect** again whenever you want it back.
+
+!!! note "If the row reads Unverified"
+    Blocking the bot normally removes the link outright, but if DAIV could not be told at the time (its webhook was unreachable, or Telegram was refusing the chat for another reason), the link stays on the row marked **Unverified**. It delivers nothing in that state. Select **Connect** on the row to redo the handshake; if that does not clear it, **Disconnect** first and then **Connect**.
 
 !!! warning "The link expires in 10 minutes"
     The **Connect** link is valid for 10 minutes and stops working as soon as any chat is linked to your account. If it expires, the bot tells you so — start again from your channels page. Do not forward the link to anyone: whoever opens it first links *their* chat to *your* account.
@@ -127,7 +130,7 @@ When a run finishes with a notify-worthy classification, DAIV records the notifi
 
 - A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
 - Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried.
-- Blocking the DAIV bot in Telegram flips your Telegram binding to **unverified** — that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped** and the channels page shows **Unverified** until you reconnect.
+- Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads **Not configured**. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to **unverified**: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped**, and the row shows **Unverified** alongside a **Connect** control until you redo the handshake.
 - The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)
 
 ## Related pages

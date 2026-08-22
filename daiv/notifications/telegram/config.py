@@ -29,6 +29,8 @@ def webhook_url() -> str:
     The Sites framework is already the canonical source of the external URL, so no new
     base-URL setting is needed.
     """
+    # A deliberate string coupling to a route owned by ``notifications/api/views.py``: no
+    # import-graph check can see it, so extracting this package must move that route too.
     return build_absolute_url(reverse("api:telegram_callback"))
 
 

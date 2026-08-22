@@ -11,6 +11,7 @@ from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType, EventType
 from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
+from notifications.telegram.client import TelegramTransportError
 
 SEND_URL = "https://api.telegram.org/bot123:ABC/sendMessage"
 
@@ -137,8 +138,10 @@ class TestSend:
     def test_a_transport_error_propagates_for_retry(self, httpx_mock, notification_with_delivery, telegram_configured):
         n, d = self._delivery(notification_with_delivery)
         httpx_mock.add_exception(httpx.ConnectError("no route"))
-        with pytest.raises(httpx.RequestError):
+        with pytest.raises(TelegramTransportError) as exc:
             TelegramChannel().send(n, d)
+        # Not an UnrecoverableDeliveryError, so _deliver_notification keeps retrying it.
+        assert not isinstance(exc.value, UnrecoverableDeliveryError)
 
 
 @pytest.mark.django_db
