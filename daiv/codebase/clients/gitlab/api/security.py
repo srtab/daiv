@@ -29,8 +29,11 @@ def validate_gitlab_webhook(request: HttpRequest) -> bool:
         logger.warning("GitLab webhook validation failed: Missing X-Gitlab-Token header")
         return False
 
-    # Use constant-time comparison to prevent timing attacks
-    is_valid = hmac.compare_digest(token, settings.GITLAB_WEBHOOK_SECRET.get_secret_value())
+    # Constant-time, and encoded rather than compared as str: compare_digest raises TypeError on a
+    # non-ASCII str, and the header is attacker-controlled, so str turns a bad token into a 500.
+    is_valid = hmac.compare_digest(
+        token.encode("utf-8"), settings.GITLAB_WEBHOOK_SECRET.get_secret_value().encode("utf-8")
+    )
 
     if is_valid:
         logger.debug("GitLab webhook validation successful")

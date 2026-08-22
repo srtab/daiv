@@ -42,8 +42,9 @@ def validate_github_webhook(request: HttpRequest) -> bool:
     mac = hmac.new(settings.GITHUB_WEBHOOK_SECRET.get_secret_value().encode(), msg=request.body, digestmod=sha256)
     expected_signature = mac.hexdigest()
 
-    # Use constant-time comparison to prevent timing attacks
-    is_valid = hmac.compare_digest(signature, expected_signature)
+    # Constant-time, and encoded rather than compared as str: compare_digest raises TypeError on a
+    # non-ASCII str, and the header is attacker-controlled, so str turns a bad signature into a 500.
+    is_valid = hmac.compare_digest(signature.encode("utf-8"), expected_signature.encode("utf-8"))
 
     if is_valid:
         logger.debug("GitHub webhook validation successful")
