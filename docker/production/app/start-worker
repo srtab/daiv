@@ -2,4 +2,5 @@
 
 set -eu
 
-exec django-admin db_worker --skip-checks
+# "*" is db_worker's own "every queue", so a deployment that runs one worker strands nothing.
+exec django-admin db_worker --skip-checks --queue-name "${1:-*}"

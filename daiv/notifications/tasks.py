@@ -11,6 +11,7 @@ from django.utils import timezone
 from crontask import cron
 from django_tasks import task
 
+from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
 from core.site_settings import site_settings
 from core.utils import locked_task
 from notifications.channels.registry import get_channel
@@ -78,7 +79,7 @@ def _deliver_notification(delivery_id: UUID) -> None:
     delivery.mark_sent()
 
 
-@task()
+@task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_NOTIFICATION)
 def deliver_notification_task(delivery_id: str) -> None:
     """Public task entry point -- thin wrapper so tests can call ``_deliver_notification`` directly."""
     _deliver_notification(UUID(delivery_id))

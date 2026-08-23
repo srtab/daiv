@@ -39,3 +39,17 @@ def test_validate_gitlab_webhook(mock_request, secret_configured, token_header, 
 
         # Assert
         assert result == expected_result
+
+
+def test_a_non_ascii_token_is_rejected_rather_than_raising(mock_request):
+    """A non-ASCII token must return False, not raise.
+
+    ``hmac.compare_digest`` raises ``TypeError`` on a ``str`` holding non-ASCII, and header values
+    reach Django latin-1-decoded — so comparing as ``str`` turns an attacker-supplied byte into a
+    500 (and a Sentry event) on an unauthenticated endpoint instead of the intended 401.
+    """
+    with patch("codebase.clients.gitlab.api.security.settings") as mock_settings:
+        mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("test_secret")
+        mock_request.headers["X-Gitlab-Token"] = b"\xe9".decode("latin-1")
+
+        assert validate_gitlab_webhook(mock_request) is False

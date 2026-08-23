@@ -8,6 +8,7 @@ from django_tasks import task
 from pydantic import BaseModel, Field
 
 from automation.titling.services import MAX_TITLE_LENGTH
+from core.constants import TASK_PRIORITY_TITLING, TASK_QUEUE_INTERACTIVE
 from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation.titling")
@@ -88,7 +89,7 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
     return result.title.strip()
 
 
-@task()
+@task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
 def generate_title_task(
     entity_type: Literal["session", "run"], pk: str, prompt: str, repo_id: str, ref: str = ""
 ) -> None:
@@ -135,7 +136,7 @@ def generate_title_task(
     entity.save(update_fields=["title"])
 
 
-@task()
+@task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
 def generate_batch_title_task(batch_id: str, prompt: str) -> None:
     """Generate a single LLM title for a Run batch and apply it to every untitled member.
 

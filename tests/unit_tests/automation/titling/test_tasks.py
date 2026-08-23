@@ -4,10 +4,13 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django_tasks.base import DEFAULT_TASK_PRIORITY
+from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, Session, SessionOrigin
 
 from automation.agent.base import BaseAgent
 from automation.titling.tasks import GeneratedTitle, _ref_is_informative, generate_batch_title_task, generate_title_task
+from core.constants import TASK_QUEUE_INTERACTIVE
 
 
 @pytest.mark.parametrize(
@@ -250,3 +253,13 @@ class TestGenerateBatchTitleTask:
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
         run.refresh_from_db()
         assert run.title == ""
+
+
+@pytest.mark.django_db
+def test_the_enqueued_row_is_what_the_interactive_worker_claims(database_task_backend):
+    """DAIV's own backend overrides ``enqueue``, and the row is what a worker selects on."""
+    result = generate_title_task.enqueue(entity_type="session", pk=str(uuid.uuid4()), prompt="add login", repo_id="o/r")
+
+    row = DBTaskResult.objects.get(id=result.id)
+    assert row.queue_name == TASK_QUEUE_INTERACTIVE
+    assert row.priority > DEFAULT_TASK_PRIORITY
