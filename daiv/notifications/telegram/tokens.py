@@ -15,7 +15,7 @@ TOKEN_TTL_SECONDS = 600
 _MAX_TOKEN_CHARS = 64  # Telegram's deep-link ``start`` payload cap.
 _PACK_FORMAT = ">QI"  # 8-byte big-endian pk (DEFAULT_AUTO_FIELD is BigAutoField) + 4-byte unix expiry.
 _PACKED_SIZE = 12
-_MAC_SIZE = 16  # 128-bit truncation — standard, and what the 64-character budget affords.
+_MAC_SIZE = 16  # 128-bit truncation — standard, and well inside Telegram's 64-character budget.
 _TOKEN_BYTES = _PACKED_SIZE + _MAC_SIZE  # 28 bytes → exactly 38 unpadded base64url characters.
 # ``>Q`` decodes up to 2**64-1, but the pk reaches a query before the MAC is checked and SQLite
 # raises ``OverflowError`` on anything past a signed 64-bit integer.

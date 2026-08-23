@@ -516,22 +516,29 @@ class SiteConfigurationForm(forms.ModelForm):
         cannot block an unrelated configuration edit.
         """
         # An env-locked field is disabled, so Django cleans its *initial* value — the masked
-        # ``str(SecretStr)``, never the token. The post-commit hook syncs the effective one.
+        # ``str(SecretStr)``, never the token. The view's post-save sync uses the effective one.
         if "telegram_bot_token" in self.env_locked_fields:
             return
         token = cleaned_data.get("telegram_bot_token")
         if not token:
             return
-        from notifications.telegram.client import TelegramPermanentError, TGClient
+        from notifications.telegram.client import TelegramError, TelegramPermanentError, TGClient
 
         try:
             TGClient(token=token).get_me()
         except TelegramPermanentError as exc:
             self.add_error("telegram_bot_token", _("Telegram rejected this bot token: %(err)s") % {"err": exc})
-        except Exception as exc:  # noqa: BLE001 — an unreachable Telegram is a warning, not an error
+        except TelegramError as exc:
             logger.warning("Telegram getMe failed while validating a typed bot token: %s", exc)
             self.telegram_token_warning = str(
                 _("Could not reach Telegram to verify the bot token; it was saved unverified.")
+            )
+        except Exception:
+            # Narrower than TelegramError above so a bug in our own code reaches Sentry instead
+            # of being reported to the admin as a Telegram outage.
+            logger.exception("Unexpected failure validating a typed Telegram bot token")
+            self.telegram_token_warning = str(
+                _("Could not verify the bot token; it was saved unverified. Check the server logs.")
             )
 
     def _has_api_key(self, field_name: str, cleaned_data: dict[str, Any]) -> bool:

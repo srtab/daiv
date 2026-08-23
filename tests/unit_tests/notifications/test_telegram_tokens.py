@@ -75,6 +75,23 @@ class TestMalformedInput:
             assert peek_user_pk(bad) is None
             assert verify_token(bad, **NO_BINDING) is None
 
+    @pytest.mark.parametrize("bad", ["A", "AAAAA", "A" * 37])
+    def test_a_length_that_breaks_base64_padding_is_rejected_not_raised(self, bad):
+        # The only inputs that make urlsafe_b64decode raise: length 1 mod 4. Everything else
+        # (including "!!!!") decodes, because non-alphabet characters are discarded — so the
+        # `except ValueError` guard is reachable only through these, and a user can type one
+        # straight into the bot chat.
+        assert len(bad) % 4 == 1
+        assert peek_user_pk(bad) is None
+        assert verify_token(bad, **NO_BINDING) is None
+
+    def test_the_nul_separator_keeps_the_mac_fields_from_sliding(self):
+        # Without it ("a", "bc") and ("ab", "c") hash identically, so a binding-state change
+        # that only moved a boundary would not invalidate an outstanding token.
+        token = mint_token(42, address="a", verified_at="bc")
+        assert verify_token(token, address="ab", verified_at="c") is None
+        assert verify_token(token, address="a", verified_at="bc") == 42
+
     @pytest.mark.parametrize("user_pk", [0, 2**63, 2**64 - 1])
     def test_an_out_of_range_pk_is_rejected_before_it_reaches_a_query(self, user_pk):
         # ``peek_user_pk`` feeds an unauthenticated pk straight into a binding lookup, and the

@@ -17,10 +17,8 @@ if TYPE_CHECKING:
     from notifications.choices import EventType
     from notifications.models import Notification
 
-# Every channel uses these unchanged.
 TONE_EMOJI = {"success": "✅", "failure": "❌", "warning": "⚠️"}
 
-# How many repositories a batch rollup names before collapsing the rest into a count.
 REPO_BREAKDOWN_LIMIT = 8
 
 

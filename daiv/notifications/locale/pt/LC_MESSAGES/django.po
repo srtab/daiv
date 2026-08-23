@@ -321,6 +321,9 @@ msgstr "Desligado. O DAIV vai parar de enviar notificações para aqui."
 msgid "This chat is not connected to a DAIV account."
 msgstr "Esta conversa não está ligada a nenhuma conta DAIV."
 
+msgid "That DAIV account is no longer active. Contact an administrator."
+msgstr "Essa conta DAIV já não está ativa. Contacte um administrador."
+
 msgid "Telegram is not fully set up yet. Ask an administrator to finish the configuration."
 msgstr "O Telegram ainda não está totalmente configurado. Peça a um administrador para terminar a configuração."
 

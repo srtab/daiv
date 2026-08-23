@@ -5,6 +5,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db.models import Count, Q
+from django.urls import NoReverseMatch
 from django.utils import timezone
 
 from crontask import cron
@@ -197,7 +198,7 @@ def telegram_webhook_reconcile_cron_task():
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
-    from notifications.telegram.client import TGClient
+    from notifications.telegram.client import TelegramError, TGClient
     from notifications.telegram.config import sync_telegram, webhook_url
 
     if not site_settings.telegram_enabled:
@@ -207,10 +208,16 @@ def telegram_webhook_reconcile_cron_task():
         return
 
     try:
-        info = client.get_webhook_info().get("result") or {}
-    except Exception as exc:  # noqa: BLE001 — unexpected error; sync_telegram handles Telegram failures
-        logger.exception("Telegram getWebhookInfo failed: %s", exc)
+        result = client.get_webhook_info().get("result")
+    except TelegramError as exc:
+        # Anticipated on this */15 cron: an outage logged at ERROR would mint a Sentry event
+        # four times an hour for its whole duration.
+        logger.warning("Telegram getWebhookInfo failed: %s", exc)
         return
+    except Exception:
+        logger.exception("Telegram getWebhookInfo failed unexpectedly")
+        return
+    info = result if isinstance(result, dict) else {}
 
     if last_error := info.get("last_error_message"):
         # The only visibility into a webhook dying of persistent 401s.
@@ -222,6 +229,11 @@ def telegram_webhook_reconcile_cron_task():
 
     try:
         desired = webhook_url()
+    except NoReverseMatch:
+        # The string coupling documented in telegram/config.py broke: a code bug, not a
+        # misconfiguration, and nothing else would ever report it.
+        logger.exception("Telegram reconcile: the callback route no longer reverses")
+        return
     except Exception as exc:  # noqa: BLE001 — a Site misconfiguration must not kill the tick
         logger.warning("Telegram reconcile could not build the webhook URL: %s", exc)
         return
@@ -243,5 +255,10 @@ def telegram_webhook_reconcile_cron_task():
             desired,
         )
 
-    for warning in sync_telegram():
+    try:
+        warnings = sync_telegram()
+    except Exception:
+        logger.exception("Telegram reconcile: sync_telegram failed")
+        return
+    for warning in warnings:
         logger.warning("Telegram reconcile: %s", warning)

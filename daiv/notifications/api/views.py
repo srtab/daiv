@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from typing import TYPE_CHECKING
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
@@ -34,6 +35,9 @@ from notifications.telegram.client import TGClient
 from notifications.telegram.commands import get_command
 from notifications.telegram.schemas import is_private_chat, parse_command, parse_update
 
+if TYPE_CHECKING:
+    from notifications.telegram.schemas import TGUpdate
+
 logger = logging.getLogger("daiv.notifications")
 
 # Closed by default so a future route here is authenticated unless it opts out; the callback
@@ -44,7 +48,13 @@ _SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"  # noqa: S105 — a header na
 
 
 def _secret_is_valid(request: HttpRequest) -> bool:
-    secret = site_settings.telegram_webhook_secret
+    try:
+        secret = site_settings.telegram_webhook_secret
+    except Exception:
+        # The descriptor raises DecryptionError after a DAIV_ENCRYPTION_KEY rotation. Fail closed
+        # like a blank secret rather than 500 — a 500 is what Telegram punishes.
+        logger.exception("Telegram webhook rejected: the stored webhook secret could not be read")
+        return False
     if not secret:
         logger.warning("Telegram webhook rejected: no webhook secret stored (fail-closed)")
         return False
@@ -86,38 +96,46 @@ def telegram_callback(request: HttpRequest):
     if not _secret_is_valid(request):
         return 401, None
 
-    if not site_settings.telegram_enabled:
-        # A failed deleteWebhook must not leave a live binding surface.
-        logger.info("Telegram webhook received while the channel is disabled; ignoring")
-        return 204, None
+    try:
+        if not site_settings.telegram_enabled:
+            # A failed deleteWebhook must not leave a live binding surface.
+            logger.info("Telegram webhook received while the channel is disabled; ignoring")
+            return 204, None
 
-    update = parse_update(request.body)
-    if update is None:
-        return 204, None
+        if (update := parse_update(request.body)) is not None:
+            _dispatch(update)
+    except Exception:
+        # What makes the 2xx contract above true. A DB blip or an unreadable token would
+        # otherwise 500, and Telegram disables a webhook that keeps failing.
+        logger.exception("Telegram update handling failed; answering 204 to keep the webhook alive")
+    return 204, None
 
+
+def _dispatch(update: TGUpdate) -> None:
+    """Act on one parsed update. The caller owns the status code; every path here is a 204."""
     if update.my_chat_member is not None:
         handle_my_chat_member(update.my_chat_member)
-        return 204, None
+        return
 
     message = update.message
     if message is None or message.chat is None or message.chat.id is None:
-        return 204, None
+        logger.debug("Telegram: update %s carries no handled payload", update.update_id)
+        return
 
     parsed = parse_command(message.text)
     if parsed is None:
-        return 204, None
+        return
 
     name, argument = parsed
     command = get_command(name)
     if command is None:
         logger.info("Telegram: unknown command %r; ignoring", name)
-        return 204, None
+        return
 
     # Resolved after the registry lookup so an unknown command in a group stays silent.
     if not is_private_chat(message.chat):
         _reply(message.chat.id, str(MSG_PRIVATE_ONLY))
-        return 204, None
+        return
 
     if reply := command.handle(message.chat, argument):
         _reply(message.chat.id, reply)
-    return 204, None

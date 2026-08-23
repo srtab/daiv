@@ -152,9 +152,24 @@ class TestSyncWhenDisabled:
         assert warnings and "webhook" in warnings[0].lower()
 
     def test_disabled_with_no_token_warns_about_unremovable_webhook(self, httpx_mock, site_settings_override):
-        site_settings_override(telegram_enabled=False, telegram_bot_token=None)
+        from pydantic import SecretStr
+
+        # The stored secret is what says a webhook was once registered, so there is something in
+        # BotFather to go and clean up.
+        site_settings_override(
+            telegram_enabled=False, telegram_bot_token=None, telegram_webhook_secret=SecretStr("s3cret")
+        )
         warnings = sync_telegram()
         assert warnings and "BotFather" in warnings[0]
+        assert httpx_mock.get_requests() == []
+
+    def test_a_never_configured_group_saves_without_inventing_a_webhook_to_remove(
+        self, httpx_mock, site_settings_override
+    ):
+        # A fresh install saving this page with nothing entered is the most likely first
+        # interaction; it must not be told to go remove a webhook that never existed.
+        site_settings_override(telegram_enabled=False, telegram_bot_token=None, telegram_webhook_secret=None)
+        assert sync_telegram() == []
         assert httpx_mock.get_requests() == []
 
 

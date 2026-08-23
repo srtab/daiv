@@ -57,6 +57,12 @@ def unbind_chat(chat_id: str) -> int:
     return deleted
 
 
+def unbind_user(user) -> int:
+    """Remove ``user``'s binding, whichever chat it points at."""
+    deleted, _by_model = _telegram_rows().filter(user=user).delete()
+    return deleted
+
+
 def unverify_binding(user_id, address: str) -> int:
     """Mark a binding unusable without deleting it, so the channels page can prompt a reconnect.
 

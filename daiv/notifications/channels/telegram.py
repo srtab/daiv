@@ -9,10 +9,11 @@ from core.site_settings import site_settings
 from core.utils import build_absolute_url
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.channels.telegram_renderers.base import TG_MAX_CHARS
 from notifications.channels.telegram_renderers.registry import get_renderer
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
-from notifications.telegram.client import TelegramPermanentError, TGClient, is_blocked_error
+from notifications.telegram.client import TelegramPermanentError, TGClient, is_unreachable_chat_error
 from notifications.telegram_bindings import unverify_binding
 
 if TYPE_CHECKING:
@@ -39,7 +40,16 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
     renderer = get_renderer(notification.event_type)
     if renderer is None:
         logger.warning("Telegram: no renderer for event_type=%r; sending plain text", notification.event_type)
-        return {"chat_id": delivery.address, "text": _compose_text(notification)}
+        # Capped here too: ``body`` is an unbounded TextField, and Telegram answers an over-length
+        # message with a 400 the channel files as permanent — losing the very notification this
+        # fallback exists to deliver. Safe to cut bluntly; the fallback sends no parse_mode.
+        text = _compose_text(notification)
+        if len(text) > TG_MAX_CHARS:
+            logger.warning(
+                "Telegram: plain-text fallback for %r truncated from %d characters", notification.event_type, len(text)
+            )
+            text = text[: TG_MAX_CHARS - 1] + "…"
+        return {"chat_id": delivery.address, "text": text}
     text, reply_markup = renderer.render(notification)
     payload: dict = {"chat_id": delivery.address, "text": text, "parse_mode": "HTML"}
     if reply_markup:
@@ -67,14 +77,15 @@ class TelegramChannel(NotificationChannel):
         try:
             client.send_message(_build_payload(notification, delivery))
         except TelegramPermanentError as exc:
-            if is_blocked_error(str(exc)):
+            if is_unreachable_chat_error(str(exc)):
                 # Never recovers on its own; flip the binding so resolve_address returns None
                 # and later notifications record as skipped instead of burning three retries.
                 flipped = unverify_binding(notification.recipient_id, delivery.address)
                 logger.warning(
-                    "Telegram delivery %s: chat %s blocked the bot; unverified %d binding(s)",
+                    "Telegram delivery %s: chat %s is unreachable (%s); unverified %d binding(s)",
                     delivery.id,
                     delivery.address,
+                    exc,
                     flipped,
                 )
             logger.error("Telegram delivery %s permanently failed: %s", delivery.id, exc)

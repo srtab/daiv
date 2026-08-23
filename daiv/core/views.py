@@ -214,8 +214,8 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     def _collect_telegram_warnings(form: SiteConfigurationForm) -> list[str]:
         """Run ``sync_telegram()`` now that the save has committed.
 
-        Imported locally: ``core`` has no other dependency on ``notifications``, and keeping it
-        here means the module graph does not gain one for a single call site.
+        Imported locally so ``core``'s module graph gains no ``notifications`` edge; the token
+        check in ``core/forms.py`` does the same.
         """
         from notifications.telegram.config import sync_telegram
 

@@ -33,6 +33,7 @@ MSG_PRIVATE_ONLY = _("Message me directly — DAIV notifications are per-account
 MSG_CONNECTED = _("Connected. DAIV will send your notifications here.")
 MSG_DISCONNECTED = _("Disconnected. DAIV will stop sending notifications here.")
 MSG_NOT_CONNECTED = _("This chat is not connected to a DAIV account.")
+MSG_ACCOUNT_UNAVAILABLE = _("That DAIV account is no longer active. Contact an administrator.")
 
 
 @register_command
@@ -46,13 +47,17 @@ class StartCommand(BaseCommand):
         # against the binding state the token was minted over.
         user_pk = peek_user_pk(argument)
         if user_pk is None:
+            logger.info("Telegram /start from chat %s: malformed or expired token", chat.id)
             return str(MSG_LINK_EXPIRED)
         address, verified_at = binding_state_for_pk(user_pk)
         if verify_token(argument, address=address, verified_at=verified_at) != user_pk:
+            # A rate of these near 100% is a SECRET_KEY problem, not users mistiming links.
+            logger.warning("Telegram /start from chat %s: token failed the MAC/state check", chat.id)
             return str(MSG_LINK_EXPIRED)
         user = User.objects.filter(pk=user_pk, is_active=True).first()
         if user is None:
-            return str(MSG_LINK_EXPIRED)
+            logger.warning("Telegram /start from chat %s: no active user for the authenticated token", chat.id)
+            return str(MSG_ACCOUNT_UNAVAILABLE)
         bind_chat(user, chat_id=str(chat.id), handle=display_handle(chat))
         logger.info("Telegram: bound chat %s to user pk=%s", chat.id, user_pk)
         return str(MSG_CONNECTED)
@@ -64,6 +69,8 @@ class StopCommand(BaseCommand):
 
     def handle(self, chat: TGChat, argument: str) -> str | None:
         removed = unbind_chat(str(chat.id))
+        if removed:
+            logger.info("Telegram: /stop removed %d binding(s) for chat %s", removed, chat.id)
         return str(MSG_DISCONNECTED if removed else MSG_NOT_CONNECTED)
 
 

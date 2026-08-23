@@ -11,7 +11,7 @@ from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType, EventType
 from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
-from notifications.telegram.client import TelegramTransportError
+from notifications.telegram.client import TelegramTransientError, TelegramTransportError
 
 SEND_URL = "https://api.telegram.org/bot123:ABC/sendMessage"
 
@@ -132,7 +132,7 @@ class TestSend:
             json={"ok": False, "error_code": status, "description": "busy"},
             status_code=status,
         )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TelegramTransientError):
             TelegramChannel().send(n, d)
 
     def test_a_transport_error_propagates_for_retry(self, httpx_mock, notification_with_delivery, telegram_configured):
@@ -142,6 +142,31 @@ class TestSend:
             TelegramChannel().send(n, d)
         # Not an UnrecoverableDeliveryError, so _deliver_notification keeps retrying it.
         assert not isinstance(exc.value, UnrecoverableDeliveryError)
+
+
+@pytest.mark.django_db
+class TestPlainTextFallback:
+    def test_an_unrenderable_event_with_a_huge_body_still_fits_telegrams_limit(
+        self, notification_with_delivery, telegram_configured
+    ):
+        # The fallback exists so a new event type delivers before its renderer ships. body is an
+        # unbounded TextField, and an over-length sendMessage is a 400 the channel files as
+        # permanent — so without a cap the fallback loses the very message it exists to send.
+        from notifications.channels.telegram import _build_payload
+        from notifications.channels.telegram_renderers.base import TG_MAX_CHARS
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.TELEGRAM
+        d.address = "555"
+        d.save()
+        n.event_type = "some.future.event"
+        n.body = "B" * 20000
+        n.save()
+
+        payload = _build_payload(n, d)
+        assert len(payload["text"]) <= TG_MAX_CHARS
+        # Still plain text: an escaped-HTML cap would be pointless without parse_mode.
+        assert "parse_mode" not in payload
 
 
 @pytest.mark.django_db
@@ -178,15 +203,36 @@ class TestBlockedBotUnverifies:
         assert binding.verified_at is not None  # the CheckConstraint permits the stale timestamp
         assert TelegramChannel().resolve_address(member_user) is None  # later deliveries now skip
 
-    def test_a_non_matching_403_fails_permanently_without_the_flip(
-        self, httpx_mock, member_user, notification_with_delivery, telegram_configured
+    @pytest.mark.parametrize(
+        "description", ["Forbidden: bot was blocked by the user", "Forbidden: user is deactivated"]
+    )
+    def test_every_permanently_unreachable_chat_flips_the_binding(
+        self, httpx_mock, member_user, notification_with_delivery, telegram_configured, description
     ):
+        # A deactivated account is as unrecoverable as a block, and leaving it verified means
+        # three retries per notification forever behind a UI that still reads "Verified".
         n, d = self._bound_delivery(member_user, notification_with_delivery)
         httpx_mock.add_response(
             method="POST",
             url=SEND_URL,
-            json={"ok": False, "error_code": 403, "description": "Forbidden: user is deactivated"},
+            json={"ok": False, "error_code": 403, "description": description},
             status_code=403,
+        )
+        with pytest.raises(UnrecoverableDeliveryError):
+            TelegramChannel().send(n, d)
+        assert UserChannelBinding.objects.get(user=member_user, channel_type=ChannelType.TELEGRAM).is_verified is False
+
+    def test_a_message_level_rejection_keeps_the_binding_verified(
+        self, httpx_mock, member_user, notification_with_delivery, telegram_configured
+    ):
+        # Permanent, but about this message rather than the chat — flipping would make one bad
+        # payload look like a dead chat and hide the channel until the user reconnects.
+        n, d = self._bound_delivery(member_user, notification_with_delivery)
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={"ok": False, "error_code": 400, "description": "Bad Request: message is too long"},
+            status_code=400,
         )
         with pytest.raises(UnrecoverableDeliveryError):
             TelegramChannel().send(n, d)

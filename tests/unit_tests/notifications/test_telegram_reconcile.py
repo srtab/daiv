@@ -174,3 +174,74 @@ class TestVisibility:
         with caplog.at_level("WARNING", logger="daiv.notifications"):
             telegram_webhook_reconcile_cron_task.func()
         assert "getWebhookInfo" in caplog.text
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            pytest.param("transport", id="unreachable"),
+            pytest.param(500, id="http_500"),
+            pytest.param(401, id="revoked_token"),
+        ],
+    )
+    def test_an_anticipated_failure_stays_below_error_so_sentry_sees_no_event(self, httpx_mock, caplog, failure):
+        # This is a */15 cron and Sentry's event_level is ERROR, so at ERROR one Telegram outage
+        # mints four events an hour for its whole duration. WARNING is the ceiling here.
+        import httpx
+
+        if failure == "transport":
+            httpx_mock.add_exception(httpx.ConnectError("no route"), url=INFO)
+        else:
+            httpx_mock.add_response(
+                method="POST",
+                url=INFO,
+                json={"ok": False, "error_code": failure, "description": "nope"},
+                status_code=failure,
+            )
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            telegram_webhook_reconcile_cron_task.func()
+        records = [r for r in caplog.records if "getWebhookInfo failed" in r.getMessage()]
+        assert records, "the failure must still be reported"
+        assert [r.levelname for r in records] == ["WARNING"]
+        assert not any(r.exc_info for r in records)
+
+    def test_an_unexpected_failure_still_reaches_error_with_a_traceback(self, httpx_mock, caplog, monkeypatch):
+        # The other half of the split: a real bug must not be demoted along with the outages.
+        from notifications.telegram.client import TGClient
+
+        def _boom(self):
+            raise MemoryError("not a Telegram problem")
+
+        monkeypatch.setattr(TGClient, "get_webhook_info", _boom)
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            telegram_webhook_reconcile_cron_task.func()
+        records = [r for r in caplog.records if "unexpectedly" in r.getMessage()]
+        assert [r.levelname for r in records] == ["ERROR"]
+        assert all(r.exc_info for r in records)
+
+    def test_a_missing_stored_secret_triggers_a_sync_even_when_the_url_matches(
+        self, httpx_mock, site_settings_override
+    ):
+        # Fail-closed means a blank secret 401s every update forever, and the URL check alone
+        # would call that healthy. This clause of `healthy` is the only thing that repairs it.
+        from notifications.telegram.config import webhook_url
+
+        site_settings_override(telegram_webhook_secret=None)
+        _info(httpx_mock, url=webhook_url(), pending_update_count=0)
+        _ok(httpx_mock, GET_ME, {"username": "daiv_bot"})
+        _ok(httpx_mock, SET_WEBHOOK)
+        telegram_webhook_reconcile_cron_task.func()
+        assert SET_WEBHOOK in [str(r.url) for r in httpx_mock.get_requests()]
+
+    def test_a_sync_warning_reaches_a_log_line(self, httpx_mock, caplog):
+        # That loop is the only operator visibility into a reconcile-time Telegram failure.
+        _info(httpx_mock, url="https://stale.example.com/hook")
+        _ok(httpx_mock, GET_ME, {"username": "daiv_bot"})
+        httpx_mock.add_response(
+            method="POST",
+            url=SET_WEBHOOK,
+            json={"ok": False, "error_code": 400, "description": "bad webhook: HTTPS url must be provided"},
+            status_code=400,
+        )
+        with caplog.at_level("WARNING", logger="daiv.notifications"):
+            telegram_webhook_reconcile_cron_task.func()
+        assert "Telegram reconcile:" in caplog.text

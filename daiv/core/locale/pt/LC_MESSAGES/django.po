@@ -735,5 +735,8 @@ msgstr "O Telegram rejeitou este token de bot: %(err)s"
 msgid "Could not reach Telegram to verify the bot token; it was saved unverified."
 msgstr "Não foi possível contactar o Telegram para verificar o token do bot; foi guardado sem verificação."
 
+msgid "Could not verify the bot token; it was saved unverified. Check the server logs."
+msgstr "Não foi possível verificar o token do bot; foi guardado sem verificação. Consulte os registos do servidor."
+
 msgid "Telegram synchronisation failed; check the server logs."
 msgstr "A sincronização com o Telegram falhou; consulte os registos do servidor."

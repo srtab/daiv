@@ -7,11 +7,17 @@ from django.urls import reverse
 
 import httpx
 import pytest
-from notifications.api.telegram_handlers import MSG_BARE_START, MSG_CONNECTED, MSG_LINK_EXPIRED, MSG_PRIVATE_ONLY
+from notifications.api.telegram_handlers import (
+    MSG_ACCOUNT_UNAVAILABLE,
+    MSG_BARE_START,
+    MSG_CONNECTED,
+    MSG_LINK_EXPIRED,
+    MSG_PRIVATE_ONLY,
+)
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 from notifications.telegram.tokens import TOKEN_TTL_SECONDS, mint_token
-from notifications.telegram_bindings import bind_chat, binding_state
+from notifications.telegram_bindings import bind_chat, binding_state, unverify_binding
 from pydantic import SecretStr
 
 from accounts.models import Role, User
@@ -151,6 +157,27 @@ class TestStart:
         rows = UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM)
         assert [r.address for r in rows] == ["222"]
 
+    def test_a_deactivated_account_is_told_so_rather_than_to_try_again(self, client, member_user, httpx_mock, caplog):
+        # A token lives 600s, so deactivation inside that window is the live case. "Link
+        # expired" would send the user round a loop that can never succeed.
+        token = _token_for(member_user)
+        member_user.is_active = False
+        member_user.save()
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            assert _post(client, _start(token)).status_code == 204
+        assert _last_reply(httpx_mock) == {"chat_id": 555, "text": str(MSG_ACCOUNT_UNAVAILABLE)}
+        assert not UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM).exists()
+        assert any(r.levelname == "WARNING" and "no active user" in r.getMessage() for r in caplog.records)
+
+    def test_a_tampered_token_is_reported_distinctly_from_an_expired_one(self, client, member_user, caplog):
+        # Same reply to the user, but a MAC failure at scale means SECRET_KEY drift, not
+        # mistimed links — so it must not be indistinguishable in the log.
+        good = _token_for(member_user)
+        tampered = ("B" if good[0] != "B" else "C") + good[1:]
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            assert _post(client, _start(tampered)).status_code == 204
+        assert any(r.levelname == "WARNING" and "MAC/state check" in r.getMessage() for r in caplog.records)
+
     def test_a_start_from_a_chat_bound_to_another_account_repoints_it(self, client, member_user):
         other = User.objects.create_user(
             username="other",
@@ -162,6 +189,35 @@ class TestStart:
         assert _post(client, _start(_token_for(member_user))).status_code == 204
         rows = UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM, address="555")
         assert [r.user_id for r in rows] == [member_user.pk]
+
+
+@pytest.mark.usefixtures("telegram_configured")
+class TestTheHandshakeLoopCloses:
+    """The Connect view mints and the webhook verifies, each resolving binding state itself.
+
+    Every other test here mints with the harness's own ``_token_for``, so nothing else notices
+    if the two sides stop agreeing on what goes into the HMAC.
+    """
+
+    def _connect(self, member_client) -> str:
+        response = member_client.post(reverse("notifications:telegram_connect"))
+        assert response.status_code == 302
+        return response.url.split("start=")[1]
+
+    def test_the_token_the_connect_view_mints_is_accepted_by_the_webhook(self, client, member_client, member_user):
+        assert _post(client, _start(self._connect(member_client))).status_code == 204
+        assert UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM).exists()
+
+    def test_a_reconnect_works_while_a_binding_already_exists(self, client, member_client, member_user, httpx_mock):
+        # The case a state-blind mint site would break: unverified after a block, the user
+        # presses Connect again, and the token has to verify against the *existing* row.
+        bind_chat(member_user, chat_id="555", handle="alice")
+        unverify_binding(member_user.pk, "555")
+
+        assert _post(client, _start(self._connect(member_client))).status_code == 204
+        binding = UserChannelBinding.objects.get(user=member_user, channel_type=ChannelType.TELEGRAM)
+        assert binding.is_verified is True
+        assert _last_reply(httpx_mock) == {"chat_id": 555, "text": str(MSG_CONNECTED)}
 
 
 @pytest.mark.usefixtures("telegram_configured")
@@ -228,13 +284,16 @@ class TestReplyDelivery:
 
 @pytest.mark.usefixtures("telegram_configured")
 class TestMyChatMember:
-    def test_blocking_the_bot_unbinds_immediately(self, client, member_user):
+    # "left" is the user deleting the chat, "kicked" is a block. Either way the chat can no
+    # longer receive, so both must unbind or every notification burns three retries forever.
+    @pytest.mark.parametrize("status", ["kicked", "left"])
+    def test_blocking_the_bot_unbinds_immediately(self, client, member_user, status):
         # The disconnect gesture users actually make — nobody types /stop. Handling it here
         # unbinds now rather than at the next delivery's 403.
         bind_chat(member_user, chat_id="555", handle="alice")
         payload = {
             "update_id": 3,
-            "my_chat_member": {"chat": {"id": 555, "type": "private"}, "new_chat_member": {"status": "kicked"}},
+            "my_chat_member": {"chat": {"id": 555, "type": "private"}, "new_chat_member": {"status": status}},
         }
         assert _post(client, payload).status_code == 204
         assert not UserChannelBinding.objects.filter(channel_type=ChannelType.TELEGRAM).exists()
@@ -268,6 +327,56 @@ class TestParsingDiscipline:
     def test_plain_text_is_a_silent_204(self, client):
         payload = {"update_id": 7, "message": {"chat": {"id": 555, "type": "private"}, "text": "hello"}}
         assert _post(client, payload).status_code == 204
+
+    def test_a_message_without_a_chat_id_is_a_silent_204(self, client):
+        payload = {"update_id": 8, "message": {"message_id": 1, "text": "/start x"}}
+        assert _post(client, payload).status_code == 204
+
+    @pytest.mark.parametrize("token", ["A", "AAAAA"])
+    def test_a_token_whose_length_breaks_base64_padding_is_a_204_not_a_500(self, client, token):
+        # urlsafe_b64decode discards non-alphabet junk, so "!!!!" decodes fine; only a length
+        # of 1 mod 4 raises. A user can type this straight into the bot chat.
+        assert _post(client, _start(token)).status_code == 204
+
+
+@pytest.mark.usefixtures("telegram_configured")
+class TestNothingEscapesAsA500:
+    """The route documents "401 for a bad secret; 2xx for everything else" — enforced, not hoped.
+
+    Telegram retries a non-2xx and eventually disables a webhook that keeps failing, so a DB
+    blip or an unreadable credential must not become a 500.
+    """
+
+    def test_a_failure_inside_dispatch_answers_204_and_logs_at_error(self, client, member_user, caplog, monkeypatch):
+        from django.db import OperationalError
+
+        monkeypatch.setattr(
+            "notifications.api.telegram_handlers.binding_state_for_pk",
+            lambda pk: (_ for _ in ()).throw(OperationalError("database is locked")),
+        )
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            assert _post(client, _start(_token_for(member_user))).status_code == 204
+        records = [r for r in caplog.records if "keep the webhook alive" in r.getMessage()]
+        assert [r.levelname for r in records] == ["ERROR"]
+        assert all(r.exc_info for r in records), "a swallowed failure must still carry a traceback"
+
+    def test_an_unreadable_stored_secret_is_401_not_a_500(self, client, member_user, caplog, monkeypatch):
+        # EncryptedFieldDescriptor raises DecryptionError after a DAIV_ENCRYPTION_KEY rotation,
+        # and the read sits ahead of every other guard in the route.
+        from core.encryption import DecryptionError
+
+        class _Unreadable:
+            @property
+            def telegram_webhook_secret(self):
+                raise DecryptionError("key rotated")
+
+        token = _token_for(member_user)
+        monkeypatch.setattr("notifications.api.views.site_settings", _Unreadable())
+        with caplog.at_level("DEBUG", logger="daiv.notifications"):
+            assert _post(client, _start(token)).status_code == 401
+        records = [r for r in caplog.records if "could not be read" in r.getMessage()]
+        assert [r.levelname for r in records] == ["ERROR"]
+        assert all(r.exc_info for r in records)
 
 
 class TestDisabledChannel:

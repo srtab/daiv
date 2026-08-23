@@ -18,9 +18,12 @@ from django.views.generic import ListView, TemplateView
 from core.site_settings import site_settings
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
+from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType
 from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
+from notifications.telegram.tokens import mint_token
+from notifications.telegram_bindings import binding_state, unbind_user
 
 
 class ChannelConnect(NamedTuple):
@@ -163,10 +166,6 @@ class ConnectTelegramView(LoginRequiredMixin, View):
     """
 
     def post(self, request):
-        from notifications.channels.telegram import TelegramChannel
-        from notifications.telegram.tokens import mint_token
-        from notifications.telegram_bindings import binding_state
-
         if not TelegramChannel.is_enabled():
             raise Http404
         bot_username = site_settings.telegram_bot_username
@@ -183,5 +182,5 @@ class ConnectTelegramView(LoginRequiredMixin, View):
 @method_decorator(require_POST, name="dispatch")
 class DisconnectTelegramView(LoginRequiredMixin, View):
     def post(self, request):
-        UserChannelBinding.objects.filter(user=request.user, channel_type=ChannelType.TELEGRAM).delete()
+        unbind_user(request.user)
         return HttpResponseRedirect(reverse("user_channels"))

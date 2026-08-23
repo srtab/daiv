@@ -1,8 +1,9 @@
 """Bring Telegram's registered webhook in line with this instance's configuration.
 
-Called from the configuration-save post-commit hook and from the reconcile cron. Reads the
-*effective* token from ``site_settings`` — env-locked or DB-backed, same code path — because
-an env-locked token never round-trips through the form and so never reaches ``clean``.
+Called from the configuration-save view once the save has committed, and from the reconcile
+cron. Reads the *effective* token from ``site_settings`` — env-locked or DB-backed, same code
+path — because an env-locked token never round-trips through the form and so never reaches
+``clean``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from django.utils.translation import gettext as _
 from core.models import SiteConfiguration
 from core.site_settings import site_settings
 from core.utils import build_absolute_url
-from notifications.telegram.client import TGClient
+from notifications.telegram.client import TelegramError, TGClient
 
 logger = logging.getLogger("daiv.notifications")
 
@@ -48,7 +49,9 @@ def sync_telegram() -> list[str]:
     if client is None:
         if enabled:
             warnings.append(str(_("Telegram is enabled but no bot token is configured.")))
-        else:
+        elif site_settings.telegram_webhook_secret:
+            # Only a successful sync ever writes the secret, so it is the "a webhook was once
+            # registered" flag. Without it there is nothing in BotFather to go and clean up.
             warnings.append(
                 str(
                     _(
@@ -64,7 +67,7 @@ def sync_telegram() -> list[str]:
         # answering a straggling update 2xx rather than 401 needs the secret to still match.
         try:
             client.delete_webhook()
-        except Exception as exc:  # noqa: BLE001 — the save stands either way
+        except TelegramError as exc:
             logger.warning("Telegram deleteWebhook failed: %s", exc)
             warnings.append(str(_("Could not remove the Telegram webhook: %(err)s") % {"err": exc}))
         return warnings
@@ -73,8 +76,9 @@ def sync_telegram() -> list[str]:
     dirty = False
 
     try:
-        username = (client.get_me().get("result") or {}).get("username")
-    except Exception as exc:  # noqa: BLE001 — a warning, never a failed save
+        result = client.get_me().get("result")
+        username = result.get("username") if isinstance(result, dict) else None
+    except TelegramError as exc:
         logger.warning("Telegram getMe failed: %s", exc)
         warnings.append(str(_("Could not read the Telegram bot username: %(err)s") % {"err": exc}))
         username = None
@@ -98,14 +102,17 @@ def sync_telegram() -> list[str]:
         dirty = True
 
     # Persisted BEFORE setWebhook carries it: the route is fail-closed, so it rejects every
-    # update until the secret lands. ``SiteConfiguration.save`` invalidates the read cache on
-    # commit, keeping every process's next ``get_cached()`` fresh.
+    # update until the secret lands. Scoped to these two columns because the row was read before
+    # a getMe that can take seconds, and a full save would revert a concurrent edit elsewhere.
     if dirty:
-        config.save()
+        config.save(update_fields=["telegram_bot_username", "_telegram_webhook_secret_encrypted"])
 
+    # Resolved outside the try so a NoReverseMatch or a Site misconfiguration is not reported as
+    # a Telegram outage; the callers own that case.
+    url = webhook_url()
     try:
-        client.set_webhook(url=webhook_url(), secret_token=secret)
-    except Exception as exc:  # noqa: BLE001 — a warning, never a failed save
+        client.set_webhook(url=url, secret_token=secret)
+    except TelegramError as exc:
         logger.warning("Telegram setWebhook failed: %s", exc)
         warnings.append(str(_("Could not register the Telegram webhook: %(err)s") % {"err": exc}))
     return warnings

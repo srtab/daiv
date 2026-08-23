@@ -6,10 +6,11 @@ import httpx
 import pytest
 from notifications.telegram.client import (
     TelegramPermanentError,
+    TelegramTransientError,
     TelegramTransportError,
     TGClient,
     _tg_post,
-    is_blocked_error,
+    is_unreachable_chat_error,
 )
 
 CLIENT = TGClient(token="123:ABC")  # noqa: S106 — test constant
@@ -57,7 +58,7 @@ class TestTgPost:
             json={"ok": False, "error_code": status, "description": "busy"},
             status_code=status,
         )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TelegramTransientError):
             _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
 
     def test_error_envelope_inside_a_2xx_is_classified_too(self, httpx_mock):
@@ -79,7 +80,7 @@ class TestTgPost:
             json={"ok": False, "error_code": 429, "description": "Too Many Requests"},
             status_code=200,
         )
-        with pytest.raises(RuntimeError) as exc:
+        with pytest.raises(TelegramTransientError) as exc:
             _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
         assert not isinstance(exc.value, TelegramPermanentError)
 
@@ -113,6 +114,25 @@ class TestTgPost:
 
     def test_permanent_error_without_a_description_falls_back_to_the_status(self, httpx_mock):
         httpx_mock.add_response(method="POST", url=SEND_URL, content=b"<html>nope</html>", status_code=400)
+        with pytest.raises(TelegramPermanentError) as exc:
+            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+        assert "HTTP 400" in str(exc.value)
+
+    @pytest.mark.parametrize("body", [[], "blocked", 3, [{"ok": True}]])
+    def test_a_2xx_carrying_non_object_json_is_transient_not_an_attribute_error(self, httpx_mock, body):
+        # A portal answering 200 with valid-but-non-object JSON parses fine, so the ValueError
+        # guard misses it and ``body.get`` used to raise AttributeError — escaping the
+        # permanent/transient classification into whichever broad handler was upstream.
+        httpx_mock.add_response(method="POST", url=SEND_URL, json=body, status_code=200)
+        with pytest.raises(TelegramTransportError) as exc:
+            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+        assert not isinstance(exc.value, TelegramPermanentError)
+        assert "123:ABC" not in str(exc.value)
+
+    @pytest.mark.parametrize("body", [[], "blocked"])
+    def test_a_4xx_carrying_non_object_json_still_classifies_as_permanent(self, httpx_mock, body):
+        # Same gap on the error path: _extract_tg_error called .get on whatever parsed.
+        httpx_mock.add_response(method="POST", url=SEND_URL, json=body, status_code=400)
         with pytest.raises(TelegramPermanentError) as exc:
             _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
         assert "HTTP 400" in str(exc.value)
@@ -159,13 +179,30 @@ class TestConvenienceMethods:
         assert CLIENT.get_webhook_info()["result"]["url"] == ""
 
 
-class TestIsBlockedError:
+class TestIsUnreachableChatError:
     @pytest.mark.parametrize(
-        "description", ["Forbidden: bot was blocked by the user", "forbidden: BOT WAS BLOCKED BY THE USER"]
+        "description",
+        [
+            "Forbidden: bot was blocked by the user",
+            "forbidden: BOT WAS BLOCKED BY THE USER",
+            # A deleted Telegram account and a vanished chat never recover either, so they earn
+            # the same binding flip — keeping the row verified only buys three retries per
+            # notification forever, behind a UI that still reads "Verified".
+            "Forbidden: user is deactivated",
+            "Bad Request: chat not found",
+        ],
     )
-    def test_matches_the_blocked_wording(self, description):
-        assert is_blocked_error(description) is True
+    def test_matches_every_permanently_unreachable_wording(self, description):
+        assert is_unreachable_chat_error(description) is True
 
-    @pytest.mark.parametrize("description", ["Forbidden: user is deactivated", "Bad Request: chat not found", ""])
-    def test_does_not_match_other_permanent_failures(self, description):
-        assert is_blocked_error(description) is False
+    @pytest.mark.parametrize(
+        "description",
+        [
+            # Permanent, but about the *message* — the chat is fine and must stay verified.
+            "Bad Request: message is too long",
+            "Bad Request: can't parse entities",
+            "",
+        ],
+    )
+    def test_does_not_match_failures_the_chat_can_recover_from(self, description):
+        assert is_unreachable_chat_error(description) is False
