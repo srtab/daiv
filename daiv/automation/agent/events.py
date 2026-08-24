@@ -40,3 +40,35 @@ def parse_assistant_message(data: Any) -> AssistantMessage | None:
     if not isinstance(message_id, str) or not isinstance(content, str):
         return None
     return AssistantMessage(message_id=message_id, content=content)
+
+
+# Custom LangGraph event carrying the last main-model call's usage, for the chat's context
+# meter. Ignored by the webhook and MCP transports, like ASSISTANT_MESSAGE_EVENT.
+CONTEXT_USAGE_EVENT = "daiv_context_usage"
+
+
+def context_usage_payload(
+    *,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_tokens: int,
+    window_tokens: int | None,
+    window_source: str | None,
+) -> dict[str, Any]:
+    """Build the wire payload for :data:`CONTEXT_USAGE_EVENT`.
+
+    Deliberately no parse half: this payload has no Python consumer — ``ag_ui_langgraph``
+    forwards it to the browser as an untranslated ``CustomEvent``, so the other half of the
+    contract is JavaScript (``chat-stream.js``), whose node test drives the handler with a
+    payload built here rather than a hand-written fixture.
+    """
+    return {
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cached_tokens": cached_tokens,
+        "used_tokens": input_tokens + output_tokens,
+        "window_tokens": window_tokens,
+        "window_source": window_source if window_tokens else None,
+    }
