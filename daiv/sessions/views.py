@@ -308,7 +308,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             })
             return ctx
 
-        messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
+        hydrated = async_to_sync(ahydrate_thread)(session.thread_id)
+        merge_request = hydrated.merge_request_payload
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
@@ -330,15 +331,15 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the
         # "working" state and transcript poller render the same view a chat session gets.
-        no_state = expired and not is_in_flight
+        no_state = hydrated.expired and not is_in_flight
 
-        ctx["turns"] = annotate_transcript(build_turns(messages_history), runs)
+        ctx["turns"] = annotate_transcript(build_turns(hydrated.messages), runs)
         # Expired banner only when there is genuinely nothing to show: no checkpoint
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not ctx["turns"]
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
-        ctx["diff_stats"] = diff_stats
+        ctx["diff_stats"] = hydrated.diff_stats
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a

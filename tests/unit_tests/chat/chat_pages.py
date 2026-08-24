@@ -18,9 +18,10 @@ from unittest.mock import AsyncMock, patch
 
 from django.urls import reverse
 
+from sessions.hydration import HydratedThread
 from sessions.models import Session, SessionOrigin
 
-_EMPTY_THREAD = ([], False, None, None)
+_EMPTY_THREAD = HydratedThread([], False, None, None, None)
 
 
 def create_session(user, **kwargs) -> Session:

@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -35,12 +36,12 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 def _null_hydration():
     """Patch target that returns an empty, non-expired hydration."""
-    return AsyncMock(return_value=([], False, None, None))
+    return AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
 
 def _hydration(messages):
     """Patch target that returns the given messages, non-expired."""
-    return AsyncMock(return_value=(messages, False, None, None))
+    return AsyncMock(return_value=HydratedThread(messages, False, None, None, None))
 
 
 # ---------------------------------------------------------------------------
@@ -767,7 +768,7 @@ def test_detail_seeds_the_ref_pill_with_the_published_branch(member_client, memb
     session = _create_session(user=member_user, ref="main")
     mr = {"id": 7, "url": "https://x/7", "source_branch": "feat/published"}
 
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=([], False, mr, None))):
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, mr, None, None))):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
