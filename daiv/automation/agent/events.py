@@ -70,5 +70,5 @@ def context_usage_payload(
         "cached_tokens": cached_tokens,
         "used_tokens": input_tokens + output_tokens,
         "window_tokens": window_tokens,
-        "window_source": window_source if window_tokens else None,
+        "window_source": window_source if window_tokens is not None else None,
     }

@@ -29,6 +29,13 @@ def test_window_source_is_null_exactly_when_window_tokens_is():
     assert payload["window_source"] is None
 
 
+def test_a_zero_window_keeps_its_source():
+    payload = _payload(window_tokens=0, window_source="profile")
+
+    assert payload["window_tokens"] == 0
+    assert payload["window_source"] == "profile"
+
+
 def test_the_key_set_is_the_wire_contract():
     assert set(_payload()) == {
         "model",
