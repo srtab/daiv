@@ -36,7 +36,7 @@ def derive_context_usage(messages: list[Any]) -> dict | None:
         model_name = (getattr(message, "response_metadata", None) or {}).get("model_name")
         if not usage or not model_name:
             continue
-        window = genai_prices_window(model_name)
+        window = genai_prices_window(model_name) or None
         return context_usage_payload(
             model=model_name,
             input_tokens=usage.get("input_tokens", 0),

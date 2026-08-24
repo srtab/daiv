@@ -1,5 +1,7 @@
 """``derive_context_usage`` — the reload half of the context meter (design §4/§2)."""
 
+from unittest import mock
+
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.hydration import derive_context_usage
 
@@ -51,3 +53,13 @@ def test_seed_and_middleware_payload_share_the_wire_key_set():
     )
 
     assert set(seed) == set(built)
+
+
+def test_a_zero_window_from_genai_prices_seeds_no_window():
+    """genai_prices_window returning 0 normalizes to None in both fields, maintaining the
+    wire invariant: window_source is null exactly when window_tokens is."""
+    with mock.patch("sessions.hydration.genai_prices_window", return_value=0):
+        seed = derive_context_usage([_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")])
+
+    assert seed["window_tokens"] is None
+    assert seed["window_source"] is None
