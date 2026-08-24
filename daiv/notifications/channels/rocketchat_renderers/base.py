@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 
-from notifications.channels.renderers.base import TONE_EMOJI, BaseRenderer
+from notifications.channels.renderers.base import COST_LABEL, TONE_EMOJI, USAGE_LABEL, BaseRenderer
 
 if TYPE_CHECKING:
     from notifications.models import Notification
@@ -35,19 +35,14 @@ class RocketChatRenderer(BaseRenderer):
     @staticmethod
     def _usage_field(ctx: dict) -> dict | None:
         """Combine input/output tokens into one short field; ``None`` if both are missing."""
-        in_tokens = BaseRenderer._fmt_tokens(ctx.get("input_tokens"))
-        out_tokens = BaseRenderer._fmt_tokens(ctx.get("output_tokens"))
-        if in_tokens is None and out_tokens is None:
-            return None
-        return {"title": "Usage", "value": f"{in_tokens or '—'} in · {out_tokens or '—'} out", "short": True}
+        value = BaseRenderer._usage_value(ctx)
+        return None if value is None else {"title": USAGE_LABEL, "value": value, "short": True}
 
     @staticmethod
-    def _cost_field(ctx: dict) -> dict | None:
+    def _cost_field(ctx: dict, *, label: str = COST_LABEL) -> dict | None:
         """One-field cost, or ``None`` when no cost data is available."""
-        cost = BaseRenderer._fmt_cost(ctx.get("cost_usd"))
-        if cost is None:
-            return None
-        return {"title": "Cost", "value": cost, "short": True}
+        value = BaseRenderer._cost_value(ctx)
+        return None if value is None else {"title": label, "value": value, "short": True}
 
     def _message(
         self, notification: Notification, color: str, emoji: str, fields: list[dict]

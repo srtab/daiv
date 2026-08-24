@@ -11,7 +11,7 @@ import html
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 
-from notifications.channels.renderers.base import TONE_EMOJI, BaseRenderer
+from notifications.channels.renderers.base import COST_LABEL, TONE_EMOJI, USAGE_LABEL, BaseRenderer
 
 if TYPE_CHECKING:
     from notifications.models import Notification
@@ -71,14 +71,12 @@ class TelegramRenderer(BaseRenderer):
             return {}
         return {"inline_keyboard": [[{"text": VIEW_LABEL, "url": link}]]}
 
-    def _usage_rows(self, ctx: dict, *, cost_label: str = "Cost") -> list[tuple[str, str]]:
+    def _usage_rows(self, ctx: dict, *, cost_label: str = COST_LABEL) -> list[tuple[str, str]]:
         """Usage and cost rows — zero, one, or two entries depending on available context."""
         rows: list[tuple[str, str]] = []
-        in_tokens = self._fmt_tokens(ctx.get("input_tokens"))
-        out_tokens = self._fmt_tokens(ctx.get("output_tokens"))
-        if in_tokens is not None or out_tokens is not None:
-            rows.append(("Usage", f"{in_tokens or '—'} in · {out_tokens or '—'} out"))
-        if (cost := self._fmt_cost(ctx.get("cost_usd"))) is not None:
+        if (usage := self._usage_value(ctx)) is not None:
+            rows.append((USAGE_LABEL, usage))
+        if (cost := self._cost_value(ctx)) is not None:
             rows.append((cost_label, cost))
         return rows
 
@@ -97,8 +95,7 @@ class TelegramRenderer(BaseRenderer):
         subject = truncate_escaped(self.esc(notification.subject), _SUBJECT_BUDGET)
         lines = [f"{emoji} <b>{subject}</b>", ""]
         lines += [
-            f"<b>{truncate_escaped(self.esc(label), _ROW_BUDGET)}:</b> {truncate_escaped(self.esc(value), _ROW_BUDGET)}"
-            for label, value in rows
+            f"<b>{self.esc(label)}:</b> {truncate_escaped(self.esc(value), _ROW_BUDGET)}" for label, value in rows
         ]
         text = "\n".join(lines)
         if extra is not None:

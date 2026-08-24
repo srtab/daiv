@@ -220,8 +220,8 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         from notifications.telegram.config import sync_telegram
 
         warnings: list[str] = []
-        if token_warning := getattr(form, "telegram_token_warning", None):
-            warnings.append(str(token_warning))
+        if form.telegram_token_warning:
+            warnings.append(form.telegram_token_warning)
         try:
             warnings.extend(sync_telegram())
         except Exception:

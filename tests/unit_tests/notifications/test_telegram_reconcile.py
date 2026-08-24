@@ -53,26 +53,14 @@ class TestInSync:
 
 
 class TestConvergence:
-    def test_an_env_only_instance_converges_with_no_save(self, httpx_mock, monkeypatch):
-        from core.site_settings import _docker_secret_cache
-
-        monkeypatch.setenv("DAIV_TELEGRAM_BOT_TOKEN", "123:ABC")
-        monkeypatch.setenv("DAIV_TELEGRAM_ENABLED", "true")
-        for key in ("DAIV_TELEGRAM_BOT_TOKEN", "DAIV_TELEGRAM_ENABLED"):
-            _docker_secret_cache.pop(key, None)
-        SiteConfiguration._invalidate_cache()
-        try:
-            _info(httpx_mock, url="")  # nothing registered yet
-            _ok(httpx_mock, GET_ME, {"id": 1, "username": "daiv_bot"})
-            _ok(httpx_mock, SET_WEBHOOK)
-            telegram_webhook_reconcile_cron_task.func()
-            config = SiteConfiguration.objects.get(pk=1)
-            assert config.telegram_bot_username == "daiv_bot"
-            assert config.telegram_webhook_secret
-        finally:
-            for key in ("DAIV_TELEGRAM_BOT_TOKEN", "DAIV_TELEGRAM_ENABLED"):
-                _docker_secret_cache.pop(key, None)
-            SiteConfiguration._invalidate_cache()
+    def test_an_env_only_instance_converges_with_no_save(self, httpx_mock, enabled_with_env_token):
+        _info(httpx_mock, url="")  # nothing registered yet
+        _ok(httpx_mock, GET_ME, {"id": 1, "username": "daiv_bot"})
+        _ok(httpx_mock, SET_WEBHOOK)
+        telegram_webhook_reconcile_cron_task.func()
+        config = SiteConfiguration.objects.get(pk=1)
+        assert config.telegram_bot_username == "daiv_bot"
+        assert config.telegram_webhook_secret
 
     def test_a_blank_username_triggers_a_sync_even_when_the_url_matches(self, httpx_mock, site_settings_override):
         from notifications.telegram.config import webhook_url

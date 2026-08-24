@@ -21,6 +21,18 @@ TONE_EMOJI = {"success": "✅", "failure": "❌", "warning": "⚠️"}
 
 REPO_BREAKDOWN_LIMIT = 8
 
+USAGE_LABEL = "Usage"
+COST_LABEL = "Cost"
+TOTAL_COST_LABEL = "Total cost"
+
+
+def compose_plain_text(notification: Notification) -> str:
+    """The unstyled subject/body/link form every channel falls back to without a renderer."""
+    parts = [notification.subject, "", notification.body]
+    if notification.link_url:
+        parts.extend(["", build_absolute_url(notification.link_url)])
+    return "\n".join(parts)
+
 
 class BaseRenderer(ABC):
     """Base for per-event renderers on any channel.
@@ -62,6 +74,20 @@ class BaseRenderer(ABC):
         if total < 3600:
             return f"{total // 60}m {total % 60:02d}s"
         return f"{total // 3600}h {(total % 3600) // 60:02d}m"
+
+    @staticmethod
+    def _usage_value(ctx: dict) -> str | None:
+        """The combined in/out token line, or ``None`` when neither count is present."""
+        in_tokens = BaseRenderer._fmt_tokens(ctx.get("input_tokens"))
+        out_tokens = BaseRenderer._fmt_tokens(ctx.get("output_tokens"))
+        if in_tokens is None and out_tokens is None:
+            return None
+        return f"{in_tokens or '—'} in · {out_tokens or '—'} out"
+
+    @staticmethod
+    def _cost_value(ctx: dict) -> str | None:
+        """The formatted cost, or ``None`` when the context carries none."""
+        return BaseRenderer._fmt_cost(ctx.get("cost_usd"))
 
     @staticmethod
     def _link(notification: Notification) -> str:

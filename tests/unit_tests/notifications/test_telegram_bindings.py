@@ -5,13 +5,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
-from notifications.telegram_bindings import (
-    bind_chat,
-    binding_state,
-    binding_state_for_pk,
-    unbind_chat,
-    unverify_binding,
-)
+from notifications.telegram_bindings import bind_chat, binding_state_for_pk, unbind_chat, unverify_binding
 
 from accounts.models import Role, User
 
@@ -30,17 +24,13 @@ def _other_user():
 class TestBindingState:
     def test_empty_pair_when_no_binding_exists(self):
         # Both fold as empty strings so mint and verify resolve them identically.
-        assert binding_state(_other_user()) == ("", "")
+        assert binding_state_for_pk(_other_user().pk) == ("", "")
 
     def test_returns_the_address_and_an_iso_timestamp(self, member_user):
         bind_chat(member_user, chat_id="555", handle="alice")
-        address, verified_at = binding_state(member_user)
+        address, verified_at = binding_state_for_pk(member_user.pk)
         assert address == "555"
         assert verified_at.startswith(str(timezone.now().year))
-
-    def test_by_pk_matches_by_user(self, member_user):
-        bind_chat(member_user, chat_id="555", handle="alice")
-        assert binding_state_for_pk(member_user.pk) == binding_state(member_user)
 
     def test_by_pk_for_an_unknown_pk_is_the_empty_pair(self):
         assert binding_state_for_pk(9_999_999) == ("", "")

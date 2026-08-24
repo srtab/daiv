@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from functools import cache
 
 import httpx
 
@@ -44,6 +45,16 @@ class TelegramTransportError(TelegramTransientError):
     """
 
 
+@cache
+def _http() -> httpx.Client:
+    """One pooled client per process.
+
+    The token rides in the URL *path*, so nothing per-token belongs on the client and every
+    ``TGClient`` shares this one — keeping a TLS handshake and a CA-bundle parse off every call.
+    """
+    return httpx.Client(base_url=_TG_API_BASE, timeout=_TG_TIMEOUT_SECONDS)
+
+
 def is_unreachable_chat_error(description: str) -> bool:
     """True when a permanent failure means the chat can never receive again."""
     lowered = description.lower()
@@ -72,26 +83,62 @@ class TGClient:
 
     def post(self, method: str, payload: dict) -> httpx.Response:
         try:
-            return httpx.post(f"{_TG_API_BASE}/bot{self.token}/{method}", json=payload, timeout=_TG_TIMEOUT_SECONDS)
+            return _http().post(f"/bot{self.token}/{method}", json=payload)
         except httpx.HTTPError as exc:
             raise TelegramTransportError(f"Telegram {method} transport failure: {type(exc).__name__}") from None
 
+    def call(self, method: str, payload: dict) -> dict:
+        """POST to the Bot API and classify the outcome.
+
+        Raises ``TelegramPermanentError`` for failures that will never succeed. Everything else
+        propagates so the caller's retry ladder engages.
+        """
+        response = self.post(method, payload)
+        status = response.status_code
+        if status >= 400:
+            error = _extract_tg_error(response)
+            if _is_transient_code(status):
+                logger.warning("Telegram %s returned HTTP %s (retryable): %s", method, status, error)
+                raise TelegramTransientError(f"Telegram {method} failed with HTTP {status}: {error}")
+            logger.warning("Telegram %s returned HTTP %s: %s", method, status, error)
+            raise TelegramPermanentError(error)
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            # A 2xx that is not a Bot API envelope means something interposed (a proxy, a captive
+            # portal); the next attempt may well reach Telegram, so this is transient, not permanent.
+            # Valid JSON that is not an object counts — a portal answering ``[]`` is still a portal.
+            logger.warning("Telegram %s returned a non-envelope body with HTTP %s", method, status)
+            raise TelegramTransportError(f"Telegram {method} returned a non-envelope body with HTTP {status}")
+
+        if body.get("ok") is True:
+            return body
+
+        error_code = body.get("error_code")
+        error = str(body.get("description") or f"error_code={error_code!r}")
+        if _is_transient_code(error_code):
+            logger.warning("Telegram %s 2xx envelope error %s (retryable): %s", method, error_code, error)
+            raise TelegramTransientError(f"Telegram {method} failed with error_code={error_code!r}: {error}")
+        logger.warning("Telegram %s 2xx envelope error %s: %s", method, error_code, error)
+        raise TelegramPermanentError(error)
+
     def send_message(self, payload: dict) -> dict:
-        return _tg_post(self, "sendMessage", payload)
+        return self.call("sendMessage", payload)
 
     def get_me(self) -> dict:
-        return _tg_post(self, "getMe", {})
+        return self.call("getMe", {})
 
     def set_webhook(self, *, url: str, secret_token: str) -> dict:
-        return _tg_post(
-            self, "setWebhook", {"url": url, "secret_token": secret_token, "allowed_updates": ALLOWED_UPDATES}
-        )
+        return self.call("setWebhook", {"url": url, "secret_token": secret_token, "allowed_updates": ALLOWED_UPDATES})
 
     def delete_webhook(self) -> dict:
-        return _tg_post(self, "deleteWebhook", {})
+        return self.call("deleteWebhook", {})
 
     def get_webhook_info(self) -> dict:
-        return _tg_post(self, "getWebhookInfo", {})
+        return self.call("getWebhookInfo", {})
 
 
 def _extract_tg_error(response: httpx.Response) -> str:
@@ -107,42 +154,3 @@ def _extract_tg_error(response: httpx.Response) -> str:
 def _is_transient_code(code: object) -> bool:
     """429 and 5xx are worth another attempt; every other failure code is not."""
     return code == 429 or (isinstance(code, int) and code >= 500)
-
-
-def _tg_post(client: TGClient, method: str, payload: dict) -> dict:
-    """POST to the Bot API and classify the outcome.
-
-    Raises ``TelegramPermanentError`` for failures that will never succeed. Everything else
-    propagates so the caller's retry ladder engages.
-    """
-    response = client.post(method, payload)
-    status = response.status_code
-    if status >= 400:
-        error = _extract_tg_error(response)
-        if _is_transient_code(status):
-            logger.warning("Telegram %s returned HTTP %s (retryable): %s", method, status, error)
-            raise TelegramTransientError(f"Telegram {method} failed with HTTP {status}: {error}")
-        logger.warning("Telegram %s returned HTTP %s: %s", method, status, error)
-        raise TelegramPermanentError(error)
-
-    try:
-        body = response.json()
-    except ValueError:
-        body = None
-    if not isinstance(body, dict):
-        # A 2xx that is not a Bot API envelope means something interposed (a proxy, a captive
-        # portal); the next attempt may well reach Telegram, so this is transient, not permanent.
-        # Valid JSON that is not an object counts — a portal answering ``[]`` is still a portal.
-        logger.warning("Telegram %s returned a non-envelope body with HTTP %s", method, status)
-        raise TelegramTransportError(f"Telegram {method} returned a non-envelope body with HTTP {status}")
-
-    if body.get("ok") is True:
-        return body
-
-    error_code = body.get("error_code")
-    error = str(body.get("description") or f"error_code={error_code!r}")
-    if _is_transient_code(error_code):
-        logger.warning("Telegram %s 2xx envelope error %s (retryable): %s", method, error_code, error)
-        raise TelegramTransientError(f"Telegram {method} failed with error_code={error_code!r}: {error}")
-    logger.warning("Telegram %s 2xx envelope error %s: %s", method, error_code, error)
-    raise TelegramPermanentError(error)

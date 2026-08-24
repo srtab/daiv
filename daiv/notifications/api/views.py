@@ -60,7 +60,9 @@ def _secret_is_valid(request: HttpRequest) -> bool:
         return False
     header = request.headers.get(_SECRET_HEADER)
     if not header:
-        logger.warning("Telegram webhook rejected: missing %s header", _SECRET_HEADER)
+        # Not interpolated: CodeQL reads any log of a SECRET-named constant as leaking a secret,
+        # and the name it would print is the fixed literal above.
+        logger.warning("Telegram webhook rejected: missing secret header")
         return False
     # Encoded, not compared as str: compare_digest raises TypeError on a non-ASCII str, and the
     # header is attacker-controlled, so the str form turns a bad secret into a 500 instead of 401.

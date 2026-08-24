@@ -17,7 +17,7 @@ from notifications.api.telegram_handlers import (
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 from notifications.telegram.tokens import TOKEN_TTL_SECONDS, mint_token
-from notifications.telegram_bindings import bind_chat, binding_state, unverify_binding
+from notifications.telegram_bindings import bind_chat, binding_state_for_pk, unverify_binding
 from pydantic import SecretStr
 
 from accounts.models import Role, User
@@ -67,7 +67,7 @@ def _swallow_replies(request, httpx_mock):
 
 
 def _token_for(user):
-    address, verified_at = binding_state(user)
+    address, verified_at = binding_state_for_pk(user.pk)
     return mint_token(user.pk, address=address, verified_at=verified_at)
 
 
@@ -247,7 +247,7 @@ class TestReplyDelivery:
     def test_a_failing_reply_still_lets_the_bind_land(self, client, member_user, httpx_mock, failure):
         # The broad catch in _reply is the only thing between a Bot API outage and the
         # retry-storm-then-webhook-disabled outcome. The two cases reach it as different
-        # exception types: httpx raises the transport error, _tg_post wraps the 5xx.
+        # exception types: httpx raises the transport error, TGClient.call wraps the 5xx.
         if failure == "transport":
             httpx_mock.add_exception(httpx.ConnectError("no route to host"), method="POST", url=SEND_MESSAGE_URL)
         else:

@@ -22,31 +22,13 @@ def _ok_set_webhook(httpx_mock):
     httpx_mock.add_response(method="POST", url=SET_WEBHOOK, json={"ok": True, "result": True}, status_code=200)
 
 
-@pytest.fixture
-def _enabled_with_env_token(monkeypatch):
-    """An env-locked token, which is the shape that never reaches the form's ``clean``."""
-    from core.site_settings import _docker_secret_cache, site_settings
-
-    monkeypatch.setenv("DAIV_TELEGRAM_BOT_TOKEN", "123:ABC")
-    monkeypatch.setenv("DAIV_TELEGRAM_ENABLED", "true")
-    for key in ("DAIV_TELEGRAM_BOT_TOKEN", "DAIV_TELEGRAM_ENABLED"):
-        _docker_secret_cache.pop(key, None)
-    SiteConfiguration._invalidate_cache()
-    try:
-        yield site_settings
-    finally:
-        for key in ("DAIV_TELEGRAM_BOT_TOKEN", "DAIV_TELEGRAM_ENABLED"):
-            _docker_secret_cache.pop(key, None)
-        SiteConfiguration._invalidate_cache()
-
-
 class TestWebhookUrl:
     def test_is_built_from_the_sites_framework(self):
         assert webhook_url().endswith("/api/notifications/callbacks/telegram/")
         assert webhook_url().startswith("https://")
 
 
-@pytest.mark.usefixtures("_enabled_with_env_token")
+@pytest.mark.usefixtures("enabled_with_env_token")
 class TestSyncFromAnEnvLockedToken:
     def test_derives_the_username_and_registers_the_webhook(self, httpx_mock):
         _ok_get_me(httpx_mock)
@@ -210,7 +192,7 @@ class TestConfigurationSaveHook:
         assert response.status_code == 302
         assert SiteConfiguration.objects.get(pk=1).telegram_bot_token == "123:ABC"  # noqa: S105 — test constant
 
-    @pytest.mark.usefixtures("_enabled_with_env_token")
+    @pytest.mark.usefixtures("enabled_with_env_token")
     def test_an_env_locked_token_is_never_validated_through_the_form(self, admin_client, httpx_mock):
         # The field is disabled, so Django cleans its *initial* value: ``str(SecretStr)``, i.e.
         # the mask. Validating that would 401 and make the group unsavable on such a deployment.

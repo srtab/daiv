@@ -23,7 +23,7 @@ from notifications.choices import ChannelType
 from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
 from notifications.telegram.tokens import mint_token
-from notifications.telegram_bindings import binding_state, unbind_user
+from notifications.telegram_bindings import binding_state_for_pk
 
 
 class ChannelConnect(NamedTuple):
@@ -67,17 +67,11 @@ class UserChannelsView(LoginRequiredMixin, TemplateView):
                 "disconnect_url": reverse(connect.disconnect_url_name) if connect else "",
                 "connect_placeholder": connect.placeholder if connect else "",
                 "connect_style": connect.style if connect else "",
-                "connect_ready": self._connect_ready(cls.channel_type),
+                "connect_ready": cls.connect_ready(),
+                "connect_blocked_reason": cls.connect_blocked_reason(),
             })
         ctx["channel_rows"] = rows
         return ctx
-
-    @staticmethod
-    def _connect_ready(channel_type: str) -> bool:
-        """Telegram's deep link needs a derived bot username; without one the link is dead."""
-        if channel_type == ChannelType.TELEGRAM:
-            return bool(site_settings.telegram_bot_username)
-        return True
 
 
 class NotificationListView(LoginRequiredMixin, ListView):
@@ -151,9 +145,17 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
 
 
 @method_decorator(require_POST, name="dispatch")
-class DeleteRocketChatBindingView(LoginRequiredMixin, View):
+class ChannelDisconnectView(LoginRequiredMixin, View):
+    """Drop the caller's binding for one channel.
+
+    ``channel_type`` is supplied per URL via ``as_view``, which only accepts keywords that are
+    already class attributes — hence the assignment rather than a bare annotation.
+    """
+
+    channel_type: ChannelType | None = None
+
     def post(self, request):
-        UserChannelBinding.objects.filter(user=request.user, channel_type=ChannelType.ROCKETCHAT).delete()
+        UserChannelBinding.objects.filter(user=request.user, channel_type=self.channel_type).delete()
         return HttpResponseRedirect(reverse("user_channels"))
 
 
@@ -174,13 +176,6 @@ class ConnectTelegramView(LoginRequiredMixin, View):
                 request, _("Telegram is not fully set up yet. Ask an administrator to finish the configuration.")
             )
             return HttpResponseRedirect(reverse("user_channels"))
-        address, verified_at = binding_state(request.user)
+        address, verified_at = binding_state_for_pk(request.user.pk)
         token = mint_token(request.user.pk, address=address, verified_at=verified_at)
         return HttpResponseRedirect(f"https://t.me/{quote(bot_username, safe='')}?start={token}")
-
-
-@method_decorator(require_POST, name="dispatch")
-class DisconnectTelegramView(LoginRequiredMixin, View):
-    def post(self, request):
-        unbind_user(request.user)
-        return HttpResponseRedirect(reverse("user_channels"))

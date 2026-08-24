@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from notifications.channels.renderers.base import TOTAL_COST_LABEL
 from notifications.channels.telegram_renderers.base import TelegramRenderer
 from notifications.channels.telegram_renderers.registry import register_renderer
 from notifications.choices import EventType
@@ -29,7 +30,7 @@ class JobBatchFinishedRenderer(TelegramRenderer):
         ]
         if owner := ctx.get("trigger_owner"):
             rows.append(("Owner", owner))
-        rows.extend(self._usage_rows(ctx, cost_label="Total cost"))
+        rows.extend(self._usage_rows(ctx, cost_label=TOTAL_COST_LABEL))
 
         # The repository list is the one region whose length is not bounded by construction,
         # so it goes through ``extra`` and absorbs whatever the 4096 budget has left.

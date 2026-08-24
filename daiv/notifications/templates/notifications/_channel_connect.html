@@ -17,9 +17,7 @@
       </button>
     </form>
   {% else %}
-    <span class="text-xs text-gray-500">
-      {% translate "Not ready — ask an administrator to finish the Telegram setup." %}
-    </span>
+    <span class="text-xs text-gray-500">{{ row.connect_blocked_reason }}</span>
   {% endif %}
 {% elif row.connect_url %}
   <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">

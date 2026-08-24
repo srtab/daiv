@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 from django.utils.translation import gettext_lazy as _
 
 from core.site_settings import site_settings
-from core.utils import build_absolute_url
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.channels.renderers.base import compose_plain_text
 from notifications.channels.telegram_renderers.base import TG_MAX_CHARS
 from notifications.channels.telegram_renderers.registry import get_renderer
 from notifications.choices import ChannelType
@@ -20,15 +20,6 @@ if TYPE_CHECKING:
     from notifications.models import Notification, NotificationDelivery
 
 logger = logging.getLogger("daiv.notifications")
-
-
-def _compose_text(notification: Notification) -> str:
-    # Local copy, not shared: rocketchat's version binds build_absolute_url by module path in its
-    # test suite (rocketchat.build_absolute_url); hoisting would delete that patch target.
-    parts = [notification.subject, "", notification.body]
-    if notification.link_url:
-        parts.extend(["", build_absolute_url(notification.link_url)])
-    return "\n".join(parts)
 
 
 def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
@@ -43,7 +34,7 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
         # Capped here too: ``body`` is an unbounded TextField, and Telegram answers an over-length
         # message with a 400 the channel files as permanent — losing the very notification this
         # fallback exists to deliver. Safe to cut bluntly; the fallback sends no parse_mode.
-        text = _compose_text(notification)
+        text = compose_plain_text(notification)
         if len(text) > TG_MAX_CHARS:
             logger.warning(
                 "Telegram: plain-text fallback for %r truncated from %d characters", notification.event_type, len(text)
@@ -65,6 +56,15 @@ class TelegramChannel(NotificationChannel):
     @classmethod
     def is_enabled(cls) -> bool:
         return bool(site_settings.telegram_enabled)
+
+    @classmethod
+    def connect_ready(cls) -> bool:
+        """The deep link is built from the derived bot username; without one it points nowhere."""
+        return bool(site_settings.telegram_bot_username)
+
+    @classmethod
+    def connect_blocked_reason(cls) -> str:
+        return str(_("Not ready — ask an administrator to finish the Telegram setup."))
 
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
         if not self.is_enabled():

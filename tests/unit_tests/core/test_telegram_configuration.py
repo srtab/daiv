@@ -68,15 +68,11 @@ class TestSiteSettingsResolution:
             SiteConfiguration._invalidate_cache()
 
     def test_env_var_overrides_the_db(self, monkeypatch):
+        # ``_clear_docker_secret_cache`` (autouse, this directory's conftest) empties the cache
+        # around every test, so the env var is read fresh here.
         monkeypatch.setenv("DAIV_TELEGRAM_BOT_TOKEN", "env:TOKEN")
-        from core.site_settings import _docker_secret_cache
-
-        _docker_secret_cache.pop("DAIV_TELEGRAM_BOT_TOKEN", None)
-        try:
-            assert site_settings.telegram_bot_token.get_secret_value() == "env:TOKEN"
-            assert site_settings.is_env_locked("telegram_bot_token") is True
-        finally:
-            _docker_secret_cache.pop("DAIV_TELEGRAM_BOT_TOKEN", None)
+        assert site_settings.telegram_bot_token.get_secret_value() == "env:TOKEN"
+        assert site_settings.is_env_locked("telegram_bot_token") is True
 
 
 @pytest.mark.django_db

@@ -9,7 +9,6 @@ from notifications.telegram.client import (
     TelegramTransientError,
     TelegramTransportError,
     TGClient,
-    _tg_post,
     is_unreachable_chat_error,
 )
 
@@ -36,7 +35,7 @@ class TestTgPost:
         httpx_mock.add_response(
             method="POST", url=SEND_URL, json={"ok": True, "result": {"message_id": 7}}, status_code=200
         )
-        assert _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})["result"]["message_id"] == 7
+        assert CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})["result"]["message_id"] == 7
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404])
     def test_non_429_4xx_is_permanent(self, httpx_mock, status):
@@ -47,7 +46,7 @@ class TestTgPost:
             status_code=status,
         )
         with pytest.raises(TelegramPermanentError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert "chat not found" in str(exc.value)
 
     @pytest.mark.parametrize("status", [429, 500, 502, 503])
@@ -59,7 +58,7 @@ class TestTgPost:
             status_code=status,
         )
         with pytest.raises(TelegramTransientError):
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
 
     def test_error_envelope_inside_a_2xx_is_classified_too(self, httpx_mock):
         # Telegram normally mirrors error_code into the HTTP status, but the envelope is
@@ -71,7 +70,7 @@ class TestTgPost:
             status_code=200,
         )
         with pytest.raises(TelegramPermanentError):
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
 
     def test_retryable_error_envelope_inside_a_2xx_stays_transient(self, httpx_mock):
         httpx_mock.add_response(
@@ -81,13 +80,13 @@ class TestTgPost:
             status_code=200,
         )
         with pytest.raises(TelegramTransientError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert not isinstance(exc.value, TelegramPermanentError)
 
     def test_transport_error_propagates_for_retry(self, httpx_mock):
         httpx_mock.add_exception(httpx.ConnectError("no route to host"))
         with pytest.raises(TelegramTransportError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         # Transient: a permanent error would stop the delivery task's three-attempt ladder.
         assert not isinstance(exc.value, TelegramPermanentError)
         assert isinstance(exc.value, Exception)
@@ -97,7 +96,7 @@ class TestTgPost:
         # token in that URL's path — a captured traceback would ship the credential.
         httpx_mock.add_exception(httpx.ConnectError("no route to host"))
         with pytest.raises(TelegramTransportError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert exc.value.__cause__ is None
         assert exc.value.__suppress_context__ is True
         assert "123:ABC" not in str(exc.value)
@@ -108,14 +107,14 @@ class TestTgPost:
         # as permanent would drop the notification, and a bare ValueError would too.
         httpx_mock.add_response(method="POST", url=SEND_URL, content=b"<html>hi</html>", status_code=200)
         with pytest.raises(TelegramTransportError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert not isinstance(exc.value, TelegramPermanentError)
         assert "123:ABC" not in str(exc.value)
 
     def test_permanent_error_without_a_description_falls_back_to_the_status(self, httpx_mock):
         httpx_mock.add_response(method="POST", url=SEND_URL, content=b"<html>nope</html>", status_code=400)
         with pytest.raises(TelegramPermanentError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert "HTTP 400" in str(exc.value)
 
     @pytest.mark.parametrize("body", [[], "blocked", 3, [{"ok": True}]])
@@ -125,7 +124,7 @@ class TestTgPost:
         # permanent/transient classification into whichever broad handler was upstream.
         httpx_mock.add_response(method="POST", url=SEND_URL, json=body, status_code=200)
         with pytest.raises(TelegramTransportError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert not isinstance(exc.value, TelegramPermanentError)
         assert "123:ABC" not in str(exc.value)
 
@@ -134,7 +133,7 @@ class TestTgPost:
         # Same gap on the error path: _extract_tg_error called .get on whatever parsed.
         httpx_mock.add_response(method="POST", url=SEND_URL, json=body, status_code=400)
         with pytest.raises(TelegramPermanentError) as exc:
-            _tg_post(CLIENT, "sendMessage", {"chat_id": "1", "text": "hi"})
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
         assert "HTTP 400" in str(exc.value)
 
 
