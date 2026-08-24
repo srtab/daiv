@@ -4,10 +4,17 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
-from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler, build_usage_summary
+from automation.agent.usage_tracking import (
+    CostAwareUsageMetadataCallbackHandler,
+    _calc_model_cost,
+    build_usage_summary,
+    genai_prices_window,
+    resolve_context_window,
+)
 
 
 def _usage_metadata(
@@ -409,3 +416,50 @@ class TestEmptyMetadataWarning:
 
         assert summary.input_tokens == 0
         assert any("callback hook may not have fired" in rec.message for rec in caplog.records)
+
+
+def _model(profile=None) -> GenericFakeChatModel:
+    return GenericFakeChatModel(messages=iter([]), profile=profile)
+
+
+class TestResolveContextWindow:
+    def test_a_profile_value_wins_over_genai_prices(self):
+        resolved = resolve_context_window(_model({"max_input_tokens": 777}), "anthropic/claude-sonnet-4.6")
+
+        assert resolved == (777, "profile")
+
+    def test_an_empty_profile_falls_through_instead_of_resolving_to_zero(self):
+        """ChatGoogleGenerativeAI ships ``{}``; testing the profile's truthiness alone
+        would pass the empty dict through as tier 1."""
+        resolved = resolve_context_window(_model({}), "anthropic/claude-sonnet-4.6")
+
+        assert resolved is not None
+        assert resolved.source == "genai_prices"
+
+    def test_a_profile_less_model_resolves_from_genai_prices(self):
+        assert resolve_context_window(_model(None), "anthropic/claude-sonnet-4.6") == (1_000_000, "genai_prices")
+
+    def test_an_unknown_model_returns_none(self):
+        assert resolve_context_window(_model(None), "model-that-does-not-exist-xyz") is None
+
+    def test_the_openrouter_slug_form_resolves(self):
+        assert genai_prices_window("anthropic/claude-sonnet-4.6") == 1_000_000
+
+    def test_the_price_path_and_the_window_path_infer_the_same_provider(self):
+        """Both must resolve the slash form via the shared provider-inference helper —
+        one succeeding while the other LookupErrors means the rule was re-enumerated."""
+        assert genai_prices_window("anthropic/claude-sonnet-4.6") is not None
+        assert _calc_model_cost("anthropic/claude-sonnet-4.6", {"input_tokens": 10, "output_tokens": 5}) is not None
+
+    def test_every_hit_carries_its_source_tier(self):
+        assert resolve_context_window(_model({"max_input_tokens": 100}), "x").source == "profile"
+        assert resolve_context_window(_model(None), "anthropic/claude-sonnet-4.6").source == "genai_prices"
+
+    def test_the_cache_never_serves_tier_one(self):
+        """Two instances of one model name with different profiles resolve independently:
+        a name-keyed cache over the whole resolver would freeze the first configuration
+        process-wide (the 1M-beta case in §1)."""
+        a = resolve_context_window(_model({"max_input_tokens": 200_000}), "claude-sonnet-4-6")
+        b = resolve_context_window(_model({"max_input_tokens": 1_000_000}), "claude-sonnet-4-6")
+
+        assert (a.tokens, b.tokens) == (200_000, 1_000_000)

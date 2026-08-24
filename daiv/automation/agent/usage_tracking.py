@@ -7,9 +7,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
-from genai_prices import Usage, calc_price
+from genai_prices import Usage, calc_price, data_snapshot
 from genai_prices.types import TieredPrices
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage
@@ -21,6 +22,7 @@ from core.models import ProviderType
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("daiv.usage")
@@ -43,6 +45,53 @@ def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_to
     return field_mtok
 
 
+def infer_provider_id(model_name: str) -> str | None:
+    """OpenRouter model names contain a slash (e.g. "anthropic/claude-sonnet-4.6") and
+    need an explicit provider_id to resolve. Shared by the price and window paths so the
+    two can never resolve against different providers."""
+    return "openrouter" if "/" in model_name else None
+
+
+class ResolvedWindow(NamedTuple):
+    """A resolved context-window size and the tier that produced it (``window_source``)."""
+
+    tokens: int
+    source: Literal["profile", "genai_prices"]
+
+
+@lru_cache(maxsize=512)
+def genai_prices_window(model_name: str) -> int | None:
+    """Tier 2 of :func:`resolve_context_window`: genai-prices' ``context_window``.
+
+    Cached because it is a pure function of the name — unlike tier 1, which is
+    configuration-aware and must never be cached (see the resolver's docstring).
+    """
+    try:
+        _, model_info = data_snapshot.get_snapshot().find_provider_model(
+            model_name, None, infer_provider_id(model_name), None
+        )
+    except LookupError:
+        return None
+    return model_info.context_window
+
+
+def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWindow | None:
+    """The model's input ceiling, resolved in tiers: profile → genai-prices → None.
+
+    Tier 1 reads the *instance* — ``langchain_anthropic`` raises ``max_input_tokens``
+    to 1M when the context-1m beta is configured, which no by-name lookup can see.
+    The check is on the value, not the profile: an empty profile (the Google shape)
+    falls through rather than resolving.
+    """
+    profile = getattr(model, "profile", None) or {}
+    if max_input := profile.get("max_input_tokens"):
+        return ResolvedWindow(int(max_input), "profile")
+    if window := genai_prices_window(model_name):
+        return ResolvedWindow(int(window), "genai_prices")
+    logger.debug("No context window resolvable for model %r", model_name)
+    return None
+
+
 def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Decimal | None:
     """Return None if the model is not in the pricing database."""
     input_details = usage_metadata.get("input_token_details") or {}
@@ -61,9 +110,7 @@ def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Deci
         cache_write_tokens=cache_write_tokens,
         cache_read_tokens=input_details.get("cache_read") or 0,
     )
-    # OpenRouter model names contain a slash (e.g. "anthropic/claude-sonnet-4.6")
-    # and need an explicit provider_id to resolve correctly.
-    provider_id = "openrouter" if "/" in model_name else None
+    provider_id = infer_provider_id(model_name)
     try:
         result = calc_price(genai_usage, model_ref=model_name, provider_id=provider_id)
     except LookupError:
