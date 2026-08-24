@@ -40,6 +40,7 @@ from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
+from sessions.spend import build_session_spend
 from sessions.transcript import annotate_transcript
 from slash_commands.composer import composer_command_rows
 
@@ -305,6 +306,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
+                "context_usage": None,
+                "session_spend": None,
             })
             return ctx
 
@@ -340,6 +343,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
+        ctx["context_usage"] = hydrated.context_usage
+        ctx["session_spend"] = build_session_spend(session)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a

@@ -100,6 +100,7 @@ box (``_command_menu.html``).
       </div>
 
       <div class="chat-composer__buttons">
+        {% include "chat/_context_sheet.html" %}
         {% comment %}
         Model as plain text, immediately before Send — no pill chrome. Locked in a thread:
         the backend rejects a changed ``agent_model`` after the first turn.

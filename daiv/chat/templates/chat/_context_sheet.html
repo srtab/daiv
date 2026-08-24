@@ -1,0 +1,84 @@
+{% load i18n icon_tags %}
+{% comment %}
+Context meter trigger + usage sheet — the composer's third sheet ('context' on the shared
+``sheet`` state, so scrim, escape-to-close and surfaceGroup membership come free).
+
+The trigger is suppressed until the first usage payload exists. Escalation is prominence,
+not colour alone: <75% ring only, ≥75% amber ring + percentage, ≥90% red + percentage +
+warning glyph. A model with no resolvable window shows the token count alone — a reading
+with no scale, not an error. The ring is a CSS conic-gradient (see ``.context-meter`` in
+input.css); icons here are masks and cannot be data-driven.
+{% endcomment %}
+<div class="composer-sheet-anchor" x-show="contextUsage" x-cloak>
+  <button type="button"
+          class="context-meter"
+          :class="contextMeter && contextMeter.tone ? 'context-meter--' + contextMeter.tone : ''"
+          @click.stop="toggleSheet('context')"
+          :aria-expanded="sheet === 'context'"
+          aria-haspopup="dialog"
+          :aria-label="contextMeter ? contextMeter.aria : ''">
+    <span class="context-meter__ring"
+          x-show="contextMeter && contextMeter.hasWindow"
+          :style="contextMeter ? '--meter-fill: ' + contextMeter.fill : ''"
+          aria-hidden="true"></span>
+    <span class="context-meter__value"
+          :class="{ 'context-meter__value--quiet': contextMeter && !contextMeter.showValue }"
+          x-text="contextMeter ? contextMeter.label : ''"></span>
+    <span class="context-meter__glyph"
+          x-show="contextMeter && contextMeter.tone === 'danger'"
+          x-cloak
+          aria-hidden="true">{% icon "exclamation-triangle" "h-3 w-3" %}</span>
+  </button>
+
+  <div class="composer-sheet composer-sheet--context"
+       x-show="sheet === 'context'"
+       x-cloak
+       @click.outside="closeSheet()"
+       role="dialog"
+       aria-label="{% translate 'Session usage' %}">
+    {% include "core/_sheet_head.html" with title=_("Usage") close_expr="closeSheet()" surface="composer-sheet" %}
+
+    <div class="composer-sheet__body scrollbar-thin">
+      <section class="composer-sheet__group">
+        <h3 class="composer-sheet__label">{% translate "Context" %}</h3>
+        {% comment %}
+        Exact, locale-grouped counts on purpose: Known limits leans on this figure being
+        checkable against a provider's own error message, which a rounded 130k is not.
+        {% endcomment %}
+        <p class="context-panel__figure" x-text="contextFigure"></p>
+        <div class="context-panel__track" x-show="contextMeter && contextMeter.hasWindow" aria-hidden="true">
+          <div class="context-panel__fill"
+               :class="contextMeter && contextMeter.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
+               :style="contextMeter ? 'width: ' + contextMeter.fill + '%' : ''"></div>
+        </div>
+        <p class="context-panel__subline" x-text="contextSubline"></p>
+      </section>
+
+      <section class="composer-sheet__group" x-show="spend" x-cloak>
+        <h3 class="composer-sheet__label">
+          {% translate "Spend" %}
+          <span x-show="spendHeader" x-text="'· ' + spendHeader"></span>
+        </h3>
+        <template x-for="row in spendRows" :key="row.model">
+          <p class="context-panel__model">
+            <span class="context-panel__model-name" x-text="row.model"></span>
+            <span class="context-panel__model-cost"
+                  x-text="exactTokens(row.total_tokens) + ' · ' + spendRowCost(row)"></span>
+          </p>
+        </template>
+        <p class="composer-sheet__empty" x-show="spendUnpricedLine" x-text="spendUnpricedLine"></p>
+        <p class="composer-sheet__empty" x-show="spendUnrecordedLine" x-text="spendUnrecordedLine"></p>
+      </section>
+
+      <p class="context-panel__headroom"
+         x-show="contextHeadroom"
+         :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
+        <span x-show="contextHeadroom && contextHeadroom.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom && contextHeadroom.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom && contextHeadroom.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom && contextHeadroom.tone === 'unknown'" aria-hidden="true">{% icon "information-circle" "h-3.5 w-3.5" %}</span>
+        <span x-text="contextHeadroom ? contextHeadroom.text : ''"></span>
+      </p>
+    </div>
+  </div>
+</div>

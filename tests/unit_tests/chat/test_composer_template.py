@@ -251,7 +251,8 @@ CONTROL_TAGS = frozenset({"button", "textarea", "input", "select"})
 # Exempt by name so it stays a decision, not a gap: `.chat-jump` is positioned above the
 # composer box, over the transcript, and is on screen only while sending — the one control
 # in there that is an affordance rather than an input being held inert.
-CRISP = frozenset({"chat-jump"})
+# `context-meter` is the live reading itself; dimming it mid-turn hides it exactly when it moves.
+CRISP = frozenset({"chat-jump", "context-meter"})
 
 
 def _is_invisible(classes: list[str], attrs: dict[str, str]) -> bool:
@@ -297,3 +298,43 @@ def test_every_composer_control_goes_inert_while_a_turn_is_in_flight(member_clie
         " ".join(classes) or "<unclassed>" for classes in parser.controls if not (faded | CRISP).intersection(classes)
     ]
     assert not missed, "composer controls that never go inert while sending:\n" + "\n".join(missed)
+
+
+@pytest.mark.django_db
+def test_context_meter_trigger_and_sheet_render(member_client, member_user):
+    """The meter is the third composer sheet: ring trigger in the buttons cluster, panel on
+    the same ``sheet`` state, seeds in json_scripts."""
+    html = render_thread(member_client, create_session(member_user))
+
+    assert 'class="context-meter"' in html
+    assert "composer-sheet--context" in html
+    assert "toggleSheet('context')" in html
+    assert "chat-context-usage" in html
+    assert "chat-session-spend" in html
+
+
+@pytest.mark.django_db
+def test_context_meter_trigger_precedes_the_model_label(member_client, member_user):
+    html = render_thread(member_client, create_session(member_user))
+    buttons = html.index('class="chat-composer__buttons"')
+
+    assert buttons < html.index('class="context-meter"') < html.index("model-label")
+
+
+@pytest.mark.django_db
+def test_the_meter_strings_reach_the_page_translated(member_client, member_user):
+    """Guards the placeholder style, not just the wiring: ``{% translate %}`` doubles every
+    ``%`` before the catalog lookup, so a percent-style (or %-containing) msgid misses and
+    renders untranslated English — invisible in the default locale."""
+    from tests.unit_tests.accounts.test_sidebar import _catalog
+
+    entries = {
+        "Context: {percent} of {window} used": "Contexto: {percent} de {window} usados",
+        "Plenty of room": "Espaço de sobra",
+    }
+    with _catalog(entries):
+        html = render_thread(member_client, create_session(member_user))
+
+    assert "Contexto: {percent} de {window} usados" in html
+    assert "Espaço de sobra" in html
+    assert "Plenty of room" not in html
