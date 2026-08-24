@@ -12,6 +12,7 @@ from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
 from sessions.locks import SessionLock, stale_cutoff
 from sessions.models import Session
+from sessions.spend import build_session_spend
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
@@ -331,3 +332,24 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
     await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
     cancelled_locally = runner.supervisor.cancel_local(payload.run_id)
     return {"cancelled": True, "local": cancelled_locally}
+
+
+@chat_router.get("/spend", url_name="chat_session_spend")
+async def session_spend(request: HttpRequest, thread_id: str):
+    """Settled spend for the composer's usage panel.
+
+    The client refreshes this at the *stream's end* — strictly after ``finalize_chat_run``
+    persisted the turn (the end sentinel is published by the runner's ``finally`` once the
+    generator, finalize included, completed) — never on RUN_FINISHED, which races the write.
+    """
+    user = request.auth  # ty: ignore[unresolved-attribute]
+
+    def _load():
+        # ``visible_to`` resolves platform identity at query-build time (sync only).
+        session = Session.objects.visible_to(user).filter(thread_id=thread_id).first()
+        return build_session_spend(session) if session else None
+
+    spend = await sync_to_async(_load)()
+    if spend is None:
+        raise HttpError(404, "Thread not found")
+    return spend
