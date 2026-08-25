@@ -96,6 +96,15 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](sandbox.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
 - `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you.
+- `references` — a list of up to 20 external work-item references to link into the MR/PR DAIV creates. Each entry is an object with these fields:
+    - `key` *(required)* — the issue or ticket identifier, 1–64 characters, matching `[A-Za-z0-9][A-Za-z0-9._/#-]*` (e.g. `"PROJ-123"`, `"42"`, `"DAIV-1V"`).
+    - `url` *(optional)* — an `http(s)` URL for the work item, up to 500 characters. Used as the link target when DAIV renders the reference.
+    - `provider` *(optional)* — identifies the ticketing system. Accepted values: `gitlab-issue`, `github-issue`, `sentry`, `jira`, or any lowercase alphanumeric-and-hyphen string up to 32 characters for other systems. Defaults to `generic`. DAIV emits platform-native closing syntax for the four named providers; any other provider value is accepted and renders as a plain reference link — no DAIV change is needed to add a new ticketing system.
+    - `relation` *(optional)* — either `"relates"` (default) or `"closes"`. `"closes"` opts into auto-close on merge **where the provider supports it**: GitLab and GitHub close an issue when a merged MR description contains a closing keyword referencing it; Sentry resolves an issue whose short ID appears in a `Fixes …` commit line reaching the tracked branch (which also requires the Sentry–repository integration to be configured on Sentry's side — DAIV only emits the syntax). Auto-closing is always an explicit opt-in; the default `"relates"` only links.
+
+  On thread continuation (when `thread_id` is set), newly supplied references are **merged** into the session's existing set, deduped by `(provider, key)` — the first-seen entry wins. A session accumulates at most 50 references in total across all turns.
+
+  **Note (v1 limitation):** DAIV writes the MR description only when the MR is first created. References declared on a later turn reach that turn's commit trailers but do not rewrite an existing MR's description body.
 
 For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
 
