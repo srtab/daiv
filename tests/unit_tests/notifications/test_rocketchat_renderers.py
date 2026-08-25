@@ -233,3 +233,80 @@ class TestJobBatchFinishedRenderer:
         notif = _stub_notification(context=self._ctx(repo_ids=[]))
         _text, attachments = JobBatchFinishedRenderer().render(notif)
         assert "Repositories" not in _fields_by_title(attachments[0])
+
+
+class TestClassifierReasonRidesEveryAttachment:
+    """The summary and findings are attached in ``_message``, not per renderer, so a new renderer
+    cannot ship without the reason a human was paged."""
+
+    @pytest.mark.parametrize(
+        "renderer", [JobFinishedRenderer(), ScheduleFinishedRenderer(), JobBatchFinishedRenderer()]
+    )
+    def test_summary_becomes_the_attachment_text(self, renderer):
+        notif = _stub_notification(context={"status_tone": "warning", "summary": "Two flaky auth tests"})
+        _text, [attachment] = renderer.render(notif)
+        assert attachment["text"] == "Two flaky auth tests"
+
+    @pytest.mark.parametrize("summary", [None, "", "   "])
+    def test_a_blank_summary_omits_the_text_key(self, summary):
+        # An absent summary must not fall back to the body, which repeats the title.
+        notif = _stub_notification(context={"status_tone": "warning", "summary": summary})
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert "text" not in attachment
+
+    def test_context_without_a_summary_key_still_renders(self):
+        _text, [attachment] = JobFinishedRenderer().render(_stub_notification(context={"status_tone": "warning"}))
+        assert "text" not in attachment
+
+    def test_findings_render_as_one_long_field(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [
+                    {"kind": "bug", "label": "off-by-one in paging", "ref": "app/views.py:42"},
+                    {"kind": "test-failure", "label": "auth suite flakes", "ref": "tests/test_auth.py"},
+                ],
+                "actionable_overflow": 0,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        field = next(f for f in attachment["fields"] if f["title"] == "Findings")
+        assert field["short"] is False
+        assert field["value"] == (
+            "• [bug] off-by-one in paging — `app/views.py:42`\n"
+            "• [test-failure] auth suite flakes — `tests/test_auth.py`"
+        )
+
+    def test_overflow_gets_its_own_line(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+                "actionable_overflow": 4,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"].endswith("… and 4 more")
+
+    def test_a_finding_missing_kind_or_ref_still_renders_its_label(self):
+        notif = _stub_notification(
+            context={"status_tone": "warning", "actionable": [{"kind": "", "label": "just a label", "ref": ""}]}
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• just a label"
+
+    def test_no_findings_adds_no_field(self):
+        notif = _stub_notification(context={"status_tone": "failure", "actionable": [], "actionable_overflow": 0})
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert "Findings" not in _fields_by_title(attachment)
+
+    def test_findings_come_after_the_renderer_own_fields(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "trigger_label": "Schedule",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert [f["title"] for f in attachment["fields"]] == ["Trigger", "Duration", "Findings"]

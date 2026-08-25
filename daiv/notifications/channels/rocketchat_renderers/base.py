@@ -88,10 +88,33 @@ class RocketChatRenderer(ABC):
     def _link(notification: Notification) -> str:
         return build_absolute_url(notification.link_url) if notification.link_url else ""
 
+    @staticmethod
+    def _findings_field(ctx: dict) -> dict | None:
+        """The classifier's findings as one long field; ``None`` when the run listed none."""
+        items = ctx.get("actionable") or []
+        if not items:
+            return None
+        lines = []
+        for item in items:
+            prefix = f"[{item['kind']}] " if item.get("kind") else ""
+            ref = f" — `{item['ref']}`" if item.get("ref") else ""
+            lines.append(f"• {prefix}{item.get('label', '')}{ref}")
+        overflow = ctx.get("actionable_overflow") or 0
+        if overflow:
+            lines.append(f"… and {overflow} more")
+        return {"title": "Findings", "value": "\n".join(lines), "short": False}
+
     def _message(
         self, notification: Notification, color: str, emoji: str, fields: list[dict]
     ) -> tuple[str, list[dict]]:
-        """Assemble the shared ``(text, [attachment])`` shape every renderer returns."""
+        """Assemble the shared ``(text, [attachment])`` shape every renderer returns.
+
+        The classifier's summary and findings ride along whenever the context carries them, so no
+        renderer can ship without the reason a human was paged.
+        """
+        ctx = notification.context
+        if (findings := self._findings_field(ctx)) is not None:
+            fields = [*fields, findings]
         attachment = {
             "color": color,
             "title": notification.subject,
@@ -100,6 +123,8 @@ class RocketChatRenderer(ABC):
             "footer": FOOTER,
             "ts": int(notification.created.timestamp()),
         }
+        if summary := (ctx.get("summary") or "").strip():
+            attachment["text"] = summary
         return f"{emoji} {notification.subject}", [attachment]
 
     @staticmethod

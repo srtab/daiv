@@ -2,7 +2,11 @@
 {% spaceless %}={% for _ in notification.subject %}={% endfor %}{% endspaceless %}
 
 {{ notification.body }}
-{% with ctx=notification.context %}
+{% with ctx=notification.context %}{% if ctx.actionable %}
+{% translate "Findings" %}:
+{% for item in ctx.actionable %}  - {% if item.kind %}[{{ item.kind }}] {% endif %}{{ item.label }}{% if item.ref %} ({{ item.ref }}){% endif %}
+{% endfor %}{% if ctx.actionable_overflow %}  {% blocktranslate with remaining=ctx.actionable_overflow %}… and {{ remaining }} more{% endblocktranslate %}
+{% endif %}{% endif %}
 {% if ctx.status_label %}{% translate "Status" %}: {{ ctx.status_label }}
 {% endif %}{% if ctx.trigger_name %}{{ ctx.trigger_label|default:_("Trigger") }}: {{ ctx.trigger_name }}
 {% endif %}{% if ctx.repo_id %}{% translate "Repository" %}: {{ ctx.repo_id }}

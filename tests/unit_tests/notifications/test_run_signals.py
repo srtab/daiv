@@ -9,6 +9,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery
+from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.signals import run_classified, run_finished
 
@@ -409,6 +410,65 @@ class TestNotificationPolicy:
         ):
             run_classified.send(sender=Run, run=run, envelope=envelope)
         assert any("Unexpected IntegrityError" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db
+class TestClassifierReasonInContext:
+    """The classifier's summary and findings are what tell a recipient why they were paged, so they
+    must reach the stored context every channel renders from."""
+
+    def _emit(self, member_user, *, status=EnvelopeStatus.FOUND_ISSUES, summary="s", actionable=()):
+        session = _session(user=member_user)
+        run = _run(session, user=member_user, finished_at=timezone.now())
+        envelope = RunEnvelope.objects.create(run=run, status=status, summary=summary, actionable=list(actionable))
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+        return Notification.objects.get(recipient=member_user, event_type="job.finished")
+
+    @staticmethod
+    def _items(n, *, fix_prompt=None):
+        items = []
+        for i in range(n):
+            item = {"id": str(i), "kind": "bug", "label": f"label {i}", "ref": f"app/f{i}.py", "schema_version": 1}
+            if fix_prompt:
+                item["fix_prompt"] = fix_prompt
+            items.append(item)
+        return items
+
+    def test_summary_is_its_own_key_not_just_the_body(self, member_user, email_binding):
+        # body falls back to the subject when the summary is blank, so a channel cannot recover
+        # "there was no summary" from body alone.
+        notification = self._emit(member_user, summary="Two flaky tests in the auth suite")
+        assert notification.context["summary"] == "Two flaky tests in the auth suite"
+        assert notification.body == "Two flaky tests in the auth suite"
+
+    def test_blank_summary_leaves_the_key_empty_while_body_falls_back(self, member_user, email_binding):
+        notification = self._emit(member_user, status=EnvelopeStatus.NEEDS_ATTENTION, summary="")
+        assert notification.context["summary"] == ""
+        assert notification.body == notification.subject
+
+    def test_findings_travel_with_the_notification(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(2))
+        assert notification.context["actionable"] == [
+            {"kind": "bug", "label": "label 0", "ref": "app/f0.py"},
+            {"kind": "bug", "label": "label 1", "ref": "app/f1.py"},
+        ]
+        assert notification.context["actionable_overflow"] == 0
+
+    def test_long_finding_lists_are_trimmed_with_an_overflow_count(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(ACTIONABLE_CONTEXT_LIMIT + 3))
+        assert len(notification.context["actionable"]) == ACTIONABLE_CONTEXT_LIMIT
+        assert notification.context["actionable_overflow"] == 3
+
+    def test_fix_prompt_never_leaves_the_envelope(self, member_user, email_binding):
+        # fix_prompt seeds a Finding -> Fix agent; it is not recipient-facing copy.
+        notification = self._emit(member_user, actionable=self._items(1, fix_prompt="rewrite the fixture"))
+        assert notification.context["actionable"][0].keys() == {"kind", "label", "ref"}
+
+    @pytest.mark.parametrize("status", [EnvelopeStatus.NEEDS_ATTENTION, EnvelopeStatus.FAILED])
+    def test_finding_free_statuses_carry_an_empty_list(self, member_user, email_binding, status):
+        notification = self._emit(member_user, status=status)
+        assert notification.context["actionable"] == []
+        assert notification.context["actionable_overflow"] == 0
 
 
 @pytest.mark.django_db

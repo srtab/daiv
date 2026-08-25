@@ -43,6 +43,25 @@ def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
     return _("%(repos)s and %(remaining)d more") % {"repos": head, "remaining": len(repo_ids) - limit}
 
 
+# ``Notification.context`` is persisted once per recipient, so only the head of a long finding list
+# rides along; the link carries the rest.
+ACTIONABLE_CONTEXT_LIMIT = 5
+
+
+def _actionable_context(envelope) -> tuple[list[dict], int]:
+    """The findings a channel renders, plus how many were left off.
+
+    Only the human-readable triple travels: ``fix_prompt`` is an instruction for a fix agent, not
+    something to paste into an email or a chat message.
+    """
+    items = envelope.actionable or []
+    head = [
+        {"kind": str(item.get("kind", "")), "label": str(item.get("label", "")), "ref": str(item.get("ref", ""))}
+        for item in items[:ACTIONABLE_CONTEXT_LIMIT]
+    ]
+    return head, len(items) - len(head)
+
+
 def _batch_duration(rows: list[BatchRow]) -> float | None:
     """Wall-clock span from earliest start to latest finish across the batch."""
     spans = [(r.started_at, r.finished_at) for r in rows if r.started_at and r.finished_at]
@@ -97,6 +116,7 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
             raise ValueError(f"unexpected notify-worthy envelope status {status!r}")
 
     body = envelope.summary or subject
+    findings, findings_overflow = _actionable_context(envelope)
 
     context = {
         # Pill/attachment tone is driven by the envelope (what the run found), not the run's own
@@ -105,6 +125,11 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
         "status_tone": envelope_tone(status),
         "status": run.status,
         "status_label": envelope.get_status_display(),
+        # The classifier's own words, keyed separately from ``body`` (which falls back to the subject)
+        # so a channel can tell "no summary" from "a summary that happens to repeat the subject".
+        "summary": envelope.summary,
+        "actionable": findings,
+        "actionable_overflow": findings_overflow,
         "is_successful": run.status == RunStatus.SUCCESSFUL,
         "trigger_label": run.get_trigger_type_display(),
         "trigger_name": name,

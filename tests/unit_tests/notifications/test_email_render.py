@@ -71,3 +71,42 @@ def test_no_status_label_drops_the_pill_row():
     html, text = _render({"duration_seconds": 12})
     assert "Status" not in html
     assert "Status:" not in text
+
+
+def _findings(n=2, overflow=0):
+    return {
+        "status_label": "Found issues",
+        "status_tone": "warning",
+        "actionable": [
+            {"kind": "bug", "label": f"off-by-one in paging {i}", "ref": f"app/views.py:{i}"} for i in range(n)
+        ],
+        "actionable_overflow": overflow,
+    }
+
+
+def test_findings_are_listed_in_both_email_bodies():
+    html, text = _render(_findings())
+    for fragment in ("Findings", "bug", "off-by-one in paging 0", "app/views.py:0", "off-by-one in paging 1"):
+        assert fragment in html
+        assert fragment in text
+    assert "- [bug] off-by-one in paging 0 (app/views.py:0)" in text
+
+
+def test_findings_overflow_is_spelled_out():
+    html, text = _render(_findings(n=1, overflow=4))
+    assert "… and 4 more" in html
+    assert "… and 4 more" in text
+
+
+def test_no_findings_drops_the_whole_block():
+    html, text = _render({"status_label": "Needs attention", "status_tone": "warning", "actionable": []})
+    assert "Findings" not in html
+    assert "Findings" not in text
+    assert "Status: Needs attention" in text  # the rows below the block are unaffected
+
+
+def test_a_finding_without_kind_or_ref_still_lists_its_label():
+    ctx = {"status_tone": "warning", "actionable": [{"kind": "", "label": "just a label", "ref": ""}]}
+    html, text = _render(ctx)
+    assert "just a label" in html
+    assert "- just a label" in text
