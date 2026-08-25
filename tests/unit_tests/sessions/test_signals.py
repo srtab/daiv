@@ -531,8 +531,11 @@ class TestClassifyOnRunFinished:
 
 
 def test_classify_origins_is_every_origin_but_chat():
-    """Classification is "universal for non-chat". Pinning the set as a denylist forces a newly-added
-    SessionOrigin to make a deliberate decision instead of silently escaping classification."""
+    """Classification is "universal for non-chat" except pipeline-watch runs, which have a
+    separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
     from sessions.signals import get_classify_origins
 
-    assert get_classify_origins() == frozenset(SessionOrigin.values) - {SessionOrigin.CHAT}
+    assert get_classify_origins() == frozenset(SessionOrigin.values) - {
+        SessionOrigin.CHAT,
+        SessionOrigin.PIPELINE_WEBHOOK,
+    }
