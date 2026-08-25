@@ -1,5 +1,5 @@
 {% load i18n %}
 {{ heading }}:
 {% for item in items %}  - {% if item.kind %}[{{ item.kind }}] {% endif %}{{ item.label }}{% if item.ref %} ({{ item.ref }}){% endif %}
-{% endfor %}{% if overflow %}  {% blocktranslate with remaining=overflow %}… and {{ remaining }} more{% endblocktranslate %}
+{% endfor %}{% if overflow > 0 %}  {% blocktranslate with remaining=overflow %}… and {{ remaining }} more{% endblocktranslate %}
 {% endif %}

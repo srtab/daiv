@@ -98,6 +98,14 @@ def test_findings_overflow_is_spelled_out():
     assert "… and 4 more" in text
 
 
+def test_a_nonsensical_overflow_count_is_not_rendered():
+    # The count is read back from persisted context, not recomputed, so both bodies gate on the
+    # sign: a truthiness check would print "… and -2 more" to a recipient.
+    html, text = _render(_findings(n=1, overflow=-2))
+    assert "more" not in html
+    assert "more" not in text
+
+
 def test_no_findings_drops_the_whole_block():
     html, text = _render({"status_label": "Needs attention", "status_tone": "warning", "actionable": []})
     assert "Findings" not in html

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from django.utils import timezone
 
 from notifications.choices import EventType
+
+logger = logging.getLogger("daiv.notifications")
 
 # Opaque namespacing keys for the per-run / per-batch dedup, stored on Notification.source_type and
 # pinned by the unique constraint. Spelled once here so the emit and the re-drive can't drift.
@@ -29,23 +33,18 @@ def notify_worthy(status: str) -> bool:
 
 
 def status_severity(status: str) -> int:
-    """Worst-first rank for a classified run, used to order a *capped* list of them.
+    """Rank a classified run for a list that is then capped.
 
-    Load-bearing because of the cap: unordered rows let a batch show three needs-attention repos
-    and hide the failure. An unrecognised status sorts last.
+    An unranked status sorts *first* — under a cap, being dropped is the one outcome a reader
+    cannot recover from.
     """
     from sessions.models import EnvelopeStatus
 
-    order = (
-        EnvelopeStatus.FAILED,
-        EnvelopeStatus.FOUND_ISSUES,
-        EnvelopeStatus.NEEDS_ATTENTION,
-        EnvelopeStatus.ALL_CLEAR,
-    )
     try:
-        return order.index(status)
+        return EnvelopeStatus.worst_first().index(status)
     except ValueError:
-        return len(order)
+        logger.error("status_severity: unranked envelope status %r, sorting it first", status)
+        return -1
 
 
 def within_relevance_window(finished_at) -> bool:
@@ -86,14 +85,23 @@ def batch_status_tone(notable: int, total: int) -> str:
     return "warning"
 
 
-def envelope_tone(status: str) -> str:
-    """A single run's tone, shared by the email pill and the RocketChat attachment so the two channels
-    agree. found-issues / needs-attention are a warning; failed is a failure. all-clear is success
-    (only reachable defensively — a notified run is never all-clear)."""
+def status_tones() -> dict[str, str]:
+    """Every status's channel tone. ``all-clear`` is spelled out rather than left to fall through,
+    which is what makes an untoned status detectable."""
     from sessions.models import EnvelopeStatus
 
-    if status == EnvelopeStatus.FAILED:
+    return {
+        EnvelopeStatus.FAILED: "failure",
+        EnvelopeStatus.FOUND_ISSUES: "warning",
+        EnvelopeStatus.NEEDS_ATTENTION: "warning",
+        EnvelopeStatus.ALL_CLEAR: "success",
+    }
+
+
+def envelope_tone(status: str) -> str:
+    """A single run's tone, shared by the email pill and the RocketChat attachment so the two
+    channels agree. An untoned status renders as a failure, never green."""
+    if (tone := status_tones().get(status)) is None:
+        logger.error("envelope_tone: untoned envelope status %r, rendering it as a failure", status)
         return "failure"
-    if status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION):
-        return "warning"
-    return "success"
+    return tone

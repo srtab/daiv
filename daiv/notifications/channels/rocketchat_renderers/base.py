@@ -89,11 +89,10 @@ class RocketChatRenderer(ABC):
         return build_absolute_url(notification.link_url) if notification.link_url else ""
 
     @staticmethod
-    def _list_field(title: str, items, overflow: int, *, mono: bool = True) -> dict | None:
+    def _list_field(title: str, items: list[dict] | None, overflow: int, *, mono: bool = True) -> dict | None:
         """One long field listing ``{kind, label, ref}`` rows; ``None`` when there are none.
 
-        ``mono`` backticks the ``ref`` slot, which suits a file path but not the prose summary a
-        batch row carries there.
+        ``mono`` backticks ``ref`` — right for a file path, wrong for the prose a batch row carries.
         """
         if not items:
             return None
@@ -101,9 +100,9 @@ class RocketChatRenderer(ABC):
         for item in items:
             prefix = f"[{item['kind']}] " if item.get("kind") else ""
             ref = item.get("ref")
-            tail = f" — `{ref}`" if mono else f" — {ref}"
-            lines.append(f"• {prefix}{item.get('label', '')}{tail if ref else ''}")
-        if overflow:
+            tail = (f" — `{ref}`" if mono else f" — {ref}") if ref else ""
+            lines.append(f"• {prefix}{item.get('label', '')}{tail}")
+        if overflow > 0:
             lines.append(f"… and {overflow} more")
         return {"title": title, "value": "\n".join(lines), "short": False}
 
@@ -112,8 +111,7 @@ class RocketChatRenderer(ABC):
     ) -> tuple[str, list[dict]]:
         """Assemble the shared ``(text, [attachment])`` shape every renderer returns.
 
-        The classifier's summary, a run's findings and a batch's notable runs ride along whenever the
-        context carries them, so no renderer can ship without the reason a human was paged.
+        Context-derived fields are attached here, not per renderer, so a new renderer cannot omit them.
         """
         ctx = notification.context
         extra = (

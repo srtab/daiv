@@ -288,6 +288,19 @@ class TestClassifierReasonRidesEveryAttachment:
         _text, [attachment] = JobFinishedRenderer().render(notif)
         assert _fields_by_title(attachment)["Findings"].endswith("… and 4 more")
 
+    def test_a_nonsensical_overflow_count_is_not_rendered(self):
+        # The count is read back from persisted context, not recomputed, so the gate is on the sign:
+        # a truthiness check would print "… and -2 more" to a recipient.
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+                "actionable_overflow": -2,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `b`"
+
     def test_a_finding_missing_kind_or_ref_still_renders_its_label(self):
         notif = _stub_notification(
             context={"status_tone": "warning", "actionable": [{"kind": "", "label": "just a label", "ref": ""}]}

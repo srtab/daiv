@@ -15,6 +15,7 @@ from notifications.policy import (
     is_schedule_run,
     notification_source_for_run,
     notify_worthy,
+    notify_worthy_statuses,
     status_severity,
     within_relevance_window,
 )
@@ -27,13 +28,27 @@ logger = logging.getLogger("daiv.notifications")
 
 
 class BatchRow(NamedTuple):
-    """One sibling's row in a batch rollup — named so the positional values_list can't drift."""
+    """One sibling's row in a batch rollup."""
 
     repo: str
     started_at: datetime | None
     finished_at: datetime | None
     status: str
     summary: str
+
+    COLUMNS = ("repo_id", "started_at", "finished_at", "envelope__status", "envelope__summary")
+
+    @classmethod
+    def from_values(cls, row: dict) -> BatchRow:
+        """Built by column name, not position: ``status`` and ``summary`` are adjacent strings a
+        positional splat would swap silently."""
+        return cls(
+            repo=row["repo_id"],
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            status=row["envelope__status"] or "",
+            summary=row["envelope__summary"] or "",
+        )
 
 
 def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
@@ -45,8 +60,7 @@ def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
     return _("%(repos)s and %(remaining)d more") % {"repos": head, "remaining": len(repo_ids) - limit}
 
 
-# ``Notification.context`` is persisted once per recipient, so only the head of a long list rides
-# along; the link carries the rest.
+# Each recipient's Notification row stores its own copy of context — keep these small.
 ACTIONABLE_CONTEXT_LIMIT = 5
 NOTABLE_RUNS_CONTEXT_LIMIT = 5
 
@@ -59,7 +73,9 @@ def _actionable_context(envelope) -> tuple[list[dict], int]:
     """
     items = envelope.actionable or []
     head = [
-        {"kind": str(item.get("kind", "")), "label": str(item.get("label", "")), "ref": str(item.get("ref", ""))}
+        # ``or ""`` and not a ``.get`` default: a stored JSON null is a present key, and ``str(None)``
+        # renders the word "None" past every ``if ref`` guard downstream.
+        {"kind": str(item.get("kind") or ""), "label": str(item.get("label") or ""), "ref": str(item.get("ref") or "")}
         for item in items[:ACTIONABLE_CONTEXT_LIMIT]
     ]
     return head, len(items) - len(head)
@@ -68,8 +84,8 @@ def _actionable_context(envelope) -> tuple[list[dict], int]:
 def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
     """The batch's notable siblings, worst first, as the rows a channel renders.
 
-    One row per *run* rather than per finding: nesting a 20-repo batch's findings would cap away
-    most of them and leave the clean repos indistinguishable, and the link carries the drill-down.
+    One row per *run*, not per finding: nesting a 20-repo batch's findings would cap most of them
+    away and leave the clean repos indistinguishable. The link carries the drill-down.
     """
     from sessions.models import EnvelopeStatus
 
@@ -77,7 +93,7 @@ def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
         (row for row in rows if notify_worthy(row.status)), key=lambda r: (status_severity(r.status), r.repo)
     )
     head = [
-        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": row.summary or ""}
+        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": row.summary}
         for row in notable[:NOTABLE_RUNS_CONTEXT_LIMIT]
     ]
     return head, len(notable) - len(head)
@@ -272,12 +288,15 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
         needs=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_ATTENTION)),
         failed=Count("id", filter=Q(envelope__status=EnvelopeStatus.FAILED)),
         clear=Count("id", filter=Q(envelope__status=EnvelopeStatus.ALL_CLEAR)),
+        # Counted off the predicate, not summed from the per-status counts above: a new
+        # notify-worthy status would leave that sum at zero and silently dismiss the batch.
+        notable=Count("id", filter=Q(envelope__status__in=notify_worthy_statuses())),
         total_input_tokens=Sum("input_tokens"),
         total_output_tokens=Sum("output_tokens"),
         total_total_tokens=Sum("total_tokens"),
         total_cost_usd=Sum("cost_usd"),
     )
-    notable = agg["found"] + agg["needs"] + agg["failed"]
+    notable = agg["notable"]
     if notable == 0 or run.effective_muted:
         return
 
@@ -289,10 +308,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
         return
 
     channels = [cls.channel_type for cls in enabled_channels()]
-    rows = [
-        BatchRow(*row)
-        for row in siblings.values_list("repo_id", "started_at", "finished_at", "envelope__status", "envelope__summary")
-    ]
+    rows = [BatchRow.from_values(row) for row in siblings.values(*BatchRow.COLUMNS)]
     usage = {
         "input_tokens": agg["total_input_tokens"],
         "output_tokens": agg["total_output_tokens"],

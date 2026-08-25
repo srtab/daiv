@@ -9,6 +9,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery
+from notifications.policy import notify_worthy_statuses
 from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.signals import run_classified, run_finished
@@ -459,6 +460,16 @@ class TestClassifierReasonInContext:
         assert len(notification.context["actionable"]) == ACTIONABLE_CONTEXT_LIMIT
         assert notification.context["actionable_overflow"] == 3
 
+    def test_a_null_slot_travels_empty_rather_than_as_the_word_none(self, member_user, email_binding):
+        item = {"id": "0", "kind": None, "label": "orphaned finding", "ref": None, "schema_version": 1}
+        notification = self._emit(member_user, actionable=[item])
+        assert notification.context["actionable"] == [{"kind": "", "label": "orphaned finding", "ref": ""}]
+
+    def test_an_exactly_full_finding_list_reports_no_overflow(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(ACTIONABLE_CONTEXT_LIMIT))
+        assert len(notification.context["actionable"]) == ACTIONABLE_CONTEXT_LIMIT
+        assert notification.context["actionable_overflow"] == 0
+
     def test_fix_prompt_never_leaves_the_envelope(self, member_user, email_binding):
         # fix_prompt seeds a Finding -> Fix agent; it is not recipient-facing copy.
         notification = self._emit(member_user, actionable=self._items(1, fix_prompt="rewrite the fixture"))
@@ -500,6 +511,13 @@ class TestBatchNotableRuns:
         )
         assert [row["kind"] for row in ctx["notable_runs"]] == ["Needs attention"]
 
+    @pytest.mark.parametrize("status", sorted(notify_worthy_statuses()))
+    def test_every_notify_worthy_status_counts_toward_the_rollup(self, member_user, email_binding, status):
+        """A status the batch aggregate misses leaves ``notable`` at zero and the whole batch is
+        dismissed as clean — no rollup, no error."""
+        ctx = self._rollup(member_user, [(status, "s"), (EnvelopeStatus.ALL_CLEAR, "clean")])
+        assert ctx["notable_count"] == 1
+
     def test_rows_are_ordered_worst_first(self, member_user, email_binding):
         ctx = self._rollup(
             member_user,
@@ -513,19 +531,16 @@ class TestBatchNotableRuns:
         assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed", "Found issues", "Needs attention"]
 
     def test_the_cap_keeps_the_worst_rows_and_counts_the_rest(self, member_user, email_binding):
-        # Every needs-attention sibling comes first in creation order, so an unordered cap would
-        # show five of them and hide the failure entirely.
-        pairs = [(EnvelopeStatus.NEEDS_ATTENTION, f"n{i}") for i in range(NOTABLE_RUNS_CONTEXT_LIMIT + 2)]
-        pairs.append((EnvelopeStatus.FAILED, "the one that matters"))
+        # The failure is created *first*, so the batch's own newest-first ordering buries it below
+        # every needs-attention sibling: only the severity sort can lift it back inside the cap.
+        pairs = [(EnvelopeStatus.FAILED, "the one that matters")]
+        pairs += [(EnvelopeStatus.NEEDS_ATTENTION, f"n{i}") for i in range(NOTABLE_RUNS_CONTEXT_LIMIT + 2)]
         ctx = self._rollup(member_user, pairs)
 
         assert len(ctx["notable_runs"]) == NOTABLE_RUNS_CONTEXT_LIMIT
         assert ctx["notable_runs_overflow"] == 3
-        assert ctx["notable_runs"][0] == {
-            "kind": "Failed",
-            "label": f"acme/repo{NOTABLE_RUNS_CONTEXT_LIMIT + 2}",
-            "ref": "the one that matters",
-        }
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed"] + ["Needs attention"] * 4
+        assert ctx["notable_runs"][0] == {"kind": "Failed", "label": "acme/repo0", "ref": "the one that matters"}
 
     def test_a_sibling_with_no_summary_still_names_its_repo(self, member_user, email_binding):
         ctx = self._rollup(member_user, [(EnvelopeStatus.FAILED, ""), (EnvelopeStatus.ALL_CLEAR, "clean")])

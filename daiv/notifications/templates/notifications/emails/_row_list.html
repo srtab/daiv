@@ -12,7 +12,7 @@
     </tr>
     <tr><td style="height: 6px; line-height: 6px; font-size: 0;">&nbsp;</td></tr>
     {% endfor %}
-    {% if overflow %}
+    {% if overflow > 0 %}
     <tr>
         <td style="padding: 2px 0 0; font-size: 12px; color: #9ca3af;">{% blocktranslate with remaining=overflow %}… and {{ remaining }} more{% endblocktranslate %}</td>
     </tr>
