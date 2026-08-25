@@ -507,3 +507,27 @@ async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: T
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_with_references_persists_them(authenticated_client: TestAsyncClient):
+    body = _single_repo_body(
+        references=[{"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/browse/PROJ-9"}]
+    )
+    with patch("sessions.services.run_job_task") as mock_task:
+        mock_task.aenqueue.side_effect = lambda **kwargs: _make_task_row()
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    thread_id = response.json()["jobs"][0]["thread_id"]
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == [
+        {"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/browse/PROJ-9", "relation": "relates"}
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_with_malformed_reference_is_422(authenticated_client: TestAsyncClient):
+    body = _single_repo_body(references=[{"key": "bad key"}])
+    response = await authenticated_client.post("/jobs", json=body)
+    assert response.status_code == 422

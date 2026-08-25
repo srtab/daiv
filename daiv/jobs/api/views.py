@@ -86,6 +86,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         muted=payload.muted,
         trigger_type=SessionOrigin.API_JOB,
         thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+        references=payload.references,
     )
 
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}
