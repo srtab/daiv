@@ -120,6 +120,7 @@ async def run_job_task(
     from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
     from codebase.base import Scope
     from codebase.context import set_runtime_ctx
+    from codebase.references import refs_from_stored
     from core.checkpointer import open_checkpointer
 
     if not thread_id:
@@ -138,8 +139,11 @@ async def run_job_task(
     input_data = {"messages": [HumanMessage(content=prompt)]}
 
     holder_id = run_id or f"job-{thread_id[:8]}"
-    session_row = await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides").afirst()
+    session_row = (
+        await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
+    )
     mcp_overrides = session_row.mcp_overrides if session_row is not None else {}
+    session_refs = refs_from_stored(session_row.external_refs) if session_row is not None else ()
     locked = await _acquire_session_lock(thread_id, holder_id, session_exists=session_row is not None)
     heartbeat_task = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if locked else None
     try:
@@ -152,6 +156,7 @@ async def run_job_task(
                     sandbox_env_id=sandbox_environment_id,
                     acting_user_id=user_id,
                     mcp_overrides=mcp_overrides,
+                    references=session_refs,
                 ) as runtime_ctx,
                 open_checkpointer() as checkpointer,
             ):

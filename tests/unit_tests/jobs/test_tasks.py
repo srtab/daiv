@@ -360,3 +360,74 @@ async def test_run_job_task_survives_a_failed_ref_sync():
         result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
 
     assert result == {"response": "ok"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_session_references():
+    """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
+    import uuid
+    from contextlib import asynccontextmanager, suppress
+
+    from codebase.references import ExternalRef
+
+    thread_id = str(uuid.uuid4())
+    await Session.objects.acreate(
+        thread_id=thread_id,
+        origin=SessionOrigin.MCP_JOB,
+        repo_id="g/r",
+        external_refs=[{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}],
+    )
+
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _fake_set_runtime_ctx(*args, **kwargs):
+        captured.update(kwargs)
+        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
+
+    with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer"),
+        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
+        patch(
+            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
+        ),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
+        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
+        suppress(Exception),
+    ):
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
+
+    assert captured.get("references") == (ExternalRef(key="PROJ-1", provider="jira"),)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_references_default_to_empty_when_no_session():
+    import uuid
+    from contextlib import asynccontextmanager, suppress
+
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _fake_set_runtime_ctx(*args, **kwargs):
+        captured.update(kwargs)
+        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
+
+    with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer"),
+        patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
+        patch(
+            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
+        ),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
+        patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
+        suppress(Exception),
+    ):
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=str(uuid.uuid4()))
+
+    assert captured.get("references") == ()
