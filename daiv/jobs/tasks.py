@@ -3,18 +3,78 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from django.utils.translation import gettext as _
+
 from django_tasks import task
 from sessions.locks import SessionLock
-from sessions.models import Run, Session
+from sessions.models import Run, Session, SessionOrigin
+
+from chat.repo_state import mr_to_payload
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.jobs")
 
+
+def __getattr__(name: str) -> object:
+    # Lazy-load names that would cause a circular import if imported at module level.
+    # jobs.tasks ← sessions.services ← sessions.pipeline_watch → jobs.tasks
+    if name in ("aarm_watch", "aexhaust_watch"):
+        from sessions.pipeline_watch import aarm_watch, aexhaust_watch
+
+        globals().update({"aarm_watch": aarm_watch, "aexhaust_watch": aexhaust_watch})
+        return globals()[name]
+    if name == "evaluate_pipeline_watch_task":
+        from codebase.tasks import evaluate_pipeline_watch_task
+
+        globals()["evaluate_pipeline_watch_task"] = evaluate_pipeline_watch_task
+        return evaluate_pipeline_watch_task
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 LOCK_WAIT_TIMEOUT_S = 1800.0  # give a long-running chat turn time to finish
 LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
+
+
+async def _aarm_watch_after_run(
+    *, repo_id: str, thread_id: str, trigger_type: str, merge_request: object, code_changes: bool
+) -> None:
+    """Point the CI watch at the MR this run published, then evaluate immediately.
+
+    The immediate evaluation is load-bearing: the push happened during publish, so the
+    pipeline event it triggered can arrive before this watch exists.
+    """
+    payload = mr_to_payload(merge_request) or {}
+    merge_request_iid = payload.get("id")
+    ref = payload.get("source_branch")
+    if not merge_request_iid or not ref:
+        return
+
+    was_fix_run = trigger_type == SessionOrigin.PIPELINE_WEBHOOK
+
+    if not code_changes:
+        # A fix run with no diff pushed nothing, so no pipeline will run and no event will
+        # arrive — re-arming would strand the watch until it aged out.
+        if was_fix_run:
+            await aexhaust_watch(  # noqa: F821
+                repo_id=repo_id,
+                merge_request_iid=merge_request_iid,
+                reason=_("I could not find a change that would fix it"),
+            )
+        return
+
+    armed = await aarm_watch(  # noqa: F821
+        repo_id=repo_id,
+        merge_request_iid=merge_request_iid,
+        ref=ref,
+        source_thread_id=thread_id,
+        was_fix_run=was_fix_run,
+    )
+    if armed is None:
+        return
+    await evaluate_pipeline_watch_task.aenqueue(repo_id=repo_id, ref=ref)  # noqa: F821
 
 
 async def _acquire_session_lock(thread_id: str, holder_id: str, *, session_exists: bool) -> bool | None:
@@ -213,10 +273,28 @@ async def run_job_task(
         )
     except Exception:
         logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
-    return await build_agent_result(
+
+    agent_result = await build_agent_result(
         daiv_agent,
         config,
         response=response_text,
         usage=build_usage_summary(usage_handler).to_dict(),
         snapshot=snapshot,
     )
+
+    trigger_type = ""
+    if run_id:
+        trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst() or ""
+
+    try:
+        await _aarm_watch_after_run(
+            repo_id=repo_id,
+            thread_id=thread_id,
+            trigger_type=trigger_type,
+            merge_request=snapshot.values.get("merge_request"),
+            code_changes=bool(agent_result.get("code_changes")),
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to arm pipeline watch for thread_id=%s", thread_id)
+
+    return agent_result
