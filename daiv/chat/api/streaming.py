@@ -365,13 +365,19 @@ class ChatRunStreamer:
                                 if delta and len(response_buffer) < 2000:
                                     response_buffer = (response_buffer + delta)[:2000]
                             elif event.type == EventType.RUN_ERROR:
-                                # Agent failure surfaced as an event (no raise). The upstream event
-                                # message can carry raw exception text; it is fine to stream live
-                                # (yielded below) but must never be persisted to Run.error_message,
-                                # which sessions.transcript renders verbatim in the transcript on
-                                # reload. Record the sanitized generic reason (parity with the raised-
-                                # exception path).
+                                # Agent failure surfaced as an event (no raise). The upstream
+                                # event message can carry raw exception text (internal class
+                                # names, paths, credential-bearing URLs); the relay replays
+                                # yielded events for its TTL, so a raw message here would leak
+                                # to any reader that rejoins the run — not just the live tab.
+                                # Rewrite it to the sanitized generic reason before yielding,
+                                # mirroring what the raised-exception path persists below.
                                 run_error_message = RUN_FAILED_MESSAGE
+                                event = RunErrorEvent(
+                                    type=EventType.RUN_ERROR,
+                                    message=RUN_FAILED_MESSAGE,
+                                    code=getattr(event, "code", None),
+                                )
                             yield event
 
                             now = time.monotonic()

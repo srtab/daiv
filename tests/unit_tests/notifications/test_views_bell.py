@@ -50,15 +50,29 @@ class TestBellDropdown:
                 body="b",
                 link_url="/",
             )
-        response = member_client.get("/dashboard/notifications/bell/")
+        # The dropdown is opened by an HTMX request (carries HX-Request); only that
+        # path mutates state.
+        response = member_client.get("/dashboard/notifications/bell/", HTTP_HX_REQUEST="true")
         assert response.status_code == 200
         assert Notification.objects.filter(recipient=member_user, read_at__isnull=True).count() == 0
+
+    def test_plain_get_does_not_mark_notifications_read(self, member_client, member_user):
+        """A plain non-htmx GET (browser prefetch, top-level navigation, crawler) must
+        not mutate state — otherwise pre-fetching this URL silently clears the badge.
+        """
+        for i in range(3):
+            Notification.objects.create(
+                recipient=member_user, event_type="schedule.finished", subject=f"n{i}", body="b", link_url="/"
+            )
+        response = member_client.get("/dashboard/notifications/bell/")
+        assert response.status_code == 200
+        assert Notification.objects.filter(recipient=member_user, read_at__isnull=True).count() == 3
 
     def test_visible_rows_keep_unread_cue_on_first_open(self, member_client, member_user):
         Notification.objects.create(
             recipient=member_user, event_type="schedule.finished", subject="n", body="b", link_url="/"
         )
-        response = member_client.get("/dashboard/notifications/bell/")
+        response = member_client.get("/dashboard/notifications/bell/", HTTP_HX_REQUEST="true")
         # Pins the fetch-before-update ordering — if the bulk update ran first, the green
         # dot (bg-emerald-400) would be absent here.
         assert "bg-emerald-400" in response.content.decode()
@@ -67,7 +81,7 @@ class TestBellDropdown:
         other = Notification.objects.create(
             recipient=admin_user, event_type="schedule.finished", subject="other", body="b", link_url="/"
         )
-        member_client.get("/dashboard/notifications/bell/")
+        member_client.get("/dashboard/notifications/bell/", HTTP_HX_REQUEST="true")
         other.refresh_from_db()
         assert other.read_at is None
 

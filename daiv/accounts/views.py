@@ -58,12 +58,15 @@ class UserPickerView(LoginRequiredMixin, TemplateView):
             if stripped.isdigit():
                 exclude_ids.add(int(stripped))
 
+        # Email is matched on (so a member can find a user by their address) but is never
+        # loaded into the rows or returned to the picker: any authenticated member can query
+        # this fragment, and the email is PII that mention completion does not need.
         context["users"] = (
             User.objects
             .filter(is_active=True)
             .filter(Q(username__icontains=query) | Q(email__icontains=query) | Q(name__icontains=query))
             .exclude(pk__in=exclude_ids)
-            .only("pk", "username", "name", "email")
+            .only("pk", "username", "name")
             .order_by("username")[:PICKER_USERS_LIMIT]
         )
         return context

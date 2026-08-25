@@ -80,12 +80,18 @@ async def test_clear_command_without_issue_iid(mock_redis_saver: Mock, clear_sla
 @override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")
 @patch("langgraph.checkpoint.redis.RedisSaver")
 async def test_clear_command_handles_exceptions(mock_redis_saver: Mock, clear_slash_command_issue: ClearSlashCommand):
-    """Test that ClearSlashCommand handles exceptions gracefully."""
+    """A failed /clear must report a generic failure to the issue thread, never the raw
+    exception text — Redis/connection errors can embed host- or credential-bearing URLs
+    that would be posted back into the public issue/MR conversation.
+    """
     mock_checkpointer = MagicMock()
-    mock_checkpointer.delete_thread.side_effect = Exception("Database error")
+    mock_checkpointer.delete_thread.side_effect = Exception("redis://secret-pwd@internal-host:6379/0")
     mock_redis_saver.from_conn_string.return_value.__enter__.return_value = mock_checkpointer
 
     message = await clear_slash_command_issue.execute_for_agent(args="", issue_iid=42)
 
     assert "Failed to clear" in message
     assert "❌" in message
+    # The raw exception text (which can carry credentials/hosts) must not leak.
+    assert "secret-pwd" not in message
+    assert "internal-host" not in message

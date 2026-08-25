@@ -78,6 +78,21 @@ class TestUnreadPokes:
             patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
-            response = member_client.get("/dashboard/notifications/bell/")
+            # Opening the bell is an HTMX request; a plain GET (prefetch/nav) must not
+            # mutate state, so only the HTMX-triggered open pokes.
+            response = member_client.get("/dashboard/notifications/bell/", HTTP_HX_REQUEST="true")
         assert response.status_code == 200
         publish.assert_called_once_with(member_user.pk)
+
+    def test_plain_non_htmx_get_does_not_poke(self, member_client, member_user, notification):
+        """A plain GET (browser prefetch, top-level navigation, crawler) must not mark
+        notifications read — otherwise a pre-fetch silently clears the unread badge.
+        """
+        with (
+            patch("core.ui_events.publisher.notifications_changed") as publish,
+            TestCase.captureOnCommitCallbacks(execute=True),
+        ):
+            response = member_client.get("/dashboard/notifications/bell/")
+        assert response.status_code == 200
+        publish.assert_not_called()
+        assert Notification.objects.filter(recipient=member_user, read_at__isnull=True).exists()
