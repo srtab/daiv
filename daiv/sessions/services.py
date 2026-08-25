@@ -15,15 +15,18 @@ from jobs.tasks import run_job_task
 from automation.titling.tasks import generate_batch_title_task
 from chat.repo_state import mr_to_payload
 from codebase.authorization import aassert_can_run
+from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from accounts.models import User
     from codebase.base import MergeRequest
+    from codebase.references import RefIn
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")
@@ -73,6 +76,7 @@ async def aget_or_create_session(
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mcp_overrides: dict | None = None,
+    external_refs: list[dict] | None = None,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
@@ -94,10 +98,16 @@ async def aget_or_create_session(
             "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
             "mcp_overrides": mcp_overrides or {},
+            "external_refs": list(external_refs or []),
         },
     )
     if not created:
         await session.atouch()
+        if external_refs:
+            merged = merge_stored_refs(session.external_refs, external_refs)
+            if merged != session.external_refs:
+                await Session.objects.filter(pk=session.pk).aupdate(external_refs=merged)
+                session.external_refs = merged
     return session
 
 
@@ -147,6 +157,7 @@ async def acreate_run(
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
+    external_refs: list[dict] | None = None,
 ) -> Run:
     """Async: create a Session (idempotent) then a Run linked to it.
 
@@ -174,6 +185,7 @@ async def acreate_run(
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
+        external_refs=external_refs,
     )
     return await Run.objects.acreate(
         session=session,
@@ -237,6 +249,7 @@ async def asubmit_batch_runs(
     external_username: str = "",
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
+    references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -260,6 +273,9 @@ async def asubmit_batch_runs(
             raise ValueError("thread_id must be a UUID string") from err
         if len(repos) != 1:
             raise ValueError("thread_id continuation requires exactly one repo")
+    stored_refs = [ref.to_stored() for ref in references or []]
+    if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
+        raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
     batch_id = uuid.uuid4()
 
     schedule_run_base = 0
@@ -289,6 +305,7 @@ async def asubmit_batch_runs(
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
             "mcp_overrides": mcp_overrides,
+            "external_refs": stored_refs,
         }
 
         # Claim the session atomically by trying to create a READY row. The partial

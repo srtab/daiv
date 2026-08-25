@@ -681,3 +681,48 @@ async def test_reset_session_ref_repins_the_row():
 
     refreshed = await Session.objects.aget(thread_id="t-ref-6")
     assert refreshed.ref == "main"
+
+
+# ---------------------------------------------------------------------------
+# external_refs storage tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_created_with_external_refs():
+    session = await aget_or_create_session(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.MCP_JOB,
+        repo_id="owner/repo",
+        external_refs=[{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}],
+    )
+    assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_merges_and_dedupes_refs():
+    thread_id = str(uuid.uuid4())
+    first = [{"key": "PROJ-1", "provider": "jira", "url": "https://a", "relation": "relates"}]
+    await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r", external_refs=first)
+    session = await aget_or_create_session(
+        thread_id=thread_id,
+        origin=SessionOrigin.MCP_JOB,
+        repo_id="g/r",
+        external_refs=[
+            {"key": "PROJ-1", "provider": "jira", "url": "https://b", "relation": "closes"},
+            {"key": "DAIV-1V", "provider": "sentry", "url": "", "relation": "closes"},
+        ],
+    )
+    await session.arefresh_from_db()
+    assert [ref["key"] for ref in session.external_refs] == ["PROJ-1", "DAIV-1V"]
+    assert session.external_refs[0]["url"] == "https://a"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_without_refs_leaves_stored_refs_alone():
+    thread_id = str(uuid.uuid4())
+    first = [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+    await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r", external_refs=first)
+    session = await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r")
+    await session.arefresh_from_db()
+    assert session.external_refs == first
