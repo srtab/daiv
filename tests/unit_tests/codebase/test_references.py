@@ -12,6 +12,8 @@ from codebase.references import (
     dedupe_refs,
     merge_stored_refs,
     refs_from_stored,
+    render_commit_trailers,
+    render_references_block,
 )
 
 
@@ -105,3 +107,65 @@ class TestAssemble:
         a = ExternalRef(key="X", provider="jira", url="https://a")
         b = ExternalRef(key="X", provider="jira", url="https://b")
         assert dedupe_refs((a, b)) == (a,)
+
+
+class TestRenderDescriptionBlock:
+    def test_empty(self):
+        assert render_references_block((), repo_slug="owner/repo", git_platform=GitPlatform.GITLAB) == ""
+
+    def test_gitlab_issue_closes_is_byte_identical_to_legacy_footer(self):
+        refs = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "Closes: owner/repo#42+"
+
+    def test_github_issue_closes_keeps_the_colon_no_plus(self):
+        refs = (ExternalRef(key="42", provider="github-issue", relation="closes"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITHUB)
+        assert block == "Closes: owner/repo#42"
+
+    def test_relates_issue_renders_related_to(self):
+        refs = (ExternalRef(key="7", provider="gitlab-issue"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "Related to owner/repo#7"
+
+    def test_sentry_closes_keeps_fixes_shortid_textually_matchable(self):
+        refs = (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "**References:**\n- Fixes DAIV-1V ([Sentry](https://s.io/1))"
+
+    def test_unknown_provider_degrades_to_link_bullet(self):
+        refs = (ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "**References:**\n- [RT-77](https://rt.example.com/77)"
+
+    def test_urlless_ref_renders_bare_key(self):
+        refs = (ExternalRef(key="PROJ-9", provider="jira"),)
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "**References:**\n- PROJ-9"
+
+    def test_standalone_lines_precede_the_heading(self):
+        refs = (
+            ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
+            ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+        )
+        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        assert block == "Closes: owner/repo#42+\n**References:**\n- Fixes DAIV-1V"
+
+
+class TestRenderCommitTrailers:
+    def test_sentry_closes_emits_documented_fixes_form(self):
+        refs = (ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),)
+        assert render_commit_trailers(refs) == ("Fixes DAIV-1V",)
+
+    def test_sentry_relates_emits_nothing(self):
+        assert render_commit_trailers((ExternalRef(key="DAIV-1V", provider="sentry"),)) == ()
+
+    def test_jira_emits_refs_trailer(self):
+        assert render_commit_trailers((ExternalRef(key="PROJ-9", provider="jira"),)) == ("Refs: PROJ-9",)
+
+    def test_issue_and_generic_emit_nothing(self):
+        refs = (
+            ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+            ExternalRef(key="RT-77", provider="rt"),
+        )
+        assert render_commit_trailers(refs) == ()

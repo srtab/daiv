@@ -107,3 +107,39 @@ def assemble_run_references(
     if scope == Scope.ISSUE and issue is not None and issue.iid is not None and provider:
         refs = (*refs, ExternalRef(key=str(issue.iid), provider=provider, relation="closes"))
     return dedupe_refs(refs)
+
+
+def _issue_line(ref: ExternalRef, repo_slug: str, *, gitlab: bool) -> str:
+    if ref.relation == "closes":
+        return f"Closes: {repo_slug}#{ref.key}{'+' if gitlab else ''}"
+    return f"Related to {repo_slug}#{ref.key}"
+
+
+def render_references_block(refs: Sequence[ExternalRef], *, repo_slug: str, git_platform: GitPlatform) -> str:
+    """MR-description footer for ``refs``; platform-issue refs stay standalone (the platforms parse
+    closing keywords there), everything else groups under one References heading."""
+    standalone: list[str] = []
+    bullets: list[str] = []
+    for ref in refs:
+        if ref.provider == PROVIDER_GITLAB_ISSUE:
+            standalone.append(_issue_line(ref, repo_slug, gitlab=True))
+        elif ref.provider == PROVIDER_GITHUB_ISSUE:
+            standalone.append(_issue_line(ref, repo_slug, gitlab=False))
+        elif ref.provider == PROVIDER_SENTRY and ref.relation == "closes":
+            bullets.append(f"- Fixes {ref.key}" + (f" ([Sentry]({ref.url}))" if ref.url else ""))
+        else:
+            bullets.append(f"- [{ref.key}]({ref.url})" if ref.url else f"- {ref.key}")
+    parts = standalone
+    if bullets:
+        parts = [*standalone, "**References:**", *bullets]
+    return "\n".join(parts)
+
+
+def render_commit_trailers(refs: Sequence[ExternalRef]) -> tuple[str, ...]:
+    trailers: list[str] = []
+    for ref in refs:
+        if ref.provider == PROVIDER_SENTRY and ref.relation == "closes":
+            trailers.append(f"Fixes {ref.key}")
+        elif ref.provider == PROVIDER_JIRA:
+            trailers.append(f"Refs: {ref.key}")
+    return tuple(trailers)
