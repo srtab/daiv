@@ -17,6 +17,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
@@ -28,6 +29,7 @@ from codebase.authorization import (
     aassert_can_run,
     asearch_viewable_repositories,
 )
+from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoTokenVerifier, get_current_user
@@ -173,6 +175,20 @@ async def submit_job(
             )
         ),
     ] = None,
+    references: Annotated[
+        list[RefIn] | None,
+        Field(
+            description=(
+                "Optional external work-item references (max 20) linked into the MR/PR DAIV"
+                ' creates, e.g. [{"key": "PROJ-123", "url": "https://...", "provider": "jira",'
+                ' "relation": "relates"}]. Providers with special syntax: gitlab-issue,'
+                " github-issue, sentry, jira; any other provider renders as a plain reference"
+                " link. relation=closes opts into auto-close on merge where the provider"
+                " supports it (default: relates). On thread continuation, new references are"
+                " merged into the session."
+            )
+        ),
+    ] = None,
 ) -> str:
     """Submit a batch of agent jobs. Each repository runs as an independent job.
 
@@ -186,6 +202,13 @@ async def submit_job(
         return json.dumps({"error": f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission."})
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+
+    try:
+        refs_in = [ref if isinstance(ref, RefIn) else RefIn(**ref) for ref in references or []]
+    except (PydanticValidationError, TypeError) as err:
+        return json.dumps({"error": f"Invalid references: {err}"})
+    if len(refs_in) > MAX_REFS_PER_SUBMISSION:
+        return json.dumps({"error": f"At most {MAX_REFS_PER_SUBMISSION} references allowed per submission."})
 
     if thread_id is not None and len(specs) != 1:
         return json.dumps({"error": "thread_id continuation requires exactly one repo"})
@@ -255,6 +278,7 @@ async def submit_job(
         muted=muted,
         trigger_type=SessionOrigin.MCP_JOB,
         thread_id=thread_id_str,
+        references=refs_in,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
