@@ -249,3 +249,17 @@ def reclassify_missing_envelopes_cron_task():
         classify_run_task.enqueue(str(run_id))
     if stranded_ids:
         logger.info("reclassify_missing_envelopes: re-enqueued %d stranded run(s)", len(stranded_ids))
+
+
+@cron("*/10 * * * *")
+@task
+@locked_task(key="reconcile-pipeline-watches")
+async def reconcile_pipeline_watches_cron_task():
+    """Repair CI watches that webhook events did not resolve.
+
+    Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
+    """
+    from sessions.pipeline_watch import areconcile_watches
+
+    touched = await areconcile_watches()
+    logger.info("reconcile_pipeline_watches: touched %d watches", touched)

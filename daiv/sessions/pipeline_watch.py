@@ -247,3 +247,43 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
     )
     await session.arefresh_from_db()
     await _adispatch_fix_run(session=session, pipeline=pipeline, repo_id=repo_id, merge_request_iid=merge_request_iid)
+
+
+async def areconcile_watches() -> int:
+    """Repair watches that events did not resolve.
+
+    Three jobs: expire watches past their lifetime, re-judge branches whose event never
+    arrived, and un-stick a watch whose fix run died. Returns how many it touched.
+    """
+    now = timezone.now()
+    touched = 0
+
+    expired = Session.objects.filter(watch_state__in=WatchState.open(), watch_armed_at__lt=now - WATCH_MAX_AGE)
+    async for session in expired:
+        await Session.objects.filter(thread_id=session.thread_id).aupdate(watch_state=WatchState.UNCLEAR)
+        touched += 1
+
+    stuck = Session.objects.filter(
+        watch_state=WatchState.FIXING,
+        watch_armed_at__gte=now - WATCH_MAX_AGE,
+        watch_armed_at__lt=now - WATCH_STALE_AFTER,
+    )
+    async for session in stuck:
+        await Session.objects.filter(thread_id=session.thread_id).aupdate(
+            watch_state=WatchState.WATCHING, watch_armed_at=now
+        )
+        touched += 1
+
+    stale = Session.objects.filter(
+        watch_state=WatchState.WATCHING,
+        watch_armed_at__gte=now - WATCH_MAX_AGE,
+        watch_armed_at__lt=now - WATCH_STALE_AFTER,
+    )
+    async for session in stale:
+        try:
+            await aevaluate_watch(repo_id=session.repo_id, ref=session.ref, pipeline_id=None)
+        except Exception:
+            logger.exception("pipeline_watch: reconcile failed for thread_id=%s", session.thread_id)
+        touched += 1
+
+    return touched
