@@ -111,36 +111,36 @@ class TestAssemble:
 
 class TestRenderDescriptionBlock:
     def test_empty(self):
-        assert render_references_block((), repo_slug="owner/repo", git_platform=GitPlatform.GITLAB) == ""
+        assert render_references_block((), repo_slug="owner/repo") == ""
 
     def test_gitlab_issue_closes_is_byte_identical_to_legacy_footer(self):
         refs = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "Closes: owner/repo#42+"
 
     def test_github_issue_closes_keeps_the_colon_no_plus(self):
         refs = (ExternalRef(key="42", provider="github-issue", relation="closes"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITHUB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "Closes: owner/repo#42"
 
     def test_relates_issue_renders_related_to(self):
         refs = (ExternalRef(key="7", provider="gitlab-issue"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "Related to owner/repo#7"
 
     def test_sentry_closes_keeps_fixes_shortid_textually_matchable(self):
         refs = (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "**References:**\n- Fixes DAIV-1V ([Sentry](https://s.io/1))"
 
     def test_unknown_provider_degrades_to_link_bullet(self):
         refs = (ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "**References:**\n- [RT-77](https://rt.example.com/77)"
 
     def test_urlless_ref_renders_bare_key(self):
         refs = (ExternalRef(key="PROJ-9", provider="jira"),)
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "**References:**\n- PROJ-9"
 
     def test_standalone_lines_precede_the_heading(self):
@@ -148,7 +148,7 @@ class TestRenderDescriptionBlock:
             ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
             ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
         )
-        block = render_references_block(refs, repo_slug="owner/repo", git_platform=GitPlatform.GITLAB)
+        block = render_references_block(refs, repo_slug="owner/repo")
         assert block == "Closes: owner/repo#42+\n**References:**\n- Fixes DAIV-1V"
 
 

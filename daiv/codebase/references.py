@@ -115,7 +115,7 @@ def _issue_line(ref: ExternalRef, repo_slug: str, *, gitlab: bool) -> str:
     return f"Related to {repo_slug}#{ref.key}"
 
 
-def render_references_block(refs: Sequence[ExternalRef], *, repo_slug: str, git_platform: GitPlatform) -> str:
+def render_references_block(refs: Sequence[ExternalRef], *, repo_slug: str) -> str:
     """MR-description footer for ``refs``; platform-issue refs stay standalone (the platforms parse
     closing keywords there), everything else groups under one References heading."""
     standalone: list[str] = []
