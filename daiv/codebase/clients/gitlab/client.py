@@ -14,12 +14,13 @@ from django.core.exceptions import ImproperlyConfigured
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
-from gitlab.exceptions import GitlabError
+from gitlab.exceptions import GitlabError, GitlabGetError
 
 from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
+    Job,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
@@ -938,6 +939,40 @@ class GitLabClient(RepoClient):
             status=pipeline.status,
             web_url=pipeline.web_url,
         )
+
+    def _to_pipeline(self, project, pipeline) -> Pipeline:
+        return Pipeline(
+            id=pipeline.id,
+            iid=getattr(pipeline, "iid", None),
+            sha=pipeline.sha,
+            status=pipeline.status,
+            web_url=pipeline.web_url,
+            jobs=[
+                Job(
+                    id=job.id,
+                    name=job.name,
+                    status=job.status,
+                    stage=job.stage,
+                    allow_failure=job.allow_failure,
+                    failure_reason=getattr(job, "failure_reason", None),
+                )
+                for job in pipeline.jobs.list(all=True)
+            ],
+        )
+
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            return self._to_pipeline(project, project.pipelines.get(pipeline_id))
+        except GitlabGetError:
+            return None
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
+        if not pipelines:
+            return None
+        return self.get_pipeline(repo_id, pipelines[0].id)
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

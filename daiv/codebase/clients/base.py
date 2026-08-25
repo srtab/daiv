@@ -275,6 +275,14 @@ class RepoClient(abc.ABC):
         so reaching the base implementation means a mis-wired caller, not a supported no-op."""
         raise NotImplementedError
 
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        """Read one pipeline with its jobs. ``None`` when it no longer exists."""
+        raise NotImplementedError
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        """Most recent pipeline for a branch, with its jobs. ``None`` when the branch has none."""
+        raise NotImplementedError
+
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
