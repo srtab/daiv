@@ -14,11 +14,11 @@ from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task
+from codebase.tasks import address_issue_task, address_mr_comments_task, evaluate_pipeline_watch_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, Label, PullRequest, Repository, User  # noqa: TC001
+from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -339,3 +339,32 @@ class PushCallback(GitHubCallback):
         if self.repository.default_branch and self.ref.endswith(self.repository.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.repository.full_name)
+
+
+class WorkflowRunCallback(GitHubCallback):
+    """
+    GitHub Actions workflow_run webhook for babysitting CI on pull requests DAIV published.
+    """
+
+    action: str
+    workflow_run: WorkflowRun
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    def accept_callback(self) -> bool:
+        """Accept finished workflow runs on repos with the watch enabled.
+
+        Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
+        """
+        return (
+            self._repo_config.pipeline_watch.enabled
+            and self.action == "completed"
+            and self.workflow_run.conclusion is not None
+        )
+
+    async def process_callback(self):
+        await evaluate_pipeline_watch_task.aenqueue(
+            repo_id=self.repository.full_name, ref=self.workflow_run.head_branch, pipeline_id=self.workflow_run.id
+        )

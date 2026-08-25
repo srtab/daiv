@@ -272,7 +272,7 @@ class GitHubClient(RepoClient):
         """
         # Adding `pull_request_review_comment` also needs a callback for it and a review-comment
         # reaction path — conversation comments and diff comments use different endpoints.
-        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request"]
+        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request", "workflow_run"]
         config = {
             "url": url,
             "content_type": "json",
