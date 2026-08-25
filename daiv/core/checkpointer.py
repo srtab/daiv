@@ -22,34 +22,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.checkpointer")
 
 # ``_DeltaSnapshot`` wraps a full channel value when ``DeltaChannel`` writes a periodic
-# snapshot into ``channel_values`` (see ``aresolve_thread_messages`` and the serializer's
-# round-trip overrides below). It is a beta langgraph type; import defensively so a relocation
-# can't break module import. But the degradation is NOT free: with ``_DeltaSnapshot`` (and thus
-# ``_DELTA_SNAPSHOT_ID``) ``None`` the round-trip overrides below no-op, so if langgraph still
-# emits the wrapper the encode path silently reverts to the stock bare-array behaviour that
-# caused Sentry DAIV-1S. We therefore log loudly at import so a disabled fix is visible rather
-# than resurfacing later as an untraceable ``NotImplementedError`` crash.
+# snapshot into ``channel_values`` (see ``aresolve_thread_messages`` and the lossy-legacy
+# unwrap in ``_unwrap_delta_snapshot``). It is a beta langgraph type; import defensively so
+# a relocation can't break module import. ``langgraph-checkpoint-redis`` 0.5.2 now
+# round-trips ``_DeltaSnapshot`` natively on both the encode path
+# (``_preprocess_redis_json`` emits a ``{"__delta_snapshot__": True, "value": ...}`` marker)
+# and the decode path (``_revive_if_needed`` reconstructs it from that marker), so the
+# bespoke ``DAIVRedisSerializer`` overrides that existed to prevent Sentry DAIV-1S are gone
+# (see the class docstring). This import is now only needed by ``_unwrap_delta_snapshot``,
+# which unwraps a *live* ``_DeltaSnapshot`` a 0.5.2 read path hands back. With it ``None``
+# (langgraph relocated the type) that helper degrades to its lossy-legacy heuristic, so a
+# relocation log stays visible rather than silently misfiring.
 try:
     from langgraph.checkpoint.serde.types import _DeltaSnapshot
 except ImportError:  # pragma: no cover - defensive against langgraph beta churn
     _DeltaSnapshot = None  # ty: ignore[invalid-assignment]
     logger.error(
         "langgraph._DeltaSnapshot is no longer importable from langgraph.checkpoint.serde.types; "
-        "DAIVRedisSerializer's _DeltaSnapshot round-trip is DISABLED. If DeltaChannel still emits "
-        "it, checkpoints regress to the Sentry DAIV-1S 'Message as a sequence must be (role "
-        "string, template)' crash. Update the import path."
+        "_unwrap_delta_snapshot will fall back to its lossy-legacy heuristic instead of unwrapping "
+        "a live _DeltaSnapshot. Update the import path."
     )
-
-# The ``lc:2`` constructor ``id`` that ``_encode_constructor_envelope(_DeltaSnapshot, ...)`` emits on
-# encode -- module split into parts, matching the base builder's format (NOT the dotted 2-element
-# form ``_default_handler`` uses, which exists only to match the class-based ``allowed_json_modules``
-# entry -- a concern ``_DeltaSnapshot`` doesn't share). Kept as a module constant purely for the
-# decode-side matcher ``_is_delta_snapshot_envelope``: the saver's ``_recursive_deserialize`` routes
-# ONLY ``lc``-constructor dicts to ``serde._revive_if_needed``, so this exact id is what the
-# channel-values read path hands back to us to reconstruct.
-_DELTA_SNAPSHOT_ID: list[str] | None = (
-    [*_DeltaSnapshot.__module__.split("."), _DeltaSnapshot.__name__] if _DeltaSnapshot is not None else None
-)
 
 
 # Domain pydantic models that may live in checkpointed agent state. Listing a model
@@ -69,41 +61,42 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     LangChain objects (messages) carry ``to_json`` and keep flowing through the parent's safe path
     untouched.
 
-    **Sets no longer need an override here.** A checkpointed ``set`` (e.g. ``loaded_tool_names``)
-    was silently nulled by older ``JsonPlusRedisSerializer`` revivers; ``langgraph-checkpoint-redis``
-    0.5.1 reconstructs it upstream in ``_revive_if_needed``, so the bespoke ``_reviver`` this class
-    used to carry is gone. ``tests/unit_tests/core/test_checkpointer.py`` guards the round-trip
-    (mechanism detailed there) so a downgrade or upstream regression fails loudly rather than
-    nulling production sets.
+    ``set`` no longer needs an override here. A checkpointed ``set`` (e.g.
+    ``loaded_tool_names``) was silently nulled by older ``JsonPlusRedisSerializer`` revivers;
+    ``langgraph-checkpoint-redis`` reconstructs it upstream in ``_revive_if_needed``, so the
+    bespoke ``_reviver`` this class used to carry is gone. ``tests/unit_tests/core/test_checkpointer.py``
+    guards the round-trip (mechanism detailed there) so a downgrade or upstream regression fails
+    loudly rather than nulling production sets.
 
-    **``_DeltaSnapshot`` needs an override.** deepagents >= 0.6 stores ``messages`` in a
-    langgraph ``DeltaChannel`` whose periodic snapshot blob is a ``_DeltaSnapshot`` NamedTuple
-    living in ``channel_values``. The stock redis serializer has no ``_DeltaSnapshot`` support:
-    its ``_preprocess_interrupts`` treats the NamedTuple as a plain tuple, orjson serialises it
-    as a bare JSON array ``[value]``, and the read path returns a nested list ``[[msg, ...]]``
-    with the wrapper lost. langgraph later feeds that value to ``DeltaChannel.from_checkpoint``
-    as a seed, the double-nesting survives, and ``convert_to_messages([[msg, ...]])`` raises
+    ``_DeltaSnapshot`` no longer needs an override here. deepagents >= 0.6 stores ``messages``
+    in a langgraph ``DeltaChannel`` whose periodic snapshot blob is a ``_DeltaSnapshot``
+    NamedTuple living in ``channel_values``. The stock redis serializer used to have no
+    ``_DeltaSnapshot`` support -- it treated the NamedTuple as a plain tuple, orjson emitted a
+    bare JSON array ``[value]``, and the read path returned a nested list ``[[msg, ...]]`` with
+    the wrapper lost, which later made ``convert_to_messages([[msg, ...]])`` raise
     ``NotImplementedError: Message as a sequence must be (role string, template)`` (Sentry
-    DAIV-1S). The overrides below round-trip ``_DeltaSnapshot`` through an ``lc:2`` constructor
-    envelope: ``_preprocess_interrupts`` emits it on encode, and ``_revive_if_needed``
-    reconstructs it on decode. One decode override covers both read paths, because the saver's
-    ``_recursive_deserialize`` routes inline ``channel_values`` ``lc`` dicts to
-    ``serde._revive_if_needed`` and ``loads_typed`` calls it directly for blobs. This is an
-    upstream gap in ``langgraph-checkpoint-redis`` 0.5.1 -- worth reporting -- but the fix
-    belongs here so production stops crashing regardless of upstream timing.
+    DAIV-1S). This class used to carry bespoke ``_preprocess_interrupts`` / ``_revive_if_needed``
+    overrides that round-tripped ``_DeltaSnapshot`` through an ``lc:2`` constructor envelope.
+    ``langgraph-checkpoint-redis`` 0.5.2 fixed that upstream: ``_preprocess_redis_json`` now
+    emits a ``{"__delta_snapshot__": True, "value": ...}`` marker and ``_revive_if_needed``
+    reconstructs it, so the overrides (and the ``_DELTA_SNAPSHOT_ID`` / ``_is_delta_snapshot_envelope``
+    machinery they needed) are gone -- the stock encode/decode paths round-trip it losslessly.
+    ``_unwrap_delta_snapshot`` still unwraps a *live* ``_DeltaSnapshot`` on the messages read
+    path, and tolerates the lossy legacy form from checkpoints written before the 0.5.2 fix.
 
     On the happy path decode round-trips: the redis read path (``_revive_if_needed``)
     reconstructs the ``lc:2`` envelope for any importable class by delegating to the base
-    reviver (``_reviver``). But that reviver can fall back to returning the raw envelope
-    ``dict`` on a reconstruction failure -- so if a model's schema drifts across a deploy (a
-    field renamed/required/retyped, or the class relocated), a checkpointed model silently
-    comes back as a ``dict`` with no log. Consumers must therefore not assume the revived value
-    is the model: ``GitMiddleware`` guards its ``merge_request`` read (``_state_merge_request``)
-    and fails loud rather than letting an ``AttributeError`` surface far downstream. We also
-    register our models on ``allowed_json_modules`` -- but note the read path taken here
-    (``_revive_if_needed`` → the base reviver) does **not** consult that allowlist; it is kept
-    only so the *documented* decode gate (``_revive_lc2``) stays correct should a future upstream
-    route the read path through it, not as a runtime guarantee today.
+    reviver (``_reviver`` → ``_revive_lc2``). But that reviver can fall back to returning the raw
+    envelope ``dict`` on a reconstruction failure -- so if a model's schema drifts across a
+    deploy (a field renamed/required/retyped, or the class relocated), a checkpointed model
+    silently comes back as a ``dict`` with no log. Consumers must therefore not assume the
+    revived value is the model: ``GitMiddleware`` guards its ``merge_request`` read
+    (``_state_merge_request``) and fails loud rather than letting an ``AttributeError`` surface
+    far downstream. We also register our models on ``allowed_json_modules``: in
+    ``langgraph-checkpoint-redis`` 0.5.2 the read path consults it for real -- a class not on
+    the allowlist (and not a known-safe LangGraph/LangChain type) is refused by
+    ``_check_allowed_json_modules`` and revives to the raw ``dict`` with a warning, so the
+    allowlist is now a runtime gate, not just the documented decode gate it was in 0.5.1.
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -128,52 +121,6 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
             }
         return super()._default_handler(obj)
 
-    def _preprocess_interrupts(self, obj: Any) -> Any:
-        # ``_DeltaSnapshot`` is a NamedTuple, so the stock pre-pass would fall into its
-        # ``(list, tuple)`` branch and rebuild it as a plain tuple -- orjson then emits a bare
-        # JSON array and the read path returns a nested list, silently dropping the wrapper
-        # (Sentry DAIV-1S). Intercept it here, BEFORE delegating to the parent, and emit an
-        # ``lc:2`` constructor envelope via the inherited ``_encode_constructor_envelope`` (the same
-        # builder the parent uses for its own ``set``/dataclass branches): that is the ONLY dict
-        # shape the saver's ``_recursive_deserialize`` hands back to ``serde._revive_if_needed``
-        # (below) on the channel-values read path. The wrapped value is processed recursively so the
-        # messages it holds still encode through the parent path.
-        if _DeltaSnapshot is not None and isinstance(obj, _DeltaSnapshot):
-            return self._encode_constructor_envelope(
-                _DeltaSnapshot, kwargs={"value": self._preprocess_interrupts(obj.value)}
-            )
-        return super()._preprocess_interrupts(obj)
-
-    def _revive_if_needed(self, obj: Any) -> Any:
-        # Reconstruct the ``_DeltaSnapshot`` envelope emitted above before the parent's generic
-        # ``lc`` handling runs (which would route this id through the base reviver). This single
-        # override covers BOTH decode paths: the saver's ``_recursive_deserialize`` delegates
-        # ``lc`` dicts here for inline ``channel_values``, and ``loads_typed`` calls it for blobs.
-        if self._is_delta_snapshot_envelope(obj):
-            return _DeltaSnapshot(self._revive_if_needed(obj["kwargs"]["value"]))
-        return super()._revive_if_needed(obj)
-
-    @staticmethod
-    def _is_delta_snapshot_envelope(obj: Any) -> bool:
-        """True if ``obj`` is the ``lc:2`` constructor envelope produced for a ``_DeltaSnapshot``.
-
-        Encode always emits ``lc:2``; ``lc:1`` is accepted only to mirror the base reviver's own
-        ``revived.get("lc") in (1, 2)`` tolerance and the saver's ``_recursive_deserialize`` routing
-        gate. The exact ``_DELTA_SNAPSHOT_ID`` match is what actually discriminates -- and its
-        ``is not None`` short-circuit is load-bearing: without it a ``None`` id (langgraph relocated
-        ``_DeltaSnapshot``, see the import guard) would match any id-less envelope and route it to
-        ``_DeltaSnapshot(...)`` == ``None(...)``.
-        """
-        return (
-            _DELTA_SNAPSHOT_ID is not None
-            and isinstance(obj, dict)
-            and obj.get("lc") in (1, 2)
-            and obj.get("type") == "constructor"
-            and obj.get("id") == _DELTA_SNAPSHOT_ID
-            and isinstance(obj.get("kwargs"), dict)
-            and "value" in obj["kwargs"]
-        )
-
 
 @asynccontextmanager
 async def open_checkpointer() -> AsyncIterator[AsyncRedisSaver]:
@@ -195,8 +142,9 @@ def _unwrap_delta_snapshot(value: Any) -> Any:
 
     Two encodings are unwrapped:
 
-    * A live ``_DeltaSnapshot`` NamedTuple -- what the serializer round-trip (``_preprocess_interrupts``
-      / ``_revive_if_needed``) reconstructs for checkpoints written after that fix shipped -- yields
+    * A live ``_DeltaSnapshot`` NamedTuple -- what the stock ``langgraph-checkpoint-redis``
+      0.5.2 serializer round-trips (``_preprocess_redis_json`` / ``_revive_if_needed`` reconstruct
+      it from the ``__delta_snapshot__`` marker) for checkpoints written after 0.5.2 -- yields
       its ``.value``.
     * The *lossy legacy* form from a checkpoint written BEFORE that fix: the stock serializer emitted
       the single-field NamedTuple as a bare JSON array ``[value]``, so a ``messages`` snapshot comes
