@@ -44,17 +44,23 @@ sequenceDiagram
 
 DAIV errs toward stopping the watch rather than spending an attempt on something it cannot fix. The decision table:
 
+Rows are evaluated top to bottom; the first match wins.
+
 | Pipeline state | Jobs | Outcome |
 |---|---|---|
-| `success` | any | **Green** — watch ends |
-| `failed` | at least one non-`allow_failure` failed job | **Actionable** — fix run dispatched |
-| `failed` | every failed job is `allow_failure` | **Green** — effectively a pass |
+| still in progress (`created`, `pending`, `running`, `preparing`, …), or no pipeline found | any | **Not judged** — watch stays armed, nothing posted |
 | `blocked`, `manual`, `canceled`, `skipped` | any | **Unclear** — watch stops, MR note posted |
-| any terminal state | zero jobs | **Unclear** — watch stops, MR note posted |
+| any | zero jobs | **Unclear** — watch stops, MR note posted |
+| `failed` | at least one non-`allow_failure` failed job | **Actionable** — fix run dispatched |
+| `failed` | no job reports `failed` at all (e.g. a config error) | **Actionable** — fix run dispatched |
+| `failed` | every failed job is `allow_failure` | **Green** — effectively a pass |
+| `success` | at least one job | **Green** — watch ends |
 
 **Why zero-job pipelines are unclear, not green:** a GitLab `.gitlab-ci.yml` that includes a cross-project template from a private repository resolves as the pushing identity. An ephemeral project-scoped token cannot read that private repository, so GitLab produces a pipeline with no jobs. Treating it as green would let a misconfigured pipeline pass silently; treating it as a failure would burn every attempt on a pipeline that was never going to run. Stopping the watch and posting a note is the only safe choice.
 
 **Why blocked/manual/skipped/canceled are unclear:** these states reflect a human decision or an external gate. DAIV does not know whether to wait or act, so it stops and lets you decide.
+
+**Why an in-progress pipeline is not judged at all:** the watch is armed immediately after DAIV pushes, so the first look almost always lands on a `created` / `pending` / `running` pipeline — or before one exists at all. Judging that would end every watch on the normal path, so a pipeline that has not reached a verdict is left alone and the watch waits for the next event or reconciler sweep. A pipeline that never starts is caught by the six-hour expiry. `blocked` and `manual` are *not* in this bucket: they are settled states that only a person resolves, so they end the watch with a note.
 
 ---
 
@@ -77,7 +83,7 @@ Configure under **Configuration → Pipeline Watch** in the dashboard (admin onl
 
 ### Per repository
 
-Override either setting per repository in `.daiv.yml`. A repository can only tighten or disable; it cannot raise the cap above the site-wide value.
+Override either setting per repository in `.daiv.yml`. A repository can only tighten or disable: the cap is clamped to the site-wide value, and `enabled: true` cannot switch the watch back on where the operator turned it off site-wide.
 
 ```yaml
 pipeline_watch:
@@ -98,6 +104,14 @@ pipeline_watch:
 
 GitHub Actions does not expose per-job required-ness through the API, so DAIV treats every failed job as required. A `continue-on-error` job that fails will count as a real failure and trigger a fix run. This can spend one attempt without producing a meaningful fix, but it never misses a real failure.
 
+### GitHub: one event per workflow, not per push
+
+A `workflow_run` event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can close the watch while another is still running or about to fail. Repositories that split required checks across workflows should expect the watch to end early.
+
+### GitLab: merge-request pipelines and the reconciler poll
+
+The reconciler's fallback poll lists pipelines by branch (`ref=<source branch>`). Detached merge-request pipelines are not on the branch ref — GitLab records them under `refs/merge-requests/<iid>/head` — so on projects that run *only* merge-request pipelines the poll finds nothing. This is harmless: a read that finds no pipeline never closes a watch, so those repositories are driven entirely by the pipeline webhook, with the six-hour expiry as the backstop.
+
 ---
 
 ## What pipeline watch does not do
@@ -108,17 +122,34 @@ GitHub Actions does not expose per-job required-ness through the API, so DAIV tr
 
 ---
 
-## Rollout: required step for existing repositories
+## Rollout: required step per platform
 
-!!! warning "Action required for existing repositories"
-    `setup_webhooks` only creates new hooks; it skips repositories already onboarded. Adding
-    `pipeline_events` (GitLab) and `workflow_run` (GitHub) to existing webhooks requires running:
+Pipeline watch needs a CI event to react to, and enabling that event is a different action on each platform. Until it is done the feature is **inert** — it never receives an event and never arms. That is a safe failure, but a silent one.
 
-    ```bash
-    python manage.py setup_webhooks --update
-    ```
+### GitLab — run the management command
 
-    Until this runs, pipeline watch is **inert on every already-onboarded repository** — it will not receive CI events and will never arm. The feature works automatically for any repository onboarded after the upgrade.
+GitLab webhooks are per repository, and `setup_webhooks` only creates hooks that do not exist yet; it skips repositories already onboarded. Adding `pipeline_events` to those existing hooks requires:
+
+```bash
+python manage.py setup_webhooks --update
+```
+
+Repositories onboarded after the upgrade get `pipeline_events` automatically.
+
+### GitHub — change the GitHub App subscription
+
+!!! warning "The management command does nothing on GitHub"
+    `setup_webhooks` exits immediately when DAIV is configured for GitHub: an App's event
+    subscriptions are centralized, not per repository, so there is no per-repository hook to
+    update. Running `--update` on a GitHub install is a no-op.
+
+Subscribe the App instead — this covers every repository it is installed on at once:
+
+1. Open your GitHub App's settings page → **Permissions & events**.
+2. Under **Subscribe to events**, check **Workflow run**.
+3. Save. No re-installation or permission re-approval is needed for an event-only change.
+
+See [Platform Setup](../getting-started/platform-setup.md) for the full event checklist.
 
 ---
 
