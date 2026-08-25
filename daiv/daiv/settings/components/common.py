@@ -6,7 +6,7 @@ from get_docker_secret import get_docker_secret
 DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
 SECRET_KEY = get_docker_secret("DJANGO_SECRET_KEY", safe=False)
-ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="*", cast=Csv())
+ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="", cast=Csv())
 SITE_ID = 1
 
 # Application definition

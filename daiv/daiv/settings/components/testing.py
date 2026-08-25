@@ -1,5 +1,9 @@
 TESTING = True
 
+# The test client sends Host: testserver; common.py now defaults ALLOWED_HOSTS
+# to the empty list (fail closed in production), so tests must opt in here.
+ALLOWED_HOSTS = ["*"]
+
 # I18N
 
 LANGUAGES = (("en", "English"),)
