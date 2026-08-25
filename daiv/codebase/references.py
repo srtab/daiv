@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,11 +16,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.codebase")
 
-PROVIDER_GENERIC = "generic"
-PROVIDER_GITLAB_ISSUE = "gitlab-issue"
-PROVIDER_GITHUB_ISSUE = "github-issue"
-PROVIDER_SENTRY = "sentry"
-PROVIDER_JIRA = "jira"
+
+class RefProvider(StrEnum):
+    """The provider vocabulary DAIV knows by name: ``GENERIC`` is the intake default, the rest each
+    drive a renderer branch. ``RefIn.provider`` stays an open ``str`` — an unregistered provider
+    degrades to a plain link bullet — so this bounds nothing.
+    """
+
+    GENERIC = "generic"
+    GITLAB_ISSUE = "gitlab-issue"
+    GITHUB_ISSUE = "github-issue"
+    SENTRY = "sentry"
+    JIRA = "jira"
+
 
 MAX_REFS_PER_SUBMISSION = 20
 MAX_REFS_PER_SESSION = 50
@@ -43,7 +52,7 @@ class RefIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str = Field(min_length=1, max_length=64, pattern=_KEY_PATTERN)
-    provider: str = Field(default=PROVIDER_GENERIC, pattern=r"^[a-z0-9-]{1,32}$")
+    provider: str = Field(default=RefProvider.GENERIC.value, pattern=r"^[a-z0-9-]{1,32}$")
     url: str = Field(default="", max_length=500)
     relation: RefRelation = "relates"
 
@@ -103,14 +112,26 @@ def refs_from_stored(raw: object) -> tuple[ExternalRef, ...]:
     return tuple(refs)
 
 
+def _ref_identity(provider: object, key: object) -> tuple[str, str]:
+    """What makes two references the same reference, in either shape."""
+    return (str(provider), str(key))
+
+
 def merge_stored_refs(existing: list[dict], new: list[dict]) -> list[dict]:
+    """Merge ``new`` into ``existing`` for the ``Session.external_refs`` column, capped at
+    ``MAX_REFS_PER_SESSION``.
+
+    Deliberately dict-level rather than routed through :class:`ExternalRef`: ``refs_from_stored``
+    keeps only known fields and ``to_stored`` dumps only those, so a model round-trip here would
+    drop a field written by a newer version.
+    """
     merged: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for item in [*existing, *new]:
         if not isinstance(item, dict):
             logger.warning("Skipping malformed stored external ref: %r", item)
             continue
-        ident = (str(item.get("provider", "")), str(item.get("key", "")))
+        ident = _ref_identity(item.get("provider", ""), item.get("key", ""))
         if ident in seen:
             continue
         seen.add(ident)
@@ -124,21 +145,24 @@ def merge_stored_refs(existing: list[dict], new: list[dict]) -> list[dict]:
     return merged[:MAX_REFS_PER_SESSION]
 
 
-def dedupe_refs(refs: Sequence[ExternalRef]) -> tuple[ExternalRef, ...]:
+def _dedupe_refs(refs: Sequence[ExternalRef]) -> tuple[ExternalRef, ...]:
     out: list[ExternalRef] = []
     seen: set[tuple[str, str]] = set()
     for ref in refs:
-        if (ref.provider, ref.key) in seen:
+        ident = _ref_identity(ref.provider, ref.key)
+        if ident in seen:
             continue
-        seen.add((ref.provider, ref.key))
+        seen.add(ident)
         out.append(ref)
     return tuple(out)
 
 
-_ISSUE_PROVIDER_BY_PLATFORM = {GitPlatform.GITLAB: PROVIDER_GITLAB_ISSUE, GitPlatform.GITHUB: PROVIDER_GITHUB_ISSUE}
+_ISSUE_PROVIDER_BY_PLATFORM = {
+    GitPlatform.GITLAB: RefProvider.GITLAB_ISSUE,
+    GitPlatform.GITHUB: RefProvider.GITHUB_ISSUE,
+}
 
-# Providers the git platform itself parses out of the MR description; every renderer branches on
-# this set rather than re-listing its members.
+# Providers the git platform itself parses out of the MR description.
 PLATFORM_ISSUE_PROVIDERS = frozenset(_ISSUE_PROVIDER_BY_PLATFORM.values())
 
 
@@ -152,7 +176,7 @@ def assemble_run_references(
     provider = _ISSUE_PROVIDER_BY_PLATFORM.get(git_platform)
     if scope == Scope.ISSUE and issue is not None and issue.iid is not None and provider:
         refs = (ExternalRef(key=str(issue.iid), provider=provider, relation="closes"), *refs)
-    return dedupe_refs(refs)
+    return _dedupe_refs(refs)
 
 
 def _issue_line(ref: ExternalRef, repo_slug: str, *, gitlab: bool) -> str:
@@ -168,8 +192,8 @@ def render_references_block(refs: Sequence[ExternalRef], *, repo_slug: str) -> s
     bullets: list[str] = []
     for ref in refs:
         if ref.provider in PLATFORM_ISSUE_PROVIDERS:
-            standalone.append(_issue_line(ref, repo_slug, gitlab=ref.provider == PROVIDER_GITLAB_ISSUE))
-        elif ref.provider == PROVIDER_SENTRY and ref.relation == "closes":
+            standalone.append(_issue_line(ref, repo_slug, gitlab=ref.provider == RefProvider.GITLAB_ISSUE))
+        elif ref.provider == RefProvider.SENTRY and ref.relation == "closes":
             bullets.append(f"- Fixes {ref.key}" + (f" ([Sentry]({ref.url}))" if ref.url else ""))
         else:
             bullets.append(f"- [{ref.key}]({ref.url})" if ref.url else f"- {ref.key}")
@@ -198,8 +222,8 @@ def render_agent_context(refs: Sequence[ExternalRef]) -> str:
 def render_commit_trailers(refs: Sequence[ExternalRef]) -> tuple[str, ...]:
     trailers: list[str] = []
     for ref in refs:
-        if ref.provider == PROVIDER_SENTRY and ref.relation == "closes":
+        if ref.provider == RefProvider.SENTRY and ref.relation == "closes":
             trailers.append(f"Fixes {ref.key}")
-        elif ref.provider == PROVIDER_JIRA:
+        elif ref.provider == RefProvider.JIRA:
             trailers.append(f"Refs: {ref.key}")
     return tuple(trailers)

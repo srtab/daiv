@@ -6,12 +6,10 @@ from pydantic import ValidationError
 from codebase.base import GitPlatform, Issue, Scope, User
 from codebase.references import (
     MAX_REFS_PER_SESSION,
-    PROVIDER_GITHUB_ISSUE,
-    PROVIDER_GITLAB_ISSUE,
     ExternalRef,
     RefIn,
+    RefProvider,
     assemble_run_references,
-    dedupe_refs,
     merge_stored_refs,
     refs_from_stored,
     render_agent_context,
@@ -86,7 +84,7 @@ class TestIntakeRejectsInjection:
 
     def test_closing_keys_still_accept_bare_identifiers(self):
         assert RefIn(key="DAIV-1V", provider="sentry", relation="closes").key == "DAIV-1V"
-        assert RefIn(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes").key == "42"
+        assert RefIn(key="42", provider=RefProvider.GITLAB_ISSUE, relation="closes").key == "42"
 
 
 class TestExternalRefConstruction:
@@ -186,11 +184,11 @@ class TestAssemble:
 
     def test_derives_closing_issue_ref_for_issue_scope(self):
         refs = assemble_run_references((), scope=Scope.ISSUE, issue=self._issue(), git_platform=GitPlatform.GITLAB)
-        assert refs == (ExternalRef(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes"),)
+        assert refs == (ExternalRef(key="42", provider=RefProvider.GITLAB_ISSUE, relation="closes"),)
 
     def test_github_platform_gets_github_provider(self):
         refs = assemble_run_references((), scope=Scope.ISSUE, issue=self._issue(), git_platform=GitPlatform.GITHUB)
-        assert refs[0].provider == PROVIDER_GITHUB_ISSUE
+        assert refs[0].provider == RefProvider.GITHUB_ISSUE
 
     @pytest.mark.parametrize("scope,issue", [(Scope.GLOBAL, None), (Scope.ISSUE, None), (Scope.GLOBAL, "set")])
     def test_no_derivation_outside_issue_scope(self, scope, issue):
@@ -200,23 +198,24 @@ class TestAssemble:
         assert result == declared
 
     def test_a_declared_relates_ref_cannot_shadow_the_derived_auto_close(self):
-        declared = (ExternalRef(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="relates"),)
+        declared = (ExternalRef(key="42", provider=RefProvider.GITLAB_ISSUE, relation="relates"),)
         refs = assemble_run_references(
             declared, scope=Scope.ISSUE, issue=self._issue(), git_platform=GitPlatform.GITLAB
         )
-        assert refs == (ExternalRef(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes"),)
+        assert refs == (ExternalRef(key="42", provider=RefProvider.GITLAB_ISSUE, relation="closes"),)
 
     def test_declared_and_derived_are_deduped(self):
-        declared = (ExternalRef(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes"),)
+        declared = (ExternalRef(key="42", provider=RefProvider.GITLAB_ISSUE, relation="closes"),)
         refs = assemble_run_references(
             declared, scope=Scope.ISSUE, issue=self._issue(), git_platform=GitPlatform.GITLAB
         )
         assert len(refs) == 1
 
-    def test_dedupe_refs_first_wins(self):
+    def test_duplicate_declared_refs_keep_the_first(self):
         a = ExternalRef(key="X", provider="jira", url="https://a")
         b = ExternalRef(key="X", provider="jira", url="https://b")
-        assert dedupe_refs((a, b)) == (a,)
+        refs = assemble_run_references((a, b), scope=Scope.GLOBAL, issue=None, git_platform=GitPlatform.GITLAB)
+        assert refs == (a,)
 
 
 @pytest.mark.parametrize(
@@ -290,7 +289,7 @@ def test_render_commit_trailers(refs, expected):
     [
         pytest.param((), "", id="empty"),
         pytest.param(
-            (ExternalRef(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes"),),
+            (ExternalRef(key="42", provider=RefProvider.GITLAB_ISSUE, relation="closes"),),
             "",
             id="platform-issue-refs-are-left-to-the-issue-block",
         ),

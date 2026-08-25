@@ -326,3 +326,22 @@ async def test_submit_job_rejects_too_many_references():
     result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=refs)
 
     assert "error" in json.loads(result)
+
+
+def test_the_submit_job_description_advertises_every_special_provider():
+    """``RefProvider`` owns the vocabulary, but the tool description spells it out in prose for the
+    model. A member added to the enum and not here is silently never advertised.
+    """
+    import typing
+
+    from mcp_server.server import MAX_REFS_PER_SUBMISSION, submit_job
+
+    from codebase.references import RefProvider
+
+    hints = typing.get_type_hints(submit_job, include_extras=True)
+    description = typing.get_args(hints["references"])[1].description
+
+    assert str(MAX_REFS_PER_SUBMISSION) in description
+    for provider in RefProvider:
+        if provider is not RefProvider.GENERIC:
+            assert provider.value in description, f"{provider.value} is not advertised to the model"
