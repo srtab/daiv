@@ -530,7 +530,7 @@ class TestClassifyOnRunFinished:
         task_mock.enqueue.assert_called_once_with(str(run.pk))
 
 
-def test_classify_origins_is_every_origin_but_chat():
+def test_classify_origins_excludes_chat_and_pipeline_webhook():
     """Classification is "universal for non-chat" except pipeline-watch runs, which have a
     separate result path. Pinning the set forces a newly-added SessionOrigin to decide."""
     from sessions.signals import get_classify_origins
