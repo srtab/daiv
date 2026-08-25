@@ -22,7 +22,6 @@ async def test_a_successful_run_with_a_merge_request_arms_the_watch(monkeypatch)
 
     await _aarm_watch_after_run(
         repo_id="group/repo",
-        thread_id="source-thread",
         trigger_type="api_job",
         merge_request={"merge_request_id": 7, "source_branch": "daiv/branch"},
         code_changes=True,
@@ -47,9 +46,7 @@ async def test_a_run_without_a_merge_request_arms_nothing(monkeypatch):
         return None
 
     monkeypatch.setattr("jobs.tasks.aarm_watch", fake_arm)
-    await _aarm_watch_after_run(
-        repo_id="group/repo", thread_id="t", trigger_type="api_job", merge_request=None, code_changes=True
-    )
+    await _aarm_watch_after_run(repo_id="group/repo", trigger_type="api_job", merge_request=None, code_changes=True)
     assert armed == []
 
 
@@ -72,7 +69,6 @@ async def test_a_fix_run_arms_without_resetting_the_counter(monkeypatch):
 
     await _aarm_watch_after_run(
         repo_id="group/repo",
-        thread_id="t",
         trigger_type="pipeline_webhook",
         merge_request={"merge_request_id": 7, "source_branch": "daiv/branch"},
         code_changes=True,
@@ -99,7 +95,6 @@ async def test_a_fix_run_that_changed_nothing_ends_the_watch(monkeypatch):
 
     await _aarm_watch_after_run(
         repo_id="group/repo",
-        thread_id="t",
         trigger_type="pipeline_webhook",
         merge_request={"merge_request_id": 7, "source_branch": "daiv/branch"},
         code_changes=False,
@@ -129,7 +124,6 @@ async def test_a_first_run_that_changed_nothing_arms_nothing(monkeypatch):
 
     await _aarm_watch_after_run(
         repo_id="group/repo",
-        thread_id="t",
         trigger_type="api_job",
         merge_request={"merge_request_id": 7, "source_branch": "daiv/branch"},
         code_changes=False,

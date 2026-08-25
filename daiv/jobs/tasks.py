@@ -23,9 +23,18 @@ LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
 
 
-async def _aarm_watch_after_run(
-    *, repo_id: str, thread_id: str, trigger_type: str, merge_request: object, code_changes: bool
-) -> None:
+async def _aresolve_trigger_type(run_id: str | None) -> str:
+    """The Run's ``trigger_type``, which is what tells the arm that a fix run is re-arming.
+
+    Empty for a run with no row — and an empty value reads as "not a fix run", which resets the
+    attempt counter, so every fix-run dispatcher must pass its ``run_id`` into ``run_job_task``.
+    """
+    if not run_id:
+        return ""
+    return await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst() or ""
+
+
+async def _aarm_watch_after_run(*, repo_id: str, trigger_type: str, merge_request: object, code_changes: bool) -> None:
     """Point the CI watch at the MR this run published, then evaluate immediately.
 
     The immediate evaluation is load-bearing: the push happened during publish, so the
@@ -50,13 +59,7 @@ async def _aarm_watch_after_run(
             )
         return
 
-    armed = await aarm_watch(
-        repo_id=repo_id,
-        merge_request_iid=merge_request_iid,
-        ref=ref,
-        source_thread_id=thread_id,
-        was_fix_run=was_fix_run,
-    )
+    armed = await aarm_watch(repo_id=repo_id, merge_request_iid=merge_request_iid, ref=ref, was_fix_run=was_fix_run)
     if armed is None:
         return
     await evaluate_pipeline_watch_task.aenqueue(repo_id=repo_id, ref=ref)
@@ -267,15 +270,10 @@ async def run_job_task(
         snapshot=snapshot,
     )
 
-    trigger_type = ""
-    if run_id:
-        trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst() or ""
-
     try:
         await _aarm_watch_after_run(
             repo_id=repo_id,
-            thread_id=thread_id,
-            trigger_type=trigger_type,
+            trigger_type=await _aresolve_trigger_type(run_id),
             merge_request=snapshot.values.get("merge_request"),
             code_changes=bool(agent_result.get("code_changes")),
         )
