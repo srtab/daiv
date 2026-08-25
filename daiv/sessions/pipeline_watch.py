@@ -7,6 +7,9 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from asgiref.sync import sync_to_async
+from notifications.channels.registry import enabled_channels
+from notifications.choices import EventType
+from notifications.services import notify
 
 from codebase.base import Scope
 from codebase.clients import RepoClient
@@ -105,8 +108,30 @@ async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: s
 
 
 async def anotify_watch_exhausted(*, session: Session, pipeline: Pipeline) -> None:
-    """Replaced in Task 9."""
-    return None
+    """Tell the session owner the watch gave up. Best-effort: the MR comment is the real channel."""
+    user = await sync_to_async(lambda: session.user)()
+    if user is None:
+        logger.warning(
+            "pipeline_watch: no recipient for exhausted watch on %s (thread_id=%s)", session.repo_id, session.thread_id
+        )
+        return
+
+    names = ", ".join(job.name for job in failed_jobs(pipeline)) or _("the pipeline")
+    try:
+        await sync_to_async(notify)(
+            recipient=user,
+            event_type=EventType.PIPELINE_WATCH_EXHAUSTED,
+            source_type="session",
+            source_id=session.thread_id,
+            subject=_("CI still failing on {repo}!{iid}").format(repo=session.repo_id, iid=session.merge_request_iid),
+            body=_("I could not get CI green after {attempts} attempts. Still failing: {names}.").format(
+                attempts=session.watch_attempts, names=names
+            ),
+            link_url=pipeline.web_url,
+            channels=[cls.channel_type for cls in enabled_channels()],
+        )
+    except Exception:
+        logger.exception("pipeline_watch: failed to notify %s", user.pk)
 
 
 async def aarm_watch(
