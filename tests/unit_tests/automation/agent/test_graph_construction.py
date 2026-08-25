@@ -181,7 +181,7 @@ def test_graph_uses_daiv_filesystem_middleware():
 
 def test_context_usage_middleware_registered_after_model_fallback():
     # ModelFallbackMiddleware retries the INNER chain with the fallback model, so only a
-    # middleware listed after it meters the model that actually served the call (design §3).
+    # middleware listed after it meters the model that actually served the call.
     src = inspect.getsource(graph_module)
     fallback = src.index("ModelFallbackMiddleware(fallback_models[0]")
     meter = src.index("ContextUsageMiddleware()")

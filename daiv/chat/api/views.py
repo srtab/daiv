@@ -347,7 +347,7 @@ async def session_spend(request: HttpRequest, thread_id: str):
     def _load():
         # ``visible_to`` resolves platform identity at query-build time (sync only).
         session = Session.objects.visible_to(user).filter(thread_id=thread_id).first()
-        return build_session_spend(session) if session else None
+        return build_session_spend(session.runs.all()) if session else None
 
     spend = await sync_to_async(_load)()
     if spend is None:

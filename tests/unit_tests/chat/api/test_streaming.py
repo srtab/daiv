@@ -26,6 +26,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
@@ -908,9 +909,10 @@ async def test_events_ref_fallback_survives_reset_ref_failure():
 
 
 async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
-    """Closes the producer→consumer loop for the context meter: the real middleware in a real
-    graph, through the real agent class. The consumer is JS with hand-typed key literals, so
-    per-side tests stay green through a rename — this and the node test are what fail."""
+    """The real middleware in a real graph, through the real agent class: pins that the
+    dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
+    the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
+    shared constants are caught by the node test (the JS side hand-types the literals)."""
 
     @dataclass
     class Ctx:
@@ -948,9 +950,6 @@ async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
     assert len(frames) == 1
     assert frames[0].value == context_usage_payload(
         model="anthropic/claude-sonnet-4.6",
-        input_tokens=10,
-        output_tokens=2,
-        cached_tokens=0,
-        window_tokens=1_000_000,
-        window_source="genai_prices",
+        usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        window=ResolvedWindow(1_000_000, "genai_prices"),
     )

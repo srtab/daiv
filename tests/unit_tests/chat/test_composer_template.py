@@ -326,13 +326,13 @@ def test_the_meter_strings_reach_the_page_translated(member_client, member_user)
     """Guards the placeholder style, not just the wiring: ``{% translate %}`` doubles every
     ``%`` before the catalog lookup, so a percent-style (or %-containing) msgid misses and
     renders untranslated English — invisible in the default locale."""
-    from tests.unit_tests.accounts.test_sidebar import _catalog
+    from tests.unit_tests.translation_stub import catalog
 
     entries = {
         "Context: {percent} of {window} used": "Contexto: {percent} de {window} usados",
         "Plenty of room": "Espaço de sobra",
     }
-    with _catalog(entries):
+    with catalog(entries):
         html = render_thread(member_client, create_session(member_user))
 
     assert "Contexto: {percent} de {window} usados" in html

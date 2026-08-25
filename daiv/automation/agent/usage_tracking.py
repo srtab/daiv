@@ -53,18 +53,20 @@ def infer_provider_id(model_name: str) -> str | None:
 
 
 class ResolvedWindow(NamedTuple):
-    """A resolved context-window size and the tier that produced it (``window_source``)."""
+    """A resolved context-window size and the tier that produced it."""
 
     tokens: int
     source: Literal["profile", "genai_prices"]
 
 
 @lru_cache(maxsize=512)
-def genai_prices_window(model_name: str) -> int | None:
-    """Tier 2 of :func:`resolve_context_window`: genai-prices' ``context_window``.
+def resolve_window_by_name(model_name: str) -> ResolvedWindow | None:
+    """Tier 2 of :func:`resolve_context_window`, alone, for callers with only a model *name*
+    in hand (the hydration seed).
 
     Cached because it is a pure function of the name — unlike tier 1, which is
-    configuration-aware and must never be cached (see the resolver's docstring).
+    configuration-aware and must never be cached (see the resolver's docstring). A zero
+    snapshot window normalizes to ``None`` here, once, rather than at every caller.
     """
     try:
         _, model_info = data_snapshot.get_snapshot().find_provider_model(
@@ -72,7 +74,8 @@ def genai_prices_window(model_name: str) -> int | None:
         )
     except LookupError:
         return None
-    return model_info.context_window
+    window = model_info.context_window
+    return ResolvedWindow(int(window), "genai_prices") if window else None
 
 
 def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWindow | None:
@@ -86,8 +89,8 @@ def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWin
     profile = getattr(model, "profile", None) or {}
     if max_input := profile.get("max_input_tokens"):
         return ResolvedWindow(int(max_input), "profile")
-    if window := genai_prices_window(model_name):
-        return ResolvedWindow(int(window), "genai_prices")
+    if resolved := resolve_window_by_name(model_name):
+        return resolved
     logger.debug("No context window resolvable for model %r", model_name)
     return None
 

@@ -1,4 +1,4 @@
-"""``build_session_spend`` — the settled per-model aggregate behind the usage panel (§4).
+"""``build_session_spend`` — the settled per-model aggregate behind the usage panel.
 
 Every ``Run`` row counts toward the turn count regardless of status; rows with no recorded
 usage and models with no price each independently turn the totals into floors.
@@ -43,7 +43,7 @@ def test_per_model_merge_across_runs(member_user):
         },
     )
 
-    spend = build_session_spend(session)
+    spend = build_session_spend(session.runs.all())
 
     assert spend["turns"] == 2
     assert spend["total_tokens"] == 330
@@ -70,7 +70,7 @@ def test_an_unpriced_model_yields_a_floor_total_not_a_silently_smaller_one(membe
         },
     )
 
-    spend = build_session_spend(session)
+    spend = build_session_spend(session.runs.all())
 
     assert spend["cost_usd"] == "0.10"
     assert spend["cost_is_floor"] is True
@@ -92,7 +92,7 @@ def test_a_null_usage_run_counts_as_a_turn_adds_nothing_and_forces_the_floor(mem
     )
     _run(session, status=RunStatus.FAILED)  # finalize failed: nothing recorded
 
-    spend = build_session_spend(session)
+    spend = build_session_spend(session.runs.all())
 
     assert spend["turns"] == 2
     assert spend["total_tokens"] == 110
@@ -102,9 +102,30 @@ def test_a_null_usage_run_counts_as_a_turn_adds_nothing_and_forces_the_floor(mem
 
 @pytest.mark.django_db
 def test_a_session_with_no_runs_is_all_zeroes(member_user):
-    spend = build_session_spend(create_session(member_user))
+    spend = build_session_spend(create_session(member_user).runs.all())
 
     assert spend["turns"] == 0
     assert spend["cost_usd"] == "0"
     assert spend["cost_is_floor"] is False
     assert spend["by_model"] == []
+
+
+@pytest.mark.django_db
+def test_a_corrupt_cost_degrades_to_unpriced_and_is_logged(member_user, caplog):
+    """A present-but-unparseable cost is a write-path bug — it must stay visible in the
+    logs, not vanish into the same bucket as a legitimately unknown price."""
+    session = create_session(member_user)
+    _run(
+        session,
+        input_tokens=10,
+        output_tokens=1,
+        total_tokens=11,
+        usage_by_model={"m1": {"input_tokens": 10, "output_tokens": 1, "total_tokens": 11, "cost_usd": "garbage"}},
+    )
+
+    with caplog.at_level("WARNING", logger="daiv.sessions"):
+        spend = build_session_spend(session.runs.all())
+
+    assert spend["unpriced_models"] == ["m1"]
+    assert spend["cost_is_floor"] is True
+    assert any("cost_usd" in record.message for record in caplog.records)

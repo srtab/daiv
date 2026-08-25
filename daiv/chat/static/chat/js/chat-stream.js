@@ -167,10 +167,12 @@
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
 
   const PAGE_LANG = (typeof document !== "undefined" && document.documentElement?.lang) || undefined;
-  const compactNumber = (n) =>
-    new Intl.NumberFormat(PAGE_LANG, { notation: "compact", maximumFractionDigits: 1 }).format(n);
-  const exactNumber = (n) => new Intl.NumberFormat(PAGE_LANG).format(n);
+  const COMPACT_FORMAT = new Intl.NumberFormat(PAGE_LANG, { notation: "compact", maximumFractionDigits: 1 });
+  const EXACT_FORMAT = new Intl.NumberFormat(PAGE_LANG);
+  const compactNumber = (n) => COMPACT_FORMAT.format(n);
+  const exactNumber = (n) => EXACT_FORMAT.format(n);
   const formatCost = (raw) => {
+    if (raw == null) return null;
     const n = Number(raw);
     if (!Number.isFinite(n)) return null;
     if (n > 0 && n < 0.01) return "<$0.01";
@@ -187,7 +189,6 @@
     return {
       model: typeof raw.model === "string" ? raw.model : "",
       usedTokens: used,
-      inputTokens: Number(raw.input_tokens) || 0,
       outputTokens: Number(raw.output_tokens) || 0,
       cachedTokens: Number(raw.cached_tokens) || 0,
       windowTokens: Number.isFinite(windowTokens) && windowTokens > 0 ? windowTokens : null,
@@ -993,10 +994,11 @@
       const tone = ratio >= 0.9 ? "danger" : ratio >= 0.75 ? "warn" : "";
       return {
         hasWindow: true,
+        ratio,
         tone,
         fill: Math.min(pct, 100),
         label: `${pct}%`,
-        showValue: ratio >= 0.75,
+        showValue: tone !== "",
         aria: formatBraces(this._labels.ariaContext, {
           percent: `${pct}%`,
           window: compactNumber(u.windowTokens),
@@ -1004,16 +1006,17 @@
       };
     },
 
+    // Derived from contextMeter so the escalation thresholds live once and the ring's
+    // tone can never disagree with the sentence beside it.
     get contextHeadroom() {
-      const u = this.contextUsage;
-      if (!u) return null;
-      if (!u.windowTokens) {
-        return { tone: "unknown", text: formatBraces(this._labels.headroomUnknown, { model: u.model }) };
+      const m = this.contextMeter;
+      if (!m) return null;
+      if (!m.hasWindow) {
+        return { tone: "unknown", text: formatBraces(this._labels.headroomUnknown, { model: this.contextUsage.model }) };
       }
-      const ratio = u.usedTokens / u.windowTokens;
-      if (ratio >= 1) return { tone: "danger", text: this._labels.headroomOver };
-      if (ratio >= 0.9) return { tone: "danger", text: this._labels.headroomDanger };
-      if (ratio >= 0.75) return { tone: "warn", text: this._labels.headroomWarn };
+      if (m.ratio >= 1) return { tone: "danger", text: this._labels.headroomOver };
+      if (m.tone === "danger") return { tone: "danger", text: this._labels.headroomDanger };
+      if (m.tone === "warn") return { tone: "warn", text: this._labels.headroomWarn };
       return { tone: "ok", text: this._labels.headroomOk };
     },
 
@@ -1057,7 +1060,7 @@
     },
 
     spendRowCost(row) {
-      return row.cost_usd == null ? "—" : formatCost(row.cost_usd) || "—";
+      return formatCost(row.cost_usd) ?? "—";
     },
 
     exactTokens(n) {
@@ -1071,9 +1074,13 @@
           this.spendEndpoint + "?thread_id=" + encodeURIComponent(this.thread.thread_id),
           { credentials: "include" },
         );
-        if (resp.ok) this.spend = normalizeSpend(await resp.json());
+        if (resp.ok) {
+          this.spend = normalizeSpend(await resp.json());
+        } else {
+          console.warn("chat: spend refresh rejected with status", resp.status);
+        }
       } catch (err) {
-        console.debug("chat: spend refresh failed", err);
+        console.warn("chat: spend refresh failed", err);
       }
     },
 

@@ -1,9 +1,11 @@
-"""``derive_context_usage`` — the reload half of the context meter (design §4/§2)."""
+"""``derive_context_usage`` — the reload half of the context meter."""
 
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest import mock
 
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.hydration import derive_context_usage
+from sessions.hydration import ahydrate_thread, derive_context_usage
 
 from automation.agent.events import context_usage_payload
 
@@ -30,7 +32,6 @@ def test_the_seed_comes_from_the_last_ai_message_carrying_usage():
     assert seed["used_tokens"] == 110
     assert seed["cached_tokens"] == 60
     assert seed["window_tokens"] == 1_000_000
-    assert seed["window_source"] == "genai_prices"
 
 
 def test_no_usage_anywhere_yields_no_seed():
@@ -42,24 +43,32 @@ def test_an_unknown_model_seeds_the_count_without_a_window():
 
     assert seed["used_tokens"] == 110
     assert seed["window_tokens"] is None
-    assert seed["window_source"] is None
 
 
 def test_seed_and_middleware_payload_share_the_wire_key_set():
-    """Both producers go through the one builder, asserted on key sets (design §Testing)."""
+    """Both producers go through the one builder, asserted on key sets."""
     seed = derive_context_usage([_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")])
-    built = context_usage_payload(
-        model="m", input_tokens=1, output_tokens=1, cached_tokens=0, window_tokens=None, window_source=None
-    )
+    built = context_usage_payload(model="m", usage={"input_tokens": 1, "output_tokens": 1}, window=None)
 
     assert set(seed) == set(built)
 
 
-def test_a_zero_window_from_genai_prices_seeds_no_window():
-    """genai_prices_window returning 0 normalizes to None in both fields, maintaining the
-    wire invariant: window_source is null exactly when window_tokens is."""
-    with mock.patch("sessions.hydration.genai_prices_window", return_value=0):
-        seed = derive_context_usage([_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")])
+async def test_a_seed_failure_costs_the_meter_not_the_thread():
+    """A checkpoint shape the seed walk can't parse must not take down the page render or
+    the transcript poller — the transcript is a usable partial result."""
 
-    assert seed["window_tokens"] is None
-    assert seed["window_source"] is None
+    @asynccontextmanager
+    async def _fake_checkpointer():
+        yield SimpleNamespace(aget_tuple=mock.AsyncMock(return_value=SimpleNamespace(checkpoint={})))
+
+    messages = [_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")]
+    with (
+        mock.patch("sessions.hydration.open_checkpointer", _fake_checkpointer),
+        mock.patch("sessions.hydration.aresolve_thread_messages", mock.AsyncMock(return_value=messages)),
+        mock.patch("sessions.hydration.derive_context_usage", side_effect=ValueError("unmodeled shape")),
+    ):
+        hydrated = await ahydrate_thread("thread-1")
+
+    assert hydrated.messages == messages
+    assert hydrated.expired is False
+    assert hydrated.context_usage is None

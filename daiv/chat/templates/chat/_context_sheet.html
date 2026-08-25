@@ -12,20 +12,20 @@ input.css); icons here are masks and cannot be data-driven.
 <div class="composer-sheet-anchor" x-show="contextUsage" x-cloak>
   <button type="button"
           class="context-meter"
-          :class="contextMeter && contextMeter.tone ? 'context-meter--' + contextMeter.tone : ''"
+          :class="contextMeter?.tone ? 'context-meter--' + contextMeter.tone : ''"
           @click.stop="toggleSheet('context')"
           :aria-expanded="sheet === 'context'"
           aria-haspopup="dialog"
-          :aria-label="contextMeter ? contextMeter.aria : ''">
+          :aria-label="contextMeter?.aria || ''">
     <span class="context-meter__ring"
-          x-show="contextMeter && contextMeter.hasWindow"
+          x-show="contextMeter?.hasWindow"
           :style="contextMeter ? '--meter-fill: ' + contextMeter.fill : ''"
           aria-hidden="true"></span>
     <span class="context-meter__value"
-          :class="{ 'context-meter__value--quiet': contextMeter && !contextMeter.showValue }"
-          x-text="contextMeter ? contextMeter.label : ''"></span>
+          :class="{ 'context-meter__value--quiet': contextMeter?.showValue === false }"
+          x-text="contextMeter?.label || ''"></span>
     <span class="context-meter__glyph"
-          x-show="contextMeter && contextMeter.tone === 'danger'"
+          x-show="contextMeter?.tone === 'danger'"
           x-cloak
           aria-hidden="true">{% icon "exclamation-triangle" "h-3 w-3" %}</span>
   </button>
@@ -42,13 +42,13 @@ input.css); icons here are masks and cannot be data-driven.
       <section class="composer-sheet__group">
         <h3 class="composer-sheet__label">{% translate "Context" %}</h3>
         {% comment %}
-        Exact, locale-grouped counts on purpose: Known limits leans on this figure being
-        checkable against a provider's own error message, which a rounded 130k is not.
+        Exact, locale-grouped counts on purpose: the figure must be checkable against a
+        provider's own limit error, which a rounded 130k is not.
         {% endcomment %}
         <p class="context-panel__figure" x-text="contextFigure"></p>
-        <div class="context-panel__track" x-show="contextMeter && contextMeter.hasWindow" aria-hidden="true">
+        <div class="context-panel__track" x-show="contextMeter?.hasWindow" aria-hidden="true">
           <div class="context-panel__fill"
-               :class="contextMeter && contextMeter.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
+               :class="contextMeter?.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
                :style="contextMeter ? 'width: ' + contextMeter.fill + '%' : ''"></div>
         </div>
         <p class="context-panel__subline" x-text="contextSubline"></p>
@@ -73,11 +73,11 @@ input.css); icons here are masks and cannot be data-driven.
       <p class="context-panel__headroom"
          x-show="contextHeadroom"
          :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
-        <span x-show="contextHeadroom && contextHeadroom.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom && contextHeadroom.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom && contextHeadroom.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom && contextHeadroom.tone === 'unknown'" aria-hidden="true">{% icon "information-circle" "h-3.5 w-3.5" %}</span>
-        <span x-text="contextHeadroom ? contextHeadroom.text : ''"></span>
+        <span x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
+        <span x-show="contextHeadroom?.tone === 'unknown'" aria-hidden="true">{% icon "information-circle" "h-3.5 w-3.5" %}</span>
+        <span x-text="contextHeadroom?.text || ''"></span>
       </p>
     </div>
   </div>

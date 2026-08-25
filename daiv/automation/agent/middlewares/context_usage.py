@@ -41,10 +41,12 @@ class ContextUsageMiddleware(AgentMiddleware):
         response = await handler(request)
         try:
             await self._dispatch_usage(request, response)
-        except Exception:
-            # Best-effort, like streamed_assistant_message: a cosmetic frame must never
-            # fail the model call that produced it.
+        except RuntimeError:
+            # The anticipated transport case (no parent run id to dispatch against);
+            # a cosmetic frame must never fail the model call that produced it.
             logger.warning("Could not stream context usage; the meter catches up next call", exc_info=True)
+        except Exception:
+            logger.exception("Context-usage dispatch failed; the meter will not update")
         return response
 
     async def _dispatch_usage(self, request: ModelRequest, response: ModelResponse) -> None:
@@ -55,15 +57,9 @@ class ContextUsageMiddleware(AgentMiddleware):
         model_name = (message.response_metadata or {}).get("model_name")
         if not usage or not model_name:
             return
-        window = resolve_context_window(request.model, model_name)
         await adispatch_custom_event(
             CONTEXT_USAGE_EVENT,
             context_usage_payload(
-                model=model_name,
-                input_tokens=usage.get("input_tokens", 0),
-                output_tokens=usage.get("output_tokens", 0),
-                cached_tokens=(usage.get("input_token_details") or {}).get("cache_read", 0),
-                window_tokens=window.tokens if window else None,
-                window_source=window.source if window else None,
+                model=model_name, usage=usage, window=resolve_context_window(request.model, model_name)
             ),
         )

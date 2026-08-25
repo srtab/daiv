@@ -344,7 +344,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
         ctx["context_usage"] = hydrated.context_usage
-        ctx["session_spend"] = build_session_spend(session)
+        ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a

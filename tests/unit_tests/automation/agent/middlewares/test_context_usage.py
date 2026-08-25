@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from automation.agent.events import CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.usage_tracking import ResolvedWindow
 
 USAGE = {
     "input_tokens": 120_000,
@@ -48,14 +49,7 @@ async def test_emits_once_per_model_call_with_the_built_payload():
     assert result is response
     dispatch.assert_awaited_once_with(
         CONTEXT_USAGE_EVENT,
-        context_usage_payload(
-            model="claude-sonnet-4-6",
-            input_tokens=120_000,
-            output_tokens=1_500,
-            cached_tokens=100_000,
-            window_tokens=1_000_000,
-            window_source="profile",
-        ),
+        context_usage_payload(model="claude-sonnet-4-6", usage=USAGE, window=ResolvedWindow(1_000_000, "profile")),
     )
 
 
@@ -86,6 +80,37 @@ async def test_a_dispatch_failure_never_fails_the_model_call():
     assert result is response
 
 
+async def test_the_anticipated_transport_failure_stays_a_warning():
+    """A missing parent run id is an outage-shaped condition, not a bug — it must not
+    mint a Sentry error event per model call."""
+    response = _response(usage_metadata=USAGE, response_metadata={"model_name": "claude-sonnet-4-6"})
+
+    with (
+        _patched_dispatch(side_effect=RuntimeError("no parent run")),
+        patch("automation.agent.middlewares.context_usage.logger") as log,
+    ):
+        await ContextUsageMiddleware().awrap_model_call(_request(), _handler(response))
+
+    log.warning.assert_called_once()
+    log.exception.assert_not_called()
+
+
+async def test_an_unexpected_failure_logs_at_error_without_failing_the_call():
+    """A bug anywhere in the derivation chain must be visible to prod monitoring
+    (``logger.warning`` never becomes a Sentry event) while staying non-fatal."""
+    response = _response(usage_metadata=USAGE, response_metadata={"model_name": "claude-sonnet-4-6"})
+
+    with (
+        _patched_dispatch(side_effect=ValueError("builder bug")),
+        patch("automation.agent.middlewares.context_usage.logger") as log,
+    ):
+        result = await ContextUsageMiddleware().awrap_model_call(_request(), _handler(response))
+
+    assert result is response
+    log.exception.assert_called_once()
+    log.warning.assert_not_called()
+
+
 async def test_an_unresolved_window_still_emits_the_count():
     response = _response(usage_metadata=USAGE, response_metadata={"model_name": "model-nobody-knows"})
 
@@ -95,4 +120,3 @@ async def test_an_unresolved_window_still_emits_the_count():
     payload = dispatch.await_args.args[1]
     assert payload["used_tokens"] == 121_500
     assert payload["window_tokens"] is None
-    assert payload["window_source"] is None

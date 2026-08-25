@@ -8,6 +8,7 @@ ASSISTANT_MESSAGE_EVENT failure — so a key renamed on either side alone must f
 from __future__ import annotations
 
 from automation.agent.events import CONTEXT_USAGE_EVENT, context_usage_payload
+from automation.agent.usage_tracking import ResolvedWindow
 from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
@@ -36,11 +37,12 @@ def _meter(*frames) -> dict:
 def _payload(used, window, *, output_tokens=0, model="anthropic/claude-sonnet-4.6", cached=0) -> dict:
     return context_usage_payload(
         model=model,
-        input_tokens=used - output_tokens,
-        output_tokens=output_tokens,
-        cached_tokens=cached,
-        window_tokens=window,
-        window_source="genai_prices" if window else None,
+        usage={
+            "input_tokens": used - output_tokens,
+            "output_tokens": output_tokens,
+            "input_token_details": {"cache_read": cached},
+        },
+        window=ResolvedWindow(window, "genai_prices") if window else None,
     )
 
 

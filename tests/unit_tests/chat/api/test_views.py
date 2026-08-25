@@ -1253,8 +1253,8 @@ async def test_spend_route_returns_the_aggregated_runs(client: TestAsyncClient, 
 
 @pytest.mark.django_db(transaction=True)
 async def test_spend_route_404s_another_users_session(client: TestAsyncClient, authed):
-    """``visible_to`` is the guard — the same one SessionDetailView uses. ``auth=django_auth``
-    authenticates but does not authorize (design §4)."""
+    """``visible_to`` is the guard — the same one SessionDetailView uses. The router's
+    auth (``[AuthBearer(), django_auth]``) authenticates but does not authorize."""
     _key, raw, _user = authed
     other = await User.objects.acreate_user(
         username="spend-other",

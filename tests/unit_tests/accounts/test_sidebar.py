@@ -1,16 +1,13 @@
-import contextlib
-import gettext as gettext_module
 import uuid
 
 from django.test import Client
 from django.urls import reverse
-from django.utils import translation
-from django.utils.translation import trans_real
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role, User
+from tests.unit_tests.translation_stub import catalog
 
 
 @pytest.fixture
@@ -32,30 +29,6 @@ def _client(user):
     c = Client()
     c.force_login(user)
     return c
-
-
-class _StubCatalog(gettext_module.NullTranslations):
-    def __init__(self, entries):
-        super().__init__()
-        self._entries = entries
-
-    def gettext(self, message):
-        return self._entries.get(message, message)
-
-
-@contextlib.contextmanager
-def _catalog(entries):
-    """Activate a fake locale carrying ``entries``.
-
-    A stub rather than a real locale because ``.mo`` files are gitignored and CI runs
-    ``make test`` without ``compilemessages``, so no compiled catalog exists there.
-    """
-    trans_real._translations["xx"] = _StubCatalog(entries)
-    try:
-        with translation.override("xx"):
-            yield
-    finally:
-        trans_real._translations.pop("xx", None)
 
 
 @pytest.mark.django_db
@@ -141,7 +114,7 @@ class TestRunningJobsBadge:
         """Guards the placeholder style, not just the wiring: ``{% translate %}`` doubles
         every ``%`` before the catalog lookup, so a ``%(count)s`` msgid misses and renders
         the untranslated source — which reads as correct in the default locale."""
-        with _catalog({"{count} running": "{count} a decorrer"}):
+        with catalog({"{count} running": "{count} a decorrer"}):
             content = _client(member).get(reverse("dashboard")).content.decode()
         assert "{count} a decorrer" in content
         assert "{count} running" not in content
