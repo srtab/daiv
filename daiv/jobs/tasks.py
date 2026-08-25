@@ -8,30 +8,15 @@ from django.utils.translation import gettext as _
 from django_tasks import task
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
+from sessions.pipeline_watch import aarm_watch, aexhaust_watch
 
 from chat.repo_state import mr_to_payload
+from codebase.tasks import evaluate_pipeline_watch_task
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.jobs")
-
-
-def __getattr__(name: str) -> object:
-    # Lazy-load names that would cause a circular import if imported at module level.
-    # jobs.tasks ← sessions.services ← sessions.pipeline_watch → jobs.tasks
-    if name in ("aarm_watch", "aexhaust_watch"):
-        from sessions.pipeline_watch import aarm_watch, aexhaust_watch
-
-        globals().update({"aarm_watch": aarm_watch, "aexhaust_watch": aexhaust_watch})
-        return globals()[name]
-    if name == "evaluate_pipeline_watch_task":
-        from codebase.tasks import evaluate_pipeline_watch_task
-
-        globals()["evaluate_pipeline_watch_task"] = evaluate_pipeline_watch_task
-        return evaluate_pipeline_watch_task
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 LOCK_WAIT_TIMEOUT_S = 1800.0  # give a long-running chat turn time to finish
 LOCK_POLL_INTERVAL_S = 5.0
@@ -58,14 +43,14 @@ async def _aarm_watch_after_run(
         # A fix run with no diff pushed nothing, so no pipeline will run and no event will
         # arrive — re-arming would strand the watch until it aged out.
         if was_fix_run:
-            await aexhaust_watch(  # noqa: F821
+            await aexhaust_watch(
                 repo_id=repo_id,
                 merge_request_iid=merge_request_iid,
                 reason=_("I could not find a change that would fix it"),
             )
         return
 
-    armed = await aarm_watch(  # noqa: F821
+    armed = await aarm_watch(
         repo_id=repo_id,
         merge_request_iid=merge_request_iid,
         ref=ref,
@@ -74,7 +59,7 @@ async def _aarm_watch_after_run(
     )
     if armed is None:
         return
-    await evaluate_pipeline_watch_task.aenqueue(repo_id=repo_id, ref=ref)  # noqa: F821
+    await evaluate_pipeline_watch_task.aenqueue(repo_id=repo_id, ref=ref)
 
 
 async def _acquire_session_lock(thread_id: str, holder_id: str, *, session_exists: bool) -> bool | None:

@@ -13,7 +13,6 @@ from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
 from sessions.models import RunStatus, Session, SessionOrigin, WatchState
-from sessions.services import acreate_run
 
 if TYPE_CHECKING:
     from codebase.base import Job, Pipeline
@@ -79,6 +78,8 @@ async def _apost_watch_note(*, repo_id: str, merge_request_iid: int, body: str) 
 
 async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: str, merge_request_iid: int) -> None:
     from jobs.tasks import run_job_task
+
+    from sessions.services import acreate_run
 
     names = ", ".join(job.name for job in failed_jobs(pipeline)) or _("the pipeline")
     prompt = _(
