@@ -3,11 +3,19 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+from unittest import mock
 
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
-from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler, build_usage_summary
+from automation.agent.usage_tracking import (
+    CostAwareUsageMetadataCallbackHandler,
+    _calc_model_cost,
+    build_usage_summary,
+    resolve_context_window,
+    resolve_window_by_name,
+)
 
 
 def _usage_metadata(
@@ -409,3 +417,58 @@ class TestEmptyMetadataWarning:
 
         assert summary.input_tokens == 0
         assert any("callback hook may not have fired" in rec.message for rec in caplog.records)
+
+
+def _model(profile=None) -> GenericFakeChatModel:
+    return GenericFakeChatModel(messages=iter([]), profile=profile)
+
+
+class TestResolveContextWindow:
+    def test_a_profile_value_wins_over_genai_prices(self):
+        resolved = resolve_context_window(_model({"max_input_tokens": 777}), "anthropic/claude-sonnet-4.6")
+
+        assert resolved == (777, "profile")
+
+    def test_an_empty_profile_falls_through_instead_of_resolving_to_zero(self):
+        """ChatGoogleGenerativeAI ships ``{}``; gating on the profile's *presence* would
+        resolve it as tier 1 with no tokens. The check is on the value."""
+        resolved = resolve_context_window(_model({}), "anthropic/claude-sonnet-4.6")
+
+        assert resolved is not None
+        assert resolved.source == "genai_prices"
+
+    def test_a_profile_less_model_resolves_from_genai_prices(self):
+        assert resolve_context_window(_model(None), "anthropic/claude-sonnet-4.6") == (1_000_000, "genai_prices")
+
+    def test_an_unknown_model_returns_none(self):
+        assert resolve_context_window(_model(None), "model-that-does-not-exist-xyz") is None
+
+    def test_the_price_path_and_the_window_path_infer_the_same_provider(self):
+        """Both must resolve the slash form via the shared provider-inference helper —
+        one succeeding while the other LookupErrors means the rule was re-enumerated."""
+        assert resolve_window_by_name("anthropic/claude-sonnet-4.6") is not None
+        assert _calc_model_cost("anthropic/claude-sonnet-4.6", {"input_tokens": 10, "output_tokens": 5}) is not None
+
+    def test_every_hit_carries_its_source_tier(self):
+        assert resolve_context_window(_model({"max_input_tokens": 100}), "x").source == "profile"
+        assert resolve_context_window(_model(None), "anthropic/claude-sonnet-4.6").source == "genai_prices"
+
+    def test_the_cache_never_serves_tier_one(self):
+        """Two instances of one model name with different profiles resolve independently:
+        a name-keyed cache over the whole resolver would freeze the first configuration
+        process-wide (the context-1m beta raises ``max_input_tokens`` per instance)."""
+        a = resolve_context_window(_model({"max_input_tokens": 200_000}), "claude-sonnet-4-6")
+        b = resolve_context_window(_model({"max_input_tokens": 1_000_000}), "claude-sonnet-4-6")
+
+        assert (a.tokens, b.tokens) == (200_000, 1_000_000)
+
+    def test_a_zero_snapshot_window_normalizes_to_none(self):
+        """genai-prices models ``context_window`` as ``int | None`` with 0 representable;
+        the normalization lives here, once, so no caller can ship a zero window."""
+        with mock.patch("automation.agent.usage_tracking.data_snapshot") as snapshot:
+            snapshot.get_snapshot.return_value.find_provider_model.return_value = (None, mock.Mock(context_window=0))
+            assert resolve_window_by_name("zero-window-model") is None
+
+    def test_the_name_only_resolver_is_tier_two_with_its_label(self):
+        assert resolve_window_by_name("anthropic/claude-sonnet-4.6") == (1_000_000, "genai_prices")
+        assert resolve_window_by_name("model-that-does-not-exist-xyz") is None

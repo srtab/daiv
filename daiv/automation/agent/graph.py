@@ -25,6 +25,7 @@ from automation.agent.constants import (
     ModelName,
 )
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
@@ -332,6 +333,7 @@ async def create_daiv_agent(
         # capture/sandbox teardown) and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
         StepBudgetMiddleware(),
+        ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
