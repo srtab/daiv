@@ -100,6 +100,8 @@ class RuntimeCtx:
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
             object.__setattr__(self, "repos", tuple(self.repos))
+        if not isinstance(self.references, tuple):
+            object.__setattr__(self, "references", tuple(self.references))
         if len(self.repos) != 1:
             raise SingleRepoRequiredError(actual=len(self.repos))
 

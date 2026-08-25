@@ -77,13 +77,14 @@ class RefIn(BaseModel):
             raise ValueError("a closes reference key may not contain '/' or '#'")
         return self
 
-    def to_stored(self) -> dict:
+    def to_stored(self) -> dict[str, str]:
         return {"key": self.key, "provider": self.provider, "url": self.url, "relation": self.relation}
 
 
 def refs_from_stored(raw: object) -> tuple[ExternalRef, ...]:
     """Coerce ``Session.external_refs`` JSON into refs; a malformed entry is skipped, never fatal."""
     if not isinstance(raw, list):
+        logger.warning("Ignoring malformed stored external refs column: %r", raw)
         return ()
     refs: list[ExternalRef] = []
     for item in raw:
@@ -94,7 +95,7 @@ def refs_from_stored(raw: object) -> tuple[ExternalRef, ...]:
     return tuple(refs)
 
 
-def merge_stored_refs(existing: list, new: list) -> list[dict]:
+def merge_stored_refs(existing: list[dict], new: list[dict]) -> list[dict]:
     merged: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for item in [*existing, *new]:
@@ -105,6 +106,12 @@ def merge_stored_refs(existing: list, new: list) -> list[dict]:
             continue
         seen.add(ident)
         merged.append(item)
+    if len(merged) > MAX_REFS_PER_SESSION:
+        logger.warning(
+            "Session reference budget of %d reached; dropping the %d newest reference(s)",
+            MAX_REFS_PER_SESSION,
+            len(merged) - MAX_REFS_PER_SESSION,
+        )
     return merged[:MAX_REFS_PER_SESSION]
 
 

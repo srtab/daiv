@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from pydantic import ValidationError
 
@@ -100,6 +102,11 @@ class TestStoredRoundTrip:
     def test_malformed_entries_are_skipped_not_fatal(self, raw):
         assert refs_from_stored(raw) == ()
 
+    def test_a_malformed_column_warns_like_a_malformed_entry(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+            assert refs_from_stored("junk") == ()
+        assert "malformed stored external refs column" in caplog.text
+
     def test_good_entries_survive_beside_bad_ones(self):
         raw = [{"key": ""}, {"key": "OK-1"}]
         assert refs_from_stored(raw) == (ExternalRef(key="OK-1"),)
@@ -121,6 +128,18 @@ class TestMerge:
         merged = merge_stored_refs(existing, [{"key": "NEW", "provider": "generic", "url": "", "relation": "relates"}])
         assert len(merged) == MAX_REFS_PER_SESSION
         assert all(m["key"] != "NEW" for m in merged)
+
+    def test_dropping_refs_at_the_cap_is_logged(self, caplog):
+        existing = [{"key": f"K-{i}", "provider": "generic", "url": "", "relation": "relates"} for i in range(50)]
+        new = [{"key": f"N-{i}", "provider": "generic", "url": "", "relation": "relates"} for i in range(3)]
+        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+            merge_stored_refs(existing, new)
+        assert "dropping the 3 newest" in caplog.text
+
+    def test_a_merge_within_budget_logs_nothing(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+            merge_stored_refs([], [{"key": "K-1", "provider": "generic", "url": "", "relation": "relates"}])
+        assert "budget" not in caplog.text
 
 
 class TestAssemble:

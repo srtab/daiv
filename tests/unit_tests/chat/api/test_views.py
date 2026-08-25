@@ -764,6 +764,41 @@ async def test_chat_mcp_selection_is_pool_relative_across_status_flip(
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_chat_forwards_the_sessions_external_refs_to_the_streamer(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """References declared when a thread was submitted via the API keep reaching the publisher on
+    later chat turns, because they live on the session row."""
+    from django.core.cache import cache
+
+    from codebase.references import ExternalRef
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-refs",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        external_refs=[{"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/PROJ-9"}],
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-refs"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+
+    assert patched_streamer.call_args.kwargs["external_refs"] == (
+        ExternalRef(key="PROJ-9", provider="jira", url="https://jira.example.com/PROJ-9", relation="relates"),
+    )
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("value", [[""], list(range(201)), ["x" * 300]])
 async def test_chat_rejects_out_of_bounds_mcp_servers_payload(client: TestAsyncClient, authed, value):
     """Shape alone is not enough: an unbounded count or an over-long name would reach the
