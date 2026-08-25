@@ -40,6 +40,7 @@ from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
+from sessions.spend import build_session_spend
 from sessions.transcript import annotate_transcript
 from slash_commands.composer import composer_command_rows
 
@@ -305,10 +306,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
+                "context_usage": None,
+                "session_spend": None,
             })
             return ctx
 
-        messages_history, expired, merge_request, diff_stats = async_to_sync(ahydrate_thread)(session.thread_id)
+        hydrated = async_to_sync(ahydrate_thread)(session.thread_id)
+        merge_request = hydrated.merge_request_payload
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
@@ -330,15 +334,17 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means
         # the session is really over once nothing is (freshly) in flight; while in flight the
         # "working" state and transcript poller render the same view a chat session gets.
-        no_state = expired and not is_in_flight
+        no_state = hydrated.expired and not is_in_flight
 
-        ctx["turns"] = annotate_transcript(build_turns(messages_history), runs)
+        ctx["turns"] = annotate_transcript(build_turns(hydrated.messages), runs)
         # Expired banner only when there is genuinely nothing to show: no checkpoint
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not ctx["turns"]
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
-        ctx["diff_stats"] = diff_stats
+        ctx["diff_stats"] = hydrated.diff_stats
+        ctx["context_usage"] = hydrated.context_usage
+        ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a

@@ -19,6 +19,17 @@ logger = logging.getLogger("daiv.chat")
 _TOOL_CALL_BLOCK_TYPES = frozenset({"tool_use", "tool_call", "function_call"})
 _THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning"})
 _SKILL_TOOL_NAME = "skill"
+_ASSISTANT_ROLES = ("ai", "assistant")
+
+
+def message_role(m: Any) -> str:
+    """Normalized role of a checkpointed message: ``type`` on LangChain shapes, with ``role``
+    as the fallback for the dict-shaped ones some checkpoints carry."""
+    return (getattr(m, "type", None) or getattr(m, "role", "") or "").lower()
+
+
+def is_assistant_message(m: Any) -> bool:
+    return message_role(m) in _ASSISTANT_ROLES
 
 
 def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
@@ -41,14 +52,14 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     pending_skill_tc_id: str | None = None
 
     for m in messages:
-        mtype = (getattr(m, "type", None) or getattr(m, "role", "") or "").lower()
+        mtype = message_role(m)
         if mtype in ("human", "user"):
             if pending_skill_tc_id is not None:
                 _fold_skill_body(m, turns, tool_index, pending_skill_tc_id)
                 pending_skill_tc_id = None
                 continue
             turns.append(_build_user_turn(m))
-        elif mtype in ("ai", "assistant"):
+        elif mtype in _ASSISTANT_ROLES:
             turn = _build_assistant_turn(m)
             turn_idx = len(turns)
             for seg_idx, seg in enumerate(turn["segments"]):

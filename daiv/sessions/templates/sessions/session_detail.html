@@ -35,6 +35,8 @@
   {{ mcp_server_rows|json_script:"chat-mcp-servers" }}
   {{ mcp_servers_selected|json_script:"chat-mcp-selected" }}
   {{ slash_command_rows|json_script:"chat-slash-commands" }}
+  {{ context_usage|json_script:"chat-context-usage" }}
+  {{ session_spend|json_script:"chat-session-spend" }}
 
   {% if poll_transcript %}
   <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
@@ -65,11 +67,24 @@
   {% translate "filtered to" as filtered_to_word %}
   {% translate "not synced yet" as not_synced_word %}
   {% translate "MCP servers" as mcp_servers_word %}
+  {% translate "Context: {percent} of {window} used" as aria_context %}
+  {% translate "Context: {count} tokens used" as aria_context_no_window %}
+  {% translate "Plenty of room" as headroom_ok %}
+  {% translate "Getting full — consider a new session" as headroom_warn %}
+  {% translate "Nearly full — start a new session" as headroom_danger %}
+  {% translate "Over the window — the next request may be rejected" as headroom_over %}
+  {% translate "No context size known for {model}" as headroom_unknown %}
+  {% translate "{count} turns" as turns_label %}
+  {% translate "{count} turns with unrecorded usage" as unrecorded_label %}
+  {% translate "No price known for {model}" as unpriced_label %}
+  {% translate "cached" as cached_word %}
+  {% translate "output" as output_word %}
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
+         spendEndpoint: "{% url 'api:chat_session_spend' %}",
          activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
          activeRunStartedAt: "{{ chat_active_run_started_at|default:''|escapejs }}",
          {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
@@ -97,7 +112,19 @@
            tools: "{{ tools_word|escapejs }}",
            filteredTo: "{{ filtered_to_word|escapejs }}",
            notSynced: "{{ not_synced_word|escapejs }}",
-           mcpServers: "{{ mcp_servers_word|escapejs }}"
+           mcpServers: "{{ mcp_servers_word|escapejs }}",
+           ariaContext: "{{ aria_context|escapejs }}",
+           ariaContextNoWindow: "{{ aria_context_no_window|escapejs }}",
+           headroomOk: "{{ headroom_ok|escapejs }}",
+           headroomWarn: "{{ headroom_warn|escapejs }}",
+           headroomDanger: "{{ headroom_danger|escapejs }}",
+           headroomOver: "{{ headroom_over|escapejs }}",
+           headroomUnknown: "{{ headroom_unknown|escapejs }}",
+           turns: "{{ turns_label|escapejs }}",
+           unrecorded: "{{ unrecorded_label|escapejs }}",
+           unpriced: "{{ unpriced_label|escapejs }}",
+           cached: "{{ cached_word|escapejs }}",
+           output: "{{ output_word|escapejs }}"
          }
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
