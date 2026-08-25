@@ -1162,3 +1162,42 @@ class TestPublishDiffStats:
         outcome = await publisher.publish(merge_request=None)
 
         assert outcome.diff_stats == _LOCAL_STATS
+
+
+class TestDiffToMetadataExtraContext:
+    def _publisher_with_graph_capture(self, monkeypatch):
+        publisher = _make_publisher()
+        publisher.ctx.config.omit_content_patterns = []
+        captured = {}
+
+        def fake_create(ctx, include_pr_metadata):
+            graph = Mock()
+
+            async def ainvoke(input_data, config=None):
+                captured.update(input_data)
+                return {"commit_message": Mock(), "pr_metadata": Mock()}
+
+            graph.ainvoke = ainvoke
+            return graph
+
+        monkeypatch.setattr("automation.agent.publishers.create_diff_to_metadata_graph", fake_create)
+        monkeypatch.setattr("automation.agent.publishers.build_langsmith_config", Mock(return_value={}))
+        return publisher, captured
+
+    async def test_non_issue_refs_land_in_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),
+            ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+        )
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "DAIV-1V" in captured["extra_context"]
+        assert "https://s.io/1" in captured["extra_context"]
+        assert "gitlab-issue" not in captured["extra_context"]
+
+    async def test_no_refs_no_issue_scope_means_no_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "extra_context" not in captured

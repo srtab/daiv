@@ -18,7 +18,12 @@ from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.references import render_commit_trailers, render_references_block
+from codebase.references import (
+    PROVIDER_GITHUB_ISSUE,
+    PROVIDER_GITLAB_ISSUE,
+    render_commit_trailers,
+    render_references_block,
+)
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -360,16 +365,30 @@ class GitChangePublisher(ChangePublisher):
         input_data = {
             "commit_message_diff": redact_diff_content(commit_message_diff, self.ctx.config.omit_content_patterns)
         }
+        context_parts: list[str] = []
         if self.ctx.scope == Scope.ISSUE:
-            input_data["extra_context"] = dedent(
-                """\
-                This changes were made to address the following issue:
+            context_parts.append(
+                dedent(
+                    """\
+                    This changes were made to address the following issue:
 
-                Issue ID: {issue.iid}
-                Issue title: {issue.title}
-                Issue description: {issue.description}
-                """
-            ).format(issue=self.ctx.issue)
+                    Issue ID: {issue.iid}
+                    Issue title: {issue.title}
+                    Issue description: {issue.description}
+                    """
+                ).format(issue=self.ctx.issue)
+            )
+        extra_refs = [
+            ref for ref in self.ctx.references if ref.provider not in (PROVIDER_GITLAB_ISSUE, PROVIDER_GITHUB_ISSUE)
+        ]
+        if extra_refs:
+            ref_lines = "\n".join(
+                f"- {ref.provider}: {ref.key}" + (f" ({ref.url})" if ref.url else "") + f" [{ref.relation}]"
+                for ref in extra_refs
+            )
+            context_parts.append(f"External work items this change addresses:\n{ref_lines}")
+        if context_parts:
+            input_data["extra_context"] = "\n\n".join(context_parts)
 
         if pr_metadata_diff:
             input_data["pr_metadata_diff"] = redact_diff_content(
