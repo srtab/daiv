@@ -215,6 +215,14 @@ class User(BaseModel):
     email: str
 
 
+class PipelineEvent(BaseModel):
+    id: int
+    iid: int | None = None
+    ref: str
+    sha: str
+    status: str
+
+
 class MergeRequestEvent(BaseModel):
     """
     Gitlab Merge Request event object_attributes from the merge_request webhook.

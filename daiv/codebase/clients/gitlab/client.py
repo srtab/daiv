@@ -373,6 +373,7 @@ class GitLabClient(RepoClient):
             "issues_events": True,
             "note_events": True,
             "merge_requests_events": True,
+            "pipeline_events": True,
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",

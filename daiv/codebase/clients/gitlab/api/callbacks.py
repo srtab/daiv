@@ -13,7 +13,7 @@ from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task
+from codebase.tasks import address_issue_task, address_mr_comments_task, evaluate_pipeline_watch_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
@@ -27,6 +27,7 @@ from .models import (  # noqa: TC001
     Note,
     NoteableType,
     NoteAction,
+    PipelineEvent,
     Project,
     User,
 )
@@ -360,3 +361,36 @@ class PushCallback(BaseCallback):
         Process the push webhook to invalidate the cache for the repository configurations.
         """
         RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+
+
+TERMINAL_PIPELINE_STATUSES = frozenset({"success", "failed", "canceled", "skipped"})
+
+
+class PipelineCallback(BaseCallback):
+    """
+    GitLab Pipeline Webhook for babysitting CI on merge requests DAIV published.
+    """
+
+    object_kind: Literal["pipeline"]
+    project: Project
+    user: User
+    object_attributes: PipelineEvent
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.project.path_with_namespace)
+
+    def accept_callback(self) -> bool:
+        """Accept terminal pipelines on repos with the watch enabled.
+
+        Deliberately does *not* reject pipelines attributed to DAIV: the service-account
+        heal on ephemeral-token repos makes those the ones worth watching.
+        """
+        return self._repo_config.pipeline_watch.enabled and self.object_attributes.status in TERMINAL_PIPELINE_STATUSES
+
+    async def process_callback(self):
+        await evaluate_pipeline_watch_task.aenqueue(
+            repo_id=self.project.path_with_namespace,
+            ref=self.object_attributes.ref,
+            pipeline_id=self.object_attributes.id,
+        )
