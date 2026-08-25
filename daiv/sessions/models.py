@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.results import parse_agent_result
+from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
 from sessions.envelopes import validate_actionable
 from sessions.managers import RunEnvelopeManager, RunManager, SessionManager
@@ -198,6 +199,12 @@ class Session(models.Model):
     async def atouch(self) -> None:
         """Bump ``last_active_at`` (queryset update; safe from async contexts)."""
         await type(self).objects.filter(pk=self.pk).aupdate(last_active_at=timezone.now())
+
+    def external_references(self) -> tuple[ExternalRef, ...]:
+        """The stored refs as validated objects — the one route from this column into a run, so no
+        reader reaches the raw JSON and skips the skip-the-malformed-entry parsing.
+        """
+        return refs_from_stored(self.external_refs)
 
 
 def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:

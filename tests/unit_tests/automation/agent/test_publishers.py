@@ -507,6 +507,18 @@ class TestReferenceFooter:
         assert "Closes:" not in description
         assert "**References:**" not in description
 
+    async def test_footer_urls_reach_the_platform_unescaped(self):
+        """The description is markdown for the platform API, not HTML: the URL charset validation
+        is what makes raw embedding safe, and autoescaping would corrupt ``&`` into ``&amp;``."""
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
+        publisher.ctx.references = (ExternalRef(key="RT-77", provider="rt", url=url),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert f"- [RT-77]({url})" in description
+        assert "&amp;" not in description
+
     async def test_declared_refs_render_in_the_footer(self):
         publisher = self._capture_description(_make_publisher())
         publisher.ctx.issue = None

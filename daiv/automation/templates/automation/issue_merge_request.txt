@@ -1,8 +1,8 @@
 {{ description }}
 
 ---
-{% if references_block %}
-{{ references_block }}
+{% if references_block %}{# markdown for the platform API, not HTML — the RefIn charsets make raw embedding safe #}
+{{ references_block|safe }}
 {% endif %}
 {% if fallback_from_mr %}
 > 🔒 Opened because the source branch `{{ fallback_from_mr.source_branch }}` of {{ fallback_from_mr.web_url }}{% if is_gitlab %} (!{{ fallback_from_mr.merge_request_id }}){% else %} (#{{ fallback_from_mr.merge_request_id }}){% endif %} is protected on the remote.

@@ -120,7 +120,6 @@ async def run_job_task(
     from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
     from codebase.base import Scope
     from codebase.context import set_runtime_ctx
-    from codebase.references import refs_from_stored
     from core.checkpointer import open_checkpointer
 
     if not thread_id:
@@ -143,7 +142,7 @@ async def run_job_task(
         await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
     )
     mcp_overrides = session_row.mcp_overrides if session_row is not None else {}
-    session_refs = refs_from_stored(session_row.external_refs) if session_row is not None else ()
+    session_refs = session_row.external_references() if session_row is not None else ()
     locked = await _acquire_session_lock(thread_id, holder_id, session_exists=session_row is not None)
     heartbeat_task = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if locked else None
     try:

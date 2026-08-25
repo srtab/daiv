@@ -15,7 +15,6 @@ from sessions.models import Session
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
-from codebase.references import refs_from_stored
 from core.api.throttling import JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
@@ -284,7 +283,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
         mcp_overrides=effective_overrides,
-        external_refs=refs_from_stored(session.external_refs),
+        external_refs=session.external_references(),
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

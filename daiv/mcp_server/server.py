@@ -178,6 +178,7 @@ async def submit_job(
     references: Annotated[
         list[RefIn] | None,
         Field(
+            max_length=MAX_REFS_PER_SUBMISSION,
             description=(
                 "Optional external work-item references (max 20) linked into the MR/PR DAIV"
                 ' creates, e.g. [{"key": "PROJ-123", "url": "https://...", "provider": "jira",'
@@ -186,7 +187,7 @@ async def submit_job(
                 " link. relation=closes opts into auto-close on merge where the provider"
                 " supports it (default: relates). On thread continuation, new references are"
                 " merged into the session."
-            )
+            ),
         ),
     ] = None,
 ) -> str:

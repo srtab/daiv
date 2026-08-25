@@ -456,4 +456,5 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
 
             gc.return_value = RepositoryConfig.model_validate({})
             async with set_runtime_ctx(repo_id="r/p", scope=RepoScope.ISSUE, issue=issue, references=declared) as ctx:
-                assert ctx.references == (sentry_ref, duplicate_issue_ref)
+                # The derived issue ref leads so a declared duplicate can't demote the auto-close.
+                assert ctx.references == (duplicate_issue_ref, sentry_ref)

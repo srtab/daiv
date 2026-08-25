@@ -24,6 +24,7 @@ from sessions.validators import validate_repo_list
 
 from codebase.base import MergeRequest
 from codebase.base import User as CodebaseUser
+from codebase.references import RefIn
 
 pytestmark = pytest.mark.django_db
 
@@ -688,41 +689,104 @@ async def test_reset_session_ref_repins_the_row():
 # ---------------------------------------------------------------------------
 
 
+async def _submit_turn(thread_id, references=None, prompt="p"):
+    fake_task = await _make_db_task_result()
+    patcher, mock_task = _patch_run_job_task()
+    mock_task.aenqueue.return_value = fake_task
+    with patcher:
+        return await asubmit_batch_runs(
+            user=None,
+            prompt=prompt,
+            repos=[RepoTarget(repo_id="g/r")],
+            trigger_type=SessionOrigin.MCP_JOB,
+            thread_id=thread_id,
+            references=references,
+        )
+
+
 @pytest.mark.django_db(transaction=True)
-async def test_session_created_with_external_refs():
-    session = await aget_or_create_session(
-        thread_id=str(uuid.uuid4()),
-        origin=SessionOrigin.MCP_JOB,
-        repo_id="owner/repo",
-        external_refs=[{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}],
+async def test_the_first_submission_stores_deduped_refs_on_the_session():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(
+        thread_id,
+        references=[RefIn(key="PROJ-1", provider="jira", url="https://a"), RefIn(key="PROJ-1", provider="jira")],
     )
-    assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "https://a", "relation": "relates"}]
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_continuation_merges_and_dedupes_refs():
+    """The second turn lands as a QUEUED fallback (the first run is still READY) — the merge
+    must land on that path too."""
     thread_id = str(uuid.uuid4())
-    first = [{"key": "PROJ-1", "provider": "jira", "url": "https://a", "relation": "relates"}]
-    await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r", external_refs=first)
-    session = await aget_or_create_session(
-        thread_id=thread_id,
-        origin=SessionOrigin.MCP_JOB,
-        repo_id="g/r",
-        external_refs=[
-            {"key": "PROJ-1", "provider": "jira", "url": "https://b", "relation": "closes"},
-            {"key": "DAIV-1V", "provider": "sentry", "url": "", "relation": "closes"},
+    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira", url="https://a")])
+    await _submit_turn(
+        thread_id,
+        references=[
+            RefIn(key="PROJ-1", provider="jira", url="https://b", relation="closes"),
+            RefIn(key="DAIV-1V", provider="sentry", relation="closes"),
         ],
     )
-    await session.arefresh_from_db()
+    session = await Session.objects.aget(thread_id=thread_id)
     assert [ref["key"] for ref in session.external_refs] == ["PROJ-1", "DAIV-1V"]
     assert session.external_refs[0]["url"] == "https://a"
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_failed_run_creation_leaves_no_refs_on_the_session():
+    """A submission the caller was told failed must leave no memory on the thread — a
+    surviving ``closes`` ref would auto-close an issue from the next turn's MR."""
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira")])
+    with patch("sessions.services.Run.objects.acreate", AsyncMock(side_effect=RuntimeError("boom"))):
+        result = await _submit_turn(thread_id, references=[RefIn(key="GONE-1", provider="sentry", relation="closes")])
+    assert len(result.failed) == 1
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_run_creation_on_a_new_thread_leaves_no_refs():
+    """First-turn variant: the seed must not land before the run row exists either."""
+    thread_id = str(uuid.uuid4())
+    with patch("sessions.services.Run.objects.acreate", AsyncMock(side_effect=RuntimeError("boom"))):
+        result = await _submit_turn(thread_id, references=[RefIn(key="GONE-1", provider="sentry", relation="closes")])
+    assert len(result.failed) == 1
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_ref_merge_fails_the_run_instead_of_stranding_it():
+    """A merge failure after the READY claim must mark the run FAILED: left READY it holds the
+    one-active-per-session claim forever and no recovery command reaps a never-enqueued row."""
+    thread_id = str(uuid.uuid4())
+    fake_task = await _make_db_task_result()
+    patcher, mock_task = _patch_run_job_task()
+    mock_task.aenqueue.return_value = fake_task
+    with patcher, patch("sessions.services._amerge_session_refs", AsyncMock(side_effect=RuntimeError("bus down"))):
+        result = await asubmit_batch_runs(
+            user=None,
+            prompt="p",
+            repos=[RepoTarget(repo_id="g/r")],
+            trigger_type=SessionOrigin.MCP_JOB,
+            thread_id=thread_id,
+            references=[RefIn(key="GONE-1", provider="sentry", relation="closes")],
+        )
+    assert result.runs == []
+    assert "RefsMergeFailed" in result.failed[0].error
+    run = await Run.objects.aget(session__thread_id=thread_id)
+    assert run.status == RunStatus.FAILED
+    mock_task.aenqueue.assert_not_called()
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == []
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_continuation_without_refs_leaves_stored_refs_alone():
     thread_id = str(uuid.uuid4())
-    first = [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
-    await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r", external_refs=first)
-    session = await aget_or_create_session(thread_id=thread_id, origin=SessionOrigin.MCP_JOB, repo_id="g/r")
-    await session.arefresh_from_db()
-    assert session.external_refs == first
+    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira")])
+    await _submit_turn(thread_id)
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
