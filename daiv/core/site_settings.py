@@ -104,6 +104,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "sandbox_timeout": 600,
         # Jobs
         "jobs_throttle_rate": "20/hour",
+        # Pipeline watch
+        "pipeline_watch_enabled": True,
+        "pipeline_watch_max_attempts": 3,
         # Authentication
         "auth_login_enabled": False,
         "auth_signup_open": False,

@@ -41,6 +41,21 @@ class PullRequestAssistant(BaseModel):
     enabled: bool = Field(default=True, description="Enable pull request assistant features.")
 
 
+class PipelineWatch(BaseModel):
+    """
+    CI babysitting configuration.
+    """
+
+    enabled: bool = Field(
+        default_factory=lambda: site_settings.pipeline_watch_enabled,
+        description="Watch CI on merge requests DAIV publishes and try to fix failures.",
+    )
+    max_attempts: int = Field(
+        default_factory=lambda: site_settings.pipeline_watch_max_attempts,
+        description="How many fix attempts to spend on one merge request before handing back.",
+    )
+
+
 class SlashCommands(BaseModel):
     """
     Slash commands configuration.
@@ -196,6 +211,9 @@ class RepositoryConfig(BaseModel):
     )
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
+    )
+    pipeline_watch: PipelineWatch = Field(
+        default_factory=PipelineWatch, description="Configure CI babysitting for published merge requests."
     )
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
