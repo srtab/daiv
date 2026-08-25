@@ -9,7 +9,7 @@ import pytest
 
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import SESSION_TRAILER, GitChangePublisher, PublishOutcome, append_trailer
-from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
+from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, Scope, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
@@ -1190,14 +1190,36 @@ class TestDiffToMetadataExtraContext:
         publisher.ctx.references = (
             ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),
             ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+            ExternalRef(key="7", provider="github-issue", relation="closes"),
         )
         await publisher._diff_to_metadata(commit_message_diff="diff")
         assert "DAIV-1V" in captured["extra_context"]
         assert "https://s.io/1" in captured["extra_context"]
         assert "gitlab-issue" not in captured["extra_context"]
+        assert "github-issue" not in captured["extra_context"]
 
     async def test_no_refs_no_issue_scope_means_no_extra_context(self, monkeypatch):
         publisher, captured = self._publisher_with_graph_capture(monkeypatch)
         publisher.ctx.scope = None
         await publisher._diff_to_metadata(commit_message_diff="diff")
         assert "extra_context" not in captured
+
+    async def test_issue_scope_and_refs_are_joined_issue_first(self, monkeypatch):
+        """An issue-webhook run carrying declared refs — the only path that joins two parts.
+
+        The blocks sit two blank lines apart, not one: the issue block's own trailing newline
+        meets the join's, so a reader must not "correct" the three newlines to two.
+        """
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = Scope.ISSUE
+        publisher.ctx.issue = Issue(iid=42, title="Broken parser", description="d", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1"),)
+
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+
+        extra_context = captured["extra_context"]
+        assert "Issue ID: 42" in extra_context
+        assert "Broken parser" in extra_context
+        assert "DAIV-1V" in extra_context
+        assert "Issue description: d\n\n\nExternal work items this change addresses:" in extra_context
+        assert extra_context.index("Issue ID: 42") < extra_context.index("DAIV-1V")
