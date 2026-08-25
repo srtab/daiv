@@ -8,7 +8,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage
 
 from automation.agent.events import CONTEXT_USAGE_EVENT, context_usage_payload
-from automation.agent.usage_tracking import resolve_context_window
+from automation.agent.usage_tracking import message_model_name, resolve_context_window
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -54,7 +54,7 @@ class ContextUsageMiddleware(AgentMiddleware):
         if not isinstance(message, AIMessage):
             return
         usage = message.usage_metadata
-        model_name = (message.response_metadata or {}).get("model_name")
+        model_name = message_model_name(message)
         if not usage or not model_name:
             return
         await adispatch_custom_event(

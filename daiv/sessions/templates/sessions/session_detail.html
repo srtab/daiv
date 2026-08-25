@@ -73,10 +73,8 @@
   {% translate "Getting full — consider a new session" as headroom_warn %}
   {% translate "Nearly full — start a new session" as headroom_danger %}
   {% translate "Over the window — the next request may be rejected" as headroom_over %}
-  {% translate "No context size known for {model}" as headroom_unknown %}
   {% translate "{count} turns" as turns_label %}
   {% translate "{count} turns with unrecorded usage" as unrecorded_label %}
-  {% translate "No price known for {model}" as unpriced_label %}
   {% translate "cached" as cached_word %}
   {% translate "output" as output_word %}
 
@@ -119,10 +117,8 @@
            headroomWarn: "{{ headroom_warn|escapejs }}",
            headroomDanger: "{{ headroom_danger|escapejs }}",
            headroomOver: "{{ headroom_over|escapejs }}",
-           headroomUnknown: "{{ headroom_unknown|escapejs }}",
            turns: "{{ turns_label|escapejs }}",
            unrecorded: "{{ unrecorded_label|escapejs }}",
-           unpriced: "{{ unpriced_label|escapejs }}",
            cached: "{{ cached_word|escapejs }}",
            output: "{{ output_word|escapejs }}"
          }

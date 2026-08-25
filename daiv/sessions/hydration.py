@@ -4,7 +4,7 @@ import logging
 from typing import Any, NamedTuple
 
 from automation.agent.events import context_usage_payload
-from automation.agent.usage_tracking import resolve_window_by_name
+from automation.agent.usage_tracking import message_model_name, resolve_window_by_name
 from chat.repo_state import mr_to_payload
 from chat.turns import is_assistant_message
 from core.checkpointer import aresolve_thread_messages, open_checkpointer
@@ -37,7 +37,7 @@ def derive_context_usage(messages: list[Any]) -> dict | None:
         if not is_assistant_message(message):
             continue
         usage = getattr(message, "usage_metadata", None)
-        model_name = (getattr(message, "response_metadata", None) or {}).get("model_name")
+        model_name = message_model_name(message)
         if not usage or not model_name:
             continue
         return context_usage_payload(model=model_name, usage=usage, window=resolve_window_by_name(model_name))

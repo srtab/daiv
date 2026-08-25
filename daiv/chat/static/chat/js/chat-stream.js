@@ -155,10 +155,8 @@
     headroomWarn: "Getting full — consider a new session",
     headroomDanger: "Nearly full — start a new session",
     headroomOver: "Over the window — the next request may be rejected",
-    headroomUnknown: "No context size known for {model}",
     turns: "{count} turns",
     unrecorded: "{count} turns with unrecorded usage",
-    unpriced: "No price known for {model}",
     cached: "cached",
     output: "output",
   };
@@ -187,7 +185,6 @@
     if (!Number.isFinite(used) || used < 0) return null;
     const windowTokens = Number(raw.window_tokens);
     return {
-      model: typeof raw.model === "string" ? raw.model : "",
       usedTokens: used,
       outputTokens: Number(raw.output_tokens) || 0,
       cachedTokens: Number(raw.cached_tokens) || 0,
@@ -1011,9 +1008,9 @@
     get contextHeadroom() {
       const m = this.contextMeter;
       if (!m) return null;
-      if (!m.hasWindow) {
-        return { tone: "unknown", text: formatBraces(this._labels.headroomUnknown, { model: this.contextUsage.model }) };
-      }
+      // No window is not a state to narrate: the figure prints without a "/ limit" and the
+      // track is hidden, which is the same absence a sentence would restate.
+      if (!m.hasWindow) return null;
       if (m.ratio >= 1) return { tone: "danger", text: this._labels.headroomOver };
       if (m.tone === "danger") return { tone: "danger", text: this._labels.headroomDanger };
       if (m.tone === "warn") return { tone: "warn", text: this._labels.headroomWarn };
@@ -1046,12 +1043,6 @@
 
     get spendRows() {
       return Array.isArray(this.spend?.by_model) ? this.spend.by_model : [];
-    },
-
-    get spendUnpricedLine() {
-      const names = this.spend?.unpriced_models;
-      if (!Array.isArray(names) || !names.length) return "";
-      return names.map((m) => formatBraces(this._labels.unpriced, { model: m })).join(" · ");
     },
 
     get spendUnrecordedLine() {
