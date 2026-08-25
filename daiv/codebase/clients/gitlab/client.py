@@ -941,7 +941,7 @@ class GitLabClient(RepoClient):
             web_url=pipeline.web_url,
         )
 
-    def _to_pipeline(self, project, pipeline) -> Pipeline:
+    def _to_pipeline(self, pipeline) -> Pipeline:
         return Pipeline(
             id=pipeline.id,
             iid=getattr(pipeline, "iid", None),
@@ -964,7 +964,7 @@ class GitLabClient(RepoClient):
     def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
         project = self.client.projects.get(repo_id, lazy=True)
         try:
-            return self._to_pipeline(project, project.pipelines.get(pipeline_id))
+            return self._to_pipeline(project.pipelines.get(pipeline_id))
         except GitlabGetError:
             return None
 

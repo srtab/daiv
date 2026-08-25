@@ -5,6 +5,7 @@ from typing import Any, Literal
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
+from sessions.pipeline_watch import watch_enabled
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -386,7 +387,7 @@ class PipelineCallback(BaseCallback):
         Deliberately does *not* reject pipelines attributed to DAIV: the service-account
         heal on ephemeral-token repos makes those the ones worth watching.
         """
-        return self._repo_config.pipeline_watch.enabled and self.object_attributes.status in TERMINAL_PIPELINE_STATUSES
+        return watch_enabled(self._repo_config) and self.object_attributes.status in TERMINAL_PIPELINE_STATUSES
 
     async def process_callback(self):
         await evaluate_pipeline_watch_task.aenqueue(

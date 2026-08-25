@@ -67,7 +67,21 @@ class RepositoryFile(BaseModel):
 class Job(BaseModel):
     id: int
     name: str
-    status: Literal["created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"]
+    status: Literal[
+        "canceled",
+        "canceling",
+        "created",
+        "failed",
+        "manual",
+        "pending",
+        "preparing",
+        "running",
+        "scheduled",
+        "skipped",
+        "success",
+        "waiting_for_callback",
+        "waiting_for_resource",
+    ]
     stage: str
     allow_failure: bool
     failure_reason: str | None = None

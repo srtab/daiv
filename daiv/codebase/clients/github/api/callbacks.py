@@ -6,6 +6,7 @@ from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
+from sessions.pipeline_watch import watch_enabled
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -359,9 +360,7 @@ class WorkflowRunCallback(GitHubCallback):
         Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
         """
         return (
-            self._repo_config.pipeline_watch.enabled
-            and self.action == "completed"
-            and self.workflow_run.conclusion is not None
+            watch_enabled(self._repo_config) and self.action == "completed" and self.workflow_run.conclusion is not None
         )
 
     async def process_callback(self):
