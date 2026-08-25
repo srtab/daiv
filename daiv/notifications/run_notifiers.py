@@ -15,6 +15,7 @@ from notifications.policy import (
     is_schedule_run,
     notification_source_for_run,
     notify_worthy,
+    status_severity,
     within_relevance_window,
 )
 from notifications.services import notify
@@ -32,6 +33,7 @@ class BatchRow(NamedTuple):
     started_at: datetime | None
     finished_at: datetime | None
     status: str
+    summary: str
 
 
 def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
@@ -43,9 +45,10 @@ def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
     return _("%(repos)s and %(remaining)d more") % {"repos": head, "remaining": len(repo_ids) - limit}
 
 
-# ``Notification.context`` is persisted once per recipient, so only the head of a long finding list
-# rides along; the link carries the rest.
+# ``Notification.context`` is persisted once per recipient, so only the head of a long list rides
+# along; the link carries the rest.
 ACTIONABLE_CONTEXT_LIMIT = 5
+NOTABLE_RUNS_CONTEXT_LIMIT = 5
 
 
 def _actionable_context(envelope) -> tuple[list[dict], int]:
@@ -60,6 +63,24 @@ def _actionable_context(envelope) -> tuple[list[dict], int]:
         for item in items[:ACTIONABLE_CONTEXT_LIMIT]
     ]
     return head, len(items) - len(head)
+
+
+def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
+    """The batch's notable siblings, worst first, as the rows a channel renders.
+
+    One row per *run* rather than per finding: nesting a 20-repo batch's findings would cap away
+    most of them and leave the clean repos indistinguishable, and the link carries the drill-down.
+    """
+    from sessions.models import EnvelopeStatus
+
+    notable = sorted(
+        (row for row in rows if notify_worthy(row.status)), key=lambda r: (status_severity(r.status), r.repo)
+    )
+    head = [
+        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": row.summary or ""}
+        for row in notable[:NOTABLE_RUNS_CONTEXT_LIMIT]
+    ]
+    return head, len(notable) - len(head)
 
 
 def _batch_duration(rows: list[BatchRow]) -> float | None:
@@ -168,7 +189,11 @@ def _render_batch_payload(
         "%(found)d found issues, %(needs)d need attention, %(failed)d failed, %(clear)d all-clear (of %(total)d runs)."
     ) % {"found": agg["found"], "needs": agg["needs"], "failed": agg["failed"], "clear": agg["clear"], "total": total}
 
+    notable_runs, notable_runs_overflow = _notable_runs_context(rows)
+
     context = {
+        "notable_runs": notable_runs,
+        "notable_runs_overflow": notable_runs_overflow,
         "found_count": agg["found"],
         "needs_attention_count": agg["needs"],
         "failed_count": agg["failed"],
@@ -264,7 +289,10 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
         return
 
     channels = [cls.channel_type for cls in enabled_channels()]
-    rows = [BatchRow(*row) for row in siblings.values_list("repo_id", "started_at", "finished_at", "envelope__status")]
+    rows = [
+        BatchRow(*row)
+        for row in siblings.values_list("repo_id", "started_at", "finished_at", "envelope__status", "envelope__summary")
+    ]
     usage = {
         "input_tokens": agg["total_input_tokens"],
         "output_tokens": agg["total_output_tokens"],

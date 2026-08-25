@@ -28,6 +28,26 @@ def notify_worthy(status: str) -> bool:
     return status in notify_worthy_statuses()
 
 
+def status_severity(status: str) -> int:
+    """Worst-first rank for a classified run, used to order a *capped* list of them.
+
+    Load-bearing because of the cap: unordered rows let a batch show three needs-attention repos
+    and hide the failure. An unrecognised status sorts last.
+    """
+    from sessions.models import EnvelopeStatus
+
+    order = (
+        EnvelopeStatus.FAILED,
+        EnvelopeStatus.FOUND_ISSUES,
+        EnvelopeStatus.NEEDS_ATTENTION,
+        EnvelopeStatus.ALL_CLEAR,
+    )
+    try:
+        return order.index(status)
+    except ValueError:
+        return len(order)
+
+
 def within_relevance_window(finished_at) -> bool:
     """Notify only for runs that finished recently.
 

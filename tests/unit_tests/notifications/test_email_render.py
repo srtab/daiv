@@ -110,3 +110,65 @@ def test_a_finding_without_kind_or_ref_still_lists_its_label():
     html, text = _render(ctx)
     assert "just a label" in html
     assert "- just a label" in text
+
+
+def _notable(n=2, overflow=0):
+    return {
+        "status_label": "Needs attention",
+        "status_tone": "warning",
+        "notable_runs": [
+            {"kind": "Failed", "label": f"acme/repo{i}", "ref": f"migration 004{i} errored"} for i in range(n)
+        ],
+        "notable_runs_overflow": overflow,
+    }
+
+
+def test_batch_notable_runs_are_listed_in_both_bodies():
+    html, text = _render(_notable(overflow=3))
+    for fragment in ("Needs a look", "acme/repo0", "migration 0040 errored", "acme/repo1"):
+        assert fragment in html
+        assert fragment in text
+    assert "- [Failed] acme/repo0 (migration 0040 errored)" in text
+    assert "… and 3 more" in html
+
+
+def test_batch_rows_are_not_monospaced():
+    # The ref slot holds prose here, not a file path; monospacing it reads as code.
+    html, _text = _render(_notable(n=1))
+    assert "ui-monospace" not in html
+
+
+def test_findings_stay_monospaced():
+    html, _text = _render(_findings(n=1))
+    assert "ui-monospace" in html
+
+
+def test_both_lists_render_together():
+    ctx = _findings(n=1) | _notable(n=1)
+    html, text = _render(ctx)
+    for fragment in ("Findings", "Needs a look"):
+        assert fragment in html
+        assert fragment in text
+
+
+def test_plain_text_does_not_html_escape_prose():
+    """A schedule subject carries literal quotes and classifier prose carries apostrophes; the
+    text/plain body must not show them as entities."""
+    ctx = {"status_tone": "warning", "actionable": [{"kind": "bug", "label": "don't trust <input>", "ref": "app/x.py"}]}
+    notif = SimpleNamespace(subject="'nightly' batch: 3/5 need a look", body='it\'s "broken"', context=ctx)
+    text = render_to_string("notifications/emails/notification.txt", {"notification": notif, "link_absolute_url": ""})
+    assert "&#x27;" not in text
+    assert "&quot;" not in text
+    assert "&lt;" not in text
+    assert "'nightly' batch" in text
+    assert "don't trust <input>" in text
+
+
+def test_html_email_still_escapes_prose():
+    """The text body turns autoescape off (text/plain has no HTML context); the HTML one must not."""
+    ctx = {"status_tone": "warning", "actionable": [{"kind": "bug", "label": "<script>x</script>", "ref": "a"}]}
+    notif = SimpleNamespace(subject="s", body="<b>b</b>", context=ctx)
+    html = render_to_string("notifications/emails/notification.html", {"notification": notif, "link_absolute_url": ""})
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "<b>b</b>" not in html

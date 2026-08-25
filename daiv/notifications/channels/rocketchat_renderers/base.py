@@ -89,32 +89,40 @@ class RocketChatRenderer(ABC):
         return build_absolute_url(notification.link_url) if notification.link_url else ""
 
     @staticmethod
-    def _findings_field(ctx: dict) -> dict | None:
-        """The classifier's findings as one long field; ``None`` when the run listed none."""
-        items = ctx.get("actionable") or []
+    def _list_field(title: str, items, overflow: int, *, mono: bool = True) -> dict | None:
+        """One long field listing ``{kind, label, ref}`` rows; ``None`` when there are none.
+
+        ``mono`` backticks the ``ref`` slot, which suits a file path but not the prose summary a
+        batch row carries there.
+        """
         if not items:
             return None
         lines = []
         for item in items:
             prefix = f"[{item['kind']}] " if item.get("kind") else ""
-            ref = f" — `{item['ref']}`" if item.get("ref") else ""
-            lines.append(f"• {prefix}{item.get('label', '')}{ref}")
-        overflow = ctx.get("actionable_overflow") or 0
+            ref = item.get("ref")
+            tail = f" — `{ref}`" if mono else f" — {ref}"
+            lines.append(f"• {prefix}{item.get('label', '')}{tail if ref else ''}")
         if overflow:
             lines.append(f"… and {overflow} more")
-        return {"title": "Findings", "value": "\n".join(lines), "short": False}
+        return {"title": title, "value": "\n".join(lines), "short": False}
 
     def _message(
         self, notification: Notification, color: str, emoji: str, fields: list[dict]
     ) -> tuple[str, list[dict]]:
         """Assemble the shared ``(text, [attachment])`` shape every renderer returns.
 
-        The classifier's summary and findings ride along whenever the context carries them, so no
-        renderer can ship without the reason a human was paged.
+        The classifier's summary, a run's findings and a batch's notable runs ride along whenever the
+        context carries them, so no renderer can ship without the reason a human was paged.
         """
         ctx = notification.context
-        if (findings := self._findings_field(ctx)) is not None:
-            fields = [*fields, findings]
+        extra = (
+            self._list_field("Findings", ctx.get("actionable"), ctx.get("actionable_overflow") or 0),
+            self._list_field(
+                "Needs a look", ctx.get("notable_runs"), ctx.get("notable_runs_overflow") or 0, mono=False
+            ),
+        )
+        fields = [*fields, *(field for field in extra if field is not None)]
         attachment = {
             "color": color,
             "title": notification.subject,

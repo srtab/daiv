@@ -310,3 +310,48 @@ class TestClassifierReasonRidesEveryAttachment:
         )
         _text, [attachment] = JobFinishedRenderer().render(notif)
         assert [f["title"] for f in attachment["fields"]] == ["Trigger", "Duration", "Findings"]
+
+
+class TestBatchNotableRunsField:
+    """A batch's rows put a prose summary in the ``ref`` slot, so they must not be backticked the
+    way a finding's file path is."""
+
+    CTX = {
+        "status_tone": "warning",
+        "notable_runs": [
+            {"kind": "Failed", "label": "acme/api", "ref": "migration 0042 errored"},
+            {"kind": "Needs attention", "label": "acme/infra", "ref": ""},
+        ],
+        "notable_runs_overflow": 2,
+    }
+
+    def test_notable_runs_render_without_backticks(self):
+        _text, [attachment] = JobBatchFinishedRenderer().render(_stub_notification(context=self.CTX))
+        assert _fields_by_title(attachment)["Needs a look"] == (
+            "• [Failed] acme/api — migration 0042 errored\n• [Needs attention] acme/infra\n… and 2 more"
+        )
+
+    def test_findings_keep_their_backticks(self):
+        # The same formatter serves both lists; only the batch call opts out of monospace.
+        notif = _stub_notification(
+            context={"status_tone": "warning", "actionable": [{"kind": "bug", "label": "a", "ref": "app/x.py"}]}
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `app/x.py`"
+
+    def test_a_batch_without_notable_rows_adds_no_field(self):
+        notif = _stub_notification(context={"status_tone": "success", "notable_runs": []})
+        _text, [attachment] = JobBatchFinishedRenderer().render(notif)
+        assert "Needs a look" not in _fields_by_title(attachment)
+
+    def test_both_lists_can_coexist_on_one_attachment(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "app/x.py"}],
+                "notable_runs": [{"kind": "Failed", "label": "acme/api", "ref": "boom"}],
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        titles = [f["title"] for f in attachment["fields"]]
+        assert titles == ["Trigger", "Duration", "Findings", "Needs a look"]

@@ -9,7 +9,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery
-from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT
+from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.signals import run_classified, run_finished
 
@@ -469,6 +469,73 @@ class TestClassifierReasonInContext:
         notification = self._emit(member_user, status=status)
         assert notification.context["actionable"] == []
         assert notification.context["actionable_overflow"] == 0
+
+
+@pytest.mark.django_db
+class TestBatchNotableRuns:
+    """A rollup says how many runs need a look; these rows say which ones and why. One row per run,
+    not per finding — nesting a 20-repo batch's findings would cap away most of them."""
+
+    def _rollup(self, member_user, pairs, *, event_type="job_batch.finished"):
+        """Classify one sibling per (status, summary) pair and return the emitted context."""
+        runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL] * len(pairs))
+        for run, (status, summary) in zip(runs, pairs, strict=True):
+            run.finished_at = timezone.now()
+            run.save(update_fields=["finished_at"])
+            envelope = _classify(run, status, summary=summary)
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        return Notification.objects.get(recipient=member_user, event_type=event_type).context
+
+    def test_each_notable_sibling_contributes_its_repo_and_summary(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [(EnvelopeStatus.FAILED, "migration 0042 errored"), (EnvelopeStatus.ALL_CLEAR, "nothing to report")],
+        )
+        assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": "migration 0042 errored"}]
+        assert ctx["notable_runs_overflow"] == 0
+
+    def test_all_clear_siblings_are_left_out(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user, [(EnvelopeStatus.NEEDS_ATTENTION, "drifted"), (EnvelopeStatus.ALL_CLEAR, "clean")]
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Needs attention"]
+
+    def test_rows_are_ordered_worst_first(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [
+                (EnvelopeStatus.NEEDS_ATTENTION, "n"),
+                (EnvelopeStatus.FAILED, "f"),
+                (EnvelopeStatus.ALL_CLEAR, "c"),
+                (EnvelopeStatus.FOUND_ISSUES, "i"),
+            ],
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed", "Found issues", "Needs attention"]
+
+    def test_the_cap_keeps_the_worst_rows_and_counts_the_rest(self, member_user, email_binding):
+        # Every needs-attention sibling comes first in creation order, so an unordered cap would
+        # show five of them and hide the failure entirely.
+        pairs = [(EnvelopeStatus.NEEDS_ATTENTION, f"n{i}") for i in range(NOTABLE_RUNS_CONTEXT_LIMIT + 2)]
+        pairs.append((EnvelopeStatus.FAILED, "the one that matters"))
+        ctx = self._rollup(member_user, pairs)
+
+        assert len(ctx["notable_runs"]) == NOTABLE_RUNS_CONTEXT_LIMIT
+        assert ctx["notable_runs_overflow"] == 3
+        assert ctx["notable_runs"][0] == {
+            "kind": "Failed",
+            "label": f"acme/repo{NOTABLE_RUNS_CONTEXT_LIMIT + 2}",
+            "ref": "the one that matters",
+        }
+
+    def test_a_sibling_with_no_summary_still_names_its_repo(self, member_user, email_binding):
+        ctx = self._rollup(member_user, [(EnvelopeStatus.FAILED, ""), (EnvelopeStatus.ALL_CLEAR, "clean")])
+        assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": ""}]
+
+    def test_a_single_run_batch_carries_findings_not_notable_rows(self, member_user, email_binding):
+        """total == 1 falls through to the per-run path, which has the full findings list instead."""
+        ctx = self._rollup(member_user, [(EnvelopeStatus.FOUND_ISSUES, "one repo")], event_type="job.finished")
+        assert "notable_runs" not in ctx
+        assert ctx["actionable"] == [{"kind": "bug", "label": "x", "ref": "y"}]
 
 
 @pytest.mark.django_db
