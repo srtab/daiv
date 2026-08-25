@@ -420,3 +420,40 @@ def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
 
     assert repo_client.load_repo.call_count == 1
     good_cm.__exit__.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_set_runtime_ctx_assembles_references_for_issue_scope():
+    """ctx.references carries both declared refs and the derived platform issue ref, deduped.
+
+    Also guards against the **kwargs swallow hazard: if the explicit ``references`` parameter were
+    dropped from the signature, ``declared`` would vanish into kwargs and only the derived
+    gitlab-issue ref would appear — causing this assertion to fail.
+    """
+    from codebase.base import Issue, User
+    from codebase.references import ExternalRef
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+
+    issue = Issue(iid=42, title="Bug", author=User(id=1, username="u"))
+    sentry_ref = ExternalRef(key="PROJ-123", provider="sentry", relation="closes")
+    duplicate_issue_ref = ExternalRef(key="42", provider="gitlab-issue", relation="closes")
+    declared = (sentry_ref, duplicate_issue_ref)
+
+    with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
+        client = mock_client_factory.return_value
+        client.get_repository.return_value = type("R", (), {"name": "x"})()
+        client.git_platform = "gitlab"
+        client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None
+        ctx_mgr = client.load_repo.return_value
+        ctx_mgr.__enter__.return_value = type("Repo", (), {})()
+        ctx_mgr.__exit__ = lambda *a: None
+
+        with patch("codebase.context.RepositoryConfig.get_config") as gc:
+            from codebase.repo_config import RepositoryConfig
+
+            gc.return_value = RepositoryConfig.model_validate({})
+            async with set_runtime_ctx(repo_id="r/p", scope=RepoScope.ISSUE, issue=issue, references=declared) as ctx:
+                assert ctx.references == (sentry_ref, duplicate_issue_ref)

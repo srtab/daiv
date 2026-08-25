@@ -53,3 +53,8 @@ def test_runtime_ctx_normalises_list_to_tuple():
     ctx = RuntimeCtx(bot_username="daiv", repos=[handle])  # type: ignore[arg-type]
     assert isinstance(ctx.repos, tuple)
     assert ctx.repos == (handle,)
+
+
+def test_runtime_ctx_defaults_to_no_references():
+    ctx = RuntimeCtx(bot_username="bot", repos=(_make_handle(),))
+    assert ctx.references == ()
