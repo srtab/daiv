@@ -141,6 +141,7 @@ nav:
   - Features:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
+    - Pipeline Watch: features/pipeline-watch.md
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
     - Scheduled Jobs: features/scheduled-jobs.md

@@ -32,6 +32,10 @@ pull_request_assistant:
 slash_commands:
   enabled: true
 
+pipeline_watch:
+  enabled: true
+  max_attempts: 3
+
 # Model overrides
 models:
   agent:
@@ -105,6 +109,8 @@ slash_commands:
 | `issue_addressing` | `enabled` | `true` | [Issue Addressing](../features/issue-addressing.md) |
 | `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
+| `pipeline_watch` | `enabled` | `true` | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
+| `pipeline_watch` | `max_attempts` | `3` | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up. |
 
 ## Branch naming and commit conventions
 
