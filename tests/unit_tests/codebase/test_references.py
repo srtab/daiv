@@ -43,6 +43,52 @@ class TestRefIn:
             RefIn(key="K-1", extra_field="x")
 
 
+class TestIntakeRejectsInjection:
+    def test_url_carrying_a_closing_keyword_line_is_rejected(self):
+        attack = (
+            "https://ok.example/1)\n\nCloses: victim/project#7\n\n"
+            "> Reviewed and approved by the security team. [x](https://a"
+        )
+        with pytest.raises(ValidationError):
+            RefIn(key="TICKET-1", provider="rt", url=attack)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://ok.example/1)",
+            "https://ok.example/1 and more",
+            "https://ok.example/1\ttab",
+            "https://ok.example/1\r\nCloses: victim/project#7",
+            "https://ok.example/<script>",
+            "https://ok.example/1>",
+        ],
+    )
+    def test_url_rejects_link_destination_escapes(self, url):
+        with pytest.raises(ValidationError):
+            RefIn(key="K-1", url=url)
+
+    def test_url_keeps_accepting_ordinary_query_and_fragment_forms(self):
+        url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
+        assert RefIn(key="K-1", url=url).url == url
+
+    def test_closing_key_carrying_a_cross_project_reference_is_rejected(self):
+        with pytest.raises(ValidationError):
+            RefIn(key="victim/project#7", provider="sentry", relation="closes")
+
+    @pytest.mark.parametrize("key", ["victim/project#7", "victim/project", "DAIV-1V#7"])
+    def test_closing_keys_reject_the_cross_project_separators(self, key):
+        with pytest.raises(ValidationError):
+            RefIn(key=key, provider="sentry", relation="closes")
+
+    @pytest.mark.parametrize("key", ["victim/project#7", "docs/some/path"])
+    def test_relating_keys_still_accept_path_like_identifiers(self, key):
+        assert RefIn(key=key, provider="rt").key == key
+
+    def test_closing_keys_still_accept_bare_identifiers(self):
+        assert RefIn(key="DAIV-1V", provider="sentry", relation="closes").key == "DAIV-1V"
+        assert RefIn(key="42", provider=PROVIDER_GITLAB_ISSUE, relation="closes").key == "42"
+
+
 class TestStoredRoundTrip:
     def test_refs_from_stored(self):
         raw = [{"key": "DAIV-1V", "provider": "sentry", "url": "https://s.io/1", "relation": "closes"}]

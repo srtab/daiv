@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from codebase.base import GitPlatform, Scope
 
@@ -25,6 +26,12 @@ MAX_REFS_PER_SUBMISSION = 20
 MAX_REFS_PER_SESSION = 50
 
 RefRelation = Literal["closes", "relates"]
+
+# RFC 3986's URI character set minus the parentheses, which delimit a markdown link destination.
+_URL_CHARSET_RE = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+$")
+
+# Separators that turn a bare identifier into a cross-project platform reference.
+_CROSS_PROJECT_SEPARATORS = frozenset("/#")
 
 
 @dataclass(frozen=True)
@@ -48,9 +55,27 @@ class RefIn(BaseModel):
     @field_validator("url")
     @classmethod
     def _http_only(cls, value: str) -> str:
-        if value and not value.startswith(("http://", "https://")):
+        """Renderers embed the url in a markdown link destination inside the MR description, so a
+        space, a control character or a ``)`` would end the destination and turn the rest of the
+        value into body text the platforms parse (a forged ``Closes:`` line closes someone's issue).
+        """
+        if not value:
+            return value
+        if not value.startswith(("http://", "https://")):
             raise ValueError("url must be an http(s) URL")
+        if not _URL_CHARSET_RE.match(value):
+            raise ValueError("url must percent-encode anything outside the RFC 3986 charset, parentheses included")
         return value
+
+    @model_validator(mode="after")
+    def _closing_key_is_a_bare_identifier(self) -> RefIn:
+        """A ``closes`` key is emitted unanchored behind a closing keyword (``Fixes <key>``) in the
+        MR description and the commit message, so a ``namespace/project#7`` key would make DAIV
+        close an issue in any project its bot can reach.
+        """
+        if self.relation == "closes" and _CROSS_PROJECT_SEPARATORS & set(self.key):
+            raise ValueError("a closes reference key may not contain '/' or '#'")
+        return self
 
     def to_stored(self) -> dict:
         return {"key": self.key, "provider": self.provider, "url": self.url, "relation": self.relation}
