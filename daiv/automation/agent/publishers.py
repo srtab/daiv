@@ -18,6 +18,7 @@ from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.references import render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -431,8 +432,9 @@ class GitChangePublisher(ChangePublisher):
                 "automation/issue_merge_request.txt",
                 {
                     "description": description,
-                    "source_repo_id": self.ctx.repository.slug,
-                    "issue_id": self.ctx.issue.iid if self.ctx.issue else None,
+                    "references_block": render_references_block(
+                        self.ctx.references, repo_slug=self.ctx.repository.slug
+                    ),
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,

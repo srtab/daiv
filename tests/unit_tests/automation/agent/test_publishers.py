@@ -12,6 +12,7 @@ from automation.agent.publishers import SESSION_TRAILER, GitChangePublisher, Pub
 from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -80,6 +81,7 @@ def _make_publisher(
     ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
+    ctx.references = ()
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -463,6 +465,42 @@ class TestCreateMergeRequestAssignee:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+
+
+class TestReferenceFooter:
+    def _capture_description(self, publisher):
+        publisher.client.update_or_create_merge_request = Mock(return_value=_make_merge_request())
+        return publisher
+
+    async def test_issue_webhook_footer_is_byte_identical(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = Issue(iid=42, title="t", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "\nCloses: owner/repo#42+\n" in description
+        assert "**References:**" not in description
+
+    async def test_no_refs_renders_no_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "Closes:" not in description
+        assert "**References:**" not in description
+
+    async def test_declared_refs_render_in_the_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.example.com/1", relation="closes"),
+            ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),
+        )
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "**References:**" in description
+        assert "- Fixes DAIV-1V ([Sentry](https://s.example.com/1))" in description
+        assert "- [RT-77](https://rt.example.com/77)" in description
 
 
 class TestBuildIssueCreationUrl:
