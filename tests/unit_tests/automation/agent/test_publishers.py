@@ -385,7 +385,7 @@ class TestCommitSessionTrailer:
     @pytest.fixture
     def trailered(self, stub_site_url):
         async def _build(message: str = "msg", thread_id: str = "abc123def"):
-            return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
+            return await _publisher_no_issue(thread_id=thread_id)._with_trailers(message)
 
         return _build
 
@@ -414,7 +414,7 @@ class TestCommitSessionTrailer:
         publisher = _publisher_no_issue(thread_id=thread_id)
 
         with _session_link_disabled(publisher, disable):
-            assert await publisher._with_session_trailer("msg") == "msg"
+            assert await publisher._with_trailers("msg") == "msg"
 
     async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
         """The commit must survive a misconfigured Sites row; only the trailer is lost."""
@@ -423,7 +423,25 @@ class TestCommitSessionTrailer:
         )
         publisher = _publisher_no_issue(thread_id="abc123def")
 
-        assert await publisher._with_session_trailer("msg") == "msg"
+        assert await publisher._with_trailers("msg") == "msg"
+
+
+class TestReferenceTrailers:
+    async def test_ref_trailers_precede_the_session_trailer(self, stub_site_url):
+        publisher = _publisher_no_issue(thread_id="abc123def")
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
+            ExternalRef(key="PROJ-9", provider="jira"),
+        )
+        result = await publisher._with_trailers("msg")
+        assert result == (
+            "msg\n\nFixes DAIV-1V\n\nRefs: PROJ-9\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+        )
+
+    async def test_ref_trailers_apply_even_without_a_session_link(self):
+        publisher = _publisher_no_issue(thread_id=None)
+        publisher.ctx.references = (ExternalRef(key="PROJ-9", provider="jira"),)
+        assert await publisher._with_trailers("msg") == "msg\n\nRefs: PROJ-9"
 
 
 class TestCreateMergeRequestAssignee:

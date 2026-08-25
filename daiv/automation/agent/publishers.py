@@ -18,7 +18,7 @@ from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.references import render_references_block
+from codebase.references import render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -183,7 +183,7 @@ class GitChangePublisher(ChangePublisher):
                 commit_message = changes_metadata["commit_message"].commit_message
                 if skip_ci:
                     commit_message = f"[skip ci] {commit_message}"
-                await git_manager.commit_all(await self._with_session_trailer(commit_message))
+                await git_manager.commit_all(await self._with_trailers(commit_message))
 
             if merge_request is None:
                 branch_name = git_manager.unique_branch_name(
@@ -461,16 +461,19 @@ class GitChangePublisher(ChangePublisher):
             )
             return None
 
-    async def _with_session_trailer(self, commit_message: str) -> str:
-        """Append the session trailer to ``commit_message``.
+    async def _with_trailers(self, commit_message: str) -> str:
+        """Append reference trailers and the session trailer to ``commit_message``.
 
-        Unlike the description link this survives description rewrites and stays attached to the
-        commit once it is squashed or cherry-picked elsewhere.
+        Reference lines come first so the session trailer — the only line needing git-trailer
+        semantics — always ends up in the final paragraph.
         """
+        message = commit_message
+        for line in render_commit_trailers(self.ctx.references):
+            message = append_trailer(message, line)
         session_url = await self._session_link("session_detail")
-        if not session_url:
-            return commit_message
-        return append_trailer(commit_message, f"{SESSION_TRAILER}: {session_url}")
+        if session_url:
+            message = append_trailer(message, f"{SESSION_TRAILER}: {session_url}")
+        return message
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:
