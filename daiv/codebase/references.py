@@ -28,7 +28,7 @@ MAX_REFS_PER_SESSION = 50
 RefRelation = Literal["closes", "relates"]
 
 # RFC 3986's URI character set minus the parentheses, which delimit a markdown link destination.
-_URL_CHARSET_RE = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+$")
+_URL_CHARSET_RE = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+\Z")
 
 # Separators that turn a bare identifier into a cross-project platform reference.
 _CROSS_PROJECT_SEPARATORS = frozenset("/#")

@@ -63,6 +63,7 @@ class TestIntakeRejectsInjection:
             "https://ok.example/1\r\nCloses: victim/project#7",
             "https://ok.example/<script>",
             "https://ok.example/1>",
+            "https://ok.example/path\n",
         ],
     )
     def test_url_rejects_link_destination_escapes(self, url):
