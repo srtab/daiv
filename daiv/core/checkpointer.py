@@ -90,9 +90,10 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     envelope ``dict`` on a reconstruction failure -- so if a model's schema drifts across a
     deploy (a field renamed/required/retyped, or the class relocated), a checkpointed model
     silently comes back as a ``dict`` with no log. Consumers must therefore not assume the
-    revived value is the model: ``GitMiddleware`` guards its ``merge_request`` read
-    (``_state_merge_request``) and fails loud rather than letting an ``AttributeError`` surface
-    far downstream. We also register our models on ``allowed_json_modules``: in
+    revived value is the model: ``merge_request`` reads all go through
+    ``automation.agent.publishers.checkpointed_merge_request``, which rejects a degraded value
+    rather than letting an ``AttributeError`` surface far downstream. We also register our models
+    on ``allowed_json_modules``: in
     ``langgraph-checkpoint-redis`` 0.5.2 the read path consults it for real -- a class not on
     the allowlist (and not a known-safe LangGraph/LangChain type) is refused by
     ``_check_allowed_json_modules`` and revives to the raw ``dict`` with a warning, so the
