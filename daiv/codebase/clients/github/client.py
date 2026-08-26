@@ -727,7 +727,9 @@ class GitHubClient(RepoClient):
         try:
             return self._workflow_run_to_pipeline(repo.get_workflow_run(pipeline_id))
         except GithubException as exc:
-            if exc.status in (403, 404):
+            # 404 only: a 403 is a rate limit or a revoked token, and answering None there makes an
+            # outage read as "no pipeline yet" — which the watch waits out in silence.
+            if exc.status == 404:
                 return None
             raise
 

@@ -56,6 +56,24 @@ class TestEnvOverride:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(sandbox_timeout=600)):
             assert ss.sandbox_timeout == 30.5
 
+    def test_env_override_small_int(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_PIPELINE_WATCH_MAX_ATTEMPTS", "2")
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(pipeline_watch_max_attempts=5)):
+            assert ss.pipeline_watch_max_attempts == 2
+
+    def test_every_configurable_int_field_coerces_from_the_environment(self, ss, monkeypatch):
+        """An uncoerced field yields a ``str``, and the arithmetic downstream raises ``TypeError``
+        rather than misbehaving visibly, so pin the whole family rather than one member."""
+        from django.db import models
+
+        for name in ss.FIELD_DEFAULTS:
+            field = SiteConfiguration._meta.get_field(name)
+            if not isinstance(field, models.IntegerField) or isinstance(field, models.BooleanField):
+                continue
+            monkeypatch.setenv(ss.get_env_var_name(name), "7")
+            with patch.object(SiteConfiguration, "get_cached", return_value=None):
+                assert getattr(ss, name) == 7, f"{name} ({type(field).__name__}) was not coerced"
+
     def test_api_key_env_override_uses_custom_name(self, ss, monkeypatch):
         monkeypatch.setenv("ALLAUTH_CLIENT_SECRET", "sk-test-env")
         mock_config = MagicMock()

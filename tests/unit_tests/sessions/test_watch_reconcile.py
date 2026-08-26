@@ -72,6 +72,58 @@ async def test_a_watch_past_its_lifetime_is_abandoned(monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_an_expired_watch_says_so_on_the_merge_request(monkeypatch):
+    """The expiry is where every unresolved failure lands, so closing it silently is what made an
+    outage, a misconfigured cap and a pipeline that never started all look identical."""
+    comments = []
+
+    async def fake_comment(**kwargs):
+        comments.append(kwargs)
+
+    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", fake_comment)
+    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", lambda **kw: _noop())
+
+    await Session.objects.acreate(
+        thread_id="ancient2",
+        origin=SessionOrigin.MR_WEBHOOK,
+        repo_id="group/repo",
+        ref="daiv/branch",
+        merge_request_iid=11,
+        watch_state=WatchState.WATCHING,
+        watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
+    )
+
+    await areconcile_watches()
+
+    assert len(comments) == 1
+    assert comments[0]["merge_request_iid"] == 11
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_expired_watch_is_logged_per_session(monkeypatch, caplog):
+    """The only signal was an aggregate count with no repo and no thread, so nobody could
+    reconstruct which watch gave up or why."""
+    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", lambda **kw: _noop())
+    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", lambda **kw: _noop())
+
+    await Session.objects.acreate(
+        thread_id="ancient3",
+        origin=SessionOrigin.MR_WEBHOOK,
+        repo_id="group/repo",
+        ref="daiv/branch",
+        merge_request_iid=12,
+        watch_state=WatchState.WATCHING,
+        watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
+    )
+
+    with caplog.at_level("WARNING"):
+        await areconcile_watches()
+
+    assert "ancient3" in caplog.text or "group/repo" in caplog.text
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_stuck_fixing_watch_is_recovered(monkeypatch):
     await Session.objects.acreate(
         thread_id="stuck",
@@ -91,3 +143,50 @@ async def test_a_stuck_fixing_watch_is_recovered(monkeypatch):
 
 async def _noop():
     return None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_stuck_sweep_only_moves_a_row_still_being_fixed(monkeypatch):
+    """The sweep selects FIXING and then writes; if the fix run lands GREEN in between, an
+    unguarded write resurrects a closed watch. Driven through the shared primitive with the
+    row already moved, which is what that interleaving looks like from the write's side."""
+    from sessions.pipeline_watch import _atransition
+
+    await Session.objects.acreate(
+        thread_id="moved-on",
+        origin=SessionOrigin.MR_WEBHOOK,
+        repo_id="group/repo",
+        ref="daiv/branch",
+        watch_state=WatchState.GREEN,
+        watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
+    )
+
+    won = await _atransition(
+        "moved-on", expect=WatchState.FIXING, watch_state=WatchState.WATCHING, watch_armed_at=timezone.now()
+    )
+
+    assert won is False
+    session = await Session.objects.aget(thread_id="moved-on")
+    assert session.watch_state == WatchState.GREEN
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_transition_primitive_reports_the_single_winner():
+    """Four call sites branch on this return value to decide whether to comment."""
+    from sessions.pipeline_watch import _atransition
+
+    await Session.objects.acreate(
+        thread_id="contended",
+        origin=SessionOrigin.MR_WEBHOOK,
+        repo_id="group/repo",
+        ref="daiv/branch",
+        watch_state=WatchState.WATCHING,
+        watch_armed_at=timezone.now(),
+    )
+
+    first = await _atransition("contended", expect=WatchState.WATCHING, watch_state=WatchState.EXHAUSTED)
+    second = await _atransition("contended", expect=WatchState.WATCHING, watch_state=WatchState.GREEN)
+
+    assert (first, second) == (True, False)
+    session = await Session.objects.aget(thread_id="contended")
+    assert session.watch_state == WatchState.EXHAUSTED
