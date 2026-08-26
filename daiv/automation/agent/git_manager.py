@@ -26,6 +26,7 @@ logger = logging.getLogger("daiv.tools")
 
 
 _SHELL_SAFE_ARG = re.compile(r"^[A-Za-z0-9_./@=:,+-]+$")
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def _shell_quote(arg: str) -> str:
@@ -358,6 +359,20 @@ class GitManager:
         (``git commit`` exits non-zero on an empty index)."""
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
+
+    async def head_sha(self) -> str:
+        """The full sha of the current ``HEAD``.
+
+        ``_GitResult.output`` is stdout *and* stderr, so a benign git warning (an unreadable
+        ``.gitconfig``, a gc hint) would otherwise be returned as part of the sha; take the last
+        line and refuse anything that is not a full sha rather than hand a caller a poisoned one.
+        """
+        result = await self._git("rev-parse", "HEAD")
+        lines = self._nonempty_lines(result.output)
+        sha = lines[-1] if lines else ""
+        if not _FULL_SHA_RE.fullmatch(sha):
+            raise GitCommandError(["git", "rev-parse", "HEAD"], result.exit_code, stderr=result.output)
+        return sha
 
     async def push_head_to(
         self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False
