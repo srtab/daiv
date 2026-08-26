@@ -270,6 +270,16 @@ msgstr "Desligar"
 msgid "Connect"
 msgstr "Ligar"
 
+msgid "Findings"
+msgstr "Problemas encontrados"
+
+msgid "Needs a look"
+msgstr "Requer revisão"
+
+#, python-format
+msgid "… and %(remaining)s more"
+msgstr "… e mais %(remaining)s"
+
 msgid "Status"
 msgstr "Estado"
 

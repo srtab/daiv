@@ -167,6 +167,14 @@ def test_offered_action_found_issues_empty_resolves_to_none():
     assert env.is_actionable is False
 
 
+@pytest.mark.parametrize("status", sorted(set(EnvelopeStatus) - {EnvelopeStatus.ALL_CLEAR}))
+def test_every_status_but_all_clear_offers_an_action(status):
+    """``offered_action`` resolves an unmapped status to NONE, indistinguishable from a genuinely
+    action-free run, so a new member would silently offer the console nothing."""
+    actionable = [_item()] if status == EnvelopeStatus.FOUND_ISSUES else []
+    assert RunEnvelope(status=status, actionable=actionable).offered_action != OfferedAction.NONE
+
+
 def test_clean_rejects_found_issues_with_empty_actionable():
     env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.FOUND_ISSUES, actionable=[])
     with pytest.raises(ValidationError):
