@@ -8,7 +8,7 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 from django.utils.translation import gettext as _
 
-from notifications.channels.registry import enabled_channels
+from notifications.channels.registry import enabled_channel_types
 from notifications.policy import (
     batch_status_tone,
     envelope_tone,
@@ -175,7 +175,7 @@ def _notification_exists(recipient, source_type: str, source_id: str, event_type
     ).exists()
 
 
-def _deliver_to_recipients(
+def deliver_to_recipients(
     recipients, *, source_type: str, source_id: str, event_type, subject, body, link_url, channels, context
 ) -> None:
     """Create one notification per recipient, keyed on (source_type, source_id, event_type).
@@ -238,7 +238,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
         )
         return
 
-    channels = [cls.channel_type for cls in enabled_channels()]
+    channels = enabled_channel_types()
     rows = [BatchRow(*row) for row in siblings.values_list("repo_id", "started_at", "finished_at", "envelope__status")]
     usage = {
         "input_tokens": agg["total_input_tokens"],
@@ -250,7 +250,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
     link_url = f"{reverse('session_list')}?batch={run.batch_id}"
     source_type, source_id, event_type = notification_source_for_run(run, total)
 
-    _deliver_to_recipients(
+    deliver_to_recipients(
         recipients.values(),
         source_type=source_type,
         source_id=source_id,
@@ -298,12 +298,12 @@ def emit_run_notification(run, envelope) -> None:
         )
         return
 
-    channels = [cls.channel_type for cls in enabled_channels()]
+    channels = enabled_channel_types()
     subject, body, context = _render_payload(run, envelope)
     link_url = reverse("session_detail", kwargs={"thread_id": run.session_id})
     source_type, source_id, event_type = notification_source_for_run(run, total=1)
 
-    _deliver_to_recipients(
+    deliver_to_recipients(
         recipients.values(),
         source_type=source_type,
         source_id=source_id,

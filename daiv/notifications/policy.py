@@ -8,6 +8,7 @@ from notifications.choices import EventType
 # pinned by the unique constraint. Spelled once here so the emit and the re-drive can't drift.
 SOURCE_RUN = "sessions.Run"
 SOURCE_BATCH = "sessions.Batch"
+SOURCE_SESSION = "sessions.Session"
 
 
 def is_schedule_run(run) -> bool:
@@ -53,6 +54,15 @@ def notification_source_for_run(run, total: int) -> tuple[str, str, EventType]:
         return SOURCE_BATCH, str(run.batch_id), EventType.JOB_BATCH_FINISHED
     event_type = EventType.SCHEDULE_FINISHED if is_schedule_run(run) else EventType.JOB_FINISHED
     return SOURCE_RUN, str(run.pk), event_type
+
+
+def notification_source_for_watch(session, pipeline_id: int) -> tuple[str, str, EventType]:
+    """The key a pipeline-watch give-up is deduped on.
+
+    Scoped to the pipeline, not the thread: a ``thread_id`` outlives the merge request and a watch
+    can be re-armed with a fresh budget, so a thread-only key would mute every later give-up.
+    """
+    return SOURCE_SESSION, f"{session.thread_id}:{pipeline_id}", EventType.PIPELINE_WATCH_EXHAUSTED
 
 
 def batch_status_tone(notable: int, total: int) -> str:
