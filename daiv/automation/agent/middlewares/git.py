@@ -17,7 +17,7 @@ from langsmith import get_current_run_tree
 
 from automation.agent.git_manager import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
-from automation.agent.publishers import GitChangePublisher
+from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 from automation.agent.utils import conversation_thread_id
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -213,9 +213,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
         elif merge_request is None:
-            # Surface any pre-existing open MR on the current branch so the chat
-            # composer pill reflects reality from the very first turn. Issue-scope
-            # runs always start on the default branch, where this lookup short-circuits.
+            # Surface any pre-existing open MR on the current branch so the chat composer pill
+            # reflects reality from the very first turn. A *first* issue-scope turn starts on the
+            # default branch, where this lookup short-circuits; a follow-up turn starts on the
+            # branch the previous turn published to (``Session.ref``, resolved in
+            # ``address_issue_task``), so a cleared checkpoint re-discovers that MR here.
             merge_request = await self._alookup_open_mr(runtime.context)
 
         update: dict[str, Any] = {
@@ -285,44 +287,42 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
             return None
 
-    @staticmethod
-    def _effective_mr_iid(
-        *, context_mr: MergeRequest | None, state_mr: MergeRequest | None, current_ref: str
-    ) -> int | None:
-        """Pick the MR iid to advertise in the prompt.
+    def _effective_mr(self, state: GitState, context: RuntimeCtx, *, current_ref: str) -> MergeRequest | None:
+        """Resolve the run's MR from the one decision, with the context this middleware holds.
 
-        Prefer the context MR (MR-scope runs). Otherwise use the state MR only when its
-        ``source_branch`` still matches the current ref — the branch could have been checked out from
-        under us mid-run (or the MR closed), and a stale iid would mislead the agent every turn.
+        Both hops that need it — the prompt's iid and the publish target — go through here so they
+        cannot drift on *which* refs they compare; splitting them is what lost a turn's work.
         """
-        if context_mr is not None:
-            return context_mr.merge_request_id
-        if state_mr is not None and state_mr.source_branch == current_ref:
-            return state_mr.merge_request_id
-        return None
+        return effective_merge_request(
+            context_mr=context.merge_request, state_mr=self._state_merge_request(state), current_ref=current_ref
+        )
+
+    def _publish_target(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> MergeRequest | None:
+        """The MR ``publish()`` may add onto, or ``None`` to open a fresh branch and MR.
+
+        The log level splits on *who chose the ref*: on an issue run DAIV chose it itself
+        (``Session.ref``), so a mismatch is its own continuity failing and ERROR is the only level
+        this project turns into a Sentry event. Elsewhere the caller chose it — a chat turn
+        retargeting the branch pill lands here legitimately, and paging on it trains the signal away.
+        """
+        current_ref = get_repo_ref(runtime.context.gitrepo)
+        publish_mr = self._effective_mr(state, runtime.context, current_ref=current_ref)
+        if publish_mr is None and (state_mr := self._state_merge_request(state)) is not None:
+            log = logger.error if runtime.context.scope == Scope.ISSUE else logger.warning
+            log(
+                "[%s] Not publishing to MR #%s: its source_branch=%r is not the checked-out ref=%r. "
+                "Opening a fresh branch and MR instead so this run's work isn't rebased onto unrelated history.",
+                self.name,
+                state_mr.merge_request_id,
+                state_mr.source_branch,
+                current_ref,
+            )
+        return publish_mr
 
     @staticmethod
     def _state_merge_request(state: GitState) -> MergeRequest | None:
-        """Read the checkpointed MR from state, failing loud if it didn't revive to a MergeRequest.
-
-        ``DAIVRedisSerializer`` round-trips ``MergeRequest`` through an ``lc:2`` envelope. If
-        reconstruction fails on read (e.g. the model's schema drifted across a deploy),
-        langgraph-checkpoint-redis silently returns the raw envelope ``dict`` instead of the model
-        (see ``DAIVRedisSerializer``'s class docstring). Downstream code does ``mr.source_branch`` /
-        ``mr.merge_request_id`` and would raise a confusing ``AttributeError`` far from the cause —
-        so surface a clear error at the read site instead of trusting a possibly-degraded value.
-        """
-        merge_request = state.get("merge_request")
-        if merge_request is not None and not isinstance(merge_request, MergeRequest):
-            logger.error(
-                "Checkpointed merge_request did not revive to a MergeRequest (got %s) — likely a "
-                "stale/incompatible checkpoint after a MergeRequest schema change.",
-                type(merge_request).__name__,
-            )
-            raise TypeError(
-                f"Checkpointed merge_request revived as {type(merge_request).__name__}, expected MergeRequest"
-            )
-        return merge_request
+        """The checkpointed MR, raising when it didn't revive — see :func:`checkpointed_merge_request`."""
+        return checkpointed_merge_request(state, strict=True)
 
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
@@ -335,26 +335,20 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # MR. Without this fallback the agent re-discovers via
         # ``project-merge-request list --source-branch ...`` on every turn and may
         # pick a different MR than the publisher will write to.
+        # A dropped MR is not logged here: this hop runs once per model call, and
+        # ``_publish_target`` reports the same condition once, at the end of the turn.
         current_ref = get_repo_ref(request.runtime.context.gitrepo)
-        context_mr = request.runtime.context.merge_request
-        state_mr = self._state_merge_request(cast("GitState", request.state))
-        mr_iid = self._effective_mr_iid(context_mr=context_mr, state_mr=state_mr, current_ref=current_ref)
-        if mr_iid is None and context_mr is None and state_mr is not None:
-            logger.warning(
-                "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
-                self.name,
-                state_mr.merge_request_id,
-                state_mr.source_branch,
-                current_ref,
-            )
+        effective_mr = self._effective_mr(
+            cast("GitState", request.state), request.runtime.context, current_ref=current_ref
+        )
 
         context = {
             "git_platform": request.runtime.context.git_platform.value,
             "repository": request.runtime.context.repository.slug,
-            "current_branch": get_repo_ref(request.runtime.context.gitrepo),
+            "current_branch": current_ref,
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
-            "merge_request_iid": mr_iid,
+            "merge_request_iid": effective_mr.merge_request_id if effective_mr is not None else None,
         }
 
         system_prompt = ""
@@ -422,7 +416,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         publisher = GitChangePublisher(
             runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
         )
-        outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
+        outcome = await publisher.publish(merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci)
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

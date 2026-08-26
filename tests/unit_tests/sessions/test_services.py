@@ -15,6 +15,7 @@ from sessions.services import (
     RepoTarget,
     acreate_run,
     aget_or_create_session,
+    aget_session_ref,
     apersist_session_ref,
     areset_session_ref,
     asubmit_batch_runs,
@@ -681,3 +682,24 @@ async def test_reset_session_ref_repins_the_row():
 
     refreshed = await Session.objects.aget(thread_id="t-ref-6")
     assert refreshed.ref == "main"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_session_ref_returns_the_working_branch():
+    """The read half of the pair: what ``address_issue_task`` clones on a follow-up turn."""
+    await Session.objects.acreate(
+        thread_id="t-ref-7", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="a/b", ref="fix/10-update-deps"
+    )
+
+    assert await aget_session_ref(thread_id="t-ref-7") == "fix/10-update-deps"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("thread_id", ["t-ref-8", "no-such-session"], ids=["blank-ref", "no-session"])
+async def test_get_session_ref_is_empty_when_there_is_no_working_branch(thread_id):
+    """``""`` and not ``None``, mirroring the non-null ``Session.ref`` column: a missing row and a
+    blank one are the same answer — no working branch — and the caller turns both into the default
+    branch via ``ref=effective_ref or None``."""
+    await Session.objects.acreate(thread_id="t-ref-8", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="a/b")
+
+    assert await aget_session_ref(thread_id=thread_id) == ""

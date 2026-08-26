@@ -115,6 +115,15 @@ async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_reques
         await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
 
 
+async def aget_session_ref(*, thread_id: str) -> str:
+    """The branch a session is working on, or ``""`` when it has none (or no such session).
+
+    The read side of :func:`apersist_session_ref`, for a webhook re-trigger that carries no ref of
+    its own — an issue is not a branch.
+    """
+    return await Session.objects.filter(thread_id=thread_id).values_list("ref", flat=True).afirst() or ""
+
+
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
 

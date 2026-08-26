@@ -5,24 +5,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from codebase.base import Issue, MergeRequest, Scope, User
-from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
 from codebase.utils import compute_thread_id
-
-
-@pytest.fixture
-def stub_base_init():
-    """Skip BaseManager side effects (RepoClient, GitManager) — we exercise __init__ logic only."""
-    with patch.object(
-        BaseManager,
-        "__init__",
-        lambda self, *, runtime_ctx, thread_id: (
-            setattr(self, "ctx", runtime_ctx),
-            setattr(self, "thread_id", thread_id),
-        ),
-    ):
-        yield
 
 
 class _StubRepo:
@@ -31,6 +16,9 @@ class _StubRepo:
 
 class _StubCtx:
     repository = _StubRepo()
+    # Read by ``_recover_draft``'s publish-target resolution, pinned in test_recover_draft_target.
+    merge_request = None
+    gitrepo = Mock()
 
 
 _AUTHOR = User(id=1, username="alice")
