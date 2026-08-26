@@ -30,13 +30,13 @@ sequenceDiagram
     Watch->>MR: post give-up comment (on exhaustion)
 ```
 
-1. **Watch armed** — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. The counter starts at zero and is never reset, so every fix run spends from the same budget.
+1. **Watch armed** — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. See [Which runs arm the watch](#which-runs-arm-the-watch). Arming requires that the run actually *pushed*: a turn that ends with a clean tree already on its merge request publishes nothing, so it leaves the watch alone. The counter survives re-arming by a fix run, so the cap bounds one chain of fix attempts; a human-initiated run that publishes to the same merge request starts a fresh budget.
 2. **Pipeline event** — a webhook from GitLab (`pipeline_events`) or GitHub (`workflow_run`) delivers the terminal result. The watch also evaluates immediately on arming, because the CI event can arrive before the watch exists.
 3. **Judgment** — see [Conservative judgment](#conservative-judgment) below.
 4. **Fix run** — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs using its trace tools and pushes a fix.
 5. **Give up** — when the attempt counter reaches the cap, DAIV posts a comment on the MR with the failing jobs and the pipeline link, then closes the watch. A notification is sent to the session owner if one exists.
 6. **No-diff early exit** — if a fix run produces no diff (nothing to commit), the watch ends immediately. No push means no pipeline and no future event, so the loop would never advance.
-7. **Reconciler** — a cron task runs every 10 minutes to handle missed events and stuck states. A watch older than 6 hours is marked unclear regardless of state.
+7. **Reconciler** — a cron task runs every 10 minutes to handle missed events and stuck states. A watch older than 6 hours is marked unclear regardless of state. Each tick re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.
 
 ---
 
@@ -102,7 +102,7 @@ pipeline_watch:
 
 ### GitHub: `allow_failure` jobs
 
-GitHub Actions does not expose per-job required-ness through the API, so DAIV treats every failed job as required. A `continue-on-error` job that fails will count as a real failure and trigger a fix run. This can spend one attempt without producing a meaningful fix, but it never misses a real failure.
+GitHub Actions does not expose per-job required-ness through the API, so DAIV treats every failed job as required. The verdict itself still comes from the workflow run's own conclusion, so a tolerated job's failure cannot by itself spend an attempt — a run that concludes `success` is green. What differs from GitLab is narrower: DAIV cannot exclude a tolerated job from the failure list it hands the agent, and it never reads a failed run as green on the grounds that every failure was tolerated.
 
 ### GitHub: one event per workflow, not per push
 
@@ -111,6 +111,20 @@ A `workflow_run` event reports a single workflow, not the branch's whole CI. A r
 ### GitLab: merge-request pipelines and the reconciler poll
 
 The reconciler's fallback poll lists pipelines by branch (`ref=<source branch>`). Detached merge-request pipelines are not on the branch ref — GitLab records them under `refs/merge-requests/<iid>/head` — so on projects that run *only* merge-request pipelines the poll finds nothing. This is harmless: a read that finds no pipeline never closes a watch, so those repositories are driven entirely by the pipeline webhook, with the six-hour expiry as the backstop.
+
+---
+
+## Which runs arm the watch
+
+| How the merge request was published | Watch armed |
+|---|---|
+| Issue addressing (`daiv` / `daiv-auto` label, or a mention on an issue) | Yes |
+| Job runs — REST API, MCP `submit_job`, scheduled jobs | Yes |
+| Chat turn | Yes |
+| Fix run dispatched by the watch itself | Yes — re-arms, keeping the attempt counter |
+| Review addressing (DAIV answering comments on an existing merge request) | **No** |
+
+Review addressing is excluded deliberately. It pushes to a merge request someone else may own, so babysitting that pipeline would put commits nobody asked for on their branch. Reviewers who want CI fixed can ask for it in a comment.
 
 ---
 

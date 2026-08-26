@@ -733,10 +733,10 @@ class GitHubClient(RepoClient):
 
     def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
         repo = self.client.get_repo(repo_id, lazy=True)
-        runs = repo.get_workflow_runs(branch=ref)
-        if runs.totalCount == 0:
-            return None
-        return self._workflow_run_to_pipeline(runs[0])
+        # ``totalCount`` costs its own request without populating the list, so take the first
+        # item straight off the iterator instead of counting and then indexing.
+        run = next(iter(repo.get_workflow_runs(branch=ref)), None)
+        return self._workflow_run_to_pipeline(run) if run is not None else None
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

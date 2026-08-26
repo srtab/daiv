@@ -182,6 +182,13 @@ class Session(models.Model):
             models.Index(fields=["origin", "-last_active_at"], name="session_origin_active_idx"),
             models.Index(fields=["repo_id", "-last_active_at"], name="session_repo_active_idx"),
             models.Index(fields=["repo_id", "ref", "watch_state"], name="session_watch_lookup_idx"),
+            # The reconciler filters watch_armed_at with no repo_id, so the composite above
+            # cannot serve it. Partial, because open watches are a rounding error on this table.
+            models.Index(
+                fields=["watch_armed_at"],
+                name="session_watch_sweep_idx",
+                condition=models.Q(watch_state__in=sorted(WatchState.open())),
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -191,6 +198,9 @@ class Session(models.Model):
             # ``choices=`` is not enforced at the DB layer, and the lock writes via
             # ``.aupdate()`` (bypassing field validation), so pin the enum here too.
             models.CheckConstraint(condition=models.Q(origin__in=SessionOrigin.values), name="session_origin_valid"),
+            models.CheckConstraint(
+                condition=models.Q(watch_state__in=WatchState.values), name="session_watch_state_valid"
+            ),
             # Blank ("" = no override) or a valid ThinkingLevelChoices value.
             models.CheckConstraint(
                 condition=models.Q(agent_thinking_level="")

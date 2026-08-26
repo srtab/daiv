@@ -96,6 +96,15 @@ class GitState(AgentState):
     Whether the agent produced code changes that were published to the repository.
     """
 
+    published: NotRequired[bool]
+    """
+    Whether *this turn* committed and pushed. Narrower than ``code_changes``, which stays true
+    for a clean tree already on its merge request — so it cannot answer "did this turn push?",
+    which is what the CI watch arms on. Public on the output schema like ``merge_request``,
+    because the chat run reads it off the streamed ``STATE_SNAPSHOT``: its completion hook runs
+    after the checkpointer is closed and has no state read of its own.
+    """
+
     diff_stats: NotRequired[dict[str, int]]
     """
     ``{"lines_added", "lines_removed", "files_changed"}`` for the work published so far.
@@ -221,6 +230,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         update: dict[str, Any] = {
             "merge_request": merge_request,
             "code_changes": False,
+            "published": False,
             "protected_branch_fallback_source": None,
         }
         if pre_run_dirty_files:
@@ -426,6 +436,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
+        if outcome.published:
+            # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
+            # inherit the previous turn's push.
+            update["published"] = True
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

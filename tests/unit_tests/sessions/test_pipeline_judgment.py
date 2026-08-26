@@ -1,15 +1,7 @@
 import pytest
 from sessions.pipeline_watch import Judgment, failed_jobs, judge_pipeline
 
-from codebase.base import Job, Pipeline
-
-
-def make_job(status: str, *, allow_failure: bool = False, name: str = "test") -> Job:
-    return Job(id=1, name=name, status=status, stage="test", allow_failure=allow_failure)
-
-
-def make_pipeline(status: str, jobs: list[Job] | None = None) -> Pipeline:
-    return Pipeline(id=100, iid=1, sha="abc123", status=status, web_url="https://example.com/p/100", jobs=jobs or [])
+from .conftest import make_job, make_pipeline
 
 
 def test_success_with_jobs_is_green():

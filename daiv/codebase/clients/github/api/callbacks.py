@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
-from sessions.pipeline_watch import watch_enabled
+from sessions.pipeline_watch import JUDGEABLE_PIPELINE_STATUSES, arequest_watch_evaluation, watch_enabled
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -14,8 +14,9 @@ from codebase.api.callbacks import BaseCallback
 from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
+from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task, evaluate_pipeline_watch_task
+from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
@@ -358,12 +359,16 @@ class WorkflowRunCallback(GitHubCallback):
         """Accept finished workflow runs on repos with the watch enabled.
 
         Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
+        Translating the conclusion puts both platforms on the judge's one vocabulary; the
+        config read comes last because it blocks the event loop on a cache round-trip.
         """
         return (
-            watch_enabled(self._repo_config) and self.action == "completed" and self.workflow_run.conclusion is not None
+            self.action == "completed"
+            and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
+            and watch_enabled(self._repo_config)
         )
 
     async def process_callback(self):
-        await evaluate_pipeline_watch_task.aenqueue(
+        await arequest_watch_evaluation(
             repo_id=self.repository.full_name, ref=self.workflow_run.head_branch, pipeline_id=self.workflow_run.id
         )

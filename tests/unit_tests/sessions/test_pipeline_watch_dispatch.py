@@ -15,22 +15,13 @@ from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch import _adispatch_fix_run
 
-from codebase.base import Job, Pipeline, Scope
+from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
 
+from .conftest import make_pipeline
+
 MR_IID = 91
-
-
-def make_pipeline() -> Pipeline:
-    return Pipeline(
-        id=910,
-        iid=1,
-        sha="abc123",
-        status="failed",
-        web_url="https://example.com/p/910",
-        jobs=[Job(id=1, name="tests", status="failed", stage="test", allow_failure=False)],
-    )
 
 
 @pytest.fixture
@@ -84,8 +75,8 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
     stub_enqueue, create_db_task_result, monkeypatch
 ):
     """The whole loop guard in one pass: dispatch, then the ``trigger_type`` read
-    ``run_job_task`` does off the Run row, then the arm that consumes it."""
-    from jobs.tasks import _aarm_watch_after_run, _aresolve_trigger_type
+    ``_ais_fix_run`` does off the Run row, then the arm that consumes it."""
+    from sessions.pipeline_watch import _ais_fix_run, aarm_watch_after_run
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
@@ -95,18 +86,17 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
         async def aenqueue(self, **kwargs):
             pass
 
-    monkeypatch.setattr("jobs.tasks.evaluate_pipeline_watch_task", FakeEvaluate())
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeEvaluate())
 
     await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
 
-    trigger_type = await _aresolve_trigger_type(calls[0]["run_id"])
-    assert trigger_type == SessionOrigin.PIPELINE_WEBHOOK
+    assert await _ais_fix_run(calls[0]["run_id"]) is True
 
-    await _aarm_watch_after_run(
+    await aarm_watch_after_run(
         repo_id="group/repo",
-        trigger_type=trigger_type,
+        run_id=calls[0]["run_id"],
         merge_request={"merge_request_id": MR_IID, "source_branch": "daiv/branch"},
-        code_changes=True,
+        published=True,
     )
 
     await session.arefresh_from_db()
@@ -130,3 +120,27 @@ async def test_the_fix_run_resolves_a_sandbox_environment(stub_enqueue, create_d
     run = await Run.objects.aget(session_id=session.thread_id)
     assert calls[0]["sandbox_environment_id"] == str(env.id)
     assert str(run.sandbox_environment_id) == str(env.id)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_enqueue, monkeypatch):
+    """The claim charges the attempt before the dispatch, so a broker failure would otherwise
+    spend it on nothing and leave the row in ``fixing`` until the 30-minute stale sweep."""
+    calls, _holder = stub_enqueue
+
+    class BrokenTask:
+        async def aenqueue(self, **kwargs):
+            raise RuntimeError("broker down")
+
+    monkeypatch.setattr("jobs.tasks.run_job_task", BrokenTask())
+    session = await _make_watched_session(attempts=2)
+
+    await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
+
+    await session.arefresh_from_db()
+    assert session.watch_state == WatchState.WATCHING
+    assert session.watch_attempts == 1
+    assert session.watch_pipeline_id is None
+    # The orphan row is reachable by neither arm of sync_stuck_runs, so it must not be left READY.
+    run = await Run.objects.aget(session_id=session.thread_id)
+    assert run.status == RunStatus.FAILED

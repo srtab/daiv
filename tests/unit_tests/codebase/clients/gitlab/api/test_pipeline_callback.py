@@ -3,6 +3,7 @@ import pytest
 from codebase.clients.gitlab.api.callbacks import PipelineCallback
 from codebase.clients.gitlab.api.models import PipelineEvent, Project, User
 from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.sessions.conftest import amake_watched_session
 
 
 class StubClient:
@@ -47,6 +48,13 @@ def test_transitional_statuses_are_ignored(status, monkeypatch_dependencies):
     assert make_callback(status).accept_callback() is False
 
 
+@pytest.mark.parametrize("status", ["blocked", "manual"])
+def test_statuses_waiting_on_a_human_reach_the_judge(status, monkeypatch_dependencies):
+    """The state machine has an outcome for these — it ends the watch with a note — so a webhook
+    filter of its own would drop them and leave the branch to the 30-minute poll."""
+    assert make_callback(status).accept_callback() is True
+
+
 def test_a_pipeline_daiv_triggered_is_still_accepted(monkeypatch_dependencies, stub_client):
     """The regression test that matters.
 
@@ -64,14 +72,30 @@ def test_a_repo_with_the_watch_disabled_is_ignored(monkeypatch_dependencies, rep
     assert make_callback("failed").accept_callback() is False
 
 
-async def test_processing_enqueues_an_evaluation(monkeypatch_dependencies, monkeypatch):
+@pytest.fixture
+def stub_enqueue(monkeypatch):
     enqueued = []
 
     class FakeTask:
         async def aenqueue(self, **kwargs):
             enqueued.append(kwargs)
 
-    monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.evaluate_pipeline_watch_task", FakeTask())
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
+    return enqueued
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_processing_enqueues_an_evaluation(monkeypatch_dependencies, stub_enqueue):
+    await amake_watched_session()
+
     await make_callback("failed").process_callback()
 
-    assert enqueued == [{"repo_id": "group/repo", "ref": "daiv/branch", "pipeline_id": 100}]
+    assert stub_enqueue == [{"repo_id": "group/repo", "ref": "daiv/branch", "pipeline_id": 100}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_branch_with_no_watch_costs_no_task(monkeypatch_dependencies, stub_enqueue):
+    """An unwatched branch must not cost an interactive-queue round-trip."""
+    await make_callback("failed").process_callback()
+
+    assert stub_enqueue == []

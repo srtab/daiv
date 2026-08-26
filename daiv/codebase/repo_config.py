@@ -46,9 +46,10 @@ class PipelineWatch(BaseModel):
     CI babysitting configuration.
     """
 
+    # No site-settings factory here, unlike ``max_attempts``: ``watch_enabled`` ANDs this with
+    # the site switch, so inheriting it would only re-derive a value that gets ANDed away.
     enabled: bool = Field(
-        default_factory=lambda: site_settings.pipeline_watch_enabled,
-        description="Watch CI on merge requests DAIV publishes and try to fix failures.",
+        default=True, description="Watch CI on merge requests DAIV publishes and try to fix failures."
     )
     max_attempts: int = Field(
         default_factory=lambda: site_settings.pipeline_watch_max_attempts,

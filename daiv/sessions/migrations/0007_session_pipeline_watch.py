@@ -88,6 +88,14 @@ class Migration(migrations.Migration):
             model_name="session",
             index=models.Index(fields=["repo_id", "ref", "watch_state"], name="session_watch_lookup_idx"),
         ),
+        migrations.AddIndex(
+            model_name="session",
+            index=models.Index(
+                condition=models.Q(("watch_state__in", ["fixing", "watching"])),
+                fields=["watch_armed_at"],
+                name="session_watch_sweep_idx",
+            ),
+        ),
         migrations.AddConstraint(
             model_name="run",
             constraint=models.CheckConstraint(
@@ -124,6 +132,13 @@ class Migration(migrations.Migration):
                     ],
                 )),
                 name="session_origin_valid",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="session",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("watch_state__in", ["off", "watching", "fixing", "green", "exhausted", "unclear"])),
+                name="session_watch_state_valid",
             ),
         ),
     ]

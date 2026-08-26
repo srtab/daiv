@@ -15,20 +15,10 @@ from sessions.pipeline_watch import (
     watch_max_attempts,
 )
 
-from codebase.base import Job, Pipeline
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
 
-
-def make_pipeline(status: str, *, pipeline_id: int = 100, jobs=None) -> Pipeline:
-    return Pipeline(
-        id=pipeline_id,
-        iid=1,
-        sha="abc123",
-        status=status,
-        web_url="https://example.com/p/",
-        jobs=jobs if jobs is not None else [Job(id=1, name="tests", status=status, stage="test", allow_failure=False)],
-    )
+from .conftest import make_job, make_pipeline
 
 
 @pytest.fixture
@@ -160,7 +150,7 @@ async def test_a_pipeline_that_has_not_finished_leaves_the_watch_armed(watched_s
 async def test_a_pipeline_waiting_on_a_human_still_stops_the_watch_with_a_note(watched_session, stub_watch, status):
     """These are settled states, not slow ones: nothing resolves them without a person, so the
     "not judgeable yet" gate must not swallow them into the six-hour expiry."""
-    jobs = [Job(id=1, name="deploy", status="manual", stage="deploy", allow_failure=False)]
+    jobs = [make_job("manual", name="deploy")]
     stub_watch["pipeline"] = make_pipeline(status, pipeline_id=250, jobs=jobs)
     await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=250)
 
@@ -238,6 +228,71 @@ async def test_a_second_concurrent_evaluation_does_not_dispatch(watched_session,
     assert len(stub_watch["dispatched"]) == 1
     await watched_session.arefresh_from_db()
     assert watched_session.watch_attempts == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_two_concurrent_exhaustions_comment_and_notify_once(watched_session, stub_watch, monkeypatch):
+    """Same race as the dispatch claim, but on the terminal branches: both readers clear the cap
+    check off their own snapshot, and the comment and the notification are both non-idempotent."""
+    notified = []
+
+    async def fake_notify(**kwargs):
+        notified.append(kwargs)
+
+    monkeypatch.setattr("sessions.pipeline_watch.anotify_watch_exhausted", fake_notify)
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=800)
+    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
+
+    await asyncio.gather(
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=800),
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=800),
+    )
+
+    assert len(stub_watch["comments"]) == 1
+    assert len(notified) == 1
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.EXHAUSTED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_cap_is_re_asserted_when_the_claim_lands(watched_session, stub_watch, monkeypatch):
+    """A reader's cap check runs off a snapshot that can outlive a whole fix-run cycle — the row
+    reaches the cap and is re-armed while it waits — so the CAS has to bound the count itself
+    rather than trust the value that cleared the check."""
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=850)
+
+    async def read_then_spend_the_whole_budget(**kwargs):
+        await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(
+            watch_attempts=3, watch_state=WatchState.WATCHING
+        )
+        return stub_watch["pipeline"]
+
+    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", read_then_spend_the_whole_budget)
+
+    await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=850)
+
+    await watched_session.arefresh_from_db()
+    assert stub_watch["dispatched"] == []
+    assert watched_session.watch_attempts == 3
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_a_new_watch_records_the_publishing_user(monkeypatch, django_user_model):
+    """The MR thread has no session until the publish, so this call creates it — and a row created
+    without a user gets every fix run unattributed: no notification, no user-tier env, no MCP."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    user = await django_user_model.objects.acreate(username="publisher", email="publisher@example.com")
+
+    armed = await aarm_watch(
+        repo_id="group/repo", merge_request_iid=74, ref="daiv/branch", was_fix_run=False, user_id=user.pk
+    )
+
+    assert armed == compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=74)
+    session = await Session.objects.aget(thread_id=armed)
+    assert session.user_id == user.pk
 
 
 @pytest.mark.django_db(transaction=True)

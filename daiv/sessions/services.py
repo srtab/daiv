@@ -196,13 +196,16 @@ async def acreate_run(
     )
 
 
-async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, previous_status: str) -> None:
+async def amark_failed_and_advance(
+    run: Run, *, prefix: str, err: Exception, previous_status: str, log_context: str = "submit_batch_runs"
+) -> None:
     """Transition a row to FAILED with finished_at and emit ``run_finished``.
 
     Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
     "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
-    get dispatched. Used by the services-layer post-create error paths (enqueue or
-    task-result-id-link failure). The emit is best-effort — if it raises, we log
+    get dispatched. Used by every post-create error path (enqueue or task-result-id-link
+    failure); pass ``log_context`` so the log names the caller, not this module's first
+    one. The emit is best-effort — if it raises, we log
     loudly and recommend the operator run ``release_orphan_queued_sessions`` to
     recover stranded siblings.
     """
@@ -213,13 +216,14 @@ async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, pre
         # Best-effort: on a failed save the row may be left non-terminal (still READY)
         # while we still emit below to advance siblings. release_orphan_queued_sessions
         # reconciles any row stranded this way.
-        logger.exception("submit_batch_runs: terminal save failed for run=%s", run.pk)
+        logger.exception("%s: terminal save failed for run=%s", log_context, run.pk)
     try:
         await asyncio.to_thread(emit_run_finished_if_terminal, run, previous_status=previous_status)
     except Exception:
         logger.exception(
-            "submit_batch_runs: emit_run_finished_if_terminal failed for run=%s; "
+            "%s: emit_run_finished_if_terminal failed for run=%s; "
             "queued siblings on this session may be stranded — run release_orphan_queued_sessions",
+            log_context,
             run.pk,
         )
 
@@ -327,7 +331,7 @@ async def asubmit_batch_runs(
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            await _mark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
+            await amark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
         try:
@@ -344,7 +348,7 @@ async def asubmit_batch_runs(
             # Surface in error_message that the agent may run to completion (push a
             # commit / open an MR) while this row shows FAILED — the work is real but
             # uncapturable because nothing links back to it.
-            await _mark_failed_and_advance(
+            await amark_failed_and_advance(
                 run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
             )
             return BatchSubmitFailure(

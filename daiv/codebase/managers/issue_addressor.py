@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
+from sessions.pipeline_watch import aarm_watch_after_run
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
@@ -161,8 +162,25 @@ class IssueAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_issue_note()
 
+                # Read once and share: the watch needs the published branch off the checkpoint,
+                # and ``_build_agent_result`` would otherwise read the same state again.
+                snapshot = await self._safe_get_state(daiv_agent, agent_config)
+                try:
+                    await aarm_watch_after_run(
+                        repo_id=self.ctx.repository.slug,
+                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
+                        published=bool(snapshot.values.get("published")) if snapshot else False,
+                        user_id=self.ctx.acting_user_id,
+                    )
+                except Exception:
+                    logger.exception("issue_addressor: failed to arm pipeline watch for issue %s", self.issue.iid)
+
                 return await self._build_agent_result(
-                    daiv_agent, agent_config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+                    daiv_agent,
+                    agent_config,
+                    response=response_text,
+                    usage=build_usage_summary(usage_handler).to_dict(),
+                    snapshot=snapshot,
                 )
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):

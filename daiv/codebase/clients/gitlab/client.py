@@ -957,7 +957,7 @@ class GitLabClient(RepoClient):
                     allow_failure=job.allow_failure,
                     failure_reason=getattr(job, "failure_reason", None),
                 )
-                for job in pipeline.jobs.list(all=True)
+                for job in pipeline.jobs.list(all=True, per_page=100)
             ],
         )
 
@@ -973,7 +973,8 @@ class GitLabClient(RepoClient):
         pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
         if not pipelines:
             return None
-        return self.get_pipeline(repo_id, pipelines[0].id)
+        # The list entry already carries every field _to_pipeline reads, plus the jobs manager.
+        return self._to_pipeline(pipelines[0])
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

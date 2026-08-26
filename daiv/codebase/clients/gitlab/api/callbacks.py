@@ -5,7 +5,7 @@ from typing import Any, Literal
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
-from sessions.pipeline_watch import watch_enabled
+from sessions.pipeline_watch import JUDGEABLE_PIPELINE_STATUSES, arequest_watch_evaluation, watch_enabled
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -14,7 +14,7 @@ from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task, evaluate_pipeline_watch_task
+from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
@@ -364,9 +364,6 @@ class PushCallback(BaseCallback):
         RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
 
 
-TERMINAL_PIPELINE_STATUSES = frozenset({"success", "failed", "canceled", "skipped"})
-
-
 class PipelineCallback(BaseCallback):
     """
     GitLab Pipeline Webhook for babysitting CI on merge requests DAIV published.
@@ -382,15 +379,16 @@ class PipelineCallback(BaseCallback):
         return RepositoryConfig.get_config(self.project.path_with_namespace)
 
     def accept_callback(self) -> bool:
-        """Accept terminal pipelines on repos with the watch enabled.
+        """Accept pipelines the judge has an outcome for, on repos with the watch enabled.
 
         Deliberately does *not* reject pipelines attributed to DAIV: the service-account
-        heal on ephemeral-token repos makes those the ones worth watching.
+        heal on ephemeral-token repos makes those the ones worth watching. Status is tested
+        first because ``_repo_config`` blocks the event loop on a cache round-trip.
         """
-        return watch_enabled(self._repo_config) and self.object_attributes.status in TERMINAL_PIPELINE_STATUSES
+        return self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES and watch_enabled(self._repo_config)
 
     async def process_callback(self):
-        await evaluate_pipeline_watch_task.aenqueue(
+        await arequest_watch_evaluation(
             repo_id=self.project.path_with_namespace,
             ref=self.object_attributes.ref,
             pipeline_id=self.object_attributes.id,

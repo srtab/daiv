@@ -15,7 +15,6 @@ from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
-from core.constants import TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
 
 if TYPE_CHECKING:
@@ -439,14 +438,3 @@ async def address_mr_comments_task(
         )
         client.create_merge_request_comment(repo_id, merge_request_id, body=response)
         return _mr_comment_skip_result(response, merge_request)
-
-
-@task(queue_name=TASK_QUEUE_INTERACTIVE)
-async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
-    """Judge CI for a watched branch and take the one action it implies.
-
-    Short and user-visible, so it runs on the interactive queue rather than behind agent runs.
-    """
-    from sessions.pipeline_watch import aevaluate_watch
-
-    await aevaluate_watch(repo_id=repo_id, ref=ref, pipeline_id=pipeline_id)

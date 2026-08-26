@@ -2,18 +2,7 @@ import pytest
 from notifications.choices import EventType
 from sessions.models import Session, SessionOrigin
 
-from codebase.base import Job, Pipeline
-
-
-def make_pipeline() -> Pipeline:
-    return Pipeline(
-        id=100,
-        iid=1,
-        sha="abc123",
-        status="failed",
-        web_url="https://example.com/p/100",
-        jobs=[Job(id=1, name="tests", status="failed", stage="test", allow_failure=False)],
-    )
+from .conftest import make_pipeline
 
 
 @pytest.mark.django_db(transaction=True)

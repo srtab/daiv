@@ -175,7 +175,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=True))
             result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
-        assert result == {"code_changes": True}
+        assert result == {"code_changes": True, "published": True}
 
     async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
@@ -192,6 +192,39 @@ class TestGitMiddleware:
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
         assert result == {"merge_request": state_mr, "code_changes": True}
+
+    async def test_aafter_agent_marks_a_real_publish_as_published(self):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result["published"] is True
+
+    async def test_aafter_agent_does_not_mark_a_no_op_turn_as_published(self):
+        """``code_changes`` stays true for a clean tree already on its MR — the dashboard and MCP
+        count the run's work — so it cannot also mean "this turn pushed". A fix run is *always*
+        already on its MR, which made the watch's no-diff give-up unreachable.
+        """
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state_mr = _mr(iid=10, branch="daiv/feature")
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=state_mr, published=False)
+            )
+            result = await mw.aafter_agent({"merge_request": state_mr}, runtime)
+        assert result["code_changes"] is True
+        assert result.get("published") is not True
+
+    async def test_abefore_agent_clears_published_each_turn(self):
+        """``published`` is per-turn, and ``aafter_agent`` only ever sets it true — so the reset
+        here is what stops turn 2 inheriting turn 1's push."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
+            result = await middleware.abefore_agent({}, runtime)
+        assert result["published"] is False
 
     async def test_aafter_agent_passes_backend_to_publisher(self):
         """Daiv publishes via the publisher; the run's bound backend is injected at construction
@@ -269,7 +302,12 @@ class TestGitMiddleware:
         lookup.assert_awaited_once_with(runtime.context)
         # `protected_branch_fallback_source` is reset to None so a stale signal from
         # a prior checkpointed turn cannot bleed into this run's reply rendering.
-        assert result == {"merge_request": existing_mr, "code_changes": False, "protected_branch_fallback_source": None}
+        assert result == {
+            "merge_request": existing_mr,
+            "code_changes": False,
+            "published": False,
+            "protected_branch_fallback_source": None,
+        }
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware()

@@ -55,7 +55,7 @@ INTERACTIVE_TASKS = {
     "automation.titling.tasks:generate_batch_title_task",
     "notifications.tasks:deliver_notification_task",
     "sessions.tasks:classify_run_task",
-    "codebase.tasks:evaluate_pipeline_watch_task",
+    "sessions.tasks:evaluate_pipeline_watch_task",
 }
 TITLING_TASKS = {"automation.titling.tasks:generate_title_task", "automation.titling.tasks:generate_batch_title_task"}
 
