@@ -45,6 +45,17 @@ def test_an_unknown_model_seeds_the_count_without_a_window():
     assert seed["window_tokens"] is None
 
 
+def test_a_doubled_streamed_name_still_resolves_its_window():
+    """The reload path for a session recorded before the source-level dedupe. A doubled name
+    matches no window, and the meter no longer narrates that state, so the failure would be a
+    silent bare count where the ring belongs.
+    """
+    seed = derive_context_usage([_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6" * 2)])
+
+    assert seed["model"] == "anthropic/claude-sonnet-4.6"
+    assert seed["window_tokens"] == 1_000_000
+
+
 def test_seed_and_middleware_payload_share_the_wire_key_set():
     """Both producers go through the one builder, asserted on key sets."""
     seed = derive_context_usage([_ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")])
