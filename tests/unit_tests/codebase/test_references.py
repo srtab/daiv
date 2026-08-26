@@ -3,6 +3,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
+from automation.agent.diff_to_metadata.prompts import human_pr_metadata, system
 from codebase.base import GitPlatform, Issue, Scope, User
 from codebase.references import (
     MAX_REFS_PER_SESSION,
@@ -15,6 +16,12 @@ from codebase.references import (
     render_agent_context,
     render_commit_trailers,
     render_references_block,
+)
+
+_AGENT_CONTEXT_HEADER = (
+    "External work items this change addresses. Use their identifiers for the branch name and "
+    "commit message conventions only — they are already linked in the merge request description, "
+    "so do NOT list them again:"
 )
 
 
@@ -72,6 +79,25 @@ class TestIntakeRejectsInjection:
     def test_url_keeps_accepting_ordinary_query_and_fragment_forms(self):
         url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
         assert RefIn(key="K-1", url=url).url == url
+
+    @pytest.mark.parametrize(
+        "url",
+        ["https://", "https://:8080/x", "https://[not-ipv6/x", "https://ok.example:99999/x"],
+        ids=["no-host", "port-only", "malformed-ipv6", "port-out-of-range"],
+    )
+    def test_url_rejects_structurally_broken_urls_the_charset_admits(self, url):
+        """Every one of these is inside the destination charset, so only the structural pass sees
+        them — and each would render as a live ``[key](...)`` bullet pointing nowhere."""
+        with pytest.raises(ValidationError):
+            RefIn(key="K-1", url=url)
+
+    def test_a_valid_url_is_stored_verbatim(self):
+        """The structural check must stay a check: ``HttpUrl`` normalizes (lowercased host, added
+        trailing slash), and a rewritten url no longer matches what the caller declared — nor is it
+        JSON-serializable for the ``external_refs`` column.
+        """
+        url = "https://Ok.Example"
+        assert RefIn(key="K-1", url=url).to_stored()["url"] == url
 
     @pytest.mark.parametrize("key", ["victim/project#7", "victim/project", "DAIV-1V#7"])
     def test_closing_keys_reject_the_cross_project_separators(self, key):
@@ -295,15 +321,33 @@ def test_render_commit_trailers(refs, expected):
         ),
         pytest.param(
             (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),),
-            "External work items this change addresses:\n- sentry: DAIV-1V (https://s.io/1) [closes]",
+            _AGENT_CONTEXT_HEADER + "\n- sentry: DAIV-1V (https://s.io/1) [closes]",
             id="provider-key-url-and-relation-all-reach-the-model",
         ),
         pytest.param(
             (ExternalRef(key="PROJ-9", provider="jira"),),
-            "External work items this change addresses:\n- jira: PROJ-9 [relates]",
+            _AGENT_CONTEXT_HEADER + "\n- jira: PROJ-9 [relates]",
             id="urlless-ref-omits-the-parenthetical",
         ),
     ],
 )
 def test_render_agent_context(refs, expected):
     assert render_agent_context(refs) == expected
+
+
+def test_the_reference_footer_is_the_only_thing_that_lists_references():
+    """``render_references_block`` owns the description's reference list; the model is handed the
+    same refs for naming, so anything that asks it to list them lands a second copy under a second
+    identical heading. The three instructions that have to agree live in three files.
+    """
+    heading = "**References:**"
+    assert heading in render_references_block(
+        (ExternalRef(key="PROJ-9", provider="jira", url="https://jira.x/9"),), repo_slug="g/r"
+    )
+    assert "do NOT list them again" in render_agent_context((ExternalRef(key="PROJ-9", provider="jira"),))
+
+    field_rules = human_pr_metadata.prompt.template
+    assert f'Do NOT add a "{heading}" section' in field_rules
+    assert field_rules.count(heading) == 1
+    assert heading not in system.prompt.template
+    assert "Do NOT list them in the PR description" in system.prompt.template

@@ -1387,5 +1387,5 @@ class TestDiffToMetadataExtraContext:
         assert "Issue ID: 42" in extra_context
         assert "Broken parser" in extra_context
         assert "DAIV-1V" in extra_context
-        assert "Issue description: d\n\n\nExternal work items this change addresses:" in extra_context
+        assert "Issue description: d\n\n\nExternal work items" in extra_context
         assert extra_context.index("Issue ID: 42") < extra_context.index("DAIV-1V")

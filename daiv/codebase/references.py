@@ -5,7 +5,16 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from codebase.base import GitPlatform, Scope
 
@@ -38,6 +47,10 @@ RefRelation = Literal["closes", "relates"]
 # RFC 3986's URI character set minus the parentheses, which delimit a markdown link destination.
 _URL_CHARSET_RE = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+\Z")
 
+# Structure only. Parentheses are legal RFC 3986 sub-delims, so this accepts the markdown break-out
+# that ``_URL_CHARSET_RE`` exists to reject; the two rules are complementary, not alternatives.
+_URL_STRUCTURE = TypeAdapter(HttpUrl)
+
 # ``\z`` rather than ``$``, which matches before a trailing newline too — and a key ending in one
 # would break the commit trailer and the description line it gets rendered into.
 _KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._/#-]*\z"
@@ -60,13 +73,19 @@ class RefIn(BaseModel):
     @classmethod
     def _http_only(cls, value: str) -> str:
         """Renderers embed the url in a markdown link destination inside the MR description, so a
-        space, a control character or a ``)`` would end the destination and turn the rest of the
-        value into body text the platforms parse (a forged ``Closes:`` line closes someone's issue).
+        ``)`` — or anything else outside the destination charset — would end the destination and
+        turn the rest of the value into body text the platforms parse (a forged ``Closes:`` line
+        closes someone's issue). The structural pass rejects what a charset cannot see: no host, an
+        out-of-range port, a malformed IPv6 literal.
         """
         if not value:
             return value
         if not value.startswith(("http://", "https://")):
             raise ValueError("url must be an http(s) URL")
+        try:
+            _URL_STRUCTURE.validate_python(value)
+        except ValidationError as exc:
+            raise ValueError("url must be a well-formed http(s) URL") from exc
         if not _URL_CHARSET_RE.match(value):
             raise ValueError("url must percent-encode anything outside the RFC 3986 charset, parentheses included")
         return value
@@ -206,6 +225,10 @@ def render_references_block(refs: Sequence[ExternalRef], *, repo_slug: str) -> s
 def render_agent_context(refs: Sequence[ExternalRef]) -> str:
     """The refs as context for the metadata-writing model, or ``""`` when none apply.
 
+    Naming input only: :func:`render_references_block` renders these same refs into the
+    description deterministically, so the header tells the model not to list them itself. Without
+    that the model emits its own ``**References:**`` section and the footer adds a second one.
+
     Platform issue refs are left out: an issue-scoped run already describes its issue in full,
     so repeating the iid here only invites the model to write a second closing line.
     """
@@ -216,7 +239,11 @@ def render_agent_context(refs: Sequence[ExternalRef]) -> str:
     ]
     if not lines:
         return ""
-    return "External work items this change addresses:\n" + "\n".join(lines)
+    return (
+        "External work items this change addresses. Use their identifiers for the branch name and "
+        "commit message conventions only — they are already linked in the merge request "
+        "description, so do NOT list them again:\n" + "\n".join(lines)
+    )
 
 
 def render_commit_trailers(refs: Sequence[ExternalRef]) -> tuple[str, ...]:
