@@ -45,7 +45,6 @@ process.stdout.write(JSON.stringify({
   header: chat.spendHeader,
   models: chat.spendRows.map((row) => row.model),
   rowCosts: chat.spendRows.map((row) => chat.spendRowCost(row)),
-  unpriced: chat.spendUnpricedLine,
   unrecorded: chat.spendUnrecordedLine,
 }));
 """
@@ -115,8 +114,8 @@ def test_floors_render_the_plus_and_their_footnote_lines(member_user):
     out = _panel([{"ok": True, "spend": build_session_spend(session.runs.all())}])
 
     assert out["header"].endswith("$0.10+")
-    assert out["unpriced"] == "No price known for mystery"
     assert out["unrecorded"] == "1 turns with unrecorded usage"
+    # The row's own "—" is what marks the model unpriced; there is no footnote naming it.
     mystery = out["models"].index("mystery")
     assert out["rowCosts"][mystery] == "—"
 

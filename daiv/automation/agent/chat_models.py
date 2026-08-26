@@ -30,13 +30,35 @@ carries Anthropic's signed thinking blocks when routing to ``anthropic/…``.
 Upstream ``_convert_message_to_dict`` strips ``additional_kwargs`` wholesale, so
 :meth:`ChatOpenRouter._get_request_payload` re-attaches the blocks afterwards.
 
-Capture covers both transports: subagents call ``ainvoke``, so a streaming-only
-hook would leave every subagent turn reasoning-blind.
+Every stream override here — reasoning capture, and the metadata dedupe below —
+wraps both transports. ``ainvoke`` is not a way around them: upstream's
+``_should_stream`` routes it through ``_astream`` whenever a streaming callback
+handler is attached, which is every call under LangGraph. The sync ``.invoke()``
+in ``automation.titling.tasks`` runs outside that, and reaches ``_stream``.
 
 Round-tripping does **not** change how many reasoning tokens the model spends on
 later turns — measured A/B on ``z-ai/glm-5.2``, reasoning-token counts per turn
 are the same whether or not prior blocks are echoed back. Don't reach for this as
 a fix for a model that stops thinking mid-trajectory.
+
+The chunk merge that accumulates those reasoning deltas — ``merge_dicts``, which
+appends same-key strings — is also a hazard, and the reason
+:meth:`ChatOpenRouter._stream` exists. It exempts from concatenation only
+same-valued ``id`` / ``output_version`` / ``model_provider`` (plus an ``index``
+whose value is ``lc_``-prefixed), while ``langchain_openai`` re-stamps
+``FINISH_STAMPED_KEYS`` onto *every* chunk carrying a ``finish_reason``.
+OpenRouter sends more than one such chunk for some upstream providers, so an
+accumulated message reported ``"z-ai/glm-5.2z-ai/glm-5.2"`` and ``"stopstop"``.
+A doubled model name resolves to no price and no context window, so a turn's cost
+was dropped and the chat's context meter lost its scale.
+
+Repairing it here rather than only where the value is read keeps the corruption
+out of checkpoints and traces, and covers all four keys at once. It does not
+remove the need for the read-side repair
+(``usage_tracking.collapse_repeated_model_name``): an OpenAI-compatible gateway
+configured as ``provider_type=OPENAI`` gets a plain ``ChatOpenAI`` and never
+passes through this class, and rows written before this fix still hold doubled
+names.
 """
 
 from __future__ import annotations
@@ -50,6 +72,8 @@ from langchain_openai import ChatOpenAI
 from core.models import ProviderType
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
+
     import openai
     from langchain_core.language_models import LanguageModelInput
     from langchain_core.outputs import ChatGenerationChunk, ChatResult
@@ -57,6 +81,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.automation")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Stamped by ``langchain_openai._convert_chunk_to_generation_chunk`` inside its
+# ``if finish_reason := choice.get("finish_reason")`` block — see the module docstring.
+FINISH_STAMPED_KEYS = ("finish_reason", "model_name", "system_fingerprint", "service_tier")
 
 # ``parsed`` may hold arbitrary Pydantic models from structured output; dumping it
 # is both wasteful and failure-prone, and upstream excludes it for the same reason.
@@ -85,6 +113,44 @@ class ChatOpenRouter(ChatOpenAI):
         """Whether this routes to an Anthropic model (``anthropic/…``). Drives the
         OpenRouter-Anthropic branch of the prompt-caching middleware."""
         return self.model_name.startswith(ProviderType.ANTHROPIC.value)
+
+    def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
+        seen: dict[str, str] = {}
+        for chunk in super()._stream(*args, **kwargs):
+            self._drop_restamped_keys(chunk, seen)
+            yield chunk
+
+    async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
+        seen: dict[str, str] = {}
+        async for chunk in super()._astream(*args, **kwargs):
+            self._drop_restamped_keys(chunk, seen)
+            yield chunk
+
+    @staticmethod
+    def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, str]) -> None:
+        """Drop the finish-stamped keys this stream already emitted, first occurrence winning.
+
+        Mutates both arguments. ``seen`` belongs to the calling generator's frame, never to the
+        model instance, which is shared across concurrent requests. Per key rather than
+        all-or-nothing, so a key only a later chunk carries is still a first occurrence.
+
+        A repeat carrying a *different* value is a real mid-stream routing switch, not the
+        re-stamping this exists for: first-wins still applies (the alternative concatenation
+        resolves to no model at all) but it is logged, since otherwise nothing records that a
+        second model ran. ``finish_reason`` is exempt — ``tool_calls`` then ``stop`` is
+        legitimate, and nothing in DAIV reads it.
+        """
+        if not (info := chunk.generation_info):
+            return
+        for key in FINISH_STAMPED_KEYS:
+            if key not in info:
+                continue
+            if key not in seen:
+                seen[key] = info[key]
+                continue
+            if info[key] != seen[key] and key != "finish_reason":
+                logger.warning("Stream reported %s %r after %r; keeping the first", key, info[key], seen[key])
+            del info[key]
 
     def _convert_chunk_to_generation_chunk(
         self, chunk: dict, default_chunk_class: type, base_generation_info: dict | None

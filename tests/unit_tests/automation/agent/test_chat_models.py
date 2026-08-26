@@ -5,11 +5,28 @@ Covers only DAIV's custom behavior (per project convention): reasoning capture
 OpenRouter base-URL default. The upstream ChatOpenAI machinery is not re-tested.
 """
 
+from unittest import mock
+
 from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
-from automation.agent.chat_models import DETAILS_KEY, FALLBACK_KEY, OPENROUTER_BASE_URL, ChatOpenRouter
+from automation.agent.chat_models import (
+    DETAILS_KEY,
+    FALLBACK_KEY,
+    FINISH_STAMPED_KEYS,
+    OPENROUTER_BASE_URL,
+    ChatOpenRouter,
+)
+from tests.unit_tests.automation.agent.openai_stream import (
+    MODEL,
+    accumulate,
+    astream_message,
+    chunk,
+    fake_stream,
+    finishing_chunks,
+    stream_message,
+)
 
 # Verbatim shape returned by openrouter for z-ai/glm-5.2 (no signature/id on this
 # provider; anthropic/… blocks add them, and are echoed back the same way).
@@ -28,22 +45,12 @@ OPAQUE_BLOCKS = [
 ]
 
 
-def _chunk(delta: dict) -> dict:
-    """A raw Chat-Completions stream chunk dict, as the OpenAI SDK hands it to
-    ``_convert_chunk_to_generation_chunk`` (model_dump of a ChatCompletionChunk)."""
-    return {
-        "id": "c",
-        "model": "anthropic/claude-haiku-4.5",
-        "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
-    }
-
-
 class TestChatOpenRouterReasoning:
     def test_extracts_streaming_reasoning_into_reasoning_content(self):
         model = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
 
         gen = model._convert_chunk_to_generation_chunk(
-            _chunk({"content": "", "reasoning": "Let me think about 17*23."}), AIMessageChunk, {}
+            chunk({"content": "", "reasoning": "Let me think about 17*23."}), AIMessageChunk, {}
         )
 
         assert gen is not None
@@ -52,7 +59,7 @@ class TestChatOpenRouterReasoning:
     def test_content_only_chunk_has_no_reasoning_content(self):
         model = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
 
-        gen = model._convert_chunk_to_generation_chunk(_chunk({"content": "391"}), AIMessageChunk, {})
+        gen = model._convert_chunk_to_generation_chunk(chunk({"content": "391"}), AIMessageChunk, {})
 
         assert gen is not None
         assert "reasoning_content" not in gen.message.additional_kwargs
@@ -62,8 +69,8 @@ class TestChatOpenRouterReasoning:
         per-chunk reasoning deltas accumulate into the final message."""
         model = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
 
-        g1 = model._convert_chunk_to_generation_chunk(_chunk({"reasoning": "Break it: "}), AIMessageChunk, {})
-        g2 = model._convert_chunk_to_generation_chunk(_chunk({"reasoning": "17*(20+3)."}), AIMessageChunk, {})
+        g1 = model._convert_chunk_to_generation_chunk(chunk({"reasoning": "Break it: "}), AIMessageChunk, {})
+        g2 = model._convert_chunk_to_generation_chunk(chunk({"reasoning": "17*(20+3)."}), AIMessageChunk, {})
 
         merged = g1.message + g2.message
         assert merged.additional_kwargs["reasoning_content"] == "Break it: 17*(20+3)."
@@ -154,7 +161,7 @@ class TestChatOpenRouterStreamingDetails:
     def test_preserves_streaming_reasoning_details(self):
         model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
 
-        gen = model._convert_chunk_to_generation_chunk(_chunk({"reasoning_details": OPAQUE_BLOCKS}), AIMessageChunk, {})
+        gen = model._convert_chunk_to_generation_chunk(chunk({"reasoning_details": OPAQUE_BLOCKS}), AIMessageChunk, {})
 
         assert gen.message.additional_kwargs[DETAILS_KEY] == OPAQUE_BLOCKS
 
@@ -164,17 +171,13 @@ class TestChatOpenRouterStreamingDetails:
         model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
 
         g1 = model._convert_chunk_to_generation_chunk(
-            _chunk({"reasoning_details": [{"type": "reasoning.text", "text": "first ", "index": 0}]}),
-            AIMessageChunk,
-            {},
+            chunk({"reasoning_details": [{"type": "reasoning.text", "text": "first ", "index": 0}]}), AIMessageChunk, {}
         )
         g2 = model._convert_chunk_to_generation_chunk(
-            _chunk({"reasoning_details": [{"type": "reasoning.text", "text": "block", "index": 0}]}), AIMessageChunk, {}
+            chunk({"reasoning_details": [{"type": "reasoning.text", "text": "block", "index": 0}]}), AIMessageChunk, {}
         )
         g3 = model._convert_chunk_to_generation_chunk(
-            _chunk({"reasoning_details": [{"type": "reasoning.text", "text": "second", "index": 1}]}),
-            AIMessageChunk,
-            {},
+            chunk({"reasoning_details": [{"type": "reasoning.text", "text": "second", "index": 1}]}), AIMessageChunk, {}
         )
 
         merged = g1.message + g2.message + g3.message
@@ -190,7 +193,7 @@ class TestChatOpenRouterStreamingDetails:
         model = ChatOpenRouter(model="z-ai/glm-5.2", api_key="x")
         blocks = [{"type": "reasoning.text", "text": "original", "index": 0}]
 
-        gen = model._convert_chunk_to_generation_chunk(_chunk({"reasoning_details": blocks}), AIMessageChunk, {})
+        gen = model._convert_chunk_to_generation_chunk(chunk({"reasoning_details": blocks}), AIMessageChunk, {})
         blocks[0]["text"] = "mutated"
 
         assert gen.message.additional_kwargs[DETAILS_KEY][0]["text"] == "original"
@@ -338,6 +341,78 @@ class TestChatOpenRouterFamily:
 
     def test_is_anthropic_false_for_non_anthropic_model(self):
         assert ChatOpenRouter(model="openai/gpt-5.4", api_key="x").is_anthropic is False
+
+
+class TestChatOpenRouterRestampedMetadata:
+    """A provider re-stamping the finish-only metadata keys must not concatenate them.
+
+    See the module docstring in ``automation.agent.chat_models`` for the mechanism.
+    """
+
+    @staticmethod
+    def _router() -> ChatOpenRouter:
+        return ChatOpenRouter(model=MODEL, api_key="test")
+
+    def test_the_pinned_key_set_is_what_upstream_stamps(self):
+        """The link back to ``langchain_openai``: let *stock* ``ChatOpenAI`` say which keys a
+        second finish chunk corrupts, rather than trusting the hardcoded tuple. A key upstream
+        stamps but ``FINISH_STAMPED_KEYS`` omits is one the override still lets through, so
+        this fails instead of the bug quietly returning.
+        """
+
+        def metadata(finish_chunks: int) -> dict:
+            stock = ChatOpenAI(model=MODEL, api_key="test")
+            return stream_message(stock, finish_chunks=finish_chunks).response_metadata
+
+        once = metadata(1)
+        twice = metadata(2)
+        corrupted = {key for key, value in once.items() if twice.get(key) != value}
+
+        assert corrupted == set(FINISH_STAMPED_KEYS)
+
+    def test_two_finish_chunks_leave_every_key_clean(self):
+        metadata = stream_message(self._router(), finish_chunks=2).response_metadata
+
+        assert metadata["model_name"] == MODEL
+        assert metadata["finish_reason"] == "stop"
+        assert metadata["system_fingerprint"] == "fp_abc"
+        assert metadata["service_tier"] == "default"
+
+    async def test_the_async_transport_is_covered_too(self):
+        """Every call under LangGraph reaches ``_astream`` — including the ``ainvoke`` a subagent
+        makes, since an attached streaming handler is enough — so a sync-only fix would leave
+        almost every turn corrupt."""
+        metadata = (await astream_message(self._router(), finish_chunks=2)).response_metadata
+
+        assert metadata["model_name"] == MODEL
+        assert metadata["finish_reason"] == "stop"
+
+    def test_a_single_finish_chunk_keeps_its_metadata(self):
+        """The dedupe drops *repeats*, never the first occurrence."""
+        metadata = stream_message(self._router(), finish_chunks=1).response_metadata
+
+        assert metadata["model_name"] == MODEL
+        assert metadata["finish_reason"] == "stop"
+
+    def test_state_does_not_leak_between_streams_on_one_instance(self):
+        """The dedupe state lives in the generator's frame, not on the model: one instance is
+        shared across concurrent requests, so a second stream must still get its first
+        occurrence rather than having it stripped as a repeat."""
+        llm = self._router()
+
+        seen = [stream_message(llm, finish_chunks=2).response_metadata.get("model_name") for _ in range(2)]
+
+        assert seen == [MODEL, MODEL]
+
+    def test_a_late_only_key_survives(self):
+        """Per-key, not all-or-nothing: a key the first finish chunk omitted is still a first
+        occurrence when a later one carries it."""
+        chunks = finishing_chunks(MODEL, 2)
+        del chunks[1]["service_tier"]
+        llm = self._router()
+        llm.client = mock.Mock(create=lambda **_: fake_stream(chunks))
+
+        assert accumulate(list(llm.stream("go"))).response_metadata["service_tier"] == "default"
 
 
 class TestChatOpenRouterDefaults:

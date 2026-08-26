@@ -105,7 +105,7 @@ box (``_command_menu.html``).
         Model as plain text, immediately before Send — no pill chrome. Locked in a thread:
         the backend rejects a changed ``agent_model`` after the first turn.
         {% endcomment %}
-        <span x-show="thread" x-cloak>
+        <span class="chat-composer__model" x-show="thread" x-cloak>
           {% include "automation/_agent_picker.html" with variant="label" disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" dynamic_thinking_expr="lockedAgentThinking" %}
         </span>
         {% comment %}
