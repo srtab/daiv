@@ -6,10 +6,11 @@ from urllib.parse import parse_qs, urlparse
 from django.contrib.sites.models import Site
 
 import pytest
+from git import GitCommandError
 
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import SESSION_TRAILER, GitChangePublisher, PublishOutcome, append_trailer
-from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
+from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, Pipeline, TriggeredPipeline, User
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
@@ -33,6 +34,7 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
     )
     gm.commit_all = AsyncMock()
     gm.push_head_to = AsyncMock(return_value="pushed")
+    gm.head_sha = AsyncMock(return_value="post-push-sha")
     gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
     return gm
 
@@ -48,6 +50,12 @@ def _patch_open_git_manager(monkeypatch, gm: Mock) -> dict:
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
     return captured
+
+
+def _triggered(*, head_synced: bool, sha: str = "a" * 40) -> TriggeredPipeline:
+    return TriggeredPipeline(
+        pipeline=Pipeline(id=5, sha=sha, status="pending", web_url="https://example.com/p/5"), head_synced=head_synced
+    )
 
 
 def _make_merge_request(**overrides) -> MergeRequest:
@@ -952,12 +960,12 @@ def test_create_merge_request_and_suggest_are_async():
 class TestTriggerServiceAccountPipeline:
     async def test_triggers_pipeline_via_client(self):
         publisher = _make_publisher()
-        publisher.client.trigger_merge_request_pipeline = Mock(return_value=Mock(id=5))
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=True))
         mr = _make_merge_request()
 
-        await publisher._trigger_service_account_pipeline(mr)
+        await publisher._trigger_service_account_pipeline(mr, "abc123")
 
-        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42)
+        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42, expected_sha="abc123")
         publisher.client.create_merge_request_comment.assert_not_called()
 
     async def test_logs_and_notes_on_failure(self, caplog):
@@ -966,7 +974,7 @@ class TestTriggerServiceAccountPipeline:
         mr = _make_merge_request()
 
         with caplog.at_level("ERROR"):
-            await publisher._trigger_service_account_pipeline(mr)
+            await publisher._trigger_service_account_pipeline(mr, "abc123")
 
         assert any(r.levelname == "ERROR" for r in caplog.records)
         publisher.client.create_merge_request_comment.assert_called_once()
@@ -978,7 +986,32 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
         publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
 
-        await publisher._trigger_service_account_pipeline(_make_merge_request())  # must not raise
+        await publisher._trigger_service_account_pipeline(_make_merge_request(), "abc123")  # must not raise
+
+    async def test_notes_when_the_pipeline_cannot_be_confirmed_on_the_pushed_commit(self, caplog):
+        """An unconfirmed pipeline leaves the MR blocked on its latest commit just as a missing one
+        does — say so in the MR instead of logging a success nobody sees."""
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
+
+        with caplog.at_level("WARNING"):
+            await publisher._trigger_service_account_pipeline(_make_merge_request(), "fresh" * 8)
+
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        body = publisher.client.create_merge_request_comment.call_args[0][2]
+        assert ("fresh" * 8)[:8] in body
+
+    async def test_warns_instead_of_reporting_success_when_there_is_no_sha_to_verify(self, caplog):
+        """The unverified path is the one that would otherwise log the same success line as a
+        verified one — it goes live whenever reading HEAD after the push failed."""
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
+
+        with caplog.at_level("WARNING"):
+            await publisher._trigger_service_account_pipeline(_make_merge_request(), None)
+
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        publisher.client.create_merge_request_comment.assert_not_called()
 
 
 class TestPublishPipelineHeal:
@@ -1000,7 +1033,58 @@ class TestPublishPipelineHeal:
             await publisher.publish()
 
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
-        trigger.assert_awaited_once_with(mr)
+        trigger.assert_awaited_once_with(mr, "post-push-sha")
+
+    async def test_the_pushed_sha_is_read_after_the_push(self, monkeypatch):
+        """An integrate-on-reject rebase rewrites HEAD during the push, so a sha read before it names
+        a commit that never landed — the wait would then time out against a sha GitLab never sees."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        head = {"sha": "pre-rebase-sha"}
+
+        async def _push(*args, **kwargs):  # noqa: ARG001 - the rebase inside the push rewrites HEAD
+            head["sha"] = "post-rebase-sha"
+            return "feature"
+
+        gm.push_head_to = AsyncMock(side_effect=_push)
+        gm.head_sha = AsyncMock(side_effect=lambda: head["sha"])
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        trigger.assert_awaited_once_with(mr, "post-rebase-sha")
+
+    async def test_an_unreadable_head_degrades_instead_of_orphaning_the_push(self, monkeypatch, caplog):
+        """The branch is already pushed and skip-ci'd: raising here would lose the MR, the pipeline
+        and the agent's reply over a sha the heal can run (unverified) without."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        gm.head_sha = AsyncMock(side_effect=GitCommandError(["git", "rev-parse", "HEAD"], 128))
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+            caplog.at_level("ERROR"),
+        ):
+            outcome = await publisher.publish()
+
+        assert outcome.published is True
+        assert outcome.merge_request is mr
+        trigger.assert_awaited_once_with(mr, None)
+        assert any(r.levelname == "ERROR" for r in caplog.records)
 
     async def test_pat_push_does_not_skip_ci_or_trigger(self, monkeypatch):
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
