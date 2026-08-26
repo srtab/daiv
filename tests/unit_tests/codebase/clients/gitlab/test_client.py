@@ -4,6 +4,7 @@ from unittest.mock import Mock, call, patch
 from django.core.exceptions import ImproperlyConfigured
 
 import pytest
+import requests
 from git import GitCommandError
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
@@ -12,6 +13,7 @@ from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.gitlab.client import (
     CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS,
     MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
+    MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS,
     GitLabClient,
     _is_source_branch_missing_error,
 )
@@ -1074,20 +1076,96 @@ class TestGitLabClient:
             assert gitlab_client.push_uses_ephemeral_token(self._repo()) is False
 
     def test_trigger_merge_request_pipeline_creates_mr_pipeline(self, gitlab_client):
-        mock_project = Mock()
-        mock_mr = Mock()
-        mock_pipeline = Mock(
-            id=987, iid=3, sha="deadbeef", status="pending", web_url="https://gitlab.com/group/repo/-/pipelines/987"
-        )
-        gitlab_client.client.projects.get.return_value = mock_project
-        mock_project.mergerequests.get.return_value = mock_mr
-        mock_mr.pipelines.create.return_value = mock_pipeline
+        """Without a sha to wait for there is nothing to poll — and nothing confirmed either."""
+        rec = self._wire_pipeline_trigger(gitlab_client)
+        rec.merge_request.pipelines.create.return_value = self._pipeline_mock("deadbeef")
 
-        pipeline = gitlab_client.trigger_merge_request_pipeline("group/repo", 42)
+        triggered = gitlab_client.trigger_merge_request_pipeline("group/repo", 42)
 
         gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
-        mock_project.mergerequests.get.assert_called_once_with(42, lazy=True)
-        mock_mr.pipelines.create.assert_called_once_with()
-        assert pipeline.id == 987
-        assert pipeline.status == "pending"
-        assert pipeline.web_url.endswith("/pipelines/987")
+        rec.project.mergerequests.get.assert_called_once_with(42, lazy=True)
+        rec.merge_request.pipelines.create.assert_called_once_with()
+        rec.project.commits.get.assert_not_called()
+        assert triggered.head_synced is False
+        assert triggered.pipeline.id == 987
+        assert triggered.pipeline.status == "pending"
+        assert triggered.pipeline.web_url.endswith("/pipelines/987")
+
+    @staticmethod
+    def _pipeline_mock(sha: str):
+        return Mock(id=987, iid=3, sha=sha, status="pending", web_url="https://gitlab.com/p/-/pipelines/987")
+
+    def _wire_pipeline_trigger(self, gitlab_client):
+        """Wire the MR-pipeline mocks onto ONE parent so ``mock_calls`` records the order the wait
+        and the create happen in — the whole fix is that the wait runs first."""
+        recorder = Mock()
+        gitlab_client.client.projects.get.return_value = recorder.project
+        recorder.project.mergerequests.get.return_value = recorder.merge_request
+        return recorder
+
+    def test_trigger_merge_request_pipeline_waits_for_the_mr_head_ref_before_creating(self, gitlab_client):
+        """Polls until the ref carries the pushed sha, and only then creates. GitLab resolves the
+        pipeline's sha from that ref, so a create hoisted above the wait is the original bug."""
+        rec = self._wire_pipeline_trigger(gitlab_client)
+        rec.project.commits.get.side_effect = [Mock(id="old" * 10), Mock(id="new" * 10)]
+        rec.merge_request.pipelines.create.return_value = self._pipeline_mock("new" * 10)
+
+        with patch("codebase.clients.gitlab.client.time.sleep") as sleep:
+            triggered = gitlab_client.trigger_merge_request_pipeline("group/repo", 42, expected_sha="new" * 10)
+
+        assert [name for name, *_ in rec.mock_calls if name.endswith(("commits.get", "pipelines.create"))] == [
+            "project.commits.get",
+            "project.commits.get",
+            "merge_request.pipelines.create",
+        ]
+        assert rec.project.commits.get.call_args_list == [
+            call("refs/merge-requests/42/head", retry_transient_errors=False),
+            call("refs/merge-requests/42/head", retry_transient_errors=False),
+        ]
+        assert sleep.call_args_list == [call(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS[0])]
+        assert triggered.head_synced is True
+        assert triggered.pipeline.sha == "new" * 10
+
+    def test_trigger_merge_request_pipeline_creates_anyway_when_the_head_ref_never_catches_up(
+        self, gitlab_client, caplog
+    ):
+        """Creating unverified keeps one code path and leaves the MR *a* pipeline; ``head_synced``
+        is how the caller learns to warn about it. The exhausted budget is an ERROR of its own."""
+        rec = self._wire_pipeline_trigger(gitlab_client)
+        rec.project.commits.get.return_value = Mock(id="old" * 10)
+        rec.merge_request.pipelines.create.return_value = self._pipeline_mock("old" * 10)
+
+        with patch("codebase.clients.gitlab.client.time.sleep") as sleep, caplog.at_level(logging.ERROR):
+            triggered = gitlab_client.trigger_merge_request_pipeline("group/repo", 42, expected_sha="new" * 10)
+
+        assert sleep.call_args_list == [call(d) for d in MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS]
+        assert rec.project.commits.get.call_count == len(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS) + 1
+        rec.merge_request.pipelines.create.assert_called_once_with()
+        assert triggered.head_synced is False
+        assert any("42" in r.getMessage() and "new" * 10 in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A brand-new MR's head ref 404s until GitLab writes it — that is the race, not an error.
+            GitlabGetError("404 Not Found", response_code=404),
+            # python-gitlab re-raises connection/timeout errors unwrapped, so they are not GitlabError.
+            requests.ConnectionError("reset"),
+        ],
+        ids=["missing-ref", "transport-error"],
+    )
+    def test_trigger_merge_request_pipeline_keeps_waiting_when_a_lookup_fails(self, gitlab_client, error):
+        rec = self._wire_pipeline_trigger(gitlab_client)
+        rec.project.commits.get.side_effect = [error, Mock(id="a" * 40)]
+        rec.merge_request.pipelines.create.return_value = self._pipeline_mock("a" * 40)
+
+        with patch("codebase.clients.gitlab.client.time.sleep"):
+            triggered = gitlab_client.trigger_merge_request_pipeline("group/repo", 42, expected_sha="a" * 40)
+
+        rec.merge_request.pipelines.create.assert_called_once_with()
+        assert triggered.head_synced is True
+
+    def test_the_head_ref_sync_budget_covers_the_observed_post_receive_tail(self):
+        """A budget shorter than GitLab's post-receive tail silently reverts to creating the pipeline
+        on the previous commit — the exact bug this poll exists for."""
+        assert sum(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS) >= 60

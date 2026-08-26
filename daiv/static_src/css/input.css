@@ -1676,6 +1676,13 @@ main:has(.chat-shell) {
     background: rgba(248, 113, 113, 0.2);
   }
 
+  /* A bare span here is a flex item with a line box, and the label inside then rides that
+     strut's baseline rather than its own box centre. `min-width` lets the label truncate. */
+  .chat-composer__model {
+    display: flex;
+    min-width: 0;
+  }
+
   /* Model as plain text — no border, no background. Truncates before anything else in
      the row does; the effort word is dropped first (see the narrow-viewport rule). */
   .model-label {
@@ -1818,6 +1825,160 @@ main:has(.chat-shell) {
     border-radius: 999px;
     background: #a78bfa;
     border: 1.5px solid #0c0e1e;
+  }
+
+  /* Context meter: 16px conic-gradient ring in a ≥24px hit target (WCAG 2.5.8). Not an
+     icon mask — those can't be data-driven; `--meter-fill` is the 0–100 percentage. */
+
+  .context-meter {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 24px;
+    height: 26px;
+    padding: 0 4px;
+    border-radius: 999px;
+    color: #94a3b8;
+    /* Same type size as `.model-label` beside it — two adjacent readings at different sizes
+       read as a mistake. */
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.15s ease;
+    --meter-color: #94a3b8;
+  }
+
+  .context-meter:hover {
+    color: #e2e8f0;
+  }
+
+  .context-meter:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 2px;
+  }
+
+  .context-meter__ring {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: conic-gradient(var(--meter-color) calc(var(--meter-fill, 0) * 1%), rgba(255, 255, 255, 0.14) 0);
+    mask: radial-gradient(circle at center, transparent 4.5px, #000 5px);
+    -webkit-mask: radial-gradient(circle at center, transparent 4.5px, #000 5px);
+  }
+
+  .context-meter--warn {
+    color: #fcd34d;
+    --meter-color: #fbbf24;
+  }
+
+  .context-meter--danger {
+    color: #fca5a5;
+    --meter-color: #f87171;
+  }
+
+  .context-meter__glyph {
+    display: inline-flex;
+  }
+
+  .context-meter__value--quiet {
+    display: none;
+  }
+
+  /* Forced colors strips background images — the ring is one — leaving an invisible
+     click target; text is the channel it preserves, so the value always shows there. */
+  @media (forced-colors: active) {
+    .context-meter__value--quiet {
+      display: inline;
+    }
+
+    .context-meter__ring {
+      display: none;
+    }
+  }
+
+  .context-panel__figure {
+    font-size: 13px;
+    color: #e2e8f0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .context-panel__track {
+    height: 4px;
+    margin: 6px 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .context-panel__fill {
+    height: 100%;
+    border-radius: 999px;
+    background: #94a3b8;
+  }
+
+  .context-panel__fill--warn {
+    background: #fbbf24;
+  }
+
+  .context-panel__fill--danger {
+    background: #f87171;
+  }
+
+  .context-panel__subline {
+    font-size: 11.5px;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .context-panel__model {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: #cbd5e1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .context-panel__model-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .context-panel__model-cost {
+    flex: 0 0 auto;
+    color: #94a3b8;
+  }
+
+  /* Aligned to the first line, not the block: the sentence wraps at sheet width in several
+     locales, and `center` then parks the glyph in the gap between the two lines. */
+  .context-panel__headroom {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 4px;
+    font-size: 12px;
+    color: #94a3b8;
+  }
+
+  /* Icon centred in one line box of the inherited line-height, so it tracks the sentence's
+     first line with no magic number. Both read that line-height from the parent. */
+  .context-panel__headroom-glyph {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 1lh;
+  }
+
+  .context-panel__headroom--warn {
+    color: #fcd34d;
+  }
+
+  .context-panel__headroom--danger {
+    color: #fca5a5;
   }
 
   /* Jump-to-latest pill */
@@ -2020,6 +2181,13 @@ main:has(.chat-shell) {
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
+    }
+
+    /* The context trigger sits at the right edge, beside the model label — anchor its
+       popover right so the 380px panel doesn't overhang the viewport. */
+    .chat-composer__buttons .composer-sheet {
+      left: auto;
+      right: 0;
     }
   }
 

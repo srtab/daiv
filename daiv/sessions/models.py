@@ -74,6 +74,12 @@ class EnvelopeStatus(models.TextChoices):
     NEEDS_ATTENTION = "needs-attention", _("Needs attention")
     FAILED = "failed", _("Failed")
 
+    @classmethod
+    def worst_first(cls) -> tuple[EnvelopeStatus, ...]:
+        """Severity ranking, worst first. Load-bearing wherever a list of runs is capped: unordered
+        rows let a rollup show three needs-attention repos and hide the failure."""
+        return (cls.FAILED, cls.FOUND_ISSUES, cls.NEEDS_ATTENTION, cls.ALL_CLEAR)
+
 
 class OfferedAction(models.TextChoices):
     """The action the console offers for an envelope status (the FR-5 semantics).

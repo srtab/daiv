@@ -24,7 +24,9 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langgraph.checkpoint.memory import InMemorySaver
 
-from automation.agent.events import ASSISTANT_MESSAGE_EVENT
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
+from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
@@ -905,6 +907,53 @@ async def test_events_ref_fallback_survives_reset_ref_failure():
     fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
     assert len(fallback_events) == 1
     assert [e for e in emitted if e.type == EventType.RUN_ERROR] == []
+
+
+async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
+    """The real middleware in a real graph, through the real agent class: pins that the
+    dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
+    the builder — a hand-rolled payload dict in the middleware fails here. Renames of the
+    shared constants are caught by the node test (the JS side hand-types the literals)."""
+
+    @dataclass
+    class Ctx:
+        pass
+
+    reply = AIMessage(
+        content="done",
+        usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        response_metadata={"model_name": "anthropic/claude-sonnet-4.6"},
+    )
+    agent = create_agent(
+        model=FakeMessagesListChatModel(responses=[reply]),
+        tools=[],
+        middleware=[ContextUsageMiddleware()],
+        context_schema=Ctx,
+        checkpointer=InMemorySaver(),
+    )
+    agui = RuntimeContextLangGraphAGUIAgent(name="DAIV", description="d", graph=agent, runtime_context=Ctx())
+    payload = RunAgentInput(
+        thread_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        state={},
+        messages=[{"id": "m1", "role": "user", "content": "hi"}],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+
+    frames = [
+        e
+        async for e in agui.run(payload)
+        if e is not None and e.type == EventType.CUSTOM and getattr(e, "name", "") == CONTEXT_USAGE_EVENT
+    ]
+
+    assert len(frames) == 1
+    assert frames[0].value == context_usage_payload(
+        model="anthropic/claude-sonnet-4.6",
+        usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+        window=ResolvedWindow(1_000_000, "genai_prices"),
+    )
 
 
 @pytest.mark.django_db(transaction=True)

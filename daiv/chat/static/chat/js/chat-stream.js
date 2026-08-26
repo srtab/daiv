@@ -147,7 +147,55 @@
     filteredTo: "filtered to",
     notSynced: "not synced yet",
     mcpServers: "MCP servers",
+    // Context meter + spend. BRACE placeholders only, and no literal "%" in a msgid —
+    // the sign travels inside a placeholder value ({percent} arrives as "42%").
+    ariaContext: "Context: {percent} of {window} used",
+    ariaContextNoWindow: "Context: {count} tokens used",
+    headroomOk: "Plenty of room",
+    headroomWarn: "Getting full — consider a new session",
+    headroomDanger: "Nearly full — start a new session",
+    headroomOver: "Over the window — the next request may be rejected",
+    turns: "{count} turns",
+    unrecorded: "{count} turns with unrecorded usage",
+    cached: "cached",
+    output: "output",
   };
+
+  const formatBraces = (template, values) =>
+    template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
+
+  const PAGE_LANG = (typeof document !== "undefined" && document.documentElement?.lang) || undefined;
+  const COMPACT_FORMAT = new Intl.NumberFormat(PAGE_LANG, { notation: "compact", maximumFractionDigits: 1 });
+  const EXACT_FORMAT = new Intl.NumberFormat(PAGE_LANG);
+  const compactNumber = (n) => COMPACT_FORMAT.format(n);
+  const exactNumber = (n) => EXACT_FORMAT.format(n);
+  const formatCost = (raw) => {
+    if (raw == null) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    if (n > 0 && n < 0.01) return "<$0.01";
+    return "$" + n.toFixed(2);
+  };
+
+  // The last main-model call's usage, as ``context_usage_payload`` shaped it. Shape-filtered
+  // like the json_script loaders: a malformed frame degrades to "meter unchanged".
+  const normalizeContextUsage = (raw) => {
+    if (!raw || typeof raw !== "object") return null;
+    const used = Number(raw.used_tokens);
+    if (!Number.isFinite(used) || used < 0) return null;
+    const windowTokens = Number(raw.window_tokens);
+    return {
+      usedTokens: used,
+      outputTokens: Number(raw.output_tokens) || 0,
+      cachedTokens: Number(raw.cached_tokens) || 0,
+      windowTokens: Number.isFinite(windowTokens) && windowTokens > 0 ? windowTokens : null,
+    };
+  };
+
+  const loadInitialContextUsage = () => normalizeContextUsage(loadJSONScript("chat-context-usage", null));
+
+  const normalizeSpend = (raw) => (raw && typeof raw === "object" && Number(raw.turns) > 0 ? raw : null);
+  const loadInitialSpend = () => normalizeSpend(loadJSONScript("chat-session-spend", null));
 
   const THINKING_LABELS = [
     "Thinking…",
@@ -269,6 +317,7 @@
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
     cancelEndpoint: config.cancelEndpoint || "",
+    spendEndpoint: config.spendEndpoint || "",
     csrfToken: config.csrfToken || "",
     // Hydrate the MR pill from the server-rendered checkpoint. We rebuild the
     // thread object so Alpine tracks `merge_request` as a reactive property
@@ -301,6 +350,10 @@
     // Server-measured diff for the work published so far, refreshed by every
     // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
     diffStats: loadInitialDiffStats(),
+    // Context meter + spend. Plain props replaced whole (never getters over `turns`);
+    // the getters below derive everything a binding renders from these two objects.
+    contextUsage: loadInitialContextUsage(),
+    spend: loadInitialSpend(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
@@ -841,6 +894,9 @@
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
+      // Settled figures persist in finalize_chat_run strictly BEFORE the stream's end
+      // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
+      this._refreshSpend();
       this.scrollToBottom();
     },
 
@@ -911,6 +967,112 @@
         return { tone: "idle", label: "", diff: stats };
       }
       return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+    },
+
+    // ---------- Context meter ------------------------------------------
+
+    get contextMeter() {
+      const u = this.contextUsage;
+      if (!u) return null;
+      if (!u.windowTokens) {
+        // A reading with no scale is not an error: show the number that IS known.
+        return {
+          hasWindow: false,
+          tone: "",
+          fill: 0,
+          label: compactNumber(u.usedTokens),
+          showValue: true,
+          aria: formatBraces(this._labels.ariaContextNoWindow, { count: exactNumber(u.usedTokens) }),
+        };
+      }
+      const ratio = u.usedTokens / u.windowTokens;
+      // Floored label, raw-ratio thresholds: a rendered "75%" has already fired its state.
+      const pct = Math.floor(ratio * 100);
+      const tone = ratio >= 0.9 ? "danger" : ratio >= 0.75 ? "warn" : "";
+      return {
+        hasWindow: true,
+        ratio,
+        tone,
+        fill: Math.min(pct, 100),
+        label: `${pct}%`,
+        showValue: tone !== "",
+        aria: formatBraces(this._labels.ariaContext, {
+          percent: `${pct}%`,
+          window: compactNumber(u.windowTokens),
+        }),
+      };
+    },
+
+    // Derived from contextMeter so the escalation thresholds live once and the ring's
+    // tone can never disagree with the sentence beside it.
+    get contextHeadroom() {
+      const m = this.contextMeter;
+      if (!m) return null;
+      // No window is not a state to narrate: the figure prints without a "/ limit" and the
+      // track is hidden, which is the same absence a sentence would restate.
+      if (!m.hasWindow) return null;
+      if (m.ratio >= 1) return { tone: "danger", text: this._labels.headroomOver };
+      if (m.tone === "danger") return { tone: "danger", text: this._labels.headroomDanger };
+      if (m.tone === "warn") return { tone: "warn", text: this._labels.headroomWarn };
+      return { tone: "ok", text: this._labels.headroomOk };
+    },
+
+    get contextFigure() {
+      const u = this.contextUsage;
+      if (!u) return "";
+      if (!u.windowTokens) return exactNumber(u.usedTokens);
+      return `${exactNumber(u.usedTokens)} / ${exactNumber(u.windowTokens)} · ${this.contextMeter.label}`;
+    },
+
+    get contextSubline() {
+      const u = this.contextUsage;
+      if (!u) return "";
+      return `${this._labels.cached} ${exactNumber(u.cachedTokens)} · ${this._labels.output} ${exactNumber(u.outputTokens)}`;
+    },
+
+    // ---------- Spend ---------------------------------------------------
+
+    get spendHeader() {
+      const s = this.spend;
+      if (!s) return "";
+      const parts = [formatBraces(this._labels.turns, { count: s.turns }), exactNumber(s.total_tokens || 0)];
+      const cost = formatCost(s.cost_usd);
+      if (cost) parts.push(cost + (s.cost_is_floor ? "+" : ""));
+      return parts.join(" · ");
+    },
+
+    get spendRows() {
+      return Array.isArray(this.spend?.by_model) ? this.spend.by_model : [];
+    },
+
+    get spendUnrecordedLine() {
+      const n = this.spend?.unrecorded_runs;
+      return n ? formatBraces(this._labels.unrecorded, { count: n }) : "";
+    },
+
+    spendRowCost(row) {
+      return formatCost(row.cost_usd) ?? "—";
+    },
+
+    exactTokens(n) {
+      return exactNumber(Number(n) || 0);
+    },
+
+    async _refreshSpend() {
+      if (!this.spendEndpoint || !this.thread) return;
+      try {
+        const resp = await fetch(
+          this.spendEndpoint + "?thread_id=" + encodeURIComponent(this.thread.thread_id),
+          { credentials: "include" },
+        );
+        if (resp.ok) {
+          this.spend = normalizeSpend(await resp.json());
+        } else {
+          console.warn("chat: spend refresh rejected with status", resp.status);
+        }
+      } catch (err) {
+        console.warn("chat: spend refresh failed", err);
+      }
     },
 
     // What the hero's selection line shows before a thread exists: the two things the
@@ -1368,6 +1530,10 @@
         } else if (this.selectedSandboxEnvId) {
           console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
         }
+      } else if (type === AGUI.CUSTOM && evt.name === "daiv_context_usage") {
+        // Last main-model call's usage (ContextUsageMiddleware). Whole-payload replace.
+        const usage = normalizeContextUsage(evt.value);
+        if (usage) this.contextUsage = usage;
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
         // unchanged merge_request. Dedupe on identity so we don't churn

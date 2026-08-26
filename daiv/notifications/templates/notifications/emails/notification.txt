@@ -1,8 +1,8 @@
-{% load i18n session_tags %}{{ notification.subject }}
+{% load i18n session_tags %}{% autoescape off %}{{ notification.subject }}
 {% spaceless %}={% for _ in notification.subject %}={% endfor %}{% endspaceless %}
 
 {{ notification.body }}
-{% with ctx=notification.context %}
+{% with ctx=notification.context %}{% if ctx.actionable %}{% include "notifications/emails/_row_list.txt" with heading=_("Findings") items=ctx.actionable overflow=ctx.actionable_overflow only %}{% endif %}{% if ctx.notable_runs %}{% include "notifications/emails/_row_list.txt" with heading=_("Needs a look") items=ctx.notable_runs overflow=ctx.notable_runs_overflow only %}{% endif %}
 {% if ctx.status_label %}{% translate "Status" %}: {{ ctx.status_label }}
 {% endif %}{% if ctx.trigger_name %}{{ ctx.trigger_label|default:_("Trigger") }}: {{ ctx.trigger_name }}
 {% endif %}{% if ctx.repo_id %}{% translate "Repository" %}: {{ ctx.repo_id }}
@@ -12,3 +12,4 @@
 {% endif %}
 --
 DAIV
+{% endautoescape %}

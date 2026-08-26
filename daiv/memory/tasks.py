@@ -74,7 +74,7 @@ async def consolidate_memory_task(repo_id: str) -> None:
     if outcome is None:
         return
     if unnamed := outcome.still_pending - outcome.truncated:
-        logger.error(
+        logger.warning(
             "consolidate_memory_task: repo %s — the model left %d of %d observation(s) unclaimed; they stay "
             "pending and will be retried, which never converges if the model keeps skipping them",
             repo_id,

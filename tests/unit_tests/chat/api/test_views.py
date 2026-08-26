@@ -1252,3 +1252,54 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
     assert session is not None
     assert session.active_run_id is None
     await user.adelete()
+
+
+# ---------------------------------------------------------------------------
+# GET /chat/spend — session spend refresh
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_spend_route_returns_the_aggregated_runs(client: TestAsyncClient, authed):
+    _key, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=user
+    )
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.CHAT,
+        status=RunStatus.SUCCESSFUL,
+        repo_id="group/project",
+        ref="main",
+        input_tokens=100,
+        output_tokens=10,
+        total_tokens=110,
+        usage_by_model={"m1": {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110, "cost_usd": "0.05"}},
+    )
+
+    resp = await client.get(f"/chat/spend?thread_id={session.thread_id}", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["turns"] == 1
+    assert data["cost_usd"] == "0.05"
+    assert data["by_model"][0]["model"] == "m1"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_spend_route_404s_another_users_session(client: TestAsyncClient, authed):
+    """``visible_to`` is the guard — the same one SessionDetailView uses. The router's
+    auth (``[AuthBearer(), django_auth]``) authenticates but does not authorize."""
+    _key, raw, _user = authed
+    other = await User.objects.acreate_user(
+        username="spend-other",
+        email="spend-other@example.com",
+        password="x",  # noqa: S106
+    )
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=other
+    )
+
+    resp = await client.get(f"/chat/spend?thread_id={session.thread_id}", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
