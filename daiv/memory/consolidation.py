@@ -146,9 +146,9 @@ class ConsolidationRound:
             )
             return None
         if rejected * 2 >= len(self.operations):
-            # One survivor out of fifty would otherwise report as a healthy round: the per-rejection
-            # lines are warnings, which never become Sentry events.
-            logger.error(
+            # One survivor out of fifty would otherwise report as a healthy round. Logged as a warning
+            # so it stays in the logs without minting a Sentry event every consolidation cycle.
+            logger.warning(
                 "consolidation: repo %s rejected %d of %d operations (only %d applied) — the consolidation "
                 "model's output is degraded",
                 self.repo_id,
@@ -178,9 +178,9 @@ class ConsolidationRound:
             memory.save(update_fields=["content", "last_consolidated_at", "updated_at"])
 
         if evicted:
-            # Irreversible in practice — nothing in the product surfaces a superseded entry — so this
-            # is an error, not a warning: it must reach Sentry with enough detail to reconstruct.
-            logger.error(
+            # Irreversible in practice — nothing in the product surfaces a superseded entry. Logged as
+            # a warning with enough detail to reconstruct, without minting a Sentry event per cycle.
+            logger.warning(
                 "consolidation: evicted %d of %d entr(ies) for repo %s to fit the %d line / %d byte render budget: %s",
                 len(evicted),
                 len(surviving),
