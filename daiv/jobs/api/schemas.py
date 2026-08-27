@@ -5,6 +5,7 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 from ninja import Field, Schema
 from pydantic import ConfigDict
 
+from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 
@@ -26,6 +27,11 @@ class JobSubmitRequest(Schema):
     muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None
+    references: list[RefIn] = Field(
+        default_factory=list,
+        max_length=MAX_REFS_PER_SUBMISSION,
+        description="External work-item references to link into the MR/PR.",
+    )
 
 
 class JobSubmitJobItem(Schema):

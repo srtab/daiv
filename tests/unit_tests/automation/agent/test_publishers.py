@@ -17,9 +17,19 @@ from automation.agent.publishers import (
     checkpointed_merge_request,
     effective_merge_request,
 )
-from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, Pipeline, TriggeredPipeline, User
+from codebase.base import (
+    GitPlatform,
+    Issue,
+    MergeRequest,
+    MergeRequestDiffStats,
+    Pipeline,
+    Scope,
+    TriggeredPipeline,
+    User,
+)
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -95,6 +105,7 @@ def _make_publisher(
     ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
+    ctx.references = ()
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -398,7 +409,7 @@ class TestCommitSessionTrailer:
     @pytest.fixture
     def trailered(self, stub_site_url):
         async def _build(message: str = "msg", thread_id: str = "abc123def"):
-            return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
+            return await _publisher_no_issue(thread_id=thread_id)._with_trailers(message)
 
         return _build
 
@@ -427,7 +438,7 @@ class TestCommitSessionTrailer:
         publisher = _publisher_no_issue(thread_id=thread_id)
 
         with _session_link_disabled(publisher, disable):
-            assert await publisher._with_session_trailer("msg") == "msg"
+            assert await publisher._with_trailers("msg") == "msg"
 
     async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
         """The commit must survive a misconfigured Sites row; only the trailer is lost."""
@@ -436,7 +447,25 @@ class TestCommitSessionTrailer:
         )
         publisher = _publisher_no_issue(thread_id="abc123def")
 
-        assert await publisher._with_session_trailer("msg") == "msg"
+        assert await publisher._with_trailers("msg") == "msg"
+
+
+class TestReferenceTrailers:
+    async def test_ref_trailers_precede_the_session_trailer(self, stub_site_url):
+        publisher = _publisher_no_issue(thread_id="abc123def")
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
+            ExternalRef(key="PROJ-9", provider="jira"),
+        )
+        result = await publisher._with_trailers("msg")
+        assert result == (
+            "msg\n\nFixes DAIV-1V\n\nRefs: PROJ-9\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+        )
+
+    async def test_ref_trailers_apply_even_without_a_session_link(self):
+        publisher = _publisher_no_issue(thread_id=None)
+        publisher.ctx.references = (ExternalRef(key="PROJ-9", provider="jira"),)
+        assert await publisher._with_trailers("msg") == "msg\n\nRefs: PROJ-9"
 
 
 class TestCreateMergeRequestAssignee:
@@ -478,6 +507,54 @@ class TestCreateMergeRequestAssignee:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+
+
+class TestReferenceFooter:
+    def _capture_description(self, publisher):
+        publisher.client.update_or_create_merge_request = Mock(return_value=_make_merge_request())
+        return publisher
+
+    async def test_issue_webhook_footer_is_byte_identical(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = Issue(iid=42, title="t", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "\nCloses: owner/repo#42+\n" in description
+        assert "**References:**" not in description
+
+    async def test_no_refs_renders_no_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "Closes:" not in description
+        assert "**References:**" not in description
+
+    async def test_footer_urls_reach_the_platform_unescaped(self):
+        """The description is markdown for the platform API, not HTML: the URL charset validation
+        is what makes raw embedding safe, and autoescaping would corrupt ``&`` into ``&amp;``."""
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
+        publisher.ctx.references = (ExternalRef(key="RT-77", provider="rt", url=url),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert f"- [RT-77]({url})" in description
+        assert "&amp;" not in description
+
+    async def test_declared_refs_render_in_the_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.example.com/1", relation="closes"),
+            ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),
+        )
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "**References:**" in description
+        assert "- Fixes DAIV-1V ([Sentry](https://s.example.com/1))" in description
+        assert "- [RT-77](https://rt.example.com/77)" in description
 
 
 class TestBuildIssueCreationUrl:
@@ -1251,3 +1328,64 @@ class TestCheckpointedMergeRequest:
             assert checkpointed_merge_request({"merge_request": {"source_branch": "a"}}, strict=False) is None
 
         assert "revived as dict" in caplog.text
+
+
+class TestDiffToMetadataExtraContext:
+    def _publisher_with_graph_capture(self, monkeypatch):
+        publisher = _make_publisher()
+        publisher.ctx.config.omit_content_patterns = []
+        captured = {}
+
+        def fake_create(ctx, include_pr_metadata):
+            graph = Mock()
+
+            async def ainvoke(input_data, config=None):
+                captured.update(input_data)
+                return {"commit_message": Mock(), "pr_metadata": Mock()}
+
+            graph.ainvoke = ainvoke
+            return graph
+
+        monkeypatch.setattr("automation.agent.publishers.create_diff_to_metadata_graph", fake_create)
+        monkeypatch.setattr("automation.agent.publishers.build_langsmith_config", Mock(return_value={}))
+        return publisher, captured
+
+    async def test_non_issue_refs_land_in_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),
+            ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+            ExternalRef(key="7", provider="github-issue", relation="closes"),
+        )
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "DAIV-1V" in captured["extra_context"]
+        assert "https://s.io/1" in captured["extra_context"]
+        assert "gitlab-issue" not in captured["extra_context"]
+        assert "github-issue" not in captured["extra_context"]
+
+    async def test_no_refs_no_issue_scope_means_no_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "extra_context" not in captured
+
+    async def test_issue_scope_and_refs_are_joined_issue_first(self, monkeypatch):
+        """An issue-webhook run carrying declared refs — the only path that joins two parts.
+
+        The blocks sit two blank lines apart, not one: the issue block's own trailing newline
+        meets the join's, so a reader must not "correct" the three newlines to two.
+        """
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = Scope.ISSUE
+        publisher.ctx.issue = Issue(iid=42, title="Broken parser", description="d", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1"),)
+
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+
+        extra_context = captured["extra_context"]
+        assert "Issue ID: 42" in extra_context
+        assert "Broken parser" in extra_context
+        assert "DAIV-1V" in extra_context
+        assert "Issue description: d\n\n\nExternal work items" in extra_context
+        assert extra_context.index("Issue ID: 42") < extra_context.index("DAIV-1V")

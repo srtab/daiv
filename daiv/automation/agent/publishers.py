@@ -18,6 +18,7 @@ from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.references import render_agent_context, render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
@@ -230,7 +231,7 @@ class GitChangePublisher(ChangePublisher):
                 commit_message = changes_metadata["commit_message"].commit_message
                 if skip_ci:
                     commit_message = f"[skip ci] {commit_message}"
-                await git_manager.commit_all(await self._with_session_trailer(commit_message))
+                await git_manager.commit_all(await self._with_trailers(commit_message))
 
             if merge_request is None:
                 branch_name = git_manager.unique_branch_name(
@@ -452,16 +453,23 @@ class GitChangePublisher(ChangePublisher):
         input_data = {
             "commit_message_diff": redact_diff_content(commit_message_diff, self.ctx.config.omit_content_patterns)
         }
+        context_parts: list[str] = []
         if self.ctx.scope == Scope.ISSUE:
-            input_data["extra_context"] = dedent(
-                """\
-                This changes were made to address the following issue:
+            context_parts.append(
+                dedent(
+                    """\
+                    This changes were made to address the following issue:
 
-                Issue ID: {issue.iid}
-                Issue title: {issue.title}
-                Issue description: {issue.description}
-                """
-            ).format(issue=self.ctx.issue)
+                    Issue ID: {issue.iid}
+                    Issue title: {issue.title}
+                    Issue description: {issue.description}
+                    """
+                ).format(issue=self.ctx.issue)
+            )
+        if refs_context := render_agent_context(self.ctx.references):
+            context_parts.append(refs_context)
+        if context_parts:
+            input_data["extra_context"] = "\n\n".join(context_parts)
 
         if pr_metadata_diff:
             input_data["pr_metadata_diff"] = redact_diff_content(
@@ -524,8 +532,9 @@ class GitChangePublisher(ChangePublisher):
                 "automation/issue_merge_request.txt",
                 {
                     "description": description,
-                    "source_repo_id": self.ctx.repository.slug,
-                    "issue_id": self.ctx.issue.iid if self.ctx.issue else None,
+                    "references_block": render_references_block(
+                        self.ctx.references, repo_slug=self.ctx.repository.slug
+                    ),
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
@@ -552,16 +561,19 @@ class GitChangePublisher(ChangePublisher):
             )
             return None
 
-    async def _with_session_trailer(self, commit_message: str) -> str:
-        """Append the session trailer to ``commit_message``.
+    async def _with_trailers(self, commit_message: str) -> str:
+        """Append reference trailers and the session trailer to ``commit_message``.
 
-        Unlike the description link this survives description rewrites and stays attached to the
-        commit once it is squashed or cherry-picked elsewhere.
+        Reference lines come first so the session trailer — the only line needing git-trailer
+        semantics — always ends up in the final paragraph.
         """
+        message = commit_message
+        for line in render_commit_trailers(self.ctx.references):
+            message = append_trailer(message, line)
         session_url = await self._session_link("session_detail")
-        if not session_url:
-            return commit_message
-        return append_trailer(commit_message, f"{SESSION_TRAILER}: {session_url}")
+        if session_url:
+            message = append_trailer(message, f"{SESSION_TRAILER}: {session_url}")
+        return message
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

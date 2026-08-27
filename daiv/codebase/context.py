@@ -10,13 +10,14 @@ from git import Repo  # noqa: TC002
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
+from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator, Iterator, Sequence
 
 
 logger = logging.getLogger("daiv.codebase")
@@ -85,6 +86,9 @@ class RuntimeCtx:
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
+    references: tuple[ExternalRef, ...] = ()
+    """External work items this run addresses; rendered into the MR description and commit
+    trailers by the publisher. Includes the derived platform issue ref for issue-scoped runs."""
     acting_user_id: int | None = None
     """The DAIV user who triggered this run, when known. Selects that user's
     personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
@@ -96,6 +100,8 @@ class RuntimeCtx:
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
             object.__setattr__(self, "repos", tuple(self.repos))
+        if not isinstance(self.references, tuple):
+            object.__setattr__(self, "references", tuple(self.references))
         if len(self.repos) != 1:
             raise SingleRepoRequiredError(actual=len(self.repos))
 
@@ -171,6 +177,7 @@ async def set_runtime_ctx(
     sandbox_env_id: str | None = None,
     acting_user_id: int | None = None,
     mcp_overrides: dict | None = None,
+    references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
@@ -190,6 +197,7 @@ async def set_runtime_ctx(
             to the GLOBAL default env if nothing matches.
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
         mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
+        references: Caller-declared external references, from ``Session.external_refs``.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
@@ -260,6 +268,9 @@ async def set_runtime_ctx(
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,
+                references=assemble_run_references(
+                    references, scope=scope, issue=issue, git_platform=repo_client.git_platform
+                ),
                 acting_user_id=acting_user_id,
                 mcp_overrides=mcp_overrides or {},
             )
