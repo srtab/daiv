@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_sessions", "0006_run_muted_classify_eligible"),
+        ("agent_sessions", "0007_session_external_refs"),
         ("django_tasks_database", "0019_rename_django_task_new_ordering_idx_tasks_db_new_ordering_idx_and_more"),
         ("sandbox_envs", "0006_drop_network_enabled"),
         ("schedules", "0019_muted_drop_notify_on"),

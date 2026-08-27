@@ -66,17 +66,15 @@ input.css); icons here are masks and cannot be data-driven.
                   x-text="exactTokens(row.total_tokens) + ' · ' + spendRowCost(row)"></span>
           </p>
         </template>
-        <p class="composer-sheet__empty" x-show="spendUnpricedLine" x-text="spendUnpricedLine"></p>
         <p class="composer-sheet__empty" x-show="spendUnrecordedLine" x-text="spendUnrecordedLine"></p>
       </section>
 
       <p class="context-panel__headroom"
          x-show="contextHeadroom"
          :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
-        <span x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
-        <span x-show="contextHeadroom?.tone === 'unknown'" aria-hidden="true">{% icon "information-circle" "h-3.5 w-3.5" %}</span>
+        <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
+        <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
+        <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
         <span x-text="contextHeadroom?.text || ''"></span>
       </p>
     </div>

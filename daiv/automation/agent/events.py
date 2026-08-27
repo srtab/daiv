@@ -67,6 +67,8 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
     return {
+        # Diagnostic only — the browser normalizes it away. Kept as the one observable that the
+        # streamed-duplication repair ran before the window was resolved from this same name.
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,

@@ -24,6 +24,7 @@ from codebase.base import (
     RepoAccessLevel,
     RepoMember,
     Repository,
+    TriggeredPipeline,
     User,
 )
 from codebase.conf import settings
@@ -268,11 +269,18 @@ class RepoClient(abc.ABC):
         includes and must be re-triggered as the service account. Base default: ``False``."""
         return False
 
-    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+    def trigger_merge_request_pipeline(
+        self, repo_id: str, merge_request_id: int, expected_sha: str | None = None
+    ) -> TriggeredPipeline:
         """Create a CI pipeline for the merge request as the service account, so it runs with the
         service account's permissions (e.g. reading private cross-project CI includes). GitLab-only
         capability: the publish path calls this only when :meth:`push_uses_ephemeral_token` is true,
-        so reaching the base implementation means a mis-wired caller, not a supported no-op."""
+        so reaching the base implementation means a mis-wired caller, not a supported no-op.
+
+        ``expected_sha`` is the sha the caller just pushed, for platforms that must wait for it to
+        become the merge request's head before the pipeline resolves to the right commit. Passing
+        ``None`` (nothing to wait for) must answer ``head_synced=False``: the commit is unverified,
+        which is not the same as verified-and-wrong but is equally not a confirmed success."""
         raise NotImplementedError
 
     def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:

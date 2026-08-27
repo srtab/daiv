@@ -272,3 +272,76 @@ async def test_submit_job_rate_limited():
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert "Rate limit" in json.loads(result)["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_references(_default_mcp_user):
+    from mcp_server.server import submit_job
+    from sessions.services import BatchSubmitResult
+
+    from codebase.references import RefIn
+
+    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
+
+    def _passthrough(*, user, repos, explicit_env_id):
+        return repos
+
+    with (
+        patch("mcp_server.server._allow_job_submission", return_value=True),
+        patch("mcp_server.server.validate_agent_override", return_value=("", "")),
+        patch("mcp_server.server.ensure_agent_model_available"),
+        patch("mcp_server.server.aassert_can_run", new=AsyncMock()),
+        patch("mcp_server.server.aresolve_repo_envs", new=AsyncMock(side_effect=_passthrough)),
+        patch(
+            "mcp_server.server.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
+        ) as submit,
+    ):
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}],
+            prompt="x",
+            references=[{"key": "DAIV-1V", "provider": "sentry", "url": "https://s.io/1", "relation": "closes"}],
+        )
+
+    assert "error" not in json.loads(result)
+    assert submit.call_args.kwargs["references"] == [
+        RefIn(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes")
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_malformed_references():
+    from mcp_server.server import submit_job
+
+    result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=[{"key": ""}])
+
+    assert "Invalid references" in json.loads(result)["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_too_many_references():
+    from mcp_server.server import submit_job
+
+    refs = [{"key": f"K-{i}"} for i in range(21)]
+    result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=refs)
+
+    assert "error" in json.loads(result)
+
+
+def test_the_submit_job_description_advertises_every_special_provider():
+    """``RefProvider`` owns the vocabulary, but the tool description spells it out in prose for the
+    model. A member added to the enum and not here is silently never advertised.
+    """
+    import typing
+
+    from mcp_server.server import MAX_REFS_PER_SUBMISSION, submit_job
+
+    from codebase.references import RefProvider
+
+    hints = typing.get_type_hints(submit_job, include_extras=True)
+    description = typing.get_args(hints["references"])[1].description
+
+    assert str(MAX_REFS_PER_SUBMISSION) in description
+    for provider in RefProvider:
+        if provider is not RefProvider.GENERIC:
+            assert provider.value in description, f"{provider.value} is not advertised to the model"

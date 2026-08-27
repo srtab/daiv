@@ -1,0 +1,20 @@
+{% load i18n %}
+<table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; margin: 0 0 24px; border-collapse: collapse;">
+    <tr>
+        <td style="padding: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #9ca3af;">{{ heading }}</td>
+    </tr>
+    {% for item in items %}
+    <tr>
+        <td style="padding: 10px 12px; font-size: 13px; line-height: 1.5; color: #111827; background-color: #f9fafb; border-left: 3px solid #fbbf24;">
+            {% if item.kind %}<span style="display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; background-color: #ffffff; font-size: 11px; font-weight: 600; color: #b45309;">{{ item.kind }}</span>{% endif %}{{ item.label }}
+            {% if item.ref %}<br><span style="{% if mono %}font-family: ui-monospace, SFMono-Regular, Menlo, monospace; {% endif %}font-size: 12px; color: #6b7280;">{{ item.ref }}</span>{% endif %}
+        </td>
+    </tr>
+    <tr><td style="height: 6px; line-height: 6px; font-size: 0;">&nbsp;</td></tr>
+    {% endfor %}
+    {% if overflow > 0 %}
+    <tr>
+        <td style="padding: 2px 0 0; font-size: 12px; color: #9ca3af;">{% blocktranslate with remaining=overflow %}… and {{ remaining }} more{% endblocktranslate %}</td>
+    </tr>
+    {% endif %}
+</table>

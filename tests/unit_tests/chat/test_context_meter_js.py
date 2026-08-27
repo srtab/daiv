@@ -57,12 +57,14 @@ def test_the_handler_updates_the_ring_from_a_builder_payload():
 
 
 def test_count_only_when_the_window_is_unresolved():
+    """No headroom sentence either: the hidden track and the "/ limit"-less figure are the
+    absence, and a line restating it was the panel's noisiest row."""
     out = _meter(_payload(130_000, None))
 
     assert out["meter"]["hasWindow"] is False
     assert out["meter"]["showValue"] is True
     assert out["meter"]["label"]  # the compact count — locale-formatted, so just non-empty
-    assert out["headroom"]["tone"] == "unknown"
+    assert out["headroom"] is None
 
 
 def test_the_fill_clamps_past_the_window_but_the_label_tells_the_truth():

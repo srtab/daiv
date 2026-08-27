@@ -6,12 +6,30 @@ from urllib.parse import parse_qs, urlparse
 from django.contrib.sites.models import Site
 
 import pytest
+from git import GitCommandError
 
 from automation.agent.git_manager import RepoStatus
-from automation.agent.publishers import SESSION_TRAILER, GitChangePublisher, PublishOutcome, append_trailer
-from codebase.base import GitPlatform, Issue, MergeRequest, MergeRequestDiffStats, User
+from automation.agent.publishers import (
+    SESSION_TRAILER,
+    GitChangePublisher,
+    PublishOutcome,
+    append_trailer,
+    checkpointed_merge_request,
+    effective_merge_request,
+)
+from codebase.base import (
+    GitPlatform,
+    Issue,
+    MergeRequest,
+    MergeRequestDiffStats,
+    Pipeline,
+    Scope,
+    TriggeredPipeline,
+    User,
+)
 from codebase.clients.base import GitAuthEnv
 from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -33,6 +51,7 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
     )
     gm.commit_all = AsyncMock()
     gm.push_head_to = AsyncMock(return_value="pushed")
+    gm.head_sha = AsyncMock(return_value="post-push-sha")
     gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
     return gm
 
@@ -48,6 +67,12 @@ def _patch_open_git_manager(monkeypatch, gm: Mock) -> dict:
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
     return captured
+
+
+def _triggered(*, head_synced: bool, sha: str = "a" * 40) -> TriggeredPipeline:
+    return TriggeredPipeline(
+        pipeline=Pipeline(id=5, sha=sha, status="pending", web_url="https://example.com/p/5"), head_synced=head_synced
+    )
 
 
 def _make_merge_request(**overrides) -> MergeRequest:
@@ -80,6 +105,7 @@ def _make_publisher(
     ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
+    ctx.references = ()
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -383,7 +409,7 @@ class TestCommitSessionTrailer:
     @pytest.fixture
     def trailered(self, stub_site_url):
         async def _build(message: str = "msg", thread_id: str = "abc123def"):
-            return await _publisher_no_issue(thread_id=thread_id)._with_session_trailer(message)
+            return await _publisher_no_issue(thread_id=thread_id)._with_trailers(message)
 
         return _build
 
@@ -412,7 +438,7 @@ class TestCommitSessionTrailer:
         publisher = _publisher_no_issue(thread_id=thread_id)
 
         with _session_link_disabled(publisher, disable):
-            assert await publisher._with_session_trailer("msg") == "msg"
+            assert await publisher._with_trailers("msg") == "msg"
 
     async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
         """The commit must survive a misconfigured Sites row; only the trailer is lost."""
@@ -421,7 +447,25 @@ class TestCommitSessionTrailer:
         )
         publisher = _publisher_no_issue(thread_id="abc123def")
 
-        assert await publisher._with_session_trailer("msg") == "msg"
+        assert await publisher._with_trailers("msg") == "msg"
+
+
+class TestReferenceTrailers:
+    async def test_ref_trailers_precede_the_session_trailer(self, stub_site_url):
+        publisher = _publisher_no_issue(thread_id="abc123def")
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", relation="closes"),
+            ExternalRef(key="PROJ-9", provider="jira"),
+        )
+        result = await publisher._with_trailers("msg")
+        assert result == (
+            "msg\n\nFixes DAIV-1V\n\nRefs: PROJ-9\nDAIV-Session: https://daiv.test/dashboard/sessions/abc123def/"
+        )
+
+    async def test_ref_trailers_apply_even_without_a_session_link(self):
+        publisher = _publisher_no_issue(thread_id=None)
+        publisher.ctx.references = (ExternalRef(key="PROJ-9", provider="jira"),)
+        assert await publisher._with_trailers("msg") == "msg\n\nRefs: PROJ-9"
 
 
 class TestCreateMergeRequestAssignee:
@@ -463,6 +507,54 @@ class TestCreateMergeRequestAssignee:
         await publisher._create_merge_request("feature", "Title", "Body")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+
+
+class TestReferenceFooter:
+    def _capture_description(self, publisher):
+        publisher.client.update_or_create_merge_request = Mock(return_value=_make_merge_request())
+        return publisher
+
+    async def test_issue_webhook_footer_is_byte_identical(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = Issue(iid=42, title="t", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "\nCloses: owner/repo#42+\n" in description
+        assert "**References:**" not in description
+
+    async def test_no_refs_renders_no_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "Closes:" not in description
+        assert "**References:**" not in description
+
+    async def test_footer_urls_reach_the_platform_unescaped(self):
+        """The description is markdown for the platform API, not HTML: the URL charset validation
+        is what makes raw embedding safe, and autoescaping would corrupt ``&`` into ``&amp;``."""
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
+        publisher.ctx.references = (ExternalRef(key="RT-77", provider="rt", url=url),)
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert f"- [RT-77]({url})" in description
+        assert "&amp;" not in description
+
+    async def test_declared_refs_render_in_the_footer(self):
+        publisher = self._capture_description(_make_publisher())
+        publisher.ctx.issue = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.example.com/1", relation="closes"),
+            ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),
+        )
+        await publisher._create_merge_request("feature", "Title", "Body")
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "**References:**" in description
+        assert "- Fixes DAIV-1V ([Sentry](https://s.example.com/1))" in description
+        assert "- [RT-77](https://rt.example.com/77)" in description
 
 
 class TestBuildIssueCreationUrl:
@@ -952,12 +1044,12 @@ def test_create_merge_request_and_suggest_are_async():
 class TestTriggerServiceAccountPipeline:
     async def test_triggers_pipeline_via_client(self):
         publisher = _make_publisher()
-        publisher.client.trigger_merge_request_pipeline = Mock(return_value=Mock(id=5))
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=True))
         mr = _make_merge_request()
 
-        await publisher._trigger_service_account_pipeline(mr)
+        await publisher._trigger_service_account_pipeline(mr, "abc123")
 
-        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42)
+        publisher.client.trigger_merge_request_pipeline.assert_called_once_with("owner/repo", 42, expected_sha="abc123")
         publisher.client.create_merge_request_comment.assert_not_called()
 
     async def test_logs_and_notes_on_failure(self, caplog):
@@ -966,7 +1058,7 @@ class TestTriggerServiceAccountPipeline:
         mr = _make_merge_request()
 
         with caplog.at_level("ERROR"):
-            await publisher._trigger_service_account_pipeline(mr)
+            await publisher._trigger_service_account_pipeline(mr, "abc123")
 
         assert any(r.levelname == "ERROR" for r in caplog.records)
         publisher.client.create_merge_request_comment.assert_called_once()
@@ -978,7 +1070,32 @@ class TestTriggerServiceAccountPipeline:
         publisher.client.trigger_merge_request_pipeline = Mock(side_effect=RuntimeError("boom"))
         publisher.client.create_merge_request_comment = Mock(side_effect=RuntimeError("note failed"))
 
-        await publisher._trigger_service_account_pipeline(_make_merge_request())  # must not raise
+        await publisher._trigger_service_account_pipeline(_make_merge_request(), "abc123")  # must not raise
+
+    async def test_notes_when_the_pipeline_cannot_be_confirmed_on_the_pushed_commit(self, caplog):
+        """An unconfirmed pipeline leaves the MR blocked on its latest commit just as a missing one
+        does — say so in the MR instead of logging a success nobody sees."""
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
+
+        with caplog.at_level("WARNING"):
+            await publisher._trigger_service_account_pipeline(_make_merge_request(), "fresh" * 8)
+
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        body = publisher.client.create_merge_request_comment.call_args[0][2]
+        assert ("fresh" * 8)[:8] in body
+
+    async def test_warns_instead_of_reporting_success_when_there_is_no_sha_to_verify(self, caplog):
+        """The unverified path is the one that would otherwise log the same success line as a
+        verified one — it goes live whenever reading HEAD after the push failed."""
+        publisher = _make_publisher()
+        publisher.client.trigger_merge_request_pipeline = Mock(return_value=_triggered(head_synced=False))
+
+        with caplog.at_level("WARNING"):
+            await publisher._trigger_service_account_pipeline(_make_merge_request(), None)
+
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+        publisher.client.create_merge_request_comment.assert_not_called()
 
 
 class TestPublishPipelineHeal:
@@ -1000,7 +1117,58 @@ class TestPublishPipelineHeal:
             await publisher.publish()
 
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
-        trigger.assert_awaited_once_with(mr)
+        trigger.assert_awaited_once_with(mr, "post-push-sha")
+
+    async def test_the_pushed_sha_is_read_after_the_push(self, monkeypatch):
+        """An integrate-on-reject rebase rewrites HEAD during the push, so a sha read before it names
+        a commit that never landed — the wait would then time out against a sha GitLab never sees."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        head = {"sha": "pre-rebase-sha"}
+
+        async def _push(*args, **kwargs):  # noqa: ARG001 - the rebase inside the push rewrites HEAD
+            head["sha"] = "post-rebase-sha"
+            return "feature"
+
+        gm.push_head_to = AsyncMock(side_effect=_push)
+        gm.head_sha = AsyncMock(side_effect=lambda: head["sha"])
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+        ):
+            await publisher.publish()
+
+        trigger.assert_awaited_once_with(mr, "post-rebase-sha")
+
+    async def test_an_unreadable_head_degrades_instead_of_orphaning_the_push(self, monkeypatch, caplog):
+        """The branch is already pushed and skip-ci'd: raising here would lose the MR, the pipeline
+        and the agent's reply over a sha the heal can run (unverified) without."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = True
+        gm = _fake_git_manager()
+        gm.head_sha = AsyncMock(side_effect=GitCommandError(["git", "rev-parse", "HEAD"], 128))
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_create_merge_request", return_value=mr),
+            patch.object(publisher, "_suggest_context_file", AsyncMock()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
+            caplog.at_level("ERROR"),
+        ):
+            outcome = await publisher.publish()
+
+        assert outcome.published is True
+        assert outcome.merge_request is mr
+        trigger.assert_awaited_once_with(mr, None)
+        assert any(r.levelname == "ERROR" for r in caplog.records)
 
     async def test_pat_push_does_not_skip_ci_or_trigger(self, monkeypatch):
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
@@ -1106,3 +1274,118 @@ class TestPublishDiffStats:
         outcome = await publisher.publish(merge_request=None)
 
         assert outcome.diff_stats == _LOCAL_STATS
+
+
+class TestEffectiveMergeRequest:
+    """The single decision behind every publish target: ``GitMiddleware`` for the turn-end publish
+    and ``BaseManager._recover_draft`` for the post-crash draft."""
+
+    def test_prefers_the_context_mr(self):
+        """MR-scope runs clone the MR's own source branch, so the context MR is authoritative even
+        when ``get_repo_ref`` reports something else (a commit-pinned clone reports a SHA)."""
+        context_mr = _make_merge_request(merge_request_id=1, source_branch="a")
+        state_mr = _make_merge_request(merge_request_id=2, source_branch="b")
+
+        assert effective_merge_request(context_mr=context_mr, state_mr=state_mr, current_ref="b") is context_mr
+
+    def test_uses_the_state_mr_while_the_workspace_is_on_its_branch(self):
+        state_mr = _make_merge_request(merge_request_id=2, source_branch="feat/x")
+
+        assert effective_merge_request(context_mr=None, state_mr=state_mr, current_ref="feat/x") is state_mr
+
+    def test_drops_a_state_mr_whose_branch_the_workspace_is_not_on(self):
+        """The whole point: pushing this run's commit onto that branch makes it a sibling of the
+        branch's tip, not a descendant — a non-fast-forward that rebases into a conflict."""
+        state_mr = _make_merge_request(merge_request_id=2, source_branch="feat/x")
+
+        assert effective_merge_request(context_mr=None, state_mr=state_mr, current_ref="main") is None
+
+    def test_none_when_there_is_no_mr_at_all(self):
+        assert effective_merge_request(context_mr=None, state_mr=None, current_ref="main") is None
+
+
+class TestCheckpointedMergeRequest:
+    """One reader for ``state["merge_request"]``, two policies: the middleware fails the run loud,
+    the crash-recovery path degrades rather than discard the work it exists to save."""
+
+    def test_it_passes_a_revived_model_through(self):
+        mr = _make_merge_request(merge_request_id=1, source_branch="a")
+
+        assert checkpointed_merge_request({"merge_request": mr}, strict=True) is mr
+        assert checkpointed_merge_request({}, strict=True) is None
+
+    def test_strict_raises_on_a_value_that_did_not_revive(self, caplog):
+        """``DAIVRedisSerializer`` returns the raw ``lc:2`` envelope when reconstruction fails."""
+        envelope = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
+
+        with caplog.at_level("ERROR"), pytest.raises(TypeError, match="expected MergeRequest"):
+            checkpointed_merge_request({"merge_request": envelope}, strict=True)
+
+        assert "revived as dict" in caplog.text
+
+    def test_lenient_drops_it_loudly_instead(self, caplog):
+        with caplog.at_level("ERROR"):
+            assert checkpointed_merge_request({"merge_request": {"source_branch": "a"}}, strict=False) is None
+
+        assert "revived as dict" in caplog.text
+
+
+class TestDiffToMetadataExtraContext:
+    def _publisher_with_graph_capture(self, monkeypatch):
+        publisher = _make_publisher()
+        publisher.ctx.config.omit_content_patterns = []
+        captured = {}
+
+        def fake_create(ctx, include_pr_metadata):
+            graph = Mock()
+
+            async def ainvoke(input_data, config=None):
+                captured.update(input_data)
+                return {"commit_message": Mock(), "pr_metadata": Mock()}
+
+            graph.ainvoke = ainvoke
+            return graph
+
+        monkeypatch.setattr("automation.agent.publishers.create_diff_to_metadata_graph", fake_create)
+        monkeypatch.setattr("automation.agent.publishers.build_langsmith_config", Mock(return_value={}))
+        return publisher, captured
+
+    async def test_non_issue_refs_land_in_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        publisher.ctx.references = (
+            ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes"),
+            ExternalRef(key="42", provider="gitlab-issue", relation="closes"),
+            ExternalRef(key="7", provider="github-issue", relation="closes"),
+        )
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "DAIV-1V" in captured["extra_context"]
+        assert "https://s.io/1" in captured["extra_context"]
+        assert "gitlab-issue" not in captured["extra_context"]
+        assert "github-issue" not in captured["extra_context"]
+
+    async def test_no_refs_no_issue_scope_means_no_extra_context(self, monkeypatch):
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = None
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+        assert "extra_context" not in captured
+
+    async def test_issue_scope_and_refs_are_joined_issue_first(self, monkeypatch):
+        """An issue-webhook run carrying declared refs — the only path that joins two parts.
+
+        The blocks sit two blank lines apart, not one: the issue block's own trailing newline
+        meets the join's, so a reader must not "correct" the three newlines to two.
+        """
+        publisher, captured = self._publisher_with_graph_capture(monkeypatch)
+        publisher.ctx.scope = Scope.ISSUE
+        publisher.ctx.issue = Issue(iid=42, title="Broken parser", description="d", author=User(id=1, username="u"))
+        publisher.ctx.references = (ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.io/1"),)
+
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+
+        extra_context = captured["extra_context"]
+        assert "Issue ID: 42" in extra_context
+        assert "Broken parser" in extra_context
+        assert "DAIV-1V" in extra_context
+        assert "Issue description: d\n\n\nExternal work items" in extra_context
+        assert extra_context.index("Issue ID: 42") < extra_context.index("DAIV-1V")

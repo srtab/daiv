@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -60,6 +61,85 @@ async def test_address_mr_comments_skips_when_branch_gone():
     client.create_merge_request_comment.assert_called_once()
     assert "no longer exists" in result["response"]
     assert result["code_changes"] is False
+
+
+class TestAddressIssueTaskRef:
+    """An issue webhook carries no ref of its own — an issue is not a branch. ``Session.ref`` is
+    what carries an issue session's working branch from one turn to the next: without it a
+    follow-up turn re-clones the default branch while the checkpoint still names the branch the
+    previous turn published to, and the publish then pushes a sibling commit onto it."""
+
+    @staticmethod
+    async def _run(
+        *, session_ref: str, ref: str | None = None, cloned_ref: str | None = None, reset: AsyncMock | None = None
+    ) -> SimpleNamespace:
+        from codebase.tasks import address_issue_task
+
+        client = MagicMock()
+        client.get_issue.return_value = MagicMock()
+
+        runtime_ctx = MagicMock()
+        runtime_ctx.repo.ref = cloned_ref or ref or session_ref or "master"
+        entered = MagicMock()
+        entered.__aenter__ = AsyncMock(return_value=runtime_ctx)
+        entered.__aexit__ = AsyncMock(return_value=False)
+
+        reset = reset or AsyncMock()
+        addressed = AsyncMock(return_value={"response": "", "code_changes": False})
+        with (
+            patch("codebase.tasks.RepoClient.create_instance", return_value=client),
+            patch("codebase.tasks.set_runtime_ctx", return_value=entered) as set_ctx,
+            patch("sessions.services.aget_session_ref", AsyncMock(return_value=session_ref)),
+            patch("sessions.services.areset_session_ref", reset),
+            patch("codebase.managers.issue_addressor.IssueAddressorManager.address_issue", addressed),
+        ):
+            await address_issue_task.func(repo_id="group/repo", issue_iid=10, thread_id="t-1", ref=ref)
+
+        return SimpleNamespace(ctx_kwargs=set_ctx.call_args.kwargs, reset=reset, addressed=addressed)
+
+    async def test_a_follow_up_turn_clones_the_branch_the_session_works_on(self):
+        run = await self._run(session_ref="fix/10-update-dependencies")
+        assert run.ctx_kwargs["ref"] == "fix/10-update-dependencies"
+
+    async def test_a_first_turn_still_clones_the_default_branch(self):
+        """Nothing published yet, so there is no working branch to resume — ``None`` lets
+        ``set_runtime_ctx`` pick the repository default."""
+        run = await self._run(session_ref="")
+        assert run.ctx_kwargs["ref"] is None
+
+    async def test_an_explicit_ref_wins_over_the_session(self):
+        run = await self._run(session_ref="fix/10", ref="release/1.2")
+        assert run.ctx_kwargs["ref"] == "release/1.2"
+
+    async def test_a_vanished_branch_degrades_and_re_pins_the_session(self):
+        """The MR got merged and its branch deleted: the clone falls back to the default branch
+        and the stale pointer is re-pinned, so the next turn doesn't retry a branch that is gone."""
+        run = await self._run(session_ref="fix/10", cloned_ref="master")
+
+        assert run.ctx_kwargs["fallback_ref_on_missing"] is True
+        assert run.reset.await_args.kwargs == {"thread_id": "t-1", "new_ref": "master"}
+
+    async def test_a_clone_that_landed_on_the_asked_ref_leaves_the_session_alone(self):
+        run = await self._run(session_ref="fix/10", cloned_ref="fix/10")
+        run.reset.assert_not_awaited()
+
+    async def test_a_first_turn_never_pins_the_default_branch_onto_the_session(self):
+        """A first turn asks for no ref, so the default branch it lands on is not a *working*
+        branch — writing it to the column would show a branch the agent never chose."""
+        run = await self._run(session_ref="", cloned_ref="master")
+        run.reset.assert_not_awaited()
+
+    async def test_a_failed_re_pin_still_runs_the_turn(self, caplog):
+        """The fallback clone already succeeded, and the addressor is what posts a note to the
+        issue — so aborting here for a cosmetic pointer would kill a viable run in silence."""
+        with caplog.at_level("ERROR"):
+            run = await self._run(
+                session_ref="fix/10", cloned_ref="master", reset=AsyncMock(side_effect=RuntimeError("db down"))
+            )
+
+        run.reset.assert_awaited_once()
+        run.addressed.assert_awaited_once()
+        assert "failed to reset session ref" in caplog.text
 
 
 async def test_setup_webhooks_cron_task_calls_command():

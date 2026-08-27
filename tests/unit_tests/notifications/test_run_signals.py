@@ -9,6 +9,8 @@ from django.utils import timezone
 import pytest
 from notifications.choices import ChannelType
 from notifications.models import Notification, NotificationDelivery
+from notifications.policy import notify_worthy_statuses
+from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.signals import run_classified, run_finished
 
@@ -409,6 +411,146 @@ class TestNotificationPolicy:
         ):
             run_classified.send(sender=Run, run=run, envelope=envelope)
         assert any("Unexpected IntegrityError" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db
+class TestClassifierReasonInContext:
+    """The classifier's summary and findings are what tell a recipient why they were paged, so they
+    must reach the stored context every channel renders from."""
+
+    def _emit(self, member_user, *, status=EnvelopeStatus.FOUND_ISSUES, summary="s", actionable=()):
+        session = _session(user=member_user)
+        run = _run(session, user=member_user, finished_at=timezone.now())
+        envelope = RunEnvelope.objects.create(run=run, status=status, summary=summary, actionable=list(actionable))
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+        return Notification.objects.get(recipient=member_user, event_type="job.finished")
+
+    @staticmethod
+    def _items(n, *, fix_prompt=None):
+        items = []
+        for i in range(n):
+            item = {"id": str(i), "kind": "bug", "label": f"label {i}", "ref": f"app/f{i}.py", "schema_version": 1}
+            if fix_prompt:
+                item["fix_prompt"] = fix_prompt
+            items.append(item)
+        return items
+
+    def test_summary_is_its_own_key_not_just_the_body(self, member_user, email_binding):
+        # body falls back to the subject when the summary is blank, so a channel cannot recover
+        # "there was no summary" from body alone.
+        notification = self._emit(member_user, summary="Two flaky tests in the auth suite")
+        assert notification.context["summary"] == "Two flaky tests in the auth suite"
+        assert notification.body == "Two flaky tests in the auth suite"
+
+    def test_blank_summary_leaves_the_key_empty_while_body_falls_back(self, member_user, email_binding):
+        notification = self._emit(member_user, status=EnvelopeStatus.NEEDS_ATTENTION, summary="")
+        assert notification.context["summary"] == ""
+        assert notification.body == notification.subject
+
+    def test_findings_travel_with_the_notification(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(2))
+        assert notification.context["actionable"] == [
+            {"kind": "bug", "label": "label 0", "ref": "app/f0.py"},
+            {"kind": "bug", "label": "label 1", "ref": "app/f1.py"},
+        ]
+        assert notification.context["actionable_overflow"] == 0
+
+    def test_long_finding_lists_are_trimmed_with_an_overflow_count(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(ACTIONABLE_CONTEXT_LIMIT + 3))
+        assert len(notification.context["actionable"]) == ACTIONABLE_CONTEXT_LIMIT
+        assert notification.context["actionable_overflow"] == 3
+
+    def test_a_null_slot_travels_empty_rather_than_as_the_word_none(self, member_user, email_binding):
+        item = {"id": "0", "kind": None, "label": "orphaned finding", "ref": None, "schema_version": 1}
+        notification = self._emit(member_user, actionable=[item])
+        assert notification.context["actionable"] == [{"kind": "", "label": "orphaned finding", "ref": ""}]
+
+    def test_an_exactly_full_finding_list_reports_no_overflow(self, member_user, email_binding):
+        notification = self._emit(member_user, actionable=self._items(ACTIONABLE_CONTEXT_LIMIT))
+        assert len(notification.context["actionable"]) == ACTIONABLE_CONTEXT_LIMIT
+        assert notification.context["actionable_overflow"] == 0
+
+    def test_fix_prompt_never_leaves_the_envelope(self, member_user, email_binding):
+        # fix_prompt seeds a Finding -> Fix agent; it is not recipient-facing copy.
+        notification = self._emit(member_user, actionable=self._items(1, fix_prompt="rewrite the fixture"))
+        assert notification.context["actionable"][0].keys() == {"kind", "label", "ref"}
+
+    @pytest.mark.parametrize("status", [EnvelopeStatus.NEEDS_ATTENTION, EnvelopeStatus.FAILED])
+    def test_finding_free_statuses_carry_an_empty_list(self, member_user, email_binding, status):
+        notification = self._emit(member_user, status=status)
+        assert notification.context["actionable"] == []
+        assert notification.context["actionable_overflow"] == 0
+
+
+@pytest.mark.django_db
+class TestBatchNotableRuns:
+    """A rollup says how many runs need a look; these rows say which ones and why. One row per run,
+    not per finding — nesting a 20-repo batch's findings would cap away most of them."""
+
+    def _rollup(self, member_user, pairs, *, event_type="job_batch.finished"):
+        """Classify one sibling per (status, summary) pair and return the emitted context."""
+        runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL] * len(pairs))
+        for run, (status, summary) in zip(runs, pairs, strict=True):
+            run.finished_at = timezone.now()
+            run.save(update_fields=["finished_at"])
+            envelope = _classify(run, status, summary=summary)
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        return Notification.objects.get(recipient=member_user, event_type=event_type).context
+
+    def test_each_notable_sibling_contributes_its_repo_and_summary(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [(EnvelopeStatus.FAILED, "migration 0042 errored"), (EnvelopeStatus.ALL_CLEAR, "nothing to report")],
+        )
+        assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": "migration 0042 errored"}]
+        assert ctx["notable_runs_overflow"] == 0
+
+    def test_all_clear_siblings_are_left_out(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user, [(EnvelopeStatus.NEEDS_ATTENTION, "drifted"), (EnvelopeStatus.ALL_CLEAR, "clean")]
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Needs attention"]
+
+    @pytest.mark.parametrize("status", sorted(notify_worthy_statuses()))
+    def test_every_notify_worthy_status_counts_toward_the_rollup(self, member_user, email_binding, status):
+        """A status the batch aggregate misses leaves ``notable`` at zero and the whole batch is
+        dismissed as clean — no rollup, no error."""
+        ctx = self._rollup(member_user, [(status, "s"), (EnvelopeStatus.ALL_CLEAR, "clean")])
+        assert ctx["notable_count"] == 1
+
+    def test_rows_are_ordered_worst_first(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [
+                (EnvelopeStatus.NEEDS_ATTENTION, "n"),
+                (EnvelopeStatus.FAILED, "f"),
+                (EnvelopeStatus.ALL_CLEAR, "c"),
+                (EnvelopeStatus.FOUND_ISSUES, "i"),
+            ],
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed", "Found issues", "Needs attention"]
+
+    def test_the_cap_keeps_the_worst_rows_and_counts_the_rest(self, member_user, email_binding):
+        # The failure is created *first*, so the batch's own newest-first ordering buries it below
+        # every needs-attention sibling: only the severity sort can lift it back inside the cap.
+        pairs = [(EnvelopeStatus.FAILED, "the one that matters")]
+        pairs += [(EnvelopeStatus.NEEDS_ATTENTION, f"n{i}") for i in range(NOTABLE_RUNS_CONTEXT_LIMIT + 2)]
+        ctx = self._rollup(member_user, pairs)
+
+        assert len(ctx["notable_runs"]) == NOTABLE_RUNS_CONTEXT_LIMIT
+        assert ctx["notable_runs_overflow"] == 3
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed"] + ["Needs attention"] * 4
+        assert ctx["notable_runs"][0] == {"kind": "Failed", "label": "acme/repo0", "ref": "the one that matters"}
+
+    def test_a_sibling_with_no_summary_still_names_its_repo(self, member_user, email_binding):
+        ctx = self._rollup(member_user, [(EnvelopeStatus.FAILED, ""), (EnvelopeStatus.ALL_CLEAR, "clean")])
+        assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": ""}]
+
+    def test_a_single_run_batch_carries_findings_not_notable_rows(self, member_user, email_binding):
+        """total == 1 falls through to the per-run path, which has the full findings list instead."""
+        ctx = self._rollup(member_user, [(EnvelopeStatus.FOUND_ISSUES, "one repo")], event_type="job.finished")
+        assert "notable_runs" not in ctx
+        assert ctx["actionable"] == [{"kind": "bug", "label": "x", "ref": "y"}]
 
 
 @pytest.mark.django_db

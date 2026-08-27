@@ -27,23 +27,23 @@ async def _run_round(llm, config=None):
 
 @pytest.mark.django_db(transaction=True)
 class TestDegradedRoundReporting:
-    async def test_observations_the_model_never_named_are_reported_as_an_error(self, caplog):
-        # These stay pending and are retried forever if the model keeps skipping them, so the
-        # signal has to be an error — warnings never reach Sentry.
+    async def test_observations_the_model_never_named_are_reported_as_a_warning(self, caplog):
+        # These stay pending and are retried forever if the model keeps skipping them. Logged as a
+        # warning so the signal stays in the logs without minting a Sentry event each cycle.
         claimed = await _observation(content="the one the model handled")
         ignored = await _observation(content="the one the model forgot")
         llm = _structured_llm_returning(
             MemoryOperation(op="ADD", observation_ids=[str(claimed.pk)], category="pitfall", content="a new fact")
         )
 
-        with caplog.at_level("ERROR", logger="daiv.memory"):
+        with caplog.at_level("WARNING", logger="daiv.memory"):
             await _run_round(llm)
 
         assert "left 1 of 2 observation(s) unclaimed" in caplog.text
         await ignored.arefresh_from_db()
         assert ignored.status == ObservationStatus.PENDING
 
-    async def test_mostly_rejected_round_is_reported_as_an_error(self, caplog):
+    async def test_mostly_rejected_round_is_reported_as_a_warning(self, caplog):
         obs = await _observation()
         llm = _structured_llm_returning(
             MemoryOperation(op="ADD", observation_ids=[str(obs.pk)], category="pitfall", content="the only good one"),
@@ -53,7 +53,7 @@ class TestDegradedRoundReporting:
             MemoryOperation(op="MERGE", entry_ids=["nope"], observation_ids=[str(obs.pk)], content="a merged fact"),
         )
 
-        with caplog.at_level("ERROR", logger="daiv.memory"):
+        with caplog.at_level("WARNING", logger="daiv.memory"):
             await _run_round(llm)
 
         assert "rejected 2 of 3 operations" in caplog.text

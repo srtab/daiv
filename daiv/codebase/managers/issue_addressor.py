@@ -83,6 +83,9 @@ class IssueAddressorManager(BaseManager):
         """
         Process the issue by addressing it with the appropriate actions.
         """
+        # Local: keeps this module off the codebase -> sessions -> jobs.tasks import chain.
+        from sessions.services import apersist_session_ref
+
         messages = []
         triggered_by = self.issue.author.username
 
@@ -162,9 +165,23 @@ class IssueAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_issue_note()
 
-                # Read once and share: the watch needs the published branch off the checkpoint,
-                # and ``_build_agent_result`` would otherwise read the same state again.
+                # Read once and share: the ref sync and the watch both need the published branch
+                # off the checkpoint, and ``_build_agent_result`` would otherwise read it again.
                 snapshot = await self._safe_get_state(daiv_agent, agent_config)
+
+                # The branch this run published to becomes the branch the session works on, so the
+                # next webhook turn clones it instead of the default branch and adds onto the same
+                # MR. Best-effort: a cosmetic pointer must never fail a run that already published
+                # and already answered — that would post an "unexpected error" note over real work.
+                try:
+                    await apersist_session_ref(
+                        thread_id=self.thread_id,
+                        current_ref=self.ctx.repo.ref,
+                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
+                    )
+                except Exception:
+                    logger.exception("issue_addressor: failed to persist session ref for thread_id=%s", self.thread_id)
+
                 try:
                     await aarm_watch_after_run(
                         repo_id=self.ctx.repository.slug,

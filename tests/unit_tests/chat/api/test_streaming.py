@@ -30,6 +30,7 @@ from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+from codebase.references import ExternalRef
 
 _TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
@@ -953,3 +954,33 @@ async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
         usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
         window=ResolvedWindow(1_000_000, "genai_prices"),
     )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_forwards_external_refs_to_the_runtime_ctx():
+    """A dropped or renamed ``references=`` at this call site is swallowed silently (the jobs
+    path has the same guard in test_context.py) — every chat-turn footer would vanish."""
+    refs = (ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),)
+    captured = {}
+
+    def _capture_ctx(*_args, **kwargs):
+        captured.update(kwargs)
+        return _mock_ctx()
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _capture_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        input_data = SimpleNamespace(thread_id="t-stream", run_id="r-1")
+        streamer = ChatRunStreamer(
+            repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data, external_refs=refs
+        )
+        async for _ in streamer.events():
+            pass
+
+    assert captured["references"] == refs

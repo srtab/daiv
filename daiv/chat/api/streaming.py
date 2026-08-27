@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
     from codebase.base import MergeRequest
     from codebase.context import RuntimeCtx
+    from codebase.references import ExternalRef
 
 logger = logging.getLogger("daiv.chat")
 
@@ -246,6 +247,7 @@ class ChatRunStreamer:
     agent_model: str | None = None
     agent_thinking_level: str | None = None
     mcp_overrides: dict = field(default_factory=dict)
+    external_refs: tuple[ExternalRef, ...] = ()
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -296,6 +298,7 @@ class ChatRunStreamer:
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
                     mcp_overrides=self.mcp_overrides,
+                    references=self.external_refs,
                     fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):

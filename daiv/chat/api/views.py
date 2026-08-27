@@ -284,6 +284,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
         mcp_overrides=effective_overrides,
+        external_refs=session.external_references(),
         auto_resolved_env=auto_resolved_env,
     )
     # The run is detached from this request: it executes as a background task

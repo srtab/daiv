@@ -168,7 +168,7 @@ def test_set_round_trips_through_redis_read_path(merge_request):
     serde = DAIVRedisSerializer()
     payload = {"loaded_tool_names": {"Read", "Edit"}, "merge_request": merge_request}
 
-    raw = orjson.dumps(serde._preprocess_interrupts(payload), default=serde._default_handler)
+    raw = orjson.dumps(serde._preprocess_redis_json(payload), default=serde._default_handler)
     revived = serde._revive_if_needed(orjson.loads(raw))
 
     assert revived["loaded_tool_names"] == {"Read", "Edit"}
@@ -392,13 +392,16 @@ def test_unwrap_delta_snapshot_passes_through_non_snapshot_values():
 # deepagents >= 0.6 declares ``messages`` as a langgraph ``DeltaChannel`` with
 # ``snapshot_frequency=50``. Every 50 message updates ``create_checkpoint`` writes a
 # ``_DeltaSnapshot(value=[msg, ...])`` into ``channel_values["messages"]``. The stock
-# ``JsonPlusRedisSerializer`` has NO ``_DeltaSnapshot`` support -- it treats the NamedTuple
-# as a plain tuple, orjson serialises it as a bare JSON array ``[value]``, and the read path
-# returns a nested list ``[[msg, ...]]`` with the wrapper lost. When langgraph later feeds
-# that value to ``DeltaChannel.from_checkpoint`` as a seed, the double-nesting survives and
-# ``_messages_delta_reducer`` -> ``convert_to_messages([[msg, ...]])`` raises
+# ``JsonPlusRedisSerializer`` used to have NO ``_DeltaSnapshot`` support -- it treated the
+# NamedTuple as a plain tuple, orjson serialised it as a bare JSON array ``[value]``, and the
+# read path returned a nested list ``[[msg, ...]]`` with the wrapper lost. When langgraph
+# later fed that value to ``DeltaChannel.from_checkpoint`` as a seed, the double-nesting
+# survived and ``_messages_delta_reducer`` -> ``convert_to_messages([[msg, ...]])`` raised
 # ``NotImplementedError: Message as a sequence must be (role string, template)``.
-# ``DAIVRedisSerializer`` must round-trip ``_DeltaSnapshot`` losslessly.
+# ``DAIVRedisSerializer`` used to carry bespoke overrides for this; ``langgraph-checkpoint-redis``
+# 0.5.2 fixed it upstream (``_preprocess_redis_json`` emits a ``__delta_snapshot__`` marker,
+# ``_revive_if_needed`` reconstructs it), so these tests now guard the STOCK round-trip so a
+# downgrade or upstream regression is caught here rather than resurfacing as DAIV-1S.
 # ---------------------------------------------------------------------------
 
 
@@ -445,7 +448,7 @@ def test_delta_snapshot_round_trips_through_redis_read_path():
     snap = _DeltaSnapshot([HumanMessage(content="q", id="h1")])
 
     # As stored in RedisJSON: the whole checkpoint's channel_values dict, encoded via the dump path.
-    raw = orjson.dumps(serde._preprocess_interrupts({"messages": snap}), default=serde._default_handler)
+    raw = orjson.dumps(serde._preprocess_redis_json({"messages": snap}), default=serde._default_handler)
 
     revived = _recursive_deserialize(serde, orjson.loads(raw))
 
@@ -468,7 +471,7 @@ def test_round_tripped_delta_snapshot_seed_reconstructs_without_crash():
 
     # Store + read back exactly as the checkpoint save/load does: dump channel_values to
     # RedisJSON, then decode via the saver's channel-values path (which yields the delta seed).
-    raw = orjson.dumps(serde._preprocess_interrupts({"messages": snap}), default=serde._default_handler)
+    raw = orjson.dumps(serde._preprocess_redis_json({"messages": snap}), default=serde._default_handler)
     seed = _recursive_deserialize(serde, orjson.loads(raw))["messages"]
 
     channel = DeltaChannel(_messages_delta_reducer, list, snapshot_frequency=50)
@@ -497,32 +500,3 @@ def test_delta_snapshot_nested_alongside_model_and_set_round_trips(merge_request
     assert [m.id for m in restored["messages"].value] == ["h1"]
     assert restored["merge_request"] == merge_request
     assert restored["loaded_tool_names"] == {"Read", "Edit"}
-
-
-def test_delta_snapshot_overrides_degrade_safely_when_type_unimportable(monkeypatch):
-    """If langgraph relocates ``_DeltaSnapshot`` (import guard trips -> both module refs ``None``),
-    the overrides must cleanly no-op -- never call ``_DeltaSnapshot(...)`` == ``None(...)``. Coverage
-    can't catch this: the guarded lines execute either way, so pin the two guards explicitly.
-
-    * decode: ``_is_delta_snapshot_envelope`` short-circuits on the ``None`` id, so an id-less
-      constructor look-alike is rejected instead of routed to ``None(...)`` -- drop the
-      ``_DELTA_SNAPSHOT_ID is not None`` clause and this assertion ``TypeError``s.
-    * encode: ``_preprocess_interrupts`` falls through to the stock ``(list, tuple)`` branch, so our
-      ``lc:2`` envelope is NOT produced (the fix silently disables -- hence the loud import log).
-    """
-    from langgraph.checkpoint.serde.types import _DeltaSnapshot
-
-    import core.checkpointer as cp
-
-    serde = DAIVRedisSerializer()
-    real_snap = _DeltaSnapshot([HumanMessage(content="q", id="h1")])
-
-    monkeypatch.setattr(cp, "_DeltaSnapshot", None)
-    monkeypatch.setattr(cp, "_DELTA_SNAPSHOT_ID", None)
-
-    # The exact shape that would hit ``None(...)`` if the id short-circuit were ever dropped.
-    idless_lookalike = {"lc": 2, "type": "constructor", "kwargs": {"value": [HumanMessage(content="q", id="h1")]}}
-    assert serde._is_delta_snapshot_envelope(idless_lookalike) is False
-
-    # Real wrapper no longer intercepted -> stock tuple output, not our dict envelope.
-    assert isinstance(serde._preprocess_interrupts(real_snap), tuple)

@@ -99,6 +99,15 @@ class Pipeline(BaseModel):
     jobs: list[Job] = Field(default_factory=list)
 
 
+class TriggeredPipeline(BaseModel):
+    """A pipeline the agent asked the platform to create, and whether the platform's merge-request
+    head was confirmed to carry the commit it was asked for (see
+    :meth:`~codebase.clients.base.RepoClient.trigger_merge_request_pipeline`)."""
+
+    pipeline: Pipeline
+    head_synced: bool
+
+
 class MergeRequest(BaseModel):
     repo_id: str
     merge_request_id: int
