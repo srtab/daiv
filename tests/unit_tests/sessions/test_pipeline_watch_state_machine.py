@@ -37,10 +37,13 @@ def watched_session(transactional_db):
 @pytest.fixture
 def stub_watch(monkeypatch):
     """Capture dispatches and serve a canned pipeline, with the MR head sha the poll correlates on."""
-    calls = {"dispatched": [], "comments": [], "pipeline": None, "head_sha": "abc123"}
+    calls = {"dispatched": [], "comments": [], "notified": [], "pipeline": None, "head_sha": "abc123"}
 
     async def fake_dispatch(**kwargs):
         calls["dispatched"].append(kwargs)
+
+    async def fake_notify(**kwargs):
+        calls["notified"].append(kwargs)
 
     async def fake_comment(**kwargs):
         calls["comments"].append(kwargs)
@@ -56,6 +59,7 @@ def stub_watch(monkeypatch):
             return SimpleNamespace(sha=calls["head_sha"])
 
     monkeypatch.setattr("sessions.pipeline_watch._adispatch_fix_run", fake_dispatch)
+    monkeypatch.setattr("sessions.pipeline_watch.anotify_watch_exhausted", fake_notify)
     monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", fake_comment)
     monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", fake_read)
     monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: FakeClient())
@@ -193,13 +197,79 @@ async def test_a_polled_pipeline_at_the_branch_head_is_judged(watched_session, s
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_the_head_sha_guard_does_not_gate_the_webhook_path(watched_session, stub_watch):
-    """A webhook names the pipeline it is reporting, so correlation is already established."""
-    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=402)
+async def test_a_superseded_webhook_pipeline_is_ignored(watched_session, stub_watch):
+    """A webhook names *which* pipeline it reports, not *whether* that pipeline is still the head.
+    GitLab auto-cancels redundant pipelines by default, so the push after ours makes the older one
+    emit a terminal ``canceled`` — which judges UNCLEAR and would close the watch."""
+    stub_watch["pipeline"] = make_pipeline("canceled", pipeline_id=402)
     stub_watch["head_sha"] = "deadbee"
     await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=402)
 
+    assert stub_watch["dispatched"] == []
+    assert stub_watch["comments"] == []
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.WATCHING
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_webhook_pipeline_at_the_branch_head_is_judged(watched_session, stub_watch):
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=403)
+    await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=403)
+
     assert len(stub_watch["dispatched"]) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_unreadable_head_sha_does_not_close_the_watch(watched_session, stub_watch, monkeypatch):
+    """Correlation is a precondition, not a verdict: if the head cannot be read, the safe move is
+    to leave the watch armed for the next event rather than to judge on an uncorrelated pipeline."""
+
+    class BrokenClient:
+        def get_merge_request(self, repo_id, merge_request_id):
+            raise RuntimeError("platform down")
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: BrokenClient())
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=404)
+
+    await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=404)
+
+    assert stub_watch["dispatched"] == []
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.WATCHING
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_two_concurrent_green_verdicts_close_the_watch_once(watched_session, stub_watch):
+    """Only the ACTIONABLE branch used to compare-and-swap, so the terminal branches acted on a
+    stale read and each posted its own MR comment."""
+    stub_watch["pipeline"] = make_pipeline("success", jobs=[])
+
+    await asyncio.gather(
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=700),
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=700),
+    )
+
+    assert len(stub_watch["comments"]) == 1
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.UNCLEAR
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_two_concurrent_give_ups_comment_and_notify_once(watched_session, stub_watch):
+    """Duplicate MR comments are a failure mode this project has already shipped once."""
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=701)
+    watched_session.watch_attempts = 3
+    await watched_session.asave()
+
+    await asyncio.gather(
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=701),
+        aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=701),
+    )
+
+    assert len(stub_watch["comments"]) == 1
+    assert len(stub_watch["notified"]) == 1
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.EXHAUSTED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -427,3 +497,138 @@ async def test_a_fix_run_that_changed_nothing_gives_up(monkeypatch):
     await aexhaust_watch(repo_id="group/repo", merge_request_iid=73, reason="the agent made no changes")
     session = await Session.objects.aget(thread_id=mr_thread)
     assert session.watch_state == WatchState.EXHAUSTED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_gives_the_mr_thread_the_run_owner(monkeypatch, django_user_model):
+    """The MR thread is almost always created *here*, not by a human — so without an owner
+    carried in, the give-up notification has no recipient and the fix run loses the user's
+    personal MCP servers and USER-tier sandbox env."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+
+    owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
+    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=91)
+
+    armed = await aarm_watch(
+        repo_id="group/repo", merge_request_iid=91, ref="daiv/branch", was_fix_run=False, user_id=owner.pk
+    )
+
+    assert armed == mr_thread
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.user_id == owner.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_adopts_an_ownerless_thread(monkeypatch, django_user_model):
+    """An MR thread created by an earlier webhook has no user; the first owned run must adopt it
+    or that thread can never notify anyone."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+
+    owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
+    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=92)
+    await Session.objects.acreate(
+        thread_id=mr_thread, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", ref="daiv/branch", user=None
+    )
+
+    await aarm_watch(repo_id="group/repo", merge_request_iid=92, ref="daiv/branch", was_fix_run=False, user_id=owner.pk)
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.user_id == owner.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_never_reassigns_an_owned_thread(monkeypatch, django_user_model):
+    """A human's MR conversation keeps its owner: a scheduled run publishing to the same MR must
+    not silently move that thread (and its notifications) to the scheduler's user."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+
+    human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
+    robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
+    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=93)
+    await Session.objects.acreate(
+        thread_id=mr_thread, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", ref="daiv/branch", user=human
+    )
+
+    await aarm_watch(repo_id="group/repo", merge_request_iid=93, ref="daiv/branch", was_fix_run=False, user_id=robot.pk)
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.user_id == human.pk
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_transient_read_failure_leaves_the_watch_armed_and_warns(
+    watched_session, stub_watch, monkeypatch, caplog
+):
+    """An unreadable pipeline must never become a verdict, and must never be silent either: the
+    read used to answer ``None`` for an outage, which the watch logged at DEBUG and waited out."""
+    from github import GithubException
+
+    async def broken_read(**_kwargs):
+        raise GithubException(403, None, None)
+
+    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", broken_read)
+
+    with caplog.at_level("WARNING", logger="daiv.sessions"):
+        await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=800)
+
+    assert stub_watch["dispatched"] == []
+    assert stub_watch["comments"] == []
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.WATCHING
+    # WARNING without a traceback: the watch polls for hours, so an outage must not mint one
+    # Sentry error per sweep.
+    records = [r for r in caplog.records if r.name == "daiv.sessions"]
+    assert [r.levelname for r in records] == ["WARNING"]
+    assert records[0].exc_info is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_unexpected_read_failure_is_reported_with_a_traceback(
+    watched_session, stub_watch, monkeypatch, caplog
+):
+    async def broken_read(**_kwargs):
+        raise AttributeError("'NoneType' object has no attribute 'sha'")
+
+    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", broken_read)
+
+    with caplog.at_level("WARNING", logger="daiv.sessions"):
+        await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=801)
+
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.WATCHING
+    records = [r for r in caplog.records if r.name == "daiv.sessions"]
+    assert [r.levelname for r in records] == ["ERROR"]
+    assert records[0].exc_info is not None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_transient_head_sha_failure_warns_rather_than_erroring(
+    watched_session, stub_watch, monkeypatch, caplog
+):
+    """Correlation now runs on the webhook path too, so a platform outage reaches this read on
+    every event — an unconditional ``logger.exception`` there is a Sentry error per event."""
+    from gitlab.exceptions import GitlabGetError
+
+    class BrokenClient:
+        def get_merge_request(self, repo_id, merge_request_id):
+            raise GitlabGetError(response_code=503)
+
+    monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: BrokenClient())
+    stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=805)
+
+    with caplog.at_level("WARNING", logger="daiv.sessions"):
+        await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=805)
+
+    assert stub_watch["dispatched"] == []
+    records = [r for r in caplog.records if r.name == "daiv.sessions"]
+    assert [r.levelname for r in records] == ["WARNING"]
+    assert records[0].exc_info is None

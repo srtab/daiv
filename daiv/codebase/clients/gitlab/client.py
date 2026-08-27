@@ -1030,8 +1030,12 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         try:
             return self._to_pipeline(project.pipelines.get(pipeline_id))
-        except GitlabGetError:
-            return None
+        except GitlabGetError as exc:
+            # python-gitlab wraps every failed GET in this one type, so match on the code: a
+            # 401/403/5xx answering None would make an outage read as "no pipeline yet".
+            if exc.response_code == 404:
+                return None
+            raise
 
     def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
         project = self.client.projects.get(repo_id, lazy=True)

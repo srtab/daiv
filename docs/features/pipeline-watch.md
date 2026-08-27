@@ -33,10 +33,10 @@ sequenceDiagram
 1. **Watch armed** — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. See [Which runs arm the watch](#which-runs-arm-the-watch). Arming requires that the run actually *pushed*: a turn that ends with a clean tree already on its merge request publishes nothing, so it leaves the watch alone. The counter survives re-arming by a fix run, so the cap bounds one chain of fix attempts; a human-initiated run that publishes to the same merge request starts a fresh budget.
 2. **Pipeline event** — a webhook from GitLab (`pipeline_events`) or GitHub (`workflow_run`) delivers the terminal result. The watch also evaluates immediately on arming, because the CI event can arrive before the watch exists.
 3. **Judgment** — see [Conservative judgment](#conservative-judgment) below.
-4. **Fix run** — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs using its trace tools and pushes a fix.
+4. **Fix run** — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool and pushes a fix.
 5. **Give up** — when the attempt counter reaches the cap, DAIV posts a comment on the MR with the failing jobs and the pipeline link, then closes the watch. A notification is sent to the session owner if one exists.
 6. **No-diff early exit** — if a fix run produces no diff (nothing to commit), the watch ends immediately. No push means no pipeline and no future event, so the loop would never advance.
-7. **Reconciler** — a cron task runs every 10 minutes to handle missed events and stuck states. A watch older than 6 hours is marked unclear regardless of state. Each tick re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.
+7. **Reconciler** — a cron task runs every 10 minutes to handle missed events and stuck states. Any watch still open after 6 hours is marked unclear, with a note on the merge request saying so. Each tick expires at most 200 watches and re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.
 
 ---
 
@@ -66,7 +66,7 @@ Rows are evaluated top to bottom; the first match wins.
 
 ## Notifications
 
-Only the **give-up** event triggers a notification. Green and unclear outcomes are silent — a short MR note explains unclear outcomes directly on the merge request. If the session has no associated DAIV user (common for webhook-origin sessions), the MR comment is still posted and a warning is logged; the comment is the reliable channel.
+Only the **give-up** event triggers a notification. Green and unclear outcomes are silent — a short MR note explains unclear outcomes directly on the merge request. The merge request thread inherits the owner of the run that published it, so a run triggered through the API, the UI, MCP or a schedule can notify that user. A thread with no DAIV user behind it (a pipeline event on a merge request DAIV never ran against) still gets the MR comment, and a warning is logged; the comment is the reliable channel.
 
 ---
 
@@ -172,5 +172,5 @@ See [Platform Setup](../getting-started/platform-setup.md) for the full event ch
 - [Issue Addressing](issue-addressing.md) — the workflow that produces most DAIV-published merge requests
 - [Pull Request Assistant](pull-request-assistant.md) — mention DAIV in a comment to request a manual pipeline fix
 - [Sessions](sessions.md) — each fix run appears as a session on the MR thread
-- [Notifications](notifications.md) — the give-up notification and how to mute it
+- [Notifications](notifications.md) — how the give-up notification is delivered
 - [Repository Config](../customization/repository-config.md) — full `.daiv.yml` reference

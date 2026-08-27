@@ -1,3 +1,4 @@
+import functools
 import logging
 from datetime import timedelta
 from enum import StrEnum
@@ -8,14 +9,12 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from asgiref.sync import sync_to_async
-from notifications.channels.registry import enabled_channels
-from notifications.choices import EventType
-from notifications.services import notify
 from sandbox_envs.services import resolve_env_for_run
 
 from chat.repo_state import mr_to_payload
 from codebase.base import Scope
 from codebase.clients import RepoClient
+from codebase.clients.base import is_transient_platform_error
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
 from core.site_settings import site_settings
@@ -91,16 +90,17 @@ def judge_pipeline(pipeline: Pipeline | None) -> Judgment:
     return Judgment.ACTIONABLE
 
 
-async def _aread_pipeline(*, repo_id: str, ref: str, pipeline_id: int | None) -> Pipeline | None:
-    client = RepoClient.create_instance()
+async def _aread_pipeline(*, client, repo_id: str, ref: str, pipeline_id: int | None) -> Pipeline | None:
     if pipeline_id is not None:
         return await sync_to_async(client.get_pipeline)(repo_id, pipeline_id)
     return await sync_to_async(client.get_latest_pipeline_for_ref)(repo_id, ref)
 
 
-async def _apost_watch_note(*, repo_id: str, merge_request_iid: int, body: str) -> None:
+async def _apost_watch_note(*, repo_id: str, merge_request_iid: int | None, body: str, client=None) -> None:
+    if not merge_request_iid:
+        return
     try:
-        client = RepoClient.create_instance()
+        client = client or RepoClient.create_instance()
         await sync_to_async(client.create_merge_request_comment)(repo_id, merge_request_iid, body)
     except Exception:
         logger.exception("pipeline_watch: failed to comment on %s!%s", repo_id, merge_request_iid)
@@ -167,30 +167,22 @@ async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: s
 
 
 async def anotify_watch_exhausted(*, session: Session, pipeline: Pipeline) -> None:
-    """Tell the session owner the watch gave up. Best-effort: the MR comment is the real channel."""
-    user = await sync_to_async(lambda: session.user)()
-    if user is None:
-        logger.warning(
-            "pipeline_watch: no recipient for exhausted watch on %s (thread_id=%s)", session.repo_id, session.thread_id
-        )
-        return
+    """Report that the watch gave up. Best-effort: the MR comment is the real channel.
 
-    names = failed_job_names(pipeline, default=_("the pipeline"))
+    Reading the pipeline is this module's job; the source key, channels, dedup and payload are
+    the notifications app's.
+    """
+    from notifications.watch_notifiers import emit_watch_exhausted
+
     try:
-        await sync_to_async(notify)(
-            recipient=user,
-            event_type=EventType.PIPELINE_WATCH_EXHAUSTED,
-            source_type="session",
-            source_id=session.thread_id,
-            subject=_("CI still failing on {repo}!{iid}").format(repo=session.repo_id, iid=session.merge_request_iid),
-            body=_("I stopped after {attempts} attempts and CI is still failing: {names}.").format(
-                attempts=session.watch_attempts, names=names
-            ),
-            link_url=pipeline.web_url,
-            channels=[cls.channel_type for cls in enabled_channels()],
+        await sync_to_async(emit_watch_exhausted)(
+            session=session,
+            failing_jobs=[job.name for job in failed_jobs(pipeline)],
+            pipeline_url=pipeline.web_url,
+            pipeline_id=pipeline.id,
         )
     except Exception:
-        logger.exception("pipeline_watch: failed to notify %s", user.pk)
+        logger.exception("pipeline_watch: failed to notify the owner of thread_id=%s", session.thread_id)
 
 
 async def aarm_watch(
@@ -201,15 +193,17 @@ async def aarm_watch(
     Returns the MR thread id it armed, or ``None`` when the repo has the feature off. The
     counter survives re-arming by a fix run — that is what bounds the loop.
 
-    ``user_id`` is the publishing run's user, attributed here because this call is what
-    creates the MR thread's session; a row created without one leaves fix runs unattributed.
+    ``user_id`` is the originating run's owner. This function is what *creates* the MR thread on
+    almost every path, so without it that session is ownerless: the give-up notification has no
+    recipient and the fix run gets no personal MCP servers and no USER-tier sandbox env. An
+    existing owner is never reassigned — the thread may be a human's MR conversation.
     """
     config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
     if not watch_enabled(config):
         return None
 
     thread_id = compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
-    _session, _created = await Session.objects.aget_or_create(
+    session, _created = await Session.objects.aget_or_create(
         thread_id=thread_id,
         defaults={
             "origin": SessionOrigin.PIPELINE_WEBHOOK,
@@ -225,6 +219,8 @@ async def aarm_watch(
         "ref": ref,
         "merge_request_iid": merge_request_iid,
     }
+    if user_id and session.user_id is None:
+        updates["user_id"] = user_id
     if not was_fix_run:
         updates["watch_attempts"] = 0
         updates["watch_pipeline_id"] = None
@@ -239,10 +235,7 @@ async def aexhaust_watch(*, repo_id: str, merge_request_iid: int, reason: str) -
     so nothing else would ever move this watch.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
-    updated = await Session.objects.filter(thread_id=thread_id, watch_state__in=WatchState.open()).aupdate(
-        watch_state=WatchState.EXHAUSTED
-    )
-    if not updated:
+    if not await _atransition(thread_id, expect=WatchState.open(), watch_state=WatchState.EXHAUSTED):
         return
     await _apost_watch_note(
         repo_id=repo_id,
@@ -309,33 +302,46 @@ async def aarm_watch_after_run(
     await evaluate_pipeline_watch_task.aenqueue(repo_id=repo_id, ref=ref)
 
 
-async def _apolled_pipeline_is_current(*, session: Session, pipeline: Pipeline, repo_id: str) -> bool:
-    """Whether a *polled* pipeline belongs to the merge request's current head commit.
+async def _atransition(thread_id: str, *, expect, where: dict | None = None, **updates) -> bool:
+    """Move a watch out of the states it is allowed to leave, reporting whether this caller won.
 
-    ``get_latest_pipeline_for_ref`` correlates with nothing, so without this a pipeline from an
-    earlier push is judged. An unreadable head sha means "cannot correlate", so it skips.
+    Every write to ``watch_state`` goes through here. Two events finishing together both pass their
+    checks off their own stale read, and only the row count says which one owns the transition —
+    without it each posts its own MR comment, which no constraint dedupes. ``where`` adds the
+    conditions a caller needs re-asserted inside the same statement.
+    """
+    expected = [expect] if isinstance(expect, str) else list(expect)
+    updated = await Session.objects.filter(thread_id=thread_id, watch_state__in=expected, **(where or {})).aupdate(
+        **updates
+    )
+    return updated == 1
+
+
+async def _apipeline_is_current(*, client, session: Session, pipeline: Pipeline, repo_id: str) -> bool:
+    """Whether a pipeline belongs to the merge request's current head commit.
+
+    A webhook names *which* pipeline it reports, not *whether* that pipeline is still the head —
+    GitLab auto-cancels redundant pipelines, so the push after ours makes the older one emit a
+    terminal ``canceled``. An unreadable head sha means "cannot correlate", which is a skip.
     """
     if not session.merge_request_iid:
         return False
     try:
-        client = RepoClient.create_instance()
         merge_request = await sync_to_async(client.get_merge_request)(repo_id, session.merge_request_iid)
-    except Exception:
-        logger.exception("pipeline_watch: could not read head sha for %s!%s", repo_id, session.merge_request_iid)
+    except Exception as exc:
+        if is_transient_platform_error(exc):
+            logger.warning(
+                "pipeline_watch: could not read head sha for %s!%s: %s", repo_id, session.merge_request_iid, exc
+            )
+        else:
+            logger.exception(
+                "pipeline_watch: unexpected failure reading head sha for %s!%s", repo_id, session.merge_request_iid
+            )
+        return False
+    if merge_request is None:
+        logger.error("pipeline_watch: get_merge_request returned None for %s!%s", repo_id, session.merge_request_iid)
         return False
     return bool(merge_request.sha) and pipeline.sha == merge_request.sha
-
-
-async def _aclose_watch(session: Session, state: WatchState, *, pipeline_id: int) -> bool:
-    """Move a watch out of WATCHING into a terminal state, and say whether we own the move.
-
-    Same race as the dispatch claim below: two events finishing together both read WATCHING,
-    and only the row count says which one may comment and notify.
-    """
-    closed = await Session.objects.filter(thread_id=session.thread_id, watch_state=WatchState.WATCHING).aupdate(
-        watch_state=state, watch_pipeline_id=pipeline_id
-    )
-    return closed == 1
 
 
 async def arequest_watch_evaluation(*, repo_id: str, ref: str, pipeline_id: int) -> bool:
@@ -359,6 +365,7 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
     session = (
         await Session.objects
         .filter(repo_id=repo_id, ref=ref, watch_state=WatchState.WATCHING)
+        .select_related("user")
         .order_by("-watch_armed_at")
         .afirst()
     )
@@ -367,7 +374,19 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
     if pipeline_id is not None and session.watch_pipeline_id == pipeline_id:
         return
 
-    pipeline = await _aread_pipeline(repo_id=repo_id, ref=ref, pipeline_id=pipeline_id)
+    # One client for the whole evaluation: constructing a GitHub one costs a live installation
+    # lookup, so the read, the correlation and the note would otherwise pay for three.
+    client = RepoClient.create_instance()
+    try:
+        pipeline = await _aread_pipeline(client=client, repo_id=repo_id, ref=ref, pipeline_id=pipeline_id)
+    except Exception as exc:
+        # Unreadable is not a verdict: leaving the watch armed lets the next event or sweep retry.
+        # The level splits on transience so an outage does not mint a Sentry error per sweep.
+        if is_transient_platform_error(exc):
+            logger.warning("pipeline_watch: could not read the pipeline for %s@%s: %s", repo_id, ref, exc)
+        else:
+            logger.exception("pipeline_watch: unexpected failure reading the pipeline for %s@%s", repo_id, ref)
+        return
     if pipeline is None or pipeline.status not in JUDGEABLE_PIPELINE_STATUSES:
         # Not judgeable *yet* — ``judge_pipeline`` reads a still-running pipeline as UNCLEAR, and
         # the arm-time evaluation runs seconds after the push. WATCH_MAX_AGE is the backstop.
@@ -380,24 +399,22 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
         return
     if pipeline.id == session.watch_pipeline_id:
         return
-    if pipeline_id is None and not await _apolled_pipeline_is_current(
-        session=session, pipeline=pipeline, repo_id=repo_id
-    ):
-        logger.info("pipeline_watch: polled pipeline %s is not the head of %s@%s", pipeline.id, repo_id, ref)
+    if not await _apipeline_is_current(client=client, session=session, pipeline=pipeline, repo_id=repo_id):
+        logger.info("pipeline_watch: pipeline %s is not the head of %s@%s", pipeline.id, repo_id, ref)
         return
 
     judgment = judge_pipeline(pipeline)
     merge_request_iid = session.merge_request_iid
+    claim = functools.partial(_atransition, session.thread_id, expect=WatchState.WATCHING)
 
     if judgment is Judgment.GREEN:
-        await _aclose_watch(session, WatchState.GREEN, pipeline_id=pipeline.id)
+        await claim(watch_state=WatchState.GREEN, watch_pipeline_id=pipeline.id)
         return
 
     if judgment is Judgment.UNCLEAR:
-        if not await _aclose_watch(session, WatchState.UNCLEAR, pipeline_id=pipeline.id):
-            return
-        if merge_request_iid:
+        if await claim(watch_state=WatchState.UNCLEAR, watch_pipeline_id=pipeline.id):
             await _apost_watch_note(
+                client=client,
                 repo_id=repo_id,
                 merge_request_iid=merge_request_iid,
                 body=_(
@@ -410,48 +427,68 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
     config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
     max_attempts = watch_max_attempts(config)
     if session.watch_attempts >= max_attempts:
-        if not await _aclose_watch(session, WatchState.EXHAUSTED, pipeline_id=pipeline.id):
-            return
-        if merge_request_iid:
-            names = failed_job_names(pipeline, default=_("the pipeline"))
+        if await claim(watch_state=WatchState.EXHAUSTED, watch_pipeline_id=pipeline.id):
             await _apost_watch_note(
+                client=client,
                 repo_id=repo_id,
                 merge_request_iid=merge_request_iid,
                 body=_("I stopped after {attempts} attempts and CI is still failing: {names}. Pipeline: {url}").format(
-                    attempts=session.watch_attempts, names=names, url=pipeline.web_url
+                    attempts=session.watch_attempts,
+                    names=failed_job_names(pipeline, default=_("the pipeline")),
+                    url=pipeline.web_url,
                 ),
             )
-        await anotify_watch_exhausted(session=session, pipeline=pipeline)
+            await anotify_watch_exhausted(session=session, pipeline=pipeline)
         return
 
-    # Compare-and-swap out of WATCHING: only the row count says which of two concurrent readers
-    # owns the attempt. The cap is re-asserted because a stale read can outlive a fix-run cycle.
-    claimed = await Session.objects.filter(
-        thread_id=session.thread_id, watch_state=WatchState.WATCHING, watch_attempts__lt=max_attempts
-    ).aupdate(
+    # The cap is re-asserted in the claim itself: a stale read can outlive a fix-run cycle.
+    if await claim(
+        where={"watch_attempts__lt": max_attempts},
         watch_state=WatchState.FIXING,
         watch_attempts=F("watch_attempts") + 1,
         watch_pipeline_id=pipeline.id,
         watch_armed_at=timezone.now(),
-    )
-    if claimed != 1:
-        return
-    await _adispatch_fix_run(session=session, pipeline=pipeline, repo_id=repo_id, merge_request_iid=merge_request_iid)
+    ):
+        await _adispatch_fix_run(
+            session=session, pipeline=pipeline, repo_id=repo_id, merge_request_iid=merge_request_iid
+        )
 
 
 async def areconcile_watches() -> int:
     """Repair watches that events did not resolve.
 
     Three jobs, and the order is load-bearing: expiring first is what bounds the two sweeps
-    below to a live watch, so neither needs an age floor of its own. Returns rows updated by the
-    two bulk sweeps plus branches re-judged by the third, which is a progress signal, not a count
+    below to a live watch, so neither needs an age floor of its own. Returns watches expired,
+    plus rows the bulk un-stick updated, plus branches re-judged — a progress signal, not a count
     of rows written.
     """
     now = timezone.now()
 
-    touched = await Session.objects.filter(
-        watch_state__in=WatchState.open(), watch_armed_at__lt=now - WATCH_MAX_AGE
-    ).aupdate(watch_state=WatchState.UNCLEAR)
+    touched = 0
+    expired = Session.objects.filter(watch_state__in=WatchState.open(), watch_armed_at__lt=now - WATCH_MAX_AGE).only(
+        "thread_id", "repo_id", "merge_request_iid", "watch_state"
+    )[:WATCH_SWEEP_LIMIT]
+    async for session in expired:
+        if not await _atransition(session.thread_id, expect=WatchState.open(), watch_state=WatchState.UNCLEAR):
+            continue
+        # Where every unresolved failure lands — unreadable pipeline, dead fix run, pipeline that
+        # never started. Closing it silently made those indistinguishable.
+        logger.warning(
+            "pipeline_watch: giving up on %s!%s after %s in state %s",
+            session.repo_id,
+            session.merge_request_iid,
+            WATCH_MAX_AGE,
+            session.watch_state,
+        )
+        await _apost_watch_note(
+            repo_id=session.repo_id,
+            merge_request_iid=session.merge_request_iid,
+            body=_(
+                "I stopped watching CI on this merge request: no result I could act on arrived "
+                "within {hours} hours. Mention me if you want another look."
+            ).format(hours=int(WATCH_MAX_AGE.total_seconds() // 3600)),
+        )
+        touched += 1
 
     # A fix run that stopped heartbeating is dead by the same definition SessionLock uses to
     # take its slot over; the two have to move together.

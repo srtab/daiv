@@ -58,7 +58,12 @@ class Notification(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["recipient", "source_type", "source_id", "event_type"],
                 condition=models.Q(
-                    event_type__in=[EventType.JOB_BATCH_FINISHED, EventType.JOB_FINISHED, EventType.SCHEDULE_FINISHED]
+                    event_type__in=[
+                        EventType.JOB_BATCH_FINISHED,
+                        EventType.JOB_FINISHED,
+                        EventType.SCHEDULE_FINISHED,
+                        EventType.PIPELINE_WATCH_EXHAUSTED,
+                    ]
                 ),
                 name="notif_unique_per_source_recipient",
             )

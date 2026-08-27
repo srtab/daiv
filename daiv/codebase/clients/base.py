@@ -39,6 +39,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.clients")
 
 
+def is_transient_platform_error(exc: BaseException) -> bool:
+    """True for an anticipated GitLab/GitHub outage rather than a bug in how we call it.
+
+    Callers that poll on a schedule log a transient failure at WARNING without a traceback, so an
+    hours-long platform outage does not mint one Sentry error per sweep — the same split
+    ``is_transient_bus_error`` and ``_is_transient_mcp_error`` draw. Auth (401/403) counts as
+    transient: DAIV's project-scoped tokens are ephemeral and expire mid-watch by design.
+    """
+    from github import GithubException
+    from gitlab.exceptions import GitlabError
+
+    transient_status = {401, 403, 408, 429, 500, 502, 503, 504}
+    if isinstance(exc, GithubException):
+        return exc.status in transient_status
+    if isinstance(exc, GitlabError):
+        return exc.response_code in transient_status
+    # Both clients transport over ``requests``, whose RequestException is an OSError.
+    return isinstance(exc, OSError)
+
+
 class Emoji(StrEnum):
     THUMBSUP = "thumbsup"
     EYES = "eyes"

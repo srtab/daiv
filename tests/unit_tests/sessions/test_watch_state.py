@@ -1,3 +1,7 @@
+import importlib
+
+from django.db import migrations
+
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
@@ -36,3 +40,20 @@ def test_a_pipeline_webhook_run_can_be_created():
         session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="group/repo", status=RunStatus.READY
     )
     assert run.trigger_type == SessionOrigin.PIPELINE_WEBHOOK
+
+
+def test_the_open_watch_index_literals_match_the_enum():
+    """The model derives the condition from the enum but the migration froze it as literals, so a
+    renamed state leaves the reconciler's partial index covering the old names — its sweeps degrade
+    to a seq scan of every Session row rather than failing."""
+    from sessions.migrations import __name__ as migrations_pkg
+
+    module = importlib.import_module(f"{migrations_pkg}.0008_session_pipeline_watch")
+    index = next(
+        op.index
+        for op in module.Migration.operations
+        if isinstance(op, migrations.AddIndex) and op.index.name == "session_watch_sweep_idx"
+    )
+    (condition,) = index.condition.children
+
+    assert set(condition[1]) == set(WatchState.open())

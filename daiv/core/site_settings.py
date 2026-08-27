@@ -213,7 +213,9 @@ class SiteSettings:
         try:
             if isinstance(field, models.BooleanField):
                 return value.lower() in ("true", "1", "yes", "on")
-            if isinstance(field, (models.PositiveIntegerField, models.BigIntegerField)):
+            # Every int width, not a roster of them: PositiveSmallIntegerField is a sibling of
+            # PositiveIntegerField, not a subclass, so a roster silently returns the raw string.
+            if isinstance(field, models.IntegerField):
                 return int(value)
             if isinstance(field, models.FloatField):
                 return float(value)
