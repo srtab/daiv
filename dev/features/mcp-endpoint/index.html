@@ -1735,7 +1735,16 @@
 <li><code>muted</code> — mute this run's notifications; default false. <code>notify_on</code> is no longer accepted (removed); sending it returns an unknown-argument error.</li>
 <li><code>environment</code> — the <a href="../sandbox/">sandbox environment</a> to run every job in, given as its name or UUID (discover names via <code>list_environments</code>). Omit to auto-resolve a runtime per repository.</li>
 <li><code>thread_id</code> — continue an existing thread by passing the UUID from a prior <code>submit_job</code> or <code>get_job_status</code> response. Continuation requires exactly one repository, whose latest activity must belong to you.</li>
+<li><code>references</code> — a list of up to 20 external work-item references to link into the MR/PR DAIV creates. Each entry is an object with these fields:<ul>
+<li><code>key</code> <em>(required)</em> — the issue or ticket identifier, 1–64 characters, matching <code>[A-Za-z0-9][A-Za-z0-9._/#-]*</code> (e.g. <code>"PROJ-123"</code>, <code>"42"</code>, <code>"DAIV-1V"</code>). When <code>relation</code> is <code>"closes"</code> the key must additionally be a bare identifier — no <code>/</code> and no <code>#</code> — because DAIV emits it next to a closing keyword, where <code>namespace/project#7</code> would be a valid cross-project reference and would close an issue in someone else's project.</li>
+<li><code>url</code> <em>(optional)</em> — an <code>http(s)</code> URL for the work item, up to 500 characters. Used as the link target when DAIV renders the reference. Anything outside the URL character set (RFC 3986), <strong>parentheses included</strong>, must be percent-encoded: DAIV renders the value into a markdown link destination in the MR/PR description, so a space, a newline or a <code>)</code> would end the link and let the rest of the value become body text the git platform parses.</li>
+<li><code>provider</code> <em>(optional)</em> — identifies the ticketing system. Accepted values: <code>gitlab-issue</code>, <code>github-issue</code>, <code>sentry</code>, <code>jira</code>, or any lowercase alphanumeric-and-hyphen string up to 32 characters for other systems. Defaults to <code>generic</code>. The named providers get platform-specific output: <code>gitlab-issue</code>/<code>github-issue</code> render the platform's own closing/relating line in the MR description, <code>sentry</code> with <code>relation: "closes"</code> renders a <code>Fixes &lt;short-id&gt;</code> description line and commit trailer, and <code>jira</code> gets a <code>Refs: &lt;key&gt;</code> commit trailer for dev-panel linking — a link, never a workflow transition (its description entry is the plain reference link). Any other provider value is accepted and renders as a plain reference link — no DAIV change is needed to add a new ticketing system.</li>
+<li><code>relation</code> <em>(optional)</em> — either <code>"relates"</code> (default) or <code>"closes"</code>. <code>"closes"</code> opts into auto-close on merge <strong>where the provider supports it</strong>: GitLab and GitHub close an issue when a merged MR description contains a closing keyword referencing it; Sentry resolves an issue whose short ID appears in a <code>Fixes …</code> commit line reaching the tracked branch (which also requires the Sentry–repository integration to be configured on Sentry's side — DAIV only emits the syntax). Auto-closing is always an explicit opt-in; the default <code>"relates"</code> only links.</li>
 </ul>
+</li>
+</ul>
+<p>On thread continuation (when <code>thread_id</code> is set), newly supplied references are <strong>merged</strong> into the session's existing set, deduped by <code>(provider, key)</code> — the first-seen entry wins. A session accumulates at most 50 references in total across all turns.</p>
+<p><strong>Note (v1 limitation):</strong> DAIV writes the MR description only when the MR is first created. References declared on a later turn reach that turn's commit trailers but do not rewrite an existing MR's description body.</p>
 <p>For the full request/response schema, the batch <code>repos</code> contract, and the job lifecycle, see the <a href="../jobs-api/">Jobs API</a>.</p>
 <p><code>schedule_job</code> creates a <a href="../scheduled-jobs/">scheduled run</a>. Pick a <code>frequency</code> and supply its companion field: <code>time</code> (<code>"HH:MM"</code>, 24-hour) for <code>daily</code>, <code>weekdays</code>, and <code>weekly</code> (which fires on Mondays); a five-field <code>cron_expression</code> for <code>custom</code>; or an ISO-8601 <code>run_at</code> for a one-off <code>once</code> schedule. A <code>run_at</code> without a timezone offset is interpreted in the server timezone and must be in the future (a ~60-second grace into the past is tolerated). New schedules are always enabled. The response includes the schedule <code>id</code> and the computed <code>next_run_at</code>. Manage existing schedules (edit, disable, delete) from the DAIV dashboard.</p>
 <h2 id="usage-examples">Usage examples</h2>
@@ -1771,7 +1780,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 21:14:25 UTC">August 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 27, 2026 13:25:06 UTC">August 27, 2026</span>
   </span>
 
     
@@ -1781,7 +1790,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 21, 2026 21:14:25 UTC">August 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 27, 2026 13:25:06 UTC">August 27, 2026</span>
   </span>
 
     
