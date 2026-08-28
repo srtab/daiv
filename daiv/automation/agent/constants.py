@@ -67,12 +67,21 @@ class ModelName(StrEnum):
     GPT_5_3_CODEX = "openrouter:openai/gpt-5.3-codex"
     GPT_5_4 = "openrouter:openai/gpt-5.4"
     GPT_5_4_MINI = "openrouter:openai/gpt-5.4-mini"
+    GPT_5_6_LUNA = "openrouter:openai/gpt-5.6-luna"
 
     # z-ai models
     Z_AI_GLM_5_1 = "openrouter:z-ai/glm-5.1"
+    Z_AI_GLM_5_3_FLASH = "openrouter:z-ai/glm-5.3-flash"
 
     # minimax models
     MINIMAX_M3 = "openrouter:minimax/minimax-m3"
 
     # MoonshotAI models
     MOONSHOTAI_KIMI_K2_6 = "openrouter:moonshotai/kimi-k2.6"
+    MOONSHOTAI_KIMI_K2_7_CODE = "openrouter:moonshotai/kimi-k2.7-code"
+
+    # DeepSeek models
+    DEEPSEEK_V4_FLASH_0731 = "openrouter:deepseek/deepseek-v4-flash-0731"
+
+    # Google models
+    GEMINI_3_7_FLASH = "openrouter:google/gemini-3.7-flash"

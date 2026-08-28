@@ -66,8 +66,15 @@ makemessages:
 compilemessages:
 	uv run django-admin compilemessages
 
+# See AGENTS.md "Integration tests need credentials" for why every flag here is load-bearing.
+# CODEBASE_GITLAB_URL is read from the secrets file rather than config.env: this runs on the host,
+# where config.env's compose-internal `gitlab` hostname does not resolve. Exporting it here at all
+# would mask the secrets file, since env_files_skip_if_set treats an exported key as already set.
 integration-tests:
-	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
+	GITLAB_URL="$${CODEBASE_GITLAB_URL:-$$(sed -n 's/^CODEBASE_GITLAB_URL=//p' docker/local/app/config.secrets.env 2>/dev/null | tail -1)}"; \
+	CODEBASE_GITLAB_URL="$${GITLAB_URL:-http://127.0.0.1:8929}" \
+	LANGSMITH_TEST_TRACKING="$${LANGSMITH_TEST_TRACKING:-false}" \
+	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
 
 swebench:
 	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10

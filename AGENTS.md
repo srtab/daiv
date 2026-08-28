@@ -14,8 +14,9 @@ make lint                   # check only, no fixes
 uv run pytest tests/unit_tests/accounts/test_views.py
 uv run pytest tests/unit_tests/ -k "test_notes"
 
-# Integration tests (separate from unit tests; requires DB)
+# Integration tests (real LLM calls; requires DB + OPENROUTER_API_KEY + a reachable GitLab)
 make integration-tests      # runs with -m diff_to_metadata marker
+DAIV_EVAL_ALL_MODELS=1 make integration-tests   # + the candidate models (84 runs, ~20 min)
 
 # Translations
 make makemessages && make compilemessages

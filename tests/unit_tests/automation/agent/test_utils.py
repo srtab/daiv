@@ -2,14 +2,17 @@ import base64
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.schemas import Image
 from automation.agent.utils import (
+    FINAL_ASSISTANT_TEXT_MAX_CHARS,
     build_langsmith_config,
     conversation_thread_id,
     extract_images_from_text,
     extract_text_content,
+    final_assistant_text,
     get_daiv_agent_kwargs,
     images_to_content_blocks,
     streamed_assistant_message,
@@ -543,6 +546,62 @@ def test_extract_text_content_from_none():
     result = extract_text_content(content)
     assert result == "None"
     assert isinstance(result, str)
+
+
+class TestFinalAssistantText:
+    def test_returns_the_closing_summary(self):
+        messages = [HumanMessage("fix the parser"), AIMessage("Fixed it; the suite was not run.")]
+
+        assert final_assistant_text(messages) == "Fixed it; the suite was not run."
+
+    def test_walks_back_past_a_tool_call_only_message(self):
+        """A crashed or tool-terminated turn ends on an AIMessage carrying only tool_calls; the last
+        prose the agent wrote is the summary, so the walk must not stop at the empty one."""
+        messages = [
+            AIMessage("Done, but I could not install dependencies."),
+            AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}]),
+        ]
+
+        assert final_assistant_text(messages) == "Done, but I could not install dependencies."
+
+    def test_skips_a_loop_breaker_message_addressed_to_a_parent_agent(self):
+        """LoopBreakerMiddleware's terminal="error" message is parsed by the code-review
+        orchestrator, not read by a human — putting it in an MR description leaks internals."""
+        messages = [AIMessage("Refactored the client."), AIMessage("ERROR: exceeded the step budget")]
+
+        assert final_assistant_text(messages) == "Refactored the client."
+
+    def test_returns_none_when_the_agent_wrote_no_prose(self):
+        messages = [HumanMessage("go"), AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}])]
+
+        assert final_assistant_text(messages) is None
+
+    def test_returns_none_for_an_empty_transcript(self):
+        assert final_assistant_text([]) is None
+
+    def test_ignores_a_trailing_human_message(self):
+        """Managers append the user's follow-up comment before re-invoking; the human's own text is
+        never the agent's summary."""
+        messages = [AIMessage("Added the endpoint."), HumanMessage("also add tests")]
+
+        assert final_assistant_text(messages) == "Added the endpoint."
+
+    def test_a_content_block_with_a_null_text_does_not_raise(self):
+        """Providers send `text: null` on some blocks, and joining a None raised — which, on the
+        publish path, aborted the whole publish rather than losing one sentence."""
+        messages = [AIMessage(content=[{"type": "text", "text": None}, {"type": "text", "text": "Added it."}])]
+
+        assert final_assistant_text(messages) == "Added it."
+
+    def test_truncates_a_long_summary_and_marks_it(self):
+        messages = [AIMessage("x" * (FINAL_ASSISTANT_TEXT_MAX_CHARS + 500))]
+
+        result = final_assistant_text(messages)
+
+        assert result is not None
+        assert len(result) < FINAL_ASSISTANT_TEXT_MAX_CHARS + 100
+        assert result.startswith("x" * 100)
+        assert result.endswith("…[truncated]")
 
 
 def _langsmith_ctx():

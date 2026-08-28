@@ -70,9 +70,11 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
-        # Diff to Metadata
-        "diff_to_metadata_model_name": ModelName.GPT_5_4_MINI,
-        "diff_to_metadata_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        # Diff to Metadata — chosen on the diff_to_metadata suite, 12 cases x 3 runs per model:
+        # gemini-3.7-flash 97%, deepseek-v4-flash 94%, gpt-5.4-mini 67%, claude-haiku-4.5 83%.
+        # The two replaced models each failed a handful of cases on *every* run, not intermittently.
+        "diff_to_metadata_model_name": ModelName.GEMINI_3_7_FLASH,
+        "diff_to_metadata_fallback_model_name": ModelName.DEEPSEEK_V4_FLASH_0731,
         # Titling
         "titling_model_name": ModelName.GPT_5_4_MINI,
         "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
