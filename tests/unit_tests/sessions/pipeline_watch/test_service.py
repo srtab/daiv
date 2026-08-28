@@ -6,6 +6,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
+from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.service import WATCH_STALE_AFTER, PipelineWatch
 
 from codebase.repo_config import RepositoryConfig
@@ -124,22 +125,29 @@ async def test_an_uninjected_dispatch_reaches_the_module_function(watched_sessio
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_an_uninjected_exhaustion_reaches_the_module_function(watched_session, watch, monkeypatch):
-    """The notifier half of the same fallback, on the branch that gives up."""
+async def test_an_uninjected_notifier_is_a_real_watch_notifier(watched_session, watch, monkeypatch):
+    """Production injects no notifier, so the ``WatchNotifier()`` default in ``PipelineWatch.__init__``
+    is the only path it takes — and every other test here injects one. Without this, a signature
+    drift in the real ``WatchNotifier`` would raise exactly where the give-up notification should
+    fire, with the suite still green.
+    """
     notified = []
 
-    async def fake_notify(**kwargs):
+    async def fake_notify(self, **kwargs):
         notified.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service.anotify_watch_exhausted", fake_notify)
+    monkeypatch.setattr(WatchNotifier, "anotify_exhausted", fake_notify)
     pipeline = make_pipeline("failed", pipeline_id=901)
     watch.platform.pipeline = pipeline
     await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
 
-    await PipelineWatch("group/repo", platform=watch.platform).aevaluate(ref="daiv/branch", pipeline_id=901)
+    pw = PipelineWatch("group/repo", platform=watch.platform)
+    assert isinstance(pw._notifier, WatchNotifier)
+
+    await pw.aevaluate(ref="daiv/branch", pipeline_id=901)
 
     assert len(notified) == 1
-    assert notified[0]["pipeline"] is pipeline
+    assert notified[0]["report"].pipeline is pipeline
     assert notified[0]["session"].thread_id == watched_session.thread_id
 
 

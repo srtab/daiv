@@ -17,6 +17,7 @@ from codebase.utils import compute_thread_id
 from sessions.locks import stale_cutoff
 from sessions.models import RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
+from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.platform import WatchPlatform
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import WatchStore
@@ -100,25 +101,6 @@ async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: s
         )
 
 
-async def anotify_watch_exhausted(*, session: Session, pipeline: Pipeline) -> None:
-    """Report that the watch gave up. Best-effort: the MR comment is the real channel.
-
-    Reading the pipeline is this module's job; the source key, channels, dedup and payload are
-    the notifications app's.
-    """
-    from notifications.watch_notifiers import emit_watch_exhausted
-
-    try:
-        await sync_to_async(emit_watch_exhausted)(
-            session=session,
-            failing_jobs=[job.name for job in PipelineReport(pipeline).failed_jobs],
-            pipeline_url=pipeline.web_url,
-            pipeline_id=pipeline.id,
-        )
-    except Exception:
-        logger.exception("pipeline_watch: failed to notify the owner of thread_id=%s", session.thread_id)
-
-
 class PipelineWatch:
     """The CI watch on one repository's merge requests.
 
@@ -140,7 +122,7 @@ class PipelineWatch:
         self.repo_id = repo_id
         self._platform = platform or WatchPlatform(repo_id)
         self._dispatcher = dispatcher
-        self._notifier = notifier
+        self._notifier = notifier or WatchNotifier()
         self._policy = policy
         self._store = store or WatchStore()
 
@@ -320,7 +302,7 @@ class PipelineWatch:
                         url=report.web_url,
                     ),
                 )
-                await self._anotify_exhausted(session=session, report=report)
+                await self._notifier.anotify_exhausted(session=session, report=report)
             return
 
         # The cap is re-asserted in the claim itself: a stale read can outlive a fix-run cycle.
@@ -332,12 +314,6 @@ class PipelineWatch:
             watch_armed_at=timezone.now(),
         ):
             await self._adispatch(session=session, report=report, merge_request_iid=merge_request_iid)
-
-    async def _anotify_exhausted(self, *, session: Session, report: PipelineReport) -> None:
-        if self._notifier is not None:
-            await self._notifier.anotify_exhausted(session=session, report=report)
-            return
-        await anotify_watch_exhausted(session=session, pipeline=report.pipeline)
 
     async def _adispatch(self, *, session: Session, report: PipelineReport, merge_request_iid: int) -> None:
         if self._dispatcher is not None:
