@@ -46,6 +46,7 @@ make makemessages && make compilemessages
 - **Repository memory** — `MemoryEntry` rows are append-only truth; `RepositoryMemory.content` is a render cache from `memory/render.py`, never model-generated; enforce `memory_max_*` via `prune_to_budget`, not by slicing.
 - **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is canonical; `tests/unit_tests/core/sandbox/test_schema_consistency.py` fails on drift. Regenerate from the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo after changing `daiv_sandbox/schemas.py`.
 - **Skill asset paths** resolve to `<location>/<skill>/...`, not the bash CWD — invoke skill scripts by absolute path.
+- **PEP 758** — `except E1, E2:` is valid; ruff canonicalises it unparenthesised — don't "fix" it back to parens (pure churn).
 - **Django** — test settings module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is auto-set in tests.
 - **Views by content type** — HTML = CBVs in `daiv/<app>/views.py`; JSON = a django-ninja `Router` in `daiv/<app>/api/views.py` (or `api/router.py`), registered in `daiv/daiv/api.py`. Filtered lists use `django_filters.FilterSet` + `FilterView(strict=False)`, not hand-rolled `request.GET`/`Paginator`.
 - **Dependency upgrade blockers** (re-verify first): **redis 8.x** blocked by `redisvl` (via `langgraph-checkpoint-redis`); **mcp 2.0** blocked by `langchain-mcp-adapters` (removes v1 import paths used in `mcp_server/` + `automation/agent/mcp/`). Deps are `==`-pinned, so `uv lock --upgrade --dry-run` shows only transitive updates — check the PyPI JSON API per direct dep.
