@@ -9,7 +9,7 @@ The seam wiring itself (which callers reach this) is pinned per caller — see
 from unittest.mock import AsyncMock
 
 import pytest
-from sessions.pipeline_watch import aarm_watch_after_run
+from sessions.pipeline_watch.service import aarm_watch_after_run
 
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -36,8 +36,8 @@ def stub_watch(monkeypatch):
         async def aenqueue(self, **kwargs):
             calls["enqueued"].append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.aarm_watch", fake_arm)
-    monkeypatch.setattr("sessions.pipeline_watch.aexhaust_watch", fake_exhaust)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aarm_watch", fake_arm)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aexhaust_watch", fake_exhaust)
     monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
     return calls
 
@@ -62,7 +62,7 @@ async def test_a_run_without_a_merge_request_arms_nothing(stub_watch):
 
 @pytest.mark.django_db
 async def test_a_fix_run_arms_without_resetting_the_counter(stub_watch, monkeypatch):
-    monkeypatch.setattr("sessions.pipeline_watch._ais_fix_run", AsyncMock(return_value=True))
+    monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
 
     await aarm_watch_after_run(repo_id="group/repo", run_id="a-fix-run", merge_request=MR, published=True)
 
@@ -72,7 +72,7 @@ async def test_a_fix_run_arms_without_resetting_the_counter(stub_watch, monkeypa
 @pytest.mark.django_db
 async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch, monkeypatch):
     """Don't re-arm a watch nothing will ever move: no push means no pipeline, no event."""
-    monkeypatch.setattr("sessions.pipeline_watch._ais_fix_run", AsyncMock(return_value=True))
+    monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
 
     await aarm_watch_after_run(repo_id="group/repo", run_id="a-fix-run", merge_request=MR, published=False)
 

@@ -22,7 +22,7 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
-from sessions.pipeline_watch import aarm_watch_after_run
+from sessions.pipeline_watch.service import aarm_watch_after_run
 from sessions.services import apersist_session_ref, areset_session_ref
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message

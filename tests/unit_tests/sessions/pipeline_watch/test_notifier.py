@@ -6,12 +6,12 @@ from sessions.models import Session, SessionOrigin
 
 from codebase.base import Job
 
-from .conftest import make_pipeline
+from ..conftest import make_pipeline
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_it_hands_the_pipeline_facts_to_the_notifications_app(monkeypatch, django_user_model):
-    from sessions.pipeline_watch import anotify_watch_exhausted
+    from sessions.pipeline_watch.service import anotify_watch_exhausted
 
     user = await django_user_model.objects.acreate(username="owner", email="owner@example.com")
     session = await Session.objects.acreate(
@@ -39,7 +39,7 @@ async def test_it_hands_the_pipeline_facts_to_the_notifications_app(monkeypatch,
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_failing_emitter_never_breaks_the_watch(monkeypatch, django_user_model, caplog):
-    from sessions.pipeline_watch import anotify_watch_exhausted
+    from sessions.pipeline_watch.service import anotify_watch_exhausted
 
     user = await django_user_model.objects.acreate(username="owner2", email="owner2@example.com")
     session = await Session.objects.acreate(
@@ -60,7 +60,7 @@ async def test_a_failing_emitter_never_breaks_the_watch(monkeypatch, django_user
 
 @pytest.mark.django_db(transaction=True)
 async def test_the_notification_lands_under_the_shared_session_key(django_user_model):
-    from sessions.pipeline_watch import anotify_watch_exhausted
+    from sessions.pipeline_watch.service import anotify_watch_exhausted
 
     user = await django_user_model.objects.acreate(username="owner3", email="owner3@example.com")
     session = await Session.objects.acreate(

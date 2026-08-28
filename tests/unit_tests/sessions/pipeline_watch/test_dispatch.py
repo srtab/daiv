@@ -13,13 +13,13 @@ from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
-from sessions.pipeline_watch import _adispatch_fix_run
+from sessions.pipeline_watch.service import _adispatch_fix_run
 
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
 
-from .conftest import make_pipeline
+from ..conftest import make_pipeline
 
 MR_IID = 91
 
@@ -36,7 +36,9 @@ def stub_enqueue(monkeypatch):
             return holder["result"]
 
     monkeypatch.setattr("jobs.tasks.run_job_task", FakeTask())
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
     return calls, holder
 
 
@@ -76,7 +78,7 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
 ):
     """The whole loop guard in one pass: dispatch, then the ``trigger_type`` read
     ``_ais_fix_run`` does off the Run row, then the arm that consumes it."""
-    from sessions.pipeline_watch import _ais_fix_run, aarm_watch_after_run
+    from sessions.pipeline_watch.service import _ais_fix_run, aarm_watch_after_run
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()

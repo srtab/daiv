@@ -5,7 +5,7 @@ from typing import Any, Literal
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
-from sessions.pipeline_watch import JUDGEABLE_PIPELINE_STATUSES, arequest_watch_evaluation, watch_enabled
+from sessions.pipeline_watch.service import JUDGEABLE_PIPELINE_STATUSES, arequest_watch_evaluation, watch_enabled
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user

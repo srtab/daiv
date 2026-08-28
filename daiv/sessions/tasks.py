@@ -257,7 +257,7 @@ async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int 
 
     Short and user-visible, so it runs on the interactive queue rather than behind agent runs.
     """
-    from sessions.pipeline_watch import aevaluate_watch
+    from sessions.pipeline_watch.service import aevaluate_watch
 
     await aevaluate_watch(repo_id=repo_id, ref=ref, pipeline_id=pipeline_id)
 
@@ -270,7 +270,7 @@ async def reconcile_pipeline_watches_cron_task():
 
     Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
     """
-    from sessions.pipeline_watch import areconcile_watches
+    from sessions.pipeline_watch.service import areconcile_watches
 
     touched = await areconcile_watches()
     logger.info("reconcile_pipeline_watches: touched %d watches", touched)

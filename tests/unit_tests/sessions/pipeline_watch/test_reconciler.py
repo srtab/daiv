@@ -2,7 +2,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch import WATCH_MAX_AGE, WATCH_STALE_AFTER, areconcile_watches
+from sessions.pipeline_watch.service import WATCH_MAX_AGE, WATCH_STALE_AFTER, areconcile_watches
 
 
 @pytest.mark.django_db(transaction=True)
@@ -21,7 +21,7 @@ async def test_a_stale_watching_session_is_re_evaluated(monkeypatch):
     async def fake_evaluate(**kwargs):
         evaluated.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
     touched = await areconcile_watches()
 
     assert touched == 1
@@ -45,7 +45,7 @@ async def test_a_fresh_watch_is_left_alone(monkeypatch):
     async def fake_evaluate(**kwargs):
         evaluated.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
     assert await areconcile_watches() == 0
     assert evaluated == []
 
@@ -64,7 +64,7 @@ async def test_a_watch_past_its_lifetime_is_abandoned(monkeypatch):
     async def fake_evaluate(**kwargs):
         raise AssertionError("an expired watch must not be evaluated")
 
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
     await areconcile_watches()
 
     session = await Session.objects.aget(thread_id="ancient")
@@ -80,8 +80,8 @@ async def test_an_expired_watch_says_so_on_the_merge_request(monkeypatch):
     async def fake_comment(**kwargs):
         comments.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", fake_comment)
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", fake_comment)
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
 
     await Session.objects.acreate(
         thread_id="ancient2",
@@ -103,8 +103,8 @@ async def test_an_expired_watch_says_so_on_the_merge_request(monkeypatch):
 async def test_an_expired_watch_is_logged_per_session(monkeypatch, caplog):
     """The only signal was an aggregate count with no repo and no thread, so nobody could
     reconstruct which watch gave up or why."""
-    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", lambda **kw: _noop())
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", lambda **kw: _noop())
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
 
     await Session.objects.acreate(
         thread_id="ancient3",
@@ -133,7 +133,7 @@ async def test_a_stuck_fixing_watch_is_recovered(monkeypatch):
         watch_state=WatchState.FIXING,
         watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
     )
-    monkeypatch.setattr("sessions.pipeline_watch.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
     await areconcile_watches()
 
     session = await Session.objects.aget(thread_id="stuck")
@@ -150,7 +150,7 @@ async def test_the_stuck_sweep_only_moves_a_row_still_being_fixed(monkeypatch):
     """The sweep selects FIXING and then writes; if the fix run lands GREEN in between, an
     unguarded write resurrects a closed watch. Driven through the shared primitive with the
     row already moved, which is what that interleaving looks like from the write's side."""
-    from sessions.pipeline_watch import _atransition
+    from sessions.pipeline_watch.service import _atransition
 
     await Session.objects.acreate(
         thread_id="moved-on",
@@ -173,7 +173,7 @@ async def test_the_stuck_sweep_only_moves_a_row_still_being_fixed(monkeypatch):
 @pytest.mark.django_db(transaction=True)
 async def test_the_transition_primitive_reports_the_single_winner():
     """Four call sites branch on this return value to decide whether to comment."""
-    from sessions.pipeline_watch import _atransition
+    from sessions.pipeline_watch.service import _atransition
 
     await Session.objects.acreate(
         thread_id="contended",

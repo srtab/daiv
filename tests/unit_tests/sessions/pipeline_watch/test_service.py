@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch import (
+from sessions.pipeline_watch.service import (
     WATCH_STALE_AFTER,
     aarm_watch,
     aevaluate_watch,
@@ -18,7 +18,7 @@ from sessions.pipeline_watch import (
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
 
-from .conftest import make_job, make_pipeline
+from ..conftest import make_job, make_pipeline
 
 
 @pytest.fixture
@@ -58,12 +58,14 @@ def stub_watch(monkeypatch):
         def get_merge_request(self, repo_id, merge_request_id):
             return SimpleNamespace(sha=calls["head_sha"])
 
-    monkeypatch.setattr("sessions.pipeline_watch._adispatch_fix_run", fake_dispatch)
-    monkeypatch.setattr("sessions.pipeline_watch.anotify_watch_exhausted", fake_notify)
-    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", fake_comment)
-    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", fake_read)
-    monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: FakeClient())
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr("sessions.pipeline_watch.service._adispatch_fix_run", fake_dispatch)
+    monkeypatch.setattr("sessions.pipeline_watch.service.anotify_watch_exhausted", fake_notify)
+    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", fake_comment)
+    monkeypatch.setattr("sessions.pipeline_watch.service._aread_pipeline", fake_read)
+    monkeypatch.setattr("sessions.pipeline_watch.service.RepoClient.create_instance", lambda **_kw: FakeClient())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
     return calls
 
 
@@ -228,7 +230,7 @@ async def test_an_unreadable_head_sha_does_not_close_the_watch(watched_session, 
         def get_merge_request(self, repo_id, merge_request_id):
             raise RuntimeError("platform down")
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: BrokenClient())
+    monkeypatch.setattr("sessions.pipeline_watch.service.RepoClient.create_instance", lambda **_kw: BrokenClient())
     stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=404)
 
     await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=404)
@@ -309,7 +311,7 @@ async def test_two_concurrent_exhaustions_comment_and_notify_once(watched_sessio
     async def fake_notify(**kwargs):
         notified.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.anotify_watch_exhausted", fake_notify)
+    monkeypatch.setattr("sessions.pipeline_watch.service.anotify_watch_exhausted", fake_notify)
     stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=800)
     await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
 
@@ -337,7 +339,7 @@ async def test_the_cap_is_re_asserted_when_the_claim_lands(watched_session, stub
         )
         return stub_watch["pipeline"]
 
-    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", read_then_spend_the_whole_budget)
+    monkeypatch.setattr("sessions.pipeline_watch.service._aread_pipeline", read_then_spend_the_whole_budget)
 
     await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=850)
 
@@ -353,7 +355,9 @@ async def test_arming_a_new_watch_records_the_publishing_user(monkeypatch, djang
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
     user = await django_user_model.objects.acreate(username="publisher", email="publisher@example.com")
 
     armed = await aarm_watch(
@@ -386,7 +390,7 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
     comes from site settings — an explicit ``.daiv.yml`` value replaces it rather than clamping."""
     monkeypatch.setattr(site_settings, "pipeline_watch_max_attempts", 2)
     monkeypatch.setattr(
-        "sessions.pipeline_watch.RepositoryConfig.get_config",
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}}),
     )
     stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=700)
@@ -419,7 +423,7 @@ def test_a_repo_cannot_enable_a_watch_the_operator_turned_off(monkeypatch):
 async def test_a_disabled_site_switch_stops_the_watch_from_arming(monkeypatch):
     monkeypatch.setattr(site_settings, "pipeline_watch_enabled", False)
     monkeypatch.setattr(
-        "sessions.pipeline_watch.RepositoryConfig.get_config",
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"enabled": True}}),
     )
     assert await aarm_watch(repo_id="group/repo", merge_request_iid=81, ref="daiv/branch", was_fix_run=False) is None
@@ -430,7 +434,9 @@ async def test_arming_from_a_normal_run_resets_the_counter(monkeypatch):
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
 
     # The row must live at the MR thread id, or aarm_watch creates a fresh session and the
     # assertion passes without ever exercising the reset.
@@ -455,7 +461,9 @@ async def test_arming_from_a_fix_run_keeps_the_counter(monkeypatch):
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
 
     mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=72)
     await Session.objects.acreate(
@@ -482,7 +490,7 @@ async def test_a_fix_run_that_changed_nothing_gives_up(monkeypatch):
     async def fake_comment(**kwargs):
         pass
 
-    monkeypatch.setattr("sessions.pipeline_watch._apost_watch_note", fake_comment)
+    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", fake_comment)
 
     mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=73)
     await Session.objects.acreate(
@@ -507,7 +515,9 @@ async def test_arming_gives_the_mr_thread_the_run_owner(monkeypatch, django_user
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
 
     owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
     mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=91)
@@ -528,7 +538,9 @@ async def test_arming_adopts_an_ownerless_thread(monkeypatch, django_user_model)
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
 
     owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
     mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=92)
@@ -549,7 +561,9 @@ async def test_arming_never_reassigns_an_owned_thread(monkeypatch, django_user_m
     from codebase.base import Scope
     from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr(
+        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+    )
 
     human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
     robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
@@ -575,7 +589,7 @@ async def test_a_transient_read_failure_leaves_the_watch_armed_and_warns(
     async def broken_read(**_kwargs):
         raise GithubException(403, None, None)
 
-    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", broken_read)
+    monkeypatch.setattr("sessions.pipeline_watch.service._aread_pipeline", broken_read)
 
     with caplog.at_level("WARNING", logger="daiv.sessions"):
         await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=800)
@@ -598,7 +612,7 @@ async def test_an_unexpected_read_failure_is_reported_with_a_traceback(
     async def broken_read(**_kwargs):
         raise AttributeError("'NoneType' object has no attribute 'sha'")
 
-    monkeypatch.setattr("sessions.pipeline_watch._aread_pipeline", broken_read)
+    monkeypatch.setattr("sessions.pipeline_watch.service._aread_pipeline", broken_read)
 
     with caplog.at_level("WARNING", logger="daiv.sessions"):
         await aevaluate_watch(repo_id="group/repo", ref="daiv/branch", pipeline_id=801)
@@ -622,7 +636,7 @@ async def test_a_transient_head_sha_failure_warns_rather_than_erroring(
         def get_merge_request(self, repo_id, merge_request_id):
             raise GitlabGetError(response_code=503)
 
-    monkeypatch.setattr("sessions.pipeline_watch.RepoClient.create_instance", lambda **_kw: BrokenClient())
+    monkeypatch.setattr("sessions.pipeline_watch.service.RepoClient.create_instance", lambda **_kw: BrokenClient())
     stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=805)
 
     with caplog.at_level("WARNING", logger="daiv.sessions"):

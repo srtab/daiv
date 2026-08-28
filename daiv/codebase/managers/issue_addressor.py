@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.pipeline_watch import aarm_watch_after_run
+from sessions.pipeline_watch.service import aarm_watch_after_run
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata

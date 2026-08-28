@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from django_tasks import task
 from sessions.locks import SessionLock
 from sessions.models import Run, Session
-from sessions.pipeline_watch import aarm_watch_after_run
+from sessions.pipeline_watch.service import aarm_watch_after_run
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult

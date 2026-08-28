@@ -1,7 +1,7 @@
 import pytest
-from sessions.pipeline_watch import Judgment, failed_jobs, judge_pipeline
+from sessions.pipeline_watch.service import Judgment, failed_jobs, judge_pipeline
 
-from .conftest import make_job, make_pipeline
+from ..conftest import make_job, make_pipeline
 
 
 def test_success_with_jobs_is_green():
