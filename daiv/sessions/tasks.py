@@ -270,7 +270,7 @@ async def reconcile_pipeline_watches_cron_task():
 
     Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
     """
-    from sessions.pipeline_watch.service import areconcile_watches
+    from sessions.pipeline_watch.reconciler import WatchReconciler
 
-    touched = await areconcile_watches()
+    touched = await WatchReconciler().areconcile()
     logger.info("reconcile_pipeline_watches: touched %d watches", touched)

@@ -1,6 +1,5 @@
 import functools
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db.models import F
@@ -11,7 +10,6 @@ from chat.repo_state import mr_to_payload
 from codebase.base import Scope
 from codebase.clients.base import is_transient_platform_error
 from codebase.utils import compute_thread_id
-from sessions.locks import stale_cutoff
 from sessions.models import Session, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
@@ -24,13 +22,6 @@ if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.sessions")
-
-WATCH_MAX_AGE = timedelta(hours=6)
-# How long to wait for a pipeline event before polling the branch ourselves. Unrelated to
-# ``STALE_RUN_MINUTES``, which is what says a *fix run* died — see ``areconcile_watches``.
-WATCH_STALE_AFTER = timedelta(minutes=30)
-# Bounded per tick so a backlog never pins a worker on an unbounded fan-out of platform reads.
-WATCH_SWEEP_LIMIT = 200
 
 
 class PipelineWatch:
@@ -46,8 +37,8 @@ class PipelineWatch:
         repo_id: str,
         *,
         platform: WatchPlatform | None = None,
-        dispatcher=None,
-        notifier=None,
+        dispatcher: FixRunDispatcher | None = None,
+        notifier: WatchNotifier | None = None,
         policy: WatchPolicy | None = None,
         store: WatchStore | None = None,
     ) -> None:
@@ -248,52 +239,3 @@ class PipelineWatch:
             await self._dispatcher.adispatch(
                 session=session, report=report, repo_id=self.repo_id, merge_request_iid=merge_request_iid
             )
-
-
-async def areconcile_watches() -> int:
-    """Repair watches that events did not resolve.
-
-    Three jobs, and the order is load-bearing: expiring first is what bounds the two sweeps
-    below to a live watch, so neither needs an age floor of its own. Returns watches expired,
-    plus rows the bulk un-stick updated, plus branches re-judged — a progress signal, not a count
-    of rows written.
-    """
-    now = timezone.now()
-    store = WatchStore()
-
-    touched = 0
-    expired = store.expiring_watches(now - WATCH_MAX_AGE, WATCH_SWEEP_LIMIT)
-    async for session in expired:
-        if not await store.atransition(session.thread_id, expect=WatchState.open(), watch_state=WatchState.UNCLEAR):
-            continue
-        # Where every unresolved failure lands — unreadable pipeline, dead fix run, pipeline that
-        # never started. Closing it silently made those indistinguishable.
-        logger.warning(
-            "pipeline_watch: giving up on %s!%s after %s in state %s",
-            session.repo_id,
-            session.merge_request_iid,
-            WATCH_MAX_AGE,
-            session.watch_state,
-        )
-        await WatchPlatform(session.repo_id).apost_note(
-            merge_request_iid=session.merge_request_iid,
-            body=_(
-                "I stopped watching CI on this merge request: no result I could act on arrived "
-                "within {hours} hours. Mention me if you want another look."
-            ).format(hours=int(WATCH_MAX_AGE.total_seconds() // 3600)),
-        )
-        touched += 1
-
-    # A fix run that stopped heartbeating is dead by the same definition SessionLock uses to
-    # take its slot over; the two have to move together.
-    touched += await store.arecover_stale_fixing(cutoff=stale_cutoff(now), now=now)
-
-    stale = store.stale_watching(now - WATCH_STALE_AFTER, WATCH_SWEEP_LIMIT)
-    async for repo_id, ref, thread_id in stale:
-        try:
-            await PipelineWatch(repo_id).aevaluate(ref=ref, pipeline_id=None)
-        except Exception:
-            logger.exception("pipeline_watch: reconcile failed for thread_id=%s", thread_id)
-        touched += 1
-
-    return touched

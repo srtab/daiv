@@ -1,6 +1,6 @@
 """How a fix run is dispatched, and the wire that carries the attempt counter across it.
 
-``_adispatch_fix_run`` used to enqueue first and create the Run afterwards, so ``run_job_task``
+``FixRunDispatcher.adispatch`` used to enqueue first and create the Run afterwards, so ``run_job_task``
 had no ``run_id`` to read ``trigger_type`` off — the arm saw "not a fix run" and reset
 ``watch_attempts`` to 0 on every re-arm, leaving the loop unbounded. Everything here is about
 that wire rather than about the helper's own arguments.

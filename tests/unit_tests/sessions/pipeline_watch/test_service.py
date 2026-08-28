@@ -8,7 +8,8 @@ import pytest
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.notifier import WatchNotifier
-from sessions.pipeline_watch.service import WATCH_STALE_AFTER, PipelineWatch
+from sessions.pipeline_watch.reconciler import WATCH_STALE_AFTER
+from sessions.pipeline_watch.service import PipelineWatch
 
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
