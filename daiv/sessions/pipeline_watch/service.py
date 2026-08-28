@@ -1,7 +1,6 @@
 import functools
 import logging
 from datetime import timedelta
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.db.models import F
@@ -20,17 +19,12 @@ from codebase.utils import compute_thread_id
 from core.site_settings import site_settings
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES, Judgment, PipelineReport
 
 if TYPE_CHECKING:
-    from codebase.base import Job, MergeRequest, Pipeline
+    from codebase.base import MergeRequest, Pipeline
 
 logger = logging.getLogger("daiv.sessions")
-
-# The only two statuses that are a verdict. Everything else either waits on a human or has
-# not got there yet (created, pending, running, preparing, …), and both read as UNCLEAR.
-VERDICT_STATUSES = frozenset({"success", "failed"})
-NEEDS_A_HUMAN_STATUSES = frozenset({"blocked", "manual", "canceled", "skipped"})
-JUDGEABLE_PIPELINE_STATUSES = VERDICT_STATUSES | NEEDS_A_HUMAN_STATUSES
 
 WATCH_MAX_AGE = timedelta(hours=6)
 # How long to wait for a pipeline event before polling the branch ourselves. Unrelated to
@@ -46,12 +40,6 @@ FIX_RUN_PROMPT = (
 )
 
 
-class Judgment(StrEnum):
-    GREEN = "green"
-    ACTIONABLE = "actionable"
-    UNCLEAR = "unclear"
-
-
 def watch_enabled(config: RepositoryConfig) -> bool:
     """Whether the watch may run for a repo. The site switch is a ceiling, not a default: a
     repository can turn the watch off but never turn one on that the operator disabled."""
@@ -61,33 +49,6 @@ def watch_enabled(config: RepositoryConfig) -> bool:
 def watch_max_attempts(config: RepositoryConfig) -> int:
     """The attempt cap for a repo, clamped to the site-wide value — a repository can only tighten."""
     return min(config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts)
-
-
-def failed_jobs(pipeline: Pipeline) -> list[Job]:
-    """Jobs whose failure the project has not declared acceptable."""
-    return [job for job in pipeline.jobs if job.is_failed() and not job.allow_failure]
-
-
-def failed_job_names(pipeline: Pipeline, *, default: str = "") -> str:
-    """Comma-separated names of the jobs whose failure counts, or ``default`` when none are visible."""
-    return ", ".join(job.name for job in failed_jobs(pipeline)) or default
-
-
-def judge_pipeline(pipeline: Pipeline | None) -> Judgment:
-    """Decide whether a pipeline is green, worth an agent run, or not ours to judge.
-
-    Deliberately conservative: anything that is not an unambiguous pass or an unambiguous
-    failure is ``UNCLEAR``, which stops the watch instead of spending an attempt.
-    """
-    if pipeline is None or pipeline.status not in VERDICT_STATUSES or not pipeline.jobs:
-        return Judgment.UNCLEAR
-    if pipeline.status == "success":
-        return Judgment.GREEN
-    # A failure with no failed job visible at all (e.g. a config error) is still worth a look.
-    failing = [job for job in pipeline.jobs if job.is_failed()]
-    if failing and all(job.allow_failure for job in failing):
-        return Judgment.GREEN
-    return Judgment.ACTIONABLE
 
 
 async def _aread_pipeline(*, client, repo_id: str, ref: str, pipeline_id: int | None) -> Pipeline | None:
@@ -118,7 +79,9 @@ async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: s
 
     # Untranslated: this is addressed to the model, not the user. A filled catalog would
     # otherwise hand the agent its instructions in the operator's language.
-    prompt = FIX_RUN_PROMPT.format(names=failed_job_names(pipeline, default="the pipeline"), url=pipeline.web_url)
+    prompt = FIX_RUN_PROMPT.format(
+        names=PipelineReport(pipeline).failed_job_names(default="the pipeline"), url=pipeline.web_url
+    )
 
     user = await sync_to_async(lambda: session.user)()
     sandbox_env = await resolve_env_for_run(user=user, repo_id=repo_id)
@@ -177,7 +140,7 @@ async def anotify_watch_exhausted(*, session: Session, pipeline: Pipeline) -> No
     try:
         await sync_to_async(emit_watch_exhausted)(
             session=session,
-            failing_jobs=[job.name for job in failed_jobs(pipeline)],
+            failing_jobs=[job.name for job in PipelineReport(pipeline).failed_jobs],
             pipeline_url=pipeline.web_url,
             pipeline_id=pipeline.id,
         )
@@ -403,7 +366,7 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
         logger.info("pipeline_watch: pipeline %s is not the head of %s@%s", pipeline.id, repo_id, ref)
         return
 
-    judgment = judge_pipeline(pipeline)
+    judgment = PipelineReport(pipeline).judgment
     merge_request_iid = session.merge_request_iid
     claim = functools.partial(_atransition, session.thread_id, expect=WatchState.WATCHING)
 
@@ -434,7 +397,7 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
                 merge_request_iid=merge_request_iid,
                 body=_("I stopped after {attempts} attempts and CI is still failing: {names}. Pipeline: {url}").format(
                     attempts=session.watch_attempts,
-                    names=failed_job_names(pipeline, default=_("the pipeline")),
+                    names=PipelineReport(pipeline).failed_job_names(default=_("the pipeline")),
                     url=pipeline.web_url,
                 ),
             )
