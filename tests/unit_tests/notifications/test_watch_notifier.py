@@ -62,7 +62,7 @@ class TestDedup:
         assert Notification.objects.count() == 1
 
     def test_a_later_watch_cycle_on_the_same_merge_request_delivers_again(self, watch_session):
-        # aarm_watch re-opens an exhausted watch and resets the budget, so one merge request can
+        # PipelineWatch.aarm re-opens an exhausted watch and resets the budget, so one merge request can
         # legitimately give up more than once. Keying on thread_id alone muted every later one and
         # logged it as a benign race, while the MR comment still posted — the two channels
         # disagreeing is the tell.

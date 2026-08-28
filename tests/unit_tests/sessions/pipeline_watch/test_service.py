@@ -99,6 +99,51 @@ async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_an_uninjected_dispatch_reaches_the_module_function(watched_session, watch, monkeypatch):
+    """Production injects no dispatcher, so the ``is None`` fallback is the only path it takes —
+    and every other test here injects one. Without this, a signature drift or a misspelled
+    ``report.pipeline`` would raise exactly where a fix run should start, with the suite still green.
+    """
+    dispatched = []
+
+    async def fake_dispatch(**kwargs):
+        dispatched.append(kwargs)
+
+    monkeypatch.setattr("sessions.pipeline_watch.service._adispatch_fix_run", fake_dispatch)
+    pipeline = make_pipeline("failed", pipeline_id=900)
+    watch.platform.pipeline = pipeline
+
+    await PipelineWatch("group/repo", platform=watch.platform).aevaluate(ref="daiv/branch", pipeline_id=900)
+
+    assert len(dispatched) == 1
+    # The pipeline, not the report that wraps it: the shim is what unwraps it.
+    assert dispatched[0]["pipeline"] is pipeline
+    assert dispatched[0]["repo_id"] == "group/repo"
+    assert dispatched[0]["merge_request_iid"] == 7
+    assert dispatched[0]["session"].thread_id == watched_session.thread_id
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_uninjected_exhaustion_reaches_the_module_function(watched_session, watch, monkeypatch):
+    """The notifier half of the same fallback, on the branch that gives up."""
+    notified = []
+
+    async def fake_notify(**kwargs):
+        notified.append(kwargs)
+
+    monkeypatch.setattr("sessions.pipeline_watch.service.anotify_watch_exhausted", fake_notify)
+    pipeline = make_pipeline("failed", pipeline_id=901)
+    watch.platform.pipeline = pipeline
+    await Session.objects.filter(thread_id=watched_session.thread_id).aupdate(watch_attempts=3)
+
+    await PipelineWatch("group/repo", platform=watch.platform).aevaluate(ref="daiv/branch", pipeline_id=901)
+
+    assert len(notified) == 1
+    assert notified[0]["pipeline"] is pipeline
+    assert notified[0]["session"].thread_id == watched_session.thread_id
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_green_pipeline_ends_the_watch(watched_session, watch):
     watch.platform.pipeline = make_pipeline("success")
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
@@ -240,8 +285,9 @@ async def test_a_webhook_pipeline_at_the_branch_head_is_judged(watched_session, 
 
 @pytest.mark.django_db(transaction=True)
 async def test_an_unreadable_head_sha_does_not_close_the_watch(watched_session, watch):
-    """Correlation is a precondition, not a verdict: if the head cannot be read, the safe move is
-    to leave the watch armed for the next event rather than to judge on an uncorrelated pipeline."""
+    """Correlation is a precondition, not a verdict: a merge request with no head sha to compare
+    against leaves the watch armed for the next event rather than judging an uncorrelated pipeline.
+    The read that *raises* is covered in ``test_platform.py``."""
     watch.platform.head_sha = None
     watch.platform.pipeline = make_pipeline("failed", pipeline_id=404)
 
