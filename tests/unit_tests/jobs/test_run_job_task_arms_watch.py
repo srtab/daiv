@@ -14,12 +14,20 @@ from jobs.tasks import run_job_task
 MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
 
 
+def _recorder(armed):
+    class _RecordingWatch:
+        def __init__(self, repo_id):
+            self.repo_id = repo_id
+
+        async def aarm_after_run(self, **kwargs):
+            armed.append({"repo_id": self.repo_id, **kwargs})
+
+    return _RecordingWatch
+
+
 async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int | None = None) -> list[dict]:
     """Run the task over a canned final checkpoint and return the watch-arm calls."""
     armed: list[dict] = []
-
-    async def _capture(**kwargs):
-        armed.append(kwargs)
 
     last_message = MagicMock()
     last_message.content = "ok"
@@ -45,7 +53,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("jobs.tasks.aarm_watch_after_run", _capture),
+        patch("jobs.tasks.PipelineWatch", _recorder(armed)),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx

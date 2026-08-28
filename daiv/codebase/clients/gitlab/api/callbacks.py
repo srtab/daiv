@@ -7,7 +7,7 @@ from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.service import arequest_watch_evaluation
+from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -393,8 +393,6 @@ class PipelineCallback(BaseCallback):
         )
 
     async def process_callback(self):
-        await arequest_watch_evaluation(
-            repo_id=self.project.path_with_namespace,
-            ref=self.object_attributes.ref,
-            pipeline_id=self.object_attributes.id,
+        await PipelineWatch(self.project.path_with_namespace).arequest_evaluation(
+            ref=self.object_attributes.ref, pipeline_id=self.object_attributes.id
         )

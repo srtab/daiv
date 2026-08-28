@@ -8,7 +8,7 @@ from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.service import arequest_watch_evaluation
+from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -371,6 +371,6 @@ class WorkflowRunCallback(GitHubCallback):
         )
 
     async def process_callback(self):
-        await arequest_watch_evaluation(
-            repo_id=self.repository.full_name, ref=self.workflow_run.head_branch, pipeline_id=self.workflow_run.id
+        await PipelineWatch(self.repository.full_name).arequest_evaluation(
+            ref=self.workflow_run.head_branch, pipeline_id=self.workflow_run.id
         )

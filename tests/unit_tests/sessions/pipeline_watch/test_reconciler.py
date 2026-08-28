@@ -2,7 +2,8 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.service import WATCH_MAX_AGE, WATCH_STALE_AFTER, areconcile_watches
+from sessions.pipeline_watch.platform import WatchPlatform
+from sessions.pipeline_watch.service import WATCH_MAX_AGE, WATCH_STALE_AFTER, PipelineWatch, areconcile_watches
 
 
 @pytest.mark.django_db(transaction=True)
@@ -18,10 +19,10 @@ async def test_a_stale_watching_session_is_re_evaluated(monkeypatch):
     )
     evaluated = []
 
-    async def fake_evaluate(**kwargs):
+    async def fake_evaluate(self, **kwargs):
         evaluated.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr(PipelineWatch, "aevaluate", fake_evaluate)
     touched = await areconcile_watches()
 
     assert touched == 1
@@ -42,10 +43,10 @@ async def test_a_fresh_watch_is_left_alone(monkeypatch):
     )
     evaluated = []
 
-    async def fake_evaluate(**kwargs):
+    async def fake_evaluate(self, **kwargs):
         evaluated.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr(PipelineWatch, "aevaluate", fake_evaluate)
     assert await areconcile_watches() == 0
     assert evaluated == []
 
@@ -61,10 +62,10 @@ async def test_a_watch_past_its_lifetime_is_abandoned(monkeypatch):
         watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
     )
 
-    async def fake_evaluate(**kwargs):
+    async def fake_evaluate(self, **kwargs):
         raise AssertionError("an expired watch must not be evaluated")
 
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", fake_evaluate)
+    monkeypatch.setattr(PipelineWatch, "aevaluate", fake_evaluate)
     await areconcile_watches()
 
     session = await Session.objects.aget(thread_id="ancient")
@@ -77,11 +78,11 @@ async def test_an_expired_watch_says_so_on_the_merge_request(monkeypatch):
     outage, a misconfigured cap and a pipeline that never started all look identical."""
     comments = []
 
-    async def fake_comment(**kwargs):
+    async def fake_comment(self, **kwargs):
         comments.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", fake_comment)
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr(WatchPlatform, "apost_note", fake_comment)
+    monkeypatch.setattr(PipelineWatch, "aevaluate", lambda self, **kw: _noop())
 
     await Session.objects.acreate(
         thread_id="ancient2",
@@ -103,8 +104,8 @@ async def test_an_expired_watch_says_so_on_the_merge_request(monkeypatch):
 async def test_an_expired_watch_is_logged_per_session(monkeypatch, caplog):
     """The only signal was an aggregate count with no repo and no thread, so nobody could
     reconstruct which watch gave up or why."""
-    monkeypatch.setattr("sessions.pipeline_watch.service._apost_watch_note", lambda **kw: _noop())
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr(WatchPlatform, "apost_note", lambda self, **kw: _noop())
+    monkeypatch.setattr(PipelineWatch, "aevaluate", lambda self, **kw: _noop())
 
     await Session.objects.acreate(
         thread_id="ancient3",
@@ -133,7 +134,7 @@ async def test_a_stuck_fixing_watch_is_recovered(monkeypatch):
         watch_state=WatchState.FIXING,
         watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
     )
-    monkeypatch.setattr("sessions.pipeline_watch.service.aevaluate_watch", lambda **kw: _noop())
+    monkeypatch.setattr(PipelineWatch, "aevaluate", lambda self, **kw: _noop())
     await areconcile_watches()
 
     session = await Session.objects.aget(thread_id="stuck")

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from django_tasks import task
 from sessions.locks import SessionLock
 from sessions.models import Run, Session
-from sessions.pipeline_watch.service import aarm_watch_after_run
+from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -228,8 +228,7 @@ async def run_job_task(
     )
 
     try:
-        await aarm_watch_after_run(
-            repo_id=repo_id,
+        await PipelineWatch(repo_id).aarm_after_run(
             run_id=run_id,
             merge_request=snapshot.values.get("merge_request"),
             published=bool(snapshot.values.get("published")),

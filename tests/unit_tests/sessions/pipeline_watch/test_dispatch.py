@@ -78,7 +78,7 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
 ):
     """The whole loop guard in one pass: dispatch, then the ``trigger_type`` read
     ``_ais_fix_run`` does off the Run row, then the arm that consumes it."""
-    from sessions.pipeline_watch.service import _ais_fix_run, aarm_watch_after_run
+    from sessions.pipeline_watch.service import PipelineWatch, _ais_fix_run
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
@@ -94,8 +94,7 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
 
     assert await _ais_fix_run(calls[0]["run_id"]) is True
 
-    await aarm_watch_after_run(
-        repo_id="group/repo",
+    await PipelineWatch("group/repo").aarm_after_run(
         run_id=calls[0]["run_id"],
         merge_request={"merge_request_id": MR_IID, "source_branch": "daiv/branch"},
         published=True,

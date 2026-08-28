@@ -6,10 +6,11 @@ The seam wiring itself (which callers reach this) is pinned per caller — see
 ``tests/unit_tests/chat/test_chat_arms_watch.py``.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sessions.pipeline_watch.service import aarm_watch_after_run
+from sessions.pipeline_watch.service import PipelineWatch
 
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -21,52 +22,59 @@ MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
 ARMING_SEAMS = {"jobs/tasks.py", "codebase/managers/issue_addressor.py", "chat/api/streaming.py"}
 
 
-@pytest.fixture
-def stub_watch(monkeypatch):
-    calls = {"armed": [], "exhausted": [], "enqueued": []}
+class RecordingWatch(PipelineWatch):
+    """Records the arm/exhaust decisions ``aarm_after_run`` makes, without touching the platform."""
 
-    async def fake_arm(**kwargs):
-        calls["armed"].append(kwargs)
+    def __init__(self, repo_id: str = "group/repo", **kwargs):
+        super().__init__(repo_id, **kwargs)
+        self.armed = []
+        self.exhausted = []
+
+    async def aarm(self, **kwargs):
+        self.armed.append(kwargs)
         return "mr-thread"
 
-    async def fake_exhaust(**kwargs):
-        calls["exhausted"].append(kwargs)
+    async def aexhaust(self, **kwargs):
+        self.exhausted.append(kwargs)
+
+
+@pytest.fixture
+def stub_watch(monkeypatch):
+    enqueued = []
 
     class FakeTask:
         async def aenqueue(self, **kwargs):
-            calls["enqueued"].append(kwargs)
+            enqueued.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service.aarm_watch", fake_arm)
-    monkeypatch.setattr("sessions.pipeline_watch.service.aexhaust_watch", fake_exhaust)
     monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
-    return calls
+    return SimpleNamespace(watch=RecordingWatch(), enqueued=enqueued)
 
 
 @pytest.mark.django_db
 async def test_a_published_run_arms_the_watch(stub_watch):
-    await aarm_watch_after_run(repo_id="group/repo", run_id=None, merge_request=MR, published=True)
+    await stub_watch.watch.aarm_after_run(run_id=None, merge_request=MR, published=True)
 
-    assert stub_watch["armed"][0]["merge_request_iid"] == 7
-    assert stub_watch["armed"][0]["ref"] == "daiv/branch"
-    assert stub_watch["armed"][0]["was_fix_run"] is False
+    assert stub_watch.watch.armed[0]["merge_request_iid"] == 7
+    assert stub_watch.watch.armed[0]["ref"] == "daiv/branch"
+    assert stub_watch.watch.armed[0]["was_fix_run"] is False
     # Arming must schedule an immediate evaluation, or the event our own push
     # triggered is missed and the watch waits for the reconciler.
-    assert stub_watch["enqueued"][0]["ref"] == "daiv/branch"
+    assert stub_watch.enqueued[0]["ref"] == "daiv/branch"
 
 
 @pytest.mark.django_db
 async def test_a_run_without_a_merge_request_arms_nothing(stub_watch):
-    await aarm_watch_after_run(repo_id="group/repo", run_id=None, merge_request=None, published=True)
-    assert stub_watch["armed"] == []
+    await stub_watch.watch.aarm_after_run(run_id=None, merge_request=None, published=True)
+    assert stub_watch.watch.armed == []
 
 
 @pytest.mark.django_db
 async def test_a_fix_run_arms_without_resetting_the_counter(stub_watch, monkeypatch):
     monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
 
-    await aarm_watch_after_run(repo_id="group/repo", run_id="a-fix-run", merge_request=MR, published=True)
+    await stub_watch.watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=True)
 
-    assert stub_watch["armed"][0]["was_fix_run"] is True
+    assert stub_watch.watch.armed[0]["was_fix_run"] is True
 
 
 @pytest.mark.django_db
@@ -74,10 +82,10 @@ async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch, monkeypa
     """Don't re-arm a watch nothing will ever move: no push means no pipeline, no event."""
     monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
 
-    await aarm_watch_after_run(repo_id="group/repo", run_id="a-fix-run", merge_request=MR, published=False)
+    await stub_watch.watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=False)
 
-    assert stub_watch["armed"] == []
-    assert stub_watch["exhausted"][0]["merge_request_iid"] == 7
+    assert stub_watch.watch.armed == []
+    assert stub_watch.watch.exhausted[0]["merge_request_iid"] == 7
 
 
 @pytest.mark.django_db
@@ -85,11 +93,11 @@ async def test_a_no_op_turn_on_an_existing_mr_does_not_re_arm(stub_watch):
     """A turn that changed nothing still carries the MR it sits on, so ``merge_request`` alone
     cannot gate the arm — re-arming here would reset the budget and re-judge an old pipeline,
     kicking off a fix run off the back of a turn that pushed nothing."""
-    await aarm_watch_after_run(repo_id="group/repo", run_id=None, merge_request=MR, published=False)
+    await stub_watch.watch.aarm_after_run(run_id=None, merge_request=MR, published=False)
 
-    assert stub_watch["armed"] == []
-    assert stub_watch["exhausted"] == []
-    assert stub_watch["enqueued"] == []
+    assert stub_watch.watch.armed == []
+    assert stub_watch.watch.exhausted == []
+    assert stub_watch.enqueued == []
 
 
 @pytest.mark.django_db
@@ -105,9 +113,9 @@ async def test_the_fix_run_verdict_comes_from_the_run_row(stub_watch, django_use
         session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="group/repo", status=RunStatus.SUCCESSFUL
     )
 
-    await aarm_watch_after_run(repo_id="group/repo", run_id=str(run.pk), merge_request=MR, published=True)
+    await stub_watch.watch.aarm_after_run(run_id=str(run.pk), merge_request=MR, published=True)
 
-    assert stub_watch["armed"][0]["was_fix_run"] is True
+    assert stub_watch.watch.armed[0]["was_fix_run"] is True
 
 
 def test_every_publishing_seam_that_should_arm_does():
@@ -116,7 +124,7 @@ def test_every_publishing_seam_that_should_arm_does():
     callers = {
         path.relative_to(DAIV_DIR).as_posix()
         for path in DAIV_DIR.rglob("*.py")
-        if "await aarm_watch_after_run(" in path.read_text()
+        if ".aarm_after_run(" in path.read_text()
     }
 
     assert callers == ARMING_SEAMS

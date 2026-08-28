@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.pipeline_watch.service import aarm_watch_after_run
+from sessions.pipeline_watch.service import PipelineWatch
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
@@ -183,8 +183,7 @@ class IssueAddressorManager(BaseManager):
                     logger.exception("issue_addressor: failed to persist session ref for thread_id=%s", self.thread_id)
 
                 try:
-                    await aarm_watch_after_run(
-                        repo_id=self.ctx.repository.slug,
+                    await PipelineWatch(self.ctx.repository.slug).aarm_after_run(
                         merge_request=snapshot.values.get("merge_request") if snapshot else None,
                         published=bool(snapshot.values.get("published")) if snapshot else False,
                         user_id=self.ctx.acting_user_id,

@@ -22,12 +22,20 @@ def _snapshot_event(**values):
     return SimpleNamespace(type=EventType.STATE_SNAPSHOT, snapshot=values)
 
 
+def _recorder(armed):
+    class _RecordingWatch:
+        def __init__(self, repo_id):
+            self.repo_id = repo_id
+
+        async def aarm_after_run(self, **kwargs):
+            armed.append({"repo_id": self.repo_id, **kwargs})
+
+    return _RecordingWatch
+
+
 async def _drive(stream_events: list) -> list[dict]:
     """Run a whole turn over a canned AG-UI event stream and return the watch-arm calls."""
     armed: list[dict] = []
-
-    async def _capture(**kwargs):
-        armed.append(kwargs)
 
     @asynccontextmanager
     async def _fake_set_runtime_ctx(repo_id, **kwargs):
@@ -69,7 +77,7 @@ async def _drive(stream_events: list) -> list[dict]:
         patch("chat.api.streaming.start_chat_run", AsyncMock(return_value=None)),
         patch("chat.api.streaming.SessionLock", MagicMock(release=AsyncMock())),
         patch("chat.api.streaming.apersist_session_ref", AsyncMock()),
-        patch("chat.api.streaming.aarm_watch_after_run", _capture),
+        patch("chat.api.streaming.PipelineWatch", _recorder(armed)),
     ):
         async for _event in streamer.events():
             pass
