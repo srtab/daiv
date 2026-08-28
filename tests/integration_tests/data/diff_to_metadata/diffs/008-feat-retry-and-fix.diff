@@ -1,0 +1,55 @@
+diff --git a/src/client/config.py b/src/client/config.py
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/client/config.py
++++ b/src/client/config.py
+@@ -8,6 +8,9 @@ class ClientConfig:
+     base_url: str
+     timeout_seconds: float = 30.0
++    max_retries: int = 0
++    retry_backoff_seconds: float = 0.5
++    retry_on_status: tuple[int, ...] = (502, 503, 504)
+
+     def validate(self) -> None:
+         if not self.base_url:
+diff --git a/src/client/http.py b/src/client/http.py
+index 2b3c4d5..6e7f8a9 100644
+--- a/src/client/http.py
++++ b/src/client/http.py
+@@ -1,4 +1,5 @@
+ import logging
++import time
+
+ import httpx
+
+@@ -19,10 +20,26 @@ class ApiClient:
+         self._config = config
+
+     def get(self, path: str) -> dict:
+-        response = self._session.get(f"{self._config.base_url}{path}")
+-        response.raise_for_status()
+-        return response.json()
++        attempt = 0
++        while True:
++            response = self._session.get(f"{self._config.base_url}{path}")
++            if response.status_code in self._config.retry_on_status and attempt < self._config.max_retries:
++                time.sleep(self._config.retry_backoff_seconds * (2**attempt))
++                attempt += 1
++                continue
++            response.raise_for_status()
++            return response.json()
+
+     def close(self) -> None:
+-        self._session.close()
++        if self._session is not None:
++            self._session.close()
++            self._session = None
+diff --git a/src/client/pagination.py b/src/client/pagination.py
+index 3c4d5e6..7f8a9b0 100644
+--- a/src/client/pagination.py
++++ b/src/client/pagination.py
+@@ -12,7 +12,7 @@ def iter_pages(client: ApiClient, path: str) -> Iterator[dict]:
+     while cursor is not None:
+         page = client.get(f"{path}?cursor={cursor}")
+         yield page
+-        cursor = page["next_cursor"]
++        cursor = page.get("next_cursor")

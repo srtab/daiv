@@ -47,7 +47,14 @@ CODING_MODEL_NAMES = [
     ModelName.MOONSHOTAI_KIMI_K2_6,
 ]
 
-FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_5_4_MINI]
+FAST_MODEL_NAMES = [
+    ModelName.GPT_5_4_MINI,
+    ModelName.GPT_5_6_LUNA,
+    ModelName.Z_AI_GLM_5_3_FLASH,
+    ModelName.DEEPSEEK_V4_FLASH_0731,
+    ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
+    ModelName.GEMINI_3_7_FLASH,
+]
 
 _PROVIDER_ENV_VAR = {
     "anthropic": "ANTHROPIC_API_KEY",

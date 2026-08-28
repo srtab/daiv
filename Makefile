@@ -66,8 +66,14 @@ makemessages:
 compilemessages:
 	uv run django-admin compilemessages
 
+# Credentials come from the dev stack's secrets file via pytest-env's --envfile, which loads it
+# early enough for Django's settings import and copes with the multiline PEM a shell `.` cannot.
+# LANGSMITH_TEST_TRACKING is required: langsmith's log_inputs raises when unset, so every test
+# fails on its first line. Export LANGSMITH_TRACING=true to send a run to LangSmith instead.
 integration-tests:
-	uv run pytest --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
+	CODEBASE_GITLAB_URL="$${CODEBASE_GITLAB_URL:-$$(sed -n 's/^CODEBASE_GITLAB_URL=//p' docker/local/app/config.env)}" \
+	LANGSMITH_TEST_TRACKING="$${LANGSMITH_TEST_TRACKING:-false}" \
+	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m diff_to_metadata
 
 swebench:
 	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10

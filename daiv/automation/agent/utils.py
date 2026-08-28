@@ -26,7 +26,9 @@ from .validators import AgentConfigurationError
 logger = logging.getLogger("daiv.agent")
 
 if TYPE_CHECKING:
-    from langchain_core.messages import ImageContentBlock
+    from collections.abc import Sequence
+
+    from langchain_core.messages import BaseMessage, ImageContentBlock
 
     from codebase.context import RuntimeCtx
     from codebase.repo_config import AgentModelConfig
@@ -218,6 +220,31 @@ def extract_text_content(content: str | list) -> str:
 
     # Fallback for unexpected types
     return str(content)
+
+
+FINAL_ASSISTANT_TEXT_MAX_CHARS = 6000
+
+# LoopBreakerMiddleware's terminal="error" reply, addressed to a parent agent rather than a human.
+_PARENT_AGENT_PREFIX = "ERROR:"
+
+
+def final_assistant_text(messages: Sequence[BaseMessage]) -> str | None:
+    """The agent's closing summary for a human, or ``None`` when it wrote none.
+
+    Walks back to the last ``AIMessage`` carrying prose: a turn can end on tool calls alone, and a
+    trailing ``HumanMessage`` (a manager appending the user's follow-up) is never the agent's own
+    summary. Truncated because callers feed it to a model alongside a diff.
+    """
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        text = extract_text_content(message.content).strip()
+        if not text or text.startswith(_PARENT_AGENT_PREFIX):
+            continue
+        if len(text) > FINAL_ASSISTANT_TEXT_MAX_CHARS:
+            return text[:FINAL_ASSISTANT_TEXT_MAX_CHARS].rstrip() + "…[truncated]"
+        return text
+    return None
 
 
 def get_daiv_agent_kwargs(

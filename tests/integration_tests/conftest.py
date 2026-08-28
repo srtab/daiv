@@ -18,6 +18,20 @@ _BUILT_IN_PROVIDER_ENV = {
 _BUILT_IN_SLUGS = set(_BUILT_IN_PROVIDER_ENV) | {"google"}
 
 
+def pytest_configure() -> None:
+    """Refuse to run credential-less rather than reporting a green suite that ran nothing.
+
+    Every model in ``CODING_MODEL_NAMES`` and ``FAST_MODEL_NAMES`` routes through OpenRouter, so
+    without this key ``require_provider_for_model`` skips every test and pytest still exits 0.
+    """
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        raise pytest.UsageError(
+            "OPENROUTER_API_KEY is not set, so every integration test would be skipped and the run "
+            "would still report success. Export it, or add it to docker/local/app/config.secrets.env "
+            "(loaded by the --envfile flag in `make integration-tests`)."
+        )
+
+
 def _discover_custom_slugs() -> set[str]:
     from .utils import CODING_MODEL_NAMES, FAST_MODEL_NAMES
 

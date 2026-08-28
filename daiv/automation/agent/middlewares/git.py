@@ -18,7 +18,7 @@ from langsmith import get_current_run_tree
 from automation.agent.git_manager import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
-from automation.agent.utils import conversation_thread_id
+from automation.agent.utils import conversation_thread_id, final_assistant_text
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -416,7 +416,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         publisher = GitChangePublisher(
             runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
         )
-        outcome = await publisher.publish(merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci)
+        outcome = await publisher.publish(
+            merge_request=self._publish_target(state, runtime),
+            skip_ci=self.skip_ci,
+            agent_summary=final_assistant_text(state.get("messages", [])),
+        )
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

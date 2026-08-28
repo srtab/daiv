@@ -201,6 +201,8 @@ ini_options.asyncio_mode = "auto"
 ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 
 [tool.pytest_env]
+# Applies to --envfile too (integration runs), so an exported credential beats the dev env file.
+env_files_skip_if_set = true
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 DJANGO_SECRET_KEY = "not-so-secret"
 ANTHROPIC_API_KEY = "anthropic-api-key"
