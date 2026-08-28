@@ -5,6 +5,7 @@ from typing import Any
 
 from django.db import Error as DatabaseError
 from django.utils.functional import SimpleLazyObject
+from django.utils.translation import gettext_lazy as _
 
 logger = logging.getLogger("daiv.accounts")
 
@@ -59,6 +60,16 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "mcp_servers": {"mcp_servers:list", "mcp_servers:create", "mcp_servers:edit", "mcp_servers:delete"},
     NAV_SECTION_MCP_GLOBAL: {"mcp_servers:global_list", "mcp_servers:global_create"},
 }
+
+# The mobile tab bar (< md), where the sidebar is a sheet. Four sections only — the bar is a
+# shortcut, not the whole nav — and the section keys are the ones above, so a tab can never
+# highlight a section that does not exist.
+NAV_TABS: tuple[dict[str, Any], ...] = (
+    {"section": "dashboard", "url_name": "dashboard", "icon": "squares-2x2", "label": _("Dashboard")},
+    {"section": "sessions", "url_name": "session_list", "icon": "chat-bubble", "label": _("Sessions")},
+    {"section": "schedules", "url_name": "schedule_list", "icon": "clock", "label": _("Schedules")},
+    {"section": "memory", "url_name": "memory:list", "icon": "cpu-chip", "label": _("Memory")},
+)
 
 
 def _resolve_active_section(request) -> str:
@@ -151,5 +162,6 @@ def nav(request) -> dict[str, Any]:
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
         "nav_active_section": _resolve_active_section(request),
+        "nav_tabs": NAV_TABS,
         "git_platform": codebase_settings.CLIENT.value,
     }

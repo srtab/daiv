@@ -4,7 +4,9 @@ from django import template
 
 register = template.Library()
 
-ACTIVE_CLASSES = "bg-white/[0.06] text-white"
+# `sidebar__nav-item--active` draws the 3px brand rail (see input.css); it is part of the
+# active state so no inactive item has to carry a hidden copy of the indicator.
+ACTIVE_CLASSES = "bg-surface-3 text-text-strong sidebar__nav-item--active"
 
 
 @register.simple_tag(takes_context=True)

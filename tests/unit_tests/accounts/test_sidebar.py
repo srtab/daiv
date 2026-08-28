@@ -49,6 +49,8 @@ class TestSidebarSmoke:
         assert response.status_code == 200
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
+        # The phone tier's nav — same shell, rendered on every page the sidebar is.
+        assert b'data-testid="mobile-tab-bar"' in response.content
 
 
 @pytest.mark.django_db
