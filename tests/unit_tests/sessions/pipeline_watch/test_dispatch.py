@@ -13,7 +13,8 @@ from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.service import _adispatch_fix_run
+from sessions.pipeline_watch.dispatch import FixRunDispatcher
+from sessions.pipeline_watch.judgment import PipelineReport
 
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
@@ -61,7 +62,9 @@ async def test_the_fix_run_row_exists_before_its_task_and_carries_the_run_id(stu
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session()
 
-    await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
 
     run = await Run.objects.aget(session_id=session.thread_id)
     assert calls[0]["run_id"] == str(run.pk)
@@ -91,7 +94,9 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
 
     monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeEvaluate())
 
-    await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
 
     assert await WatchStore().ais_fix_run(calls[0]["run_id"]) is True
 
@@ -117,7 +122,9 @@ async def test_the_fix_run_resolves_a_sandbox_environment(stub_enqueue, create_d
         scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
     )
 
-    await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
 
     run = await Run.objects.aget(session_id=session.thread_id)
     assert calls[0]["sandbox_environment_id"] == str(env.id)
@@ -137,7 +144,9 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
     monkeypatch.setattr("jobs.tasks.run_job_task", BrokenTask())
     session = await _make_watched_session(attempts=2)
 
-    await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
 
     await session.arefresh_from_db()
     assert session.watch_state == WatchState.WATCHING

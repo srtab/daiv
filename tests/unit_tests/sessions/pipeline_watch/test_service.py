@@ -6,6 +6,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
+from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.service import WATCH_STALE_AFTER, PipelineWatch
 
@@ -100,25 +101,30 @@ async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_an_uninjected_dispatch_reaches_the_module_function(watched_session, watch, monkeypatch):
-    """Production injects no dispatcher, so the ``is None`` fallback is the only path it takes —
-    and every other test here injects one. Without this, a signature drift or a misspelled
-    ``report.pipeline`` would raise exactly where a fix run should start, with the suite still green.
+async def test_an_uninjected_dispatcher_is_a_real_fix_run_dispatcher(watched_session, watch, monkeypatch):
+    """Production injects no dispatcher, so the ``FixRunDispatcher(self._store)`` default in
+    ``PipelineWatch.__init__`` is the only path it takes — and every other test here injects one.
+    Without this, a signature drift in the real ``FixRunDispatcher`` would raise exactly where a
+    fix run should start, with the suite still green.
     """
     dispatched = []
 
-    async def fake_dispatch(**kwargs):
+    async def fake_dispatch(self, **kwargs):
         dispatched.append(kwargs)
 
-    monkeypatch.setattr("sessions.pipeline_watch.service._adispatch_fix_run", fake_dispatch)
+    monkeypatch.setattr(FixRunDispatcher, "adispatch", fake_dispatch)
     pipeline = make_pipeline("failed", pipeline_id=900)
     watch.platform.pipeline = pipeline
 
-    await PipelineWatch("group/repo", platform=watch.platform).aevaluate(ref="daiv/branch", pipeline_id=900)
+    pw = PipelineWatch("group/repo", platform=watch.platform)
+    assert isinstance(pw._dispatcher, FixRunDispatcher)
+    # The store is shared deliberately: an injected store must also govern the refund.
+    assert pw._dispatcher._store is pw._store
+
+    await pw.aevaluate(ref="daiv/branch", pipeline_id=900)
 
     assert len(dispatched) == 1
-    # The pipeline, not the report that wraps it: the shim is what unwraps it.
-    assert dispatched[0]["pipeline"] is pipeline
+    assert dispatched[0]["report"].pipeline is pipeline
     assert dispatched[0]["repo_id"] == "group/repo"
     assert dispatched[0]["merge_request_iid"] == 7
     assert dispatched[0]["session"].thread_id == watched_session.thread_id
