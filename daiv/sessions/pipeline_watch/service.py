@@ -15,10 +15,11 @@ from codebase.base import Scope
 from codebase.clients.base import is_transient_platform_error
 from codebase.utils import compute_thread_id
 from sessions.locks import stale_cutoff
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
 from sessions.pipeline_watch.platform import WatchPlatform
 from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.store import WatchStore
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest, Pipeline
@@ -42,7 +43,7 @@ FIX_RUN_PROMPT = (
 async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: str, merge_request_iid: int) -> None:
     """Create the fix Run, then enqueue the agent task against it.
 
-    Create-then-enqueue is not cosmetic: ``_ais_fix_run`` below reads ``trigger_type`` back off
+    Create-then-enqueue is not cosmetic: ``WatchStore.ais_fix_run`` reads ``trigger_type`` back off
     the Run row, which is what keeps a re-arming fix run from resetting ``watch_attempts``.
     """
     from jobs.tasks import run_job_task
@@ -88,9 +89,7 @@ async def _adispatch_fix_run(*, session: Session, pipeline: Pipeline, repo_id: s
         await amark_failed_and_advance(
             run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY, log_context="pipeline_watch"
         )
-        await Session.objects.filter(thread_id=session.thread_id, watch_state=WatchState.FIXING).aupdate(
-            watch_state=WatchState.WATCHING, watch_attempts=F("watch_attempts") - 1, watch_pipeline_id=None
-        )
+        await WatchStore().arefund_attempt(session.thread_id)
         return
     try:
         run.task_result_id = result.id
@@ -120,32 +119,6 @@ async def anotify_watch_exhausted(*, session: Session, pipeline: Pipeline) -> No
         logger.exception("pipeline_watch: failed to notify the owner of thread_id=%s", session.thread_id)
 
 
-async def _ais_fix_run(run_id: str | None) -> bool:
-    """Whether this run was dispatched by the watch, which is what stops the arm resetting
-    ``watch_attempts``. A run with no row reads as False, so every fix-run dispatcher must pass
-    its ``run_id`` through to here or the loop bound is lost.
-    """
-    if not run_id:
-        return False
-    trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst()
-    return trigger_type == SessionOrigin.PIPELINE_WEBHOOK
-
-
-async def _atransition(thread_id: str, *, expect, where: dict | None = None, **updates) -> bool:
-    """Move a watch out of the states it is allowed to leave, reporting whether this caller won.
-
-    Every write to ``watch_state`` goes through here. Two events finishing together both pass their
-    checks off their own stale read, and only the row count says which one owns the transition —
-    without it each posts its own MR comment, which no constraint dedupes. ``where`` adds the
-    conditions a caller needs re-asserted inside the same statement.
-    """
-    expected = [expect] if isinstance(expect, str) else list(expect)
-    updated = await Session.objects.filter(thread_id=thread_id, watch_state__in=expected, **(where or {})).aupdate(
-        **updates
-    )
-    return updated == 1
-
-
 class PipelineWatch:
     """The CI watch on one repository's merge requests.
 
@@ -162,12 +135,14 @@ class PipelineWatch:
         dispatcher=None,
         notifier=None,
         policy: WatchPolicy | None = None,
+        store: WatchStore | None = None,
     ) -> None:
         self.repo_id = repo_id
         self._platform = platform or WatchPlatform(repo_id)
         self._dispatcher = dispatcher
         self._notifier = notifier
         self._policy = policy
+        self._store = store or WatchStore()
 
     async def _apolicy(self) -> WatchPolicy:
         if self._policy is None:
@@ -194,28 +169,14 @@ class PipelineWatch:
             return None
 
         thread_id = self._thread_id(merge_request_iid)
-        session, _created = await Session.objects.aget_or_create(
+        await self._store.aarm(
             thread_id=thread_id,
-            defaults={
-                "origin": SessionOrigin.PIPELINE_WEBHOOK,
-                "repo_id": self.repo_id,
-                "ref": ref,
-                "merge_request_iid": merge_request_iid,
-                "user_id": user_id,
-            },
+            repo_id=self.repo_id,
+            ref=ref,
+            merge_request_iid=merge_request_iid,
+            user_id=user_id,
+            reset_attempts=not was_fix_run,
         )
-        updates = {
-            "watch_state": WatchState.WATCHING,
-            "watch_armed_at": timezone.now(),
-            "ref": ref,
-            "merge_request_iid": merge_request_iid,
-        }
-        if user_id and session.user_id is None:
-            updates["user_id"] = user_id
-        if not was_fix_run:
-            updates["watch_attempts"] = 0
-            updates["watch_pipeline_id"] = None
-        await Session.objects.filter(thread_id=thread_id).aupdate(**updates)
         return thread_id
 
     async def aexhaust(self, *, merge_request_iid: int, reason: str) -> None:
@@ -225,7 +186,7 @@ class PipelineWatch:
         so nothing else would ever move this watch.
         """
         thread_id = self._thread_id(merge_request_iid)
-        if not await _atransition(thread_id, expect=WatchState.open(), watch_state=WatchState.EXHAUSTED):
+        if not await self._store.atransition(thread_id, expect=WatchState.open(), watch_state=WatchState.EXHAUSTED):
             return
         await self._platform.apost_note(
             merge_request_iid=merge_request_iid,
@@ -258,7 +219,7 @@ class PipelineWatch:
         if not merge_request_iid or not ref:
             return
 
-        was_fix_run = await _ais_fix_run(run_id)
+        was_fix_run = await self._store.ais_fix_run(run_id)
 
         if not published:
             # A fix run that pushed nothing will get no pipeline and therefore no event, so
@@ -284,20 +245,14 @@ class PipelineWatch:
         """
         from sessions.tasks import evaluate_pipeline_watch_task
 
-        if not await Session.objects.filter(repo_id=self.repo_id, ref=ref, watch_state=WatchState.WATCHING).aexists():
+        if not await self._store.ahas_open_watch(self.repo_id, ref):
             return False
         await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ref, pipeline_id=pipeline_id)
         return True
 
     async def aevaluate(self, *, ref: str, pipeline_id: int | None) -> None:
         """Judge the pipeline for a watched branch and take the one action it implies."""
-        session = (
-            await Session.objects
-            .filter(repo_id=self.repo_id, ref=ref, watch_state=WatchState.WATCHING)
-            .select_related("user")
-            .order_by("-watch_armed_at")
-            .afirst()
-        )
+        session = await self._store.aopen_watch(self.repo_id, ref)
         if session is None:
             return
         if pipeline_id is not None and session.watch_pipeline_id == pipeline_id:
@@ -335,7 +290,7 @@ class PipelineWatch:
 
     async def _aact(self, *, session: Session, report: PipelineReport) -> None:
         merge_request_iid = session.merge_request_iid
-        claim = functools.partial(_atransition, session.thread_id, expect=WatchState.WATCHING)
+        claim = functools.partial(self._store.atransition, session.thread_id, expect=WatchState.WATCHING)
 
         if report.judgment is Judgment.GREEN:
             await claim(watch_state=WatchState.GREEN, watch_pipeline_id=report.id)
@@ -404,13 +359,12 @@ async def areconcile_watches() -> int:
     of rows written.
     """
     now = timezone.now()
+    store = WatchStore()
 
     touched = 0
-    expired = Session.objects.filter(watch_state__in=WatchState.open(), watch_armed_at__lt=now - WATCH_MAX_AGE).only(
-        "thread_id", "repo_id", "merge_request_iid", "watch_state"
-    )[:WATCH_SWEEP_LIMIT]
+    expired = store.expiring_watches(now - WATCH_MAX_AGE, WATCH_SWEEP_LIMIT)
     async for session in expired:
-        if not await _atransition(session.thread_id, expect=WatchState.open(), watch_state=WatchState.UNCLEAR):
+        if not await store.atransition(session.thread_id, expect=WatchState.open(), watch_state=WatchState.UNCLEAR):
             continue
         # Where every unresolved failure lands — unreadable pipeline, dead fix run, pipeline that
         # never started. Closing it silently made those indistinguishable.
@@ -432,13 +386,9 @@ async def areconcile_watches() -> int:
 
     # A fix run that stopped heartbeating is dead by the same definition SessionLock uses to
     # take its slot over; the two have to move together.
-    touched += await Session.objects.filter(
-        watch_state=WatchState.FIXING, watch_armed_at__lt=stale_cutoff(now)
-    ).aupdate(watch_state=WatchState.WATCHING, watch_armed_at=now)
+    touched += await store.arecover_stale_fixing(cutoff=stale_cutoff(now), now=now)
 
-    stale = Session.objects.filter(
-        watch_state=WatchState.WATCHING, watch_armed_at__lt=now - WATCH_STALE_AFTER
-    ).values_list("repo_id", "ref", "thread_id")[:WATCH_SWEEP_LIMIT]
+    stale = store.stale_watching(now - WATCH_STALE_AFTER, WATCH_SWEEP_LIMIT)
     async for repo_id, ref, thread_id in stale:
         try:
             await PipelineWatch(repo_id).aevaluate(ref=ref, pipeline_id=None)

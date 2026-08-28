@@ -7,10 +7,10 @@ The seam wiring itself (which callers reach this) is pinned per caller — see
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.pipeline_watch.store import WatchStore
 
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -36,6 +36,16 @@ class RecordingWatch(PipelineWatch):
 
     async def aexhaust(self, **kwargs):
         self.exhausted.append(kwargs)
+
+
+class FixRunStore(WatchStore):
+    """Answers the ``trigger_type`` read without a Run row."""
+
+    def __init__(self, verdict: bool):
+        self._verdict = verdict
+
+    async def ais_fix_run(self, run_id):
+        return self._verdict
 
 
 @pytest.fixture
@@ -69,23 +79,23 @@ async def test_a_run_without_a_merge_request_arms_nothing(stub_watch):
 
 
 @pytest.mark.django_db
-async def test_a_fix_run_arms_without_resetting_the_counter(stub_watch, monkeypatch):
-    monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
+async def test_a_fix_run_arms_without_resetting_the_counter(stub_watch):
+    watch = RecordingWatch(store=FixRunStore(True))
 
-    await stub_watch.watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=True)
+    await watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=True)
 
-    assert stub_watch.watch.armed[0]["was_fix_run"] is True
+    assert watch.armed[0]["was_fix_run"] is True
 
 
 @pytest.mark.django_db
-async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch, monkeypatch):
+async def test_a_fix_run_that_pushed_nothing_ends_the_watch(stub_watch):
     """Don't re-arm a watch nothing will ever move: no push means no pipeline, no event."""
-    monkeypatch.setattr("sessions.pipeline_watch.service._ais_fix_run", AsyncMock(return_value=True))
+    watch = RecordingWatch(store=FixRunStore(True))
 
-    await stub_watch.watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=False)
+    await watch.aarm_after_run(run_id="a-fix-run", merge_request=MR, published=False)
 
-    assert stub_watch.watch.armed == []
-    assert stub_watch.watch.exhausted[0]["merge_request_iid"] == 7
+    assert watch.armed == []
+    assert watch.exhausted[0]["merge_request_iid"] == 7
 
 
 @pytest.mark.django_db
@@ -102,8 +112,8 @@ async def test_a_no_op_turn_on_an_existing_mr_does_not_re_arm(stub_watch):
 
 @pytest.mark.django_db
 async def test_the_fix_run_verdict_comes_from_the_run_row(stub_watch, django_user_model):
-    """``_ais_fix_run`` is the real read here rather than a stub: a dispatcher that forgets to
-    thread its ``run_id`` through silently resets the attempt counter and unbounds the loop."""
+    """``WatchStore.ais_fix_run`` is the real read here rather than a stub: a dispatcher that
+    forgets to thread its ``run_id`` through silently resets the attempt counter and unbounds the loop."""
     from sessions.models import Run, RunStatus, Session, SessionOrigin
 
     session = await Session.objects.acreate(

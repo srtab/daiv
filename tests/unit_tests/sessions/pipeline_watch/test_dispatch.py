@@ -77,8 +77,9 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
     stub_enqueue, create_db_task_result, monkeypatch
 ):
     """The whole loop guard in one pass: dispatch, then the ``trigger_type`` read
-    ``_ais_fix_run`` does off the Run row, then the arm that consumes it."""
-    from sessions.pipeline_watch.service import PipelineWatch, _ais_fix_run
+    ``WatchStore.ais_fix_run`` does off the Run row, then the arm that consumes it."""
+    from sessions.pipeline_watch.service import PipelineWatch
+    from sessions.pipeline_watch.store import WatchStore
 
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
@@ -92,7 +93,7 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
 
     await _adispatch_fix_run(session=session, pipeline=make_pipeline(), repo_id="group/repo", merge_request_iid=MR_IID)
 
-    assert await _ais_fix_run(calls[0]["run_id"]) is True
+    assert await WatchStore().ais_fix_run(calls[0]["run_id"]) is True
 
     await PipelineWatch("group/repo").aarm_after_run(
         run_id=calls[0]["run_id"],
