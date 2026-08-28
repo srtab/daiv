@@ -65,8 +65,9 @@ BREAKPOINT_TOKEN = re.compile(r"--breakpoint-popover:\s*(\d+)px")
 MEDIA = re.compile(r"@media \([^)]*?(\d+)px\) \{((?:[^{}]|\{[^{}]*\})*)\}")
 
 # The `:root` block that insets every bottom sheet once the sidebar is on screen. Its bound is
-# `sm:` itself rather than the number Tailwind compiles it to, so the two cannot drift apart.
-SHEET_INSET_SWITCH = re.compile(r"@media \(width >= theme\(--breakpoint-sm\)\) \{\s*:root \{([^{}]*)\}")
+# `md:` — the tier the sidebar appears at — rather than the number Tailwind compiles it to, so
+# the two cannot drift apart.
+SHEET_INSET_SWITCH = re.compile(r"@media \(width >= theme\(--breakpoint-md\)\) \{\s*:root \{([^{}]*)\}")
 SHEET_TOKENS = frozenset({"--sheet-inset-start", "--sheet-inset-end", "--sheet-width-cap", "--sheet-side-border"})
 # A surface pinned to the viewport, by the two properties that make one a bottom sheet.
 VIEWPORT_ANCHORED = re.compile(r"\.([\w-]+) \{([^{}]*position: fixed[^{}]*)\}")
@@ -154,7 +155,7 @@ def test_the_sheet_breakpoint_is_a_single_number():
 
 def test_a_bottom_sheet_never_opens_under_the_sidebar():
     """A sheet flush to the viewport edges is only right while the viewport *is* the content
-    area. From `sm:` up the sidebar is on screen while these are still sheets — tablets, and
+    area. From `md:` up the sidebar is on screen while these are still sheets — tablets, and
     phones in landscape — so a flush sheet spanned the nav too: Chromium paints it over the
     sidebar, and the browser this was reported from clipped the half that crossed the
     scrolling `<main>`, cutting every line off mid-word.
@@ -166,7 +167,7 @@ def test_a_bottom_sheet_never_opens_under_the_sidebar():
     css = INPUT_CSS.read_text(encoding="utf-8")
     switch = SHEET_INSET_SWITCH.search(css)
 
-    assert switch, "no `sm:` sheet-inset switch in input.css — a bottom sheet spans the sidebar again"
+    assert switch, "no `md:` sheet-inset switch in input.css — a bottom sheet spans the sidebar again"
     assert "var(--app-sidebar-width)" in switch.group(1), "the inset must come from the sidebar's own token"
 
     declared = set(re.findall(r"(--sheet-[\w-]+):", switch.group(1)))
@@ -182,7 +183,7 @@ def test_a_bottom_sheet_never_opens_under_the_sidebar():
             continue
 
         unread = [token for token in sorted(declared) if f"var({token}," not in body]
-        assert not unread, f".{cls} spans the sidebar from `sm:` up: {unread} unread, or read with no flush fallback"
+        assert not unread, f".{cls} spans the sidebar from `md:` up: {unread} unread, or read with no flush fallback"
 
 
 def test_the_sheet_inset_tracks_the_shell_it_dodges():
@@ -192,7 +193,7 @@ def test_the_sheet_inset_tracks_the_shell_it_dodges():
     pads by the gutter one rather than spelling `px-6` a second time.
 
     Scoped to each tag, not to the file: `<header>` carries a gutter of its own and
-    `sm:flex-col` contains `sm:flex`, so a whole-file substring passes either regression."""
+    `md:flex-col` contains `md:flex`, so a whole-file substring passes either regression."""
     aside = re.search(r"<aside\s[^>]*>", SIDEBAR_TEMPLATE.read_text(encoding="utf-8"))
     main = re.search(r"<main\s[^>]*>", BASE_APP_TEMPLATE.read_text(encoding="utf-8"))
 
@@ -200,8 +201,8 @@ def test_the_sheet_inset_tracks_the_shell_it_dodges():
     assert main, "base_app.html no longer opens a <main>"
 
     assert "w-(--app-sidebar-width)" in aside.group(), "the sidebar no longer sizes itself from --app-sidebar-width"
-    assert re.search(r"sm:flex(?![-\w])", aside.group()), (
-        "the sidebar appears at some width other than `sm:` — the switch's lower bound moved with it"
+    assert re.search(r"md:flex(?![-\w])", aside.group()), (
+        "the sidebar appears at some width other than `md:` — the switch's lower bound moved with it"
     )
     assert "sm:px-(--app-content-gutter)" in main.group(), (
         "<main> spells its own gutter again — the sheet inset can now drift from the content column"
