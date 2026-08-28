@@ -209,11 +209,10 @@ def extract_text_content(content: str | list) -> str:
         text_parts = []
         for block in content:
             if isinstance(block, dict):
-                # Handle different block types
-                if block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
-                elif "text" in block:
-                    text_parts.append(block["text"])
+                # Typed rather than key-present: providers send `text: null` on some blocks,
+                # and joining a None raises instead of contributing an empty string.
+                if isinstance(text := block.get("text"), str):
+                    text_parts.append(text)
             elif isinstance(block, str):
                 text_parts.append(block)
         return "".join(text_parts)

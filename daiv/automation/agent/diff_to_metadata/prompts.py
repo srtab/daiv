@@ -1,25 +1,22 @@
-from textwrap import dedent
+import re
 
 from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
+AGENT_REPORT_TAG = "agent_report"
 
-def render_agent_summary_context(summary: str) -> str:
-    """Frame the agent's closing summary as a caveat source, not a second description of the diff.
+_CLOSING_TAG = re.compile(rf"</\s*{AGENT_REPORT_TAG}\s*>", re.IGNORECASE)
+# A fence run opens a code block that runs until its match, swallowing the field rules below the
+# report. Backslash-escaped it is no longer a fence and still reads as the tildes the agent wrote.
+_FENCE_RUN = re.compile(r"^(\s{0,3})(~{3,}|`{3,})", re.MULTILINE)
 
-    Lives beside the prompt rather than in the publisher because the integration cases feed the
-    same block; the model's instructions and the evals must not drift apart.
+
+def sanitize_agent_report(summary: str) -> str:
+    """Neutralize the markup ``human_pr_metadata`` relies on to bound this prose.
+
+    The text is model-authored and may quote a repo file, so a literal closing tag or a code fence
+    would end the data block and put whatever follows it back among the instructions.
     """
-    return dedent(
-        """\
-        The agent that made these changes reported the following when it finished. Use it only for
-        caveats — work left unfinished, tests not run or failing, assumptions made, limitations
-        found, follow-ups needed. Never restate it as a description of the code changes:
-
-        ~~~markdown
-        {summary}
-        ~~~
-        """
-    ).format(summary=summary)
+    return _FENCE_RUN.sub(r"\1\\\2", _CLOSING_TAG.sub(f"&lt;/{AGENT_REPORT_TAG}&gt;", summary))
 
 
 system = SystemMessagePromptTemplate.from_template(
@@ -90,6 +87,16 @@ Additional context related to the changes:
 {{extra_context}}
 ~~~
 {{/extra_context}}
+{{#agent_report}}
+
+The agent that made these changes reported the following when it finished. Use it only for
+caveats — work left unfinished, tests not run or failing, assumptions made, limitations
+found, follow-ups needed. Never restate it as a description of the code changes:
+
+<agent_report>
+{{{agent_report}}}
+</agent_report>
+{{/agent_report}}
 
 Field rules:
 - title: short PR title (max ~70 chars) naming the primary change, based strictly on the diff.

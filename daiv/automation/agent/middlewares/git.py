@@ -413,13 +413,19 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if not self.auto_commit_changes:
             return update or None
 
+        try:
+            agent_summary = final_assistant_text(state.get("messages", []))
+        except Exception:
+            # A description sentence is never worth losing the run's work over, and this reads
+            # provider-shaped content blocks whose text is not guaranteed to be a string.
+            logger.exception("Could not read the run's closing summary; publishing without it")
+            agent_summary = None
+
         publisher = GitChangePublisher(
             runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
         )
         outcome = await publisher.publish(
-            merge_request=self._publish_target(state, runtime),
-            skip_ci=self.skip_ci,
-            agent_summary=final_assistant_text(state.get("messages", [])),
+            merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
         )
 
         if outcome.diff_stats is not None:

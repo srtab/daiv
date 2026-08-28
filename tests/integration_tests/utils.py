@@ -47,14 +47,22 @@ CODING_MODEL_NAMES = [
     ModelName.MOONSHOTAI_KIMI_K2_6,
 ]
 
-FAST_MODEL_NAMES = [
+# What production runs for this task (`diff_to_metadata_model_name` and its fallback). The suite
+# defaults to these two: at 12 cases each, the full candidate list is 84 paid runs and ~20 minutes.
+_PRODUCTION_MODELS = [ModelName.GEMINI_3_7_FLASH, ModelName.DEEPSEEK_V4_FLASH_0731]
+
+_CANDIDATE_MODELS = [
     ModelName.GPT_5_4_MINI,
+    ModelName.CLAUDE_HAIKU_4_5,
     ModelName.GPT_5_6_LUNA,
     ModelName.Z_AI_GLM_5_3_FLASH,
-    ModelName.DEEPSEEK_V4_FLASH_0731,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
-    ModelName.GEMINI_3_7_FLASH,
 ]
+
+# Set DAIV_EVAL_ALL_MODELS=1 to score the candidates too, e.g. before changing the site default.
+FAST_MODEL_NAMES = (
+    _PRODUCTION_MODELS + _CANDIDATE_MODELS if os.environ.get("DAIV_EVAL_ALL_MODELS") else _PRODUCTION_MODELS
+)
 
 _PROVIDER_ENV_VAR = {
     "anthropic": "ANTHROPIC_API_KEY",

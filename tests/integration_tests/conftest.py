@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+
+_HERE = Path(__file__).parent
 
 _BUILT_IN_PROVIDER_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
@@ -16,20 +19,6 @@ _BUILT_IN_PROVIDER_ENV = {
 # "google" is an alias parse_model_spec accepts; treat it as built-in so the
 # discovery scan doesn't try to provision it as a custom provider.
 _BUILT_IN_SLUGS = set(_BUILT_IN_PROVIDER_ENV) | {"google"}
-
-
-def pytest_configure() -> None:
-    """Refuse to run credential-less rather than reporting a green suite that ran nothing.
-
-    Every model in ``CODING_MODEL_NAMES`` and ``FAST_MODEL_NAMES`` routes through OpenRouter, so
-    without this key ``require_provider_for_model`` skips every test and pytest still exits 0.
-    """
-    if not os.environ.get("OPENROUTER_API_KEY"):
-        raise pytest.UsageError(
-            "OPENROUTER_API_KEY is not set, so every integration test would be skipped and the run "
-            "would still report success. Export it, or add it to docker/local/app/config.secrets.env "
-            "(loaded by the --envfile flag in `make integration-tests`)."
-        )
 
 
 def _discover_custom_slugs() -> set[str]:
@@ -92,16 +81,37 @@ def _provision_providers(django_db_setup, django_db_blocker):
         Provider.invalidate_cache()
 
 
+_MISSING_KEY_REASON = (
+    "OPENROUTER_API_KEY is not set. Export it, or add it to docker/local/app/config.secrets.env "
+    "(loaded by the --envfile flag in `make integration-tests`)."
+)
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Mark every integration test as needing DB access.
+    """Mark every integration test as needing DB access, and refuse to run this suite blind.
 
     Required so pytest-django's ``django_db_setup`` actually creates the test
     schema: by default it skips DB creation when no test asks for DB access
     via a marker or fixture, and our session-scoped ``_provision_providers``
     fixture's DB queries don't trigger the check.
+
+    Every model routes through OpenRouter, so without that key
+    ``require_provider_for_model`` skips every test and pytest exits 0 — which is how this suite
+    once sat unrunnable and green. A run that is *only* this suite therefore fails outright, while
+    a wider run (bare ``pytest``, which ``testpaths`` points at all of ``tests/``) keeps its unit
+    tests and skips these with the reason attached. ``trylast`` so marker deselection has already
+    happened and ``-m`` narrowing is visible here.
     """
-    for item in items:
+    ours = [item for item in items if _HERE in item.path.parents]
+    for item in ours:
         item.add_marker(pytest.mark.django_db)
+
+    if ours and not os.environ.get("OPENROUTER_API_KEY"):
+        if len(ours) == len(items):
+            raise pytest.UsageError(_MISSING_KEY_REASON)
+        for item in ours:
+            item.add_marker(pytest.mark.skip(reason=_MISSING_KEY_REASON))
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

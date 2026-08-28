@@ -586,6 +586,13 @@ class TestFinalAssistantText:
 
         assert final_assistant_text(messages) == "Added the endpoint."
 
+    def test_a_content_block_with_a_null_text_does_not_raise(self):
+        """Providers send `text: null` on some blocks, and joining a None raised — which, on the
+        publish path, aborted the whole publish rather than losing one sentence."""
+        messages = [AIMessage(content=[{"type": "text", "text": None}, {"type": "text", "text": "Added it."}])]
+
+        assert final_assistant_text(messages) == "Added it."
+
     def test_truncates_a_long_summary_and_marks_it(self):
         messages = [AIMessage("x" * (FINAL_ASSISTANT_TEXT_MAX_CHARS + 500))]
 

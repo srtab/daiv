@@ -947,3 +947,12 @@ class TestAgentSummaryReachesThePublisher:
         summary = await self._summary_handed_to_publish({"merge_request": None})
 
         assert summary is None
+
+    async def test_an_unreadable_transcript_still_publishes(self, caplog):
+        """The read is evaluated as an argument to publish, so anything it raises means nothing is
+        committed, pushed or opened — over a sentence in a description."""
+        with caplog.at_level("ERROR"):
+            summary = await self._summary_handed_to_publish({"merge_request": None, "messages": object()})
+
+        assert summary is None
+        assert "closing summary" in caplog.text

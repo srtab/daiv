@@ -25,7 +25,7 @@ from core.site_settings import site_settings
 from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
-from .diff_to_metadata.prompts import render_agent_summary_context
+from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -454,9 +454,9 @@ class GitChangePublisher(ChangePublisher):
             ctx: The runtime context.
             commit_message_diff: The diff of the commit message.
             pr_metadata_diff: The diff of the PR metadata. If None, the PR metadata will not be computed.
-            agent_summary: The agent's closing summary, carrying what the diff cannot record — a test
-                that could not run, work left unfinished. Only used when writing PR metadata; a
-                one-line commit subject has nowhere to put it.
+            agent_summary: The agent's closing summary — a test that could not run, work left
+                unfinished. Reaches the PR-metadata prompt only; the commit-message template
+                declares no slot for it, so a one-line subject cannot pick up a caveat.
 
         Returns:
             The pull request metadata and commit message.
@@ -480,10 +480,11 @@ class GitChangePublisher(ChangePublisher):
             )
         if refs_context := render_agent_context(self.ctx.references):
             context_parts.append(refs_context)
-        if agent_summary and pr_metadata_diff:
-            context_parts.append(render_agent_summary_context(agent_summary))
         if context_parts:
             input_data["extra_context"] = "\n\n".join(context_parts)
+        # Its own key, not `extra_context`: that one is handed to the commit-message agent too.
+        if agent_summary and pr_metadata_diff:
+            input_data["agent_report"] = sanitize_agent_report(agent_summary)
 
         if pr_metadata_diff:
             input_data["pr_metadata_diff"] = redact_diff_content(

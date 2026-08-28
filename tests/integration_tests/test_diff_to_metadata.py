@@ -5,11 +5,11 @@ import pytest
 from langsmith import testing as t
 
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
-from automation.agent.diff_to_metadata.prompts import render_agent_summary_context
+from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
-from .description_shape import shape_violations
+from .description_shape import shape_violations, validate_expectation
 from .evaluators import get_correctness_evaluator
 from .utils import FAST_MODEL_NAMES, require_provider_for_model
 
@@ -35,17 +35,17 @@ def load_cases() -> list[pytest.param]:
             inputs["context_file_content"] = _read_text(inputs.pop("context_file_content_path"))
         if "extra_context_path" in inputs:
             inputs["extra_context"] = _read_text(inputs.pop("extra_context_path"))
-        # The agent's closing summary reaches the model through the same block the publisher
-        # builds, so a case exercises the real composition rather than a paraphrase of it.
+        # Fed through the publisher's own key and sanitizer, so a case exercises the real
+        # composition — the framing text lives in the template both paths share.
         if agent_summary := inputs.pop("agent_summary", None):
-            summary_context = render_agent_summary_context(agent_summary)
-            existing = inputs.get("extra_context")
-            inputs["extra_context"] = f"{existing}\n\n{summary_context}" if existing else summary_context
+            inputs["agent_report"] = sanitize_agent_report(agent_summary)
 
         reference_outputs = row.get("reference_outputs")
         case_id = row.get("id", "case")
+        expect = row.get("expect", {})
+        validate_expectation(expect)
 
-        yield pytest.param(inputs, reference_outputs, row.get("expect", {}), id=case_id)
+        yield pytest.param(inputs, reference_outputs, expect, id=case_id)
 
 
 @pytest.mark.diff_to_metadata
@@ -81,8 +81,10 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs, expect):
 
     # Shape first: the judge grades meaning against the reference output and has no opinion on
     # padding, so a description that says the right thing at four times the length passes it.
-    if expect and outputs["pr_metadata"]:
+    # Unconditional on `expect`: some checks apply to every description, not only to opted-in ones.
+    if outputs["pr_metadata"] is not None:
         description = outputs["pr_metadata"]["description"]
+        assert description.strip(), "Empty description"
         violations = shape_violations(description, expect)
         assert not violations, "Description shape: " + "; ".join(violations) + f"\n\n---\n{description}"
 

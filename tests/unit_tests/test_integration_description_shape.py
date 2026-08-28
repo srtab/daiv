@@ -6,7 +6,14 @@ what hold the prose-first shape, and they live in the fast suite because
 ``make integration-tests`` deselects everything outside the ``diff_to_metadata`` marker.
 """
 
-from tests.integration_tests.description_shape import prose_word_count, shape_violations
+import os
+import subprocess  # noqa: S404
+import sys
+from pathlib import Path
+
+import pytest
+
+from tests.integration_tests.description_shape import prose_word_count, shape_violations, validate_expectation
 
 
 class TestKeyChangesSection:
@@ -83,8 +90,6 @@ class TestExpectations:
 
     def test_an_unknown_expectation_key_is_rejected(self):
         """A typo in cases.jsonl would otherwise silently check nothing."""
-        import pytest
-
         with pytest.raises(ValueError, match="max_word"):
             shape_violations("text", {"max_word": 10})
 
@@ -161,3 +166,107 @@ class TestSiblingFieldLeak:
         description = "**Key Changes:**\n- one\n\nCommit message: `fix: x`"
 
         assert len(shape_violations(description, {"no_key_changes": True})) == 2
+
+
+class TestOrderedLists:
+    """Numbering the same restated hunks is the same padding, and a model reaches for `1.` as
+    readily as `-` once the heading is gone."""
+
+    def test_a_numbered_list_counts_as_a_bullet_list(self):
+        description = "Adds a /health endpoint.\n\n1. Added the route.\n2. Wired the router."
+
+        assert shape_violations(description, {"no_key_changes": True})
+
+    def test_a_parenthesised_numbered_list_counts(self):
+        description = "Adds a /health endpoint.\n\n1) Added the route.\n2) Wired the router."
+
+        assert shape_violations(description, {"no_key_changes": True})
+
+    def test_a_numbered_sentence_reference_is_not_a_list(self):
+        assert shape_violations("Fixes the bug reported in 1. of the issue.", {"no_key_changes": True}) == []
+
+
+class TestSectionLabelsInsideListItems:
+    """Both section checks are line-anchored, and a bullet is the form a model reaches for when
+    the prompt asked for bullets two paragraphs earlier."""
+
+    def test_a_bulleted_notes_label_counts_as_a_notes_section(self):
+        assert shape_violations("Adds it.\n\n- Notes: suite not run.", {"no_notes": True})
+
+    def test_a_bulleted_notes_label_satisfies_has_notes(self):
+        """The worse half: this used to report the caveat as missing on a description that had it."""
+        assert shape_violations("Adds it.\n\n- Notes: suite not run.", {"has_notes": True}) == []
+
+    def test_a_bulleted_field_leak_is_detected(self):
+        assert shape_violations("Guards it.\n\n- Commit message: `fix: x`", {})
+
+
+class TestKeyChangesIsLineAnchored:
+    def test_the_phrase_inside_a_sentence_is_not_a_heading(self):
+        """`_NOTES_HEADING` and `_FIELD_LEAK` were anchored; this one was not."""
+        assert shape_violations("The key changes here are internal only.", {"no_key_changes": True}) == []
+
+    def test_a_real_heading_is_still_caught(self):
+        assert shape_violations("Adds it.\n\n**Key Changes:**\n- a\n- b", {"no_key_changes": True})
+
+
+class TestExpectationValidation:
+    """Called from ``load_cases``, so a malformed block fails at collection rather than after one
+    paid model call per case per model."""
+
+    def test_contradictory_notes_expectations_are_rejected(self):
+        with pytest.raises(ValueError, match="contradictory"):
+            validate_expectation({"has_notes": True, "no_notes": True})
+
+    def test_a_string_budget_is_rejected(self):
+        """It used to reach the comparison and raise TypeError mid-test instead."""
+        with pytest.raises(ValueError, match="max_words must be an int"):
+            validate_expectation({"max_words": "70"})
+
+    def test_a_bool_budget_is_rejected(self):
+        with pytest.raises(ValueError, match="max_words must be an int"):
+            validate_expectation({"max_words": True})
+
+    def test_a_non_bool_flag_is_rejected(self):
+        with pytest.raises(ValueError, match="has_notes must be a bool"):
+            validate_expectation({"has_notes": "yes"})
+
+    def test_a_well_formed_block_passes(self):
+        validate_expectation({"no_key_changes": True, "max_words": 70, "no_notes": True})
+
+
+class TestTheCredentialGuardScope:
+    """``testpaths`` points bare ``pytest`` at all of ``tests/``, so a session-wide raise from the
+    integration conftest took the unit suite down with it — 4889 tests collected, none run."""
+
+    @staticmethod
+    def _run(args: list[str], *, key: str | None) -> subprocess.CompletedProcess:
+        env = {**os.environ, "LANGCHAIN_TRACING_V2": "false"}
+        env.pop("OPENROUTER_API_KEY", None)
+        if key is not None:
+            env["OPENROUTER_API_KEY"] = key
+        return subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "pytest", "--no-cov", "-q", "--collect-only", *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=Path(__file__).resolve().parents[2],
+        )
+
+    def test_a_wider_run_still_collects_without_the_key(self):
+        args = ["tests/unit_tests/test_integration_description_shape.py", "tests/integration_tests"]
+        result = self._run(args, key=None)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_an_integration_only_run_refuses_without_the_key(self):
+        """Otherwise every test skips and pytest exits 0 — how this suite sat unrunnable and green."""
+        result = self._run(["tests/integration_tests"], key=None)
+
+        assert result.returncode != 0
+        assert "OPENROUTER_API_KEY" in result.stdout + result.stderr
+
+    def test_an_integration_only_run_collects_with_the_key(self):
+        result = self._run(["tests/integration_tests"], key="dummy")
+
+        assert result.returncode == 0, result.stdout + result.stderr
