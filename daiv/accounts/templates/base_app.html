@@ -9,7 +9,7 @@
 {% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
-     @keydown.escape.window="if (mobileNavOpen) mobileNavOpen = false"
+     @keydown.escape.window="mobileNavOpen = false"
      class="flex h-dvh bg-ground">
   {% include "accounts/_sidebar.html" %}
 
@@ -65,33 +65,21 @@
     </main>
   </div>
 
-  {# Bottom tab bar (< 768px) — exactly four tabs, touch targets >= 44px. #}
+  {% comment %}
+  Bottom tab bar (< 768px). The tabs come from `NAV_TABS` in accounts.context_processors,
+  beside the section keys they highlight against; `.tabbar__link` carries the appearance
+  and the >= 44px touch-target floor.
+  {% endcomment %}
   <nav data-testid="mobile-tab-bar" aria-label="{% translate 'Primary' %}"
        class="fixed inset-x-0 bottom-0 z-30 flex h-(--app-tabbar-height) border-t border-border bg-surface-1 md:hidden">
-    <a href="{% url 'dashboard' %}"
-       {% if nav_active_section == 'dashboard' %}aria-current="page"{% endif %}
-       class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] {% if nav_active_section == 'dashboard' %}text-text-strong{% else %}text-text-muted{% endif %}">
-      {% icon "squares-2x2" "h-5 w-5" %}
-      <span>{% translate "Dashboard" %}</span>
+    {% for tab in nav_tabs %}
+    <a href="{% url tab.url_name %}"
+       {% if nav_active_section == tab.section %}aria-current="page"{% endif %}
+       class="tabbar__link {% if nav_active_section == tab.section %}text-text-strong{% else %}text-text-muted{% endif %}">
+      {% icon tab.icon "h-5 w-5" %}
+      <span>{{ tab.label }}</span>
     </a>
-    <a href="{% url 'session_list' %}"
-       {% if nav_active_section == 'sessions' %}aria-current="page"{% endif %}
-       class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] {% if nav_active_section == 'sessions' %}text-text-strong{% else %}text-text-muted{% endif %}">
-      {% icon "chat-bubble" "h-5 w-5" %}
-      <span>{% translate "Sessions" %}</span>
-    </a>
-    <a href="{% url 'schedule_list' %}"
-       {% if nav_active_section == 'schedules' %}aria-current="page"{% endif %}
-       class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] {% if nav_active_section == 'schedules' %}text-text-strong{% else %}text-text-muted{% endif %}">
-      {% icon "clock" "h-5 w-5" %}
-      <span>{% translate "Schedules" %}</span>
-    </a>
-    <a href="{% url 'memory:list' %}"
-       {% if nav_active_section == 'memory' %}aria-current="page"{% endif %}
-       class="flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] {% if nav_active_section == 'memory' %}text-text-strong{% else %}text-text-muted{% endif %}">
-      {% icon "cpu-chip" "h-5 w-5" %}
-      <span>{% translate "Memory" %}</span>
-    </a>
+    {% endfor %}
   </nav>
 </div>
 {% endblock content %}

@@ -18,7 +18,7 @@
         </svg>
     </div>
     <div x-combobox:options x-cloak
-         class="surface-rise absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-white/[0.06] bg-[#0d1117] shadow-lg">
+         class="surface-rise absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-white/[0.06] bg-surface-2 shadow-lg">
         <ul>
             <template x-for="repo in results" :key="repo.slug" hidden>
                 <li x-combobox:option :value="repo.slug"

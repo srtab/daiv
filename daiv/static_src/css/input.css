@@ -15,17 +15,21 @@
   --breakpoint-popover: 1100px;
 
   /* The app shell's content column, restated for the `position: fixed` sheets that measure
-     the viewport instead. The shell renders from these too — see `--sheet-inset-start`. */
-  --app-sidebar-width: 15rem;
+     the viewport instead. The shell renders from these too — see `--sheet-inset-start`.
+     This is the icon rail's width; the `lg:` switch below widens it. One token, so a
+     sheet's inset can never disagree with the sidebar it dodges. */
+  --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
   /* The bottom tab bar below `md`. `<main>` pads by it on the chat surface, whose
      sticky dock would otherwise sit under the bar. */
   --app-tabbar-height: 3.5rem;
 
-  /* Dark-only semantic token layer. Values are authoritative in DESIGN.md; they live in
-     the Tailwind v4 `--color-*` namespace so the utilities generate (bg-ground,
-     text-text-muted, border-border, text-status-found, …). There is no light variant. */
+  /* Dark-only semantic token layer, declared once here — DESIGN.md documents the roles,
+     nothing else restates a value. They live in the Tailwind v4 `--color-*` namespace so
+     the utilities generate (bg-ground, text-text-muted, border-border, …). There is no
+     light variant. The `status-*` ramp is declared ahead of the surfaces that read it;
+     Tailwind emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
   --color-surface-1: #10151d; /* sidebar + top bar */
   --color-surface-2: #161c26; /* cards + hero */
@@ -44,7 +48,7 @@
   --color-accent-bright: #5fe6d4; /* teal text (AA) */
   --color-accent-ink: #04211d; /* text on a solid teal fill */
 
-  --color-focus: #5fe6d4; /* focus ring */
+  --color-focus: var(--color-accent-bright); /* focus ring */
 
   --color-status-clear: #3fb950; /* all-clear (green) */
   --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
@@ -92,8 +96,8 @@
   }
 }
 
-/* A blanket reduced-motion kill switch. Written outside `@layer` so it wins over the
-   animation utilities and keyframes; the surface-rise switch below tunes its own duration. */
+/* A blanket reduced-motion kill switch. Written outside `@layer`, and `!important`, so it
+   wins over every animation utility and keyframe roster in this file. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -101,24 +105,16 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
 
-/* The sidebar's icon-rail tier (768–1023px). The persistent sidebar carries
-   `.sidebar--rail`; the mobile sheet reuses the same partial WITHOUT the modifier, so it
-   always shows full labels. Plain rules so they beat the width utility on the root. */
-@media (min-width: 768px) and (max-width: 1023px) {
-  .sidebar--rail {
-    width: 4rem;
-  }
-
-  .sidebar--rail .sidebar__label,
-  .sidebar--rail .sidebar__group-label,
-  .sidebar--rail .sidebar__cta-label,
-  .sidebar--rail .sidebar__brand-text,
-  .sidebar--rail .sidebar__badge,
-  .sidebar--rail .sidebar__build-info {
+/* The sidebar's icon-rail tier. Its width is `--app-sidebar-width`, so only what the rail
+   *hides* lives here. The persistent sidebar carries `.sidebar--rail`; the mobile sheet
+   reuses the same partial WITHOUT the modifier, so it always shows full labels. Bounds read
+   the breakpoint tokens rather than the px they compile to, and the rules are unlayered
+   because `display: none` has to beat the utilities on the elements it hides. */
+@media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg)) {
+  .sidebar--rail .sidebar__collapsible {
     display: none;
   }
 
@@ -131,8 +127,37 @@
     padding-right: 0.5rem;
   }
 
+  /* The heading keeps its box so the groups stay separated once its label is hidden. */
   .sidebar--rail .sidebar__group-heading {
     height: 1.25rem;
+  }
+}
+
+@layer components {
+  /* The app shell's two nav surfaces: the sidebar's items and the mobile tab bar. One
+     declaration each, so a tweak isn't 13 or 4 identical utility chains. */
+  .sidebar__nav-item {
+    @apply relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm
+           text-text-muted transition-colors hover:text-text;
+  }
+
+  /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
+     the one active item instead of hidden with `opacity-0` inside every other. */
+  .sidebar__nav-item--active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.375rem;
+    bottom: 0.375rem;
+    width: 3px;
+    border-radius: 0 0.25rem 0.25rem 0;
+    background: var(--color-brand);
+  }
+
+  /* `min-height` is the touch-target floor, not the height: the bar is
+     `--app-tabbar-height` and the links stretch to it. */
+  .tabbar__link {
+    @apply flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px];
   }
 }
 
@@ -167,14 +192,14 @@
 .composer-autocomplete,
 .filter-menu,
 .card__menu-panel {
-  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out backwards;
+  animation: surface-rise 180ms ease-out backwards;
 }
 
-/* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
-   they just stop travelling. */
-@media (prefers-reduced-motion: reduce) {
+/* The sidebar's second tier: the icon rail becomes the full column. `--app-sidebar-width`
+   is the only place either width lives, so the sheet inset below tracks both tiers. */
+@media (width >= theme(--breakpoint-lg)) {
   :root {
-    --surface-rise-duration: 0.01ms;
+    --app-sidebar-width: 15rem;
   }
 }
 
@@ -213,13 +238,9 @@ html {
 }
 
 /* Drop <main>'s bottom padding on chat detail so the sticky dock reaches the actual
-   viewport bottom. `!important` is needed to beat the padding utilities applied directly on
-   <main>. Below `md` the padding becomes the tab bar's height instead of zero: a sticky
-   `bottom: 0` sticks to the padding box, which is what lifts the dock clear of the bar. */
-main:has(.chat-shell) {
-  padding-bottom: var(--app-tabbar-height) !important;
-}
-
+   viewport bottom. `!important` is needed to beat the padding utility on <main>. Only from
+   `md:` up: below it <main>'s own `pb-(--app-tabbar-height)` is what holds the dock clear
+   of the tab bar, since a sticky `bottom: 0` sticks to the padding box. */
 @media (width >= theme(--breakpoint-md)) {
   main:has(.chat-shell) {
     padding-bottom: 0 !important;
@@ -2221,7 +2242,7 @@ main:has(.chat-shell) {
     z-index: 40;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    background: #0d1117;
+    background: var(--color-surface-2);
     box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
     padding: 8px;
     --surface-rise-from: 6px;
@@ -2266,7 +2287,7 @@ main:has(.chat-shell) {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     border-inline: var(--sheet-side-border, 0px) solid rgba(255, 255, 255, 0.08);
     border-radius: 18px 18px 0 0;
-    background: #0d1117;
+    background: var(--color-surface-2);
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
     /* Further than a menu: a sheet enters from off the bottom edge, not from its trigger. */
     --surface-rise-from: 12px;
@@ -2769,7 +2790,7 @@ main:has(.chat-shell) {
      it doesn't fit. Below 1100px these stop floating altogether. */
   .picker-popover {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
-    background: #0d1117;
+    background: var(--color-surface-2);
     border-color: rgba(255, 255, 255, 0.08);
     left: 0;
     width: 320px;
@@ -3025,7 +3046,7 @@ main:has(.chat-shell) {
   .filter-control--active { @apply border-white/[0.12] text-white; }
   .filter-menu {
     @apply absolute z-20 mt-1.5 min-w-[12rem] rounded-xl border border-white/[0.08]
-      bg-[#0d1117] p-1 shadow-xl;
+      bg-surface-2 p-1 shadow-xl;
   }
   .filter-menu-item {
     @apply flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-gray-300

@@ -39,8 +39,9 @@ use the raw Tailwind utilities in the legacy table that follows. Prefer the toke
 
 Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
 block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
-`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). These
-values are authoritative — `input.css` restates them, nothing else should.
+`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). `input.css`
+declares each value exactly once and the table below documents the roles; **nothing
+else restates a value.**
 
 | Token | Value | Role |
 |---|---|---|
@@ -52,7 +53,7 @@ values are authoritative — `input.css` restates them, nothing else should.
 | `text` / `text-strong` / `text-muted` / `text-faint` | `#E6EDF3` / `#FFFFFF` / `#9AA4B0` / `#767F8E` | text ramp |
 | `brand` / `brand-bright` | `#8B5CF6` / `#A78BFA` | violet — WHO/brand & mark only, **never a CTA** |
 | `accent` / `accent-bright` / `accent-ink` | `#2DD4BF` / `#5FE6D4` / `#04211D` | teal — DO/action; owns "clickable" |
-| `focus` | `#5FE6D4` | focus ring |
+| `focus` | = `accent-bright` | focus ring — reads the accent token, so the teal ramp moves as one |
 | `status-clear` / `status-found` / `status-attn` / `status-fail` | `#3FB950` / `#D6A036` / `#38BDF8` / `#F85149` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
 
 Weak-tint status backgrounds = the status token at ~14–16% alpha via
@@ -60,21 +61,29 @@ Weak-tint status backgrounds = the status token at ~14–16% alpha via
 
 #### Legacy raw utilities (pages not yet on the tokens)
 
-| Role             | Value                              | Usage                               |
-|------------------|------------------------------------|---------------------------------------|
-| Surface          | `bg-white/[0.02]`                  | Cards, containers                     |
-| Surface hover    | `bg-white/[0.04]`                  | Card hover state                      |
-| Surface elevated | `bg-white/[0.06]`                  | Inline code, subtle wells             |
-| Border default   | `border-white/[0.06]`             | Card borders, dividers, form inputs   |
-| Border hover     | `border-white/[0.12]`             | Interactive hover borders             |
-| Border focus     | `border-white/[0.15]`             | Focused inputs                        |
-| Text primary     | `text-white`                       | Headings, strong content              |
-| Text secondary   | `text-gray-300`                    | Body text                             |
-| Text tertiary    | `text-gray-400`                    | Labels, meta, descriptions            |
-| Text muted       | `text-gray-500`                    | Placeholders                          |
-| Select bg        | `bg-[#0d1117]`                     | `<select>` dropdown background        |
+These are what most pages still use. The last column is the token each row becomes, so
+migrating a page is mechanical rather than a judgement call — take the whole page at once,
+never half.
+
+| Role             | Legacy value                       | Usage                                 | Migrates to     |
+|------------------|------------------------------------|---------------------------------------|-----------------|
+| Surface          | `bg-white/[0.02]`                  | Cards, containers                     | `surface-2`     |
+| Surface hover    | `bg-white/[0.04]`                  | Card hover state                      | `surface-3`     |
+| Surface elevated | `bg-white/[0.06]`                  | Inline code, subtle wells             | `surface-3`     |
+| Border default   | `border-white/[0.06]`             | Card borders, dividers, form inputs   | `border`        |
+| Border hover     | `border-white/[0.12]`             | Interactive hover borders             | `border`        |
+| Border focus     | `border-white/[0.15]`             | Focused inputs                        | `focus` (ring)  |
+| Text primary     | `text-white`                       | Headings, strong content              | `text-strong`   |
+| Text secondary   | `text-gray-300`                    | Body text                             | `text`          |
+| Text tertiary    | `text-gray-400`                    | Labels, meta, descriptions            | `text-muted`    |
+| Text muted       | `text-gray-500` / `text-gray-600`  | Placeholders, captions                | `text-faint`    |
+| Select bg        | `bg-[#0d1117]`                     | `<select>` dropdown background        | `surface-2`     |
 
 ### Semantic Colors
+
+**Legacy until migrated** — the four rows below are the pre-token spelling of the four
+`status-*` tokens (success→`status-clear`, warning→`status-found`, info→`status-attn`,
+error→`status-fail`). New surfaces use the tokens.
 
 | Semantic   | Border                    | Background              | Text              |
 |------------|---------------------------|-------------------------|--------------------|
@@ -111,15 +120,20 @@ Use Tailwind's default spacing scale. Common values:
 - **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
   The app shell itself reflows at **768px** (`md:` — sidebar → sheet + bottom tab
-  bar) and **1024px** (`lg:` — icon rail → full sidebar). Anything keyed to the
-  sidebar being on screen (the `--sheet-inset-*` switch) tracks `md:`, not `sm:`.
+  bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
+  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
+  sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
+  switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
 - **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
   ramp plus hairline `border-border` — **persistent surfaces carry no box-shadow.**
   The single sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`)
   is reserved for transient overlays (menus / popovers / dialogs).
 - **Focus & keyboard.** A global `:focus-visible` teal ring
   (`outline: 2px solid var(--color-focus); outline-offset: 2px`) applies to every
-  interactive element; `Esc` closes the topmost drawer/popover. No command palette.
+  interactive element that doesn't draw its own — the chat composer and the pickers
+  still carry hand-rolled `:focus-visible` rings in `@layer components`, which win.
+  New components should rely on the global one. `Esc` closes the topmost
+  drawer/popover. No command palette.
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
 ## Component Library
@@ -127,6 +141,11 @@ Use Tailwind's default spacing scale. Common values:
 All components are Django templates. Reusable partials are **underscore-prefixed** (`_component.html`).
 
 ### Buttons
+
+**Legacy until migrated** — `.btn-primary`'s white fill predates the token layer, where
+teal `accent` owns "clickable" (see the sidebar's `bg-accent text-accent-ink` CTA). Keep
+using these classes on pages still on the legacy utilities; a page moved to the tokens
+moves its primary action to `accent` at the same time.
 
 Defined as Tailwind `@layer components` classes in `input.css`:
 
@@ -246,13 +265,18 @@ Requires `is_paginated` and `page_obj` in template context (standard Django `Lis
 scrolling `<main>`, and — below `md:` — a mobile nav sheet plus a four-tab bottom bar.
 
 - **Tiers.** `< md` sheet + bottom tab bar; `md–lg` icon rail; `>= lg` full sidebar.
-- **Sidebar hooks.** `_sidebar.html` carries BEM hooks the rail tier hides or centres
-  (`sidebar__label`, `sidebar__group-label`, `sidebar__cta-label`, `sidebar__brand-text`,
-  `sidebar__badge`, `sidebar__build-info`, `sidebar__nav-item`, `sidebar__footer-link`).
-  A new nav item wraps its text in `sidebar__label`, or it will overflow the 4rem rail.
-  The mobile sheet includes the same partial *without* `sidebar--rail`, so it keeps labels.
-- **Bottom tab bar.** Height is `--app-tabbar-height`; `<main>` pads by it below `md`,
-  which is also how the chat surface's sticky dock stays clear of the bar.
+- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`; the
+  elements it re-centres carry `sidebar__brand` / `sidebar__cta` / `sidebar__nav-item` /
+  `sidebar__footer-link`, and a group heading keeps its box via `sidebar__group-heading`.
+  A new nav item wraps its text in `sidebar__collapsible`, or the label overflows the
+  4rem rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it
+  keeps its labels. A nav item's appearance is the `.sidebar__nav-item` component class,
+  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
+  `sidebar__nav-item--active`, the class that draws the 3px brand rail.
+- **Bottom tab bar.** The four tabs are `NAV_TABS` in `accounts/context_processors.py`,
+  beside the section keys they highlight against; `.tabbar__link` carries their appearance
+  and the ≥44px touch-target floor. Height is `--app-tabbar-height`, which `<main>` pads by
+  below `md` — that padding is also what keeps the chat surface's sticky dock off the bar.
 - **Top bar slot.** `{% block topbar_start %}` holds page-specific controls; empty by default.
 
 ### Header
