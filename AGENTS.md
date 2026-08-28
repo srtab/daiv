@@ -6,8 +6,8 @@ This file provides guidance to agents when working with code in this repository.
 
 ```bash
 make test          # unit tests + coverage; CI gate
-make lint           # check only (ruff + djade); CI gate
-make lint-fix       # fix lint + format (prefer locally)
+make lint-fix       # check + fix lint/format in one step — prefer this over make lint
+make lint           # check only (no fixes); CI gate
 make lint-typing    # ty, daiv/ only
 
 # Single test / pattern
