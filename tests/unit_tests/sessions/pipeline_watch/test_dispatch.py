@@ -37,7 +37,7 @@ def stub_enqueue(monkeypatch):
 
     monkeypatch.setattr("jobs.tasks.run_job_task", FakeTask())
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
     return calls, holder
 

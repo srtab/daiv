@@ -7,7 +7,8 @@ from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
-from sessions.pipeline_watch.service import arequest_watch_evaluation, watch_enabled
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.service import arequest_watch_evaluation
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -366,7 +367,7 @@ class WorkflowRunCallback(GitHubCallback):
         return (
             self.action == "completed"
             and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
-            and watch_enabled(self._repo_config)
+            and WatchPolicy.from_config(self._repo_config).enabled
         )
 
     async def process_callback(self):

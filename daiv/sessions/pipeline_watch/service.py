@@ -14,12 +14,11 @@ from chat.repo_state import mr_to_payload
 from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import is_transient_platform_error
-from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
-from core.site_settings import site_settings
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES, Judgment, PipelineReport
+from sessions.pipeline_watch.policy import WatchPolicy
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest, Pipeline
@@ -38,17 +37,6 @@ FIX_RUN_PROMPT = (
     "Read the job logs to find the cause, then fix it. If the failure is not something a "
     "code change can fix, explain why instead of guessing."
 )
-
-
-def watch_enabled(config: RepositoryConfig) -> bool:
-    """Whether the watch may run for a repo. The site switch is a ceiling, not a default: a
-    repository can turn the watch off but never turn one on that the operator disabled."""
-    return bool(config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled)
-
-
-def watch_max_attempts(config: RepositoryConfig) -> int:
-    """The attempt cap for a repo, clamped to the site-wide value — a repository can only tighten."""
-    return min(config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts)
 
 
 async def _aread_pipeline(*, client, repo_id: str, ref: str, pipeline_id: int | None) -> Pipeline | None:
@@ -161,8 +149,7 @@ async def aarm_watch(
     recipient and the fix run gets no personal MCP servers and no USER-tier sandbox env. An
     existing owner is never reassigned — the thread may be a human's MR conversation.
     """
-    config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
-    if not watch_enabled(config):
+    if not (await WatchPolicy.afor_repo(repo_id)).enabled:
         return None
 
     thread_id = compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
@@ -387,8 +374,7 @@ async def aevaluate_watch(*, repo_id: str, ref: str, pipeline_id: int | None) ->
             )
         return
 
-    config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
-    max_attempts = watch_max_attempts(config)
+    max_attempts = (await WatchPolicy.afor_repo(repo_id)).max_attempts
     if session.watch_attempts >= max_attempts:
         if await claim(watch_state=WatchState.EXHAUSTED, watch_pipeline_id=pipeline.id):
             await _apost_watch_note(

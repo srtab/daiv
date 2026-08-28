@@ -6,7 +6,8 @@ from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
-from sessions.pipeline_watch.service import arequest_watch_evaluation, watch_enabled
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.service import arequest_watch_evaluation
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -386,7 +387,10 @@ class PipelineCallback(BaseCallback):
         heal on ephemeral-token repos makes those the ones worth watching. Status is tested
         first because ``_repo_config`` blocks the event loop on a cache round-trip.
         """
-        return self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES and watch_enabled(self._repo_config)
+        return (
+            self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES
+            and WatchPolicy.from_config(self._repo_config).enabled
+        )
 
     async def process_callback(self):
         await arequest_watch_evaluation(

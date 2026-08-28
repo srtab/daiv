@@ -6,14 +6,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.models import Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.service import (
-    WATCH_STALE_AFTER,
-    aarm_watch,
-    aevaluate_watch,
-    aexhaust_watch,
-    watch_enabled,
-    watch_max_attempts,
-)
+from sessions.pipeline_watch.service import WATCH_STALE_AFTER, aarm_watch, aevaluate_watch, aexhaust_watch
 
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
@@ -64,7 +57,7 @@ def stub_watch(monkeypatch):
     monkeypatch.setattr("sessions.pipeline_watch.service._aread_pipeline", fake_read)
     monkeypatch.setattr("sessions.pipeline_watch.service.RepoClient.create_instance", lambda **_kw: FakeClient())
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
     return calls
 
@@ -356,7 +349,7 @@ async def test_arming_a_new_watch_records_the_publishing_user(monkeypatch, djang
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
     user = await django_user_model.objects.acreate(username="publisher", email="publisher@example.com")
 
@@ -390,7 +383,7 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
     comes from site settings — an explicit ``.daiv.yml`` value replaces it rather than clamping."""
     monkeypatch.setattr(site_settings, "pipeline_watch_max_attempts", 2)
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config",
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}}),
     )
     stub_watch["pipeline"] = make_pipeline("failed", pipeline_id=700)
@@ -404,26 +397,11 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
     assert watched_session.watch_state == WatchState.EXHAUSTED
 
 
-def test_the_attempt_cap_is_clamped_to_the_site_value(monkeypatch):
-    monkeypatch.setattr(site_settings, "pipeline_watch_max_attempts", 2)
-    assert watch_max_attempts(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}})) == 2
-    assert watch_max_attempts(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 1}})) == 1
-
-
-def test_a_repo_cannot_enable_a_watch_the_operator_turned_off(monkeypatch):
-    monkeypatch.setattr(site_settings, "pipeline_watch_enabled", False)
-    assert watch_enabled(RepositoryConfig(**{"pipeline_watch": {"enabled": True}})) is False
-
-    monkeypatch.setattr(site_settings, "pipeline_watch_enabled", True)
-    assert watch_enabled(RepositoryConfig(**{"pipeline_watch": {"enabled": False}})) is False
-    assert watch_enabled(RepositoryConfig()) is True
-
-
 @pytest.mark.django_db(transaction=True)
 async def test_a_disabled_site_switch_stops_the_watch_from_arming(monkeypatch):
     monkeypatch.setattr(site_settings, "pipeline_watch_enabled", False)
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config",
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"enabled": True}}),
     )
     assert await aarm_watch(repo_id="group/repo", merge_request_iid=81, ref="daiv/branch", was_fix_run=False) is None
@@ -435,7 +413,7 @@ async def test_arming_from_a_normal_run_resets_the_counter(monkeypatch):
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
 
     # The row must live at the MR thread id, or aarm_watch creates a fresh session and the
@@ -462,7 +440,7 @@ async def test_arming_from_a_fix_run_keeps_the_counter(monkeypatch):
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
 
     mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=72)
@@ -516,7 +494,7 @@ async def test_arming_gives_the_mr_thread_the_run_owner(monkeypatch, django_user
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
 
     owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
@@ -539,7 +517,7 @@ async def test_arming_adopts_an_ownerless_thread(monkeypatch, django_user_model)
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
 
     owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
@@ -562,7 +540,7 @@ async def test_arming_never_reassigns_an_owned_thread(monkeypatch, django_user_m
     from codebase.utils import compute_thread_id
 
     monkeypatch.setattr(
-        "sessions.pipeline_watch.service.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
+        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
     )
 
     human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
