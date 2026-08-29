@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import shlex
+import shutil
+import tempfile
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
 from django.core.cache import cache
@@ -213,6 +215,7 @@ This tool is best for retrieving the current state of:
 **Hard rules:**
 - Do NOT include the `gh` prefix in `subcommand`
 - Do NOT pass `--repo` or `-R` (the repository is injected automatically)
+- Do NOT pass `--body-file`, absolute paths, or `..` segments — the tool runs in the worker process and cannot read or write host files outside the sandbox
 - Keep listings small and targeted
 
 **Default behavior:**
@@ -476,12 +479,15 @@ GITHUB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
         "lock",
         "unlock",
     },
-    # CI investigation workflow (read-only)
+    # CI investigation workflow (read-only). ``download`` is intentionally excluded: it writes
+    # artifact files to an attacker-influenced host path (``-D``), escaping the sandbox boundary.
     "workflow": {"list", "view", "run"},
-    "run": {"list", "view", "watch", "download", "rerun"},
-    # Supporting read-only project data
+    "run": {"list", "view", "watch", "rerun"},
+    # Supporting read-only project data. ``release`` is restricted to list/view: ``upload`` reads
+    # host files as release assets (exfiltration), ``download`` writes host files, and ``edit`` can
+    # also take file operands — all escape the sandbox boundary and are blocked here.
     "repo": {"list", "view"},
-    "release": {"list", "view", "download", "edit", "upload"},
+    "release": {"list", "view"},
     "ruleset": {"list", "view", "check"},
     "label": {"list", "create", "edit"},
     "cache": {"list", "delete"},
@@ -742,11 +748,30 @@ def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str,
 
 def _gh_has_disallowed_cli_flags(args: list[str]) -> bool:
     for arg in args:
-        if arg in {"--repo", "-R", "--hostname"}:
+        if arg in {"--repo", "-R", "--hostname", "--body-file"}:
             return True
-        if arg.startswith("--repo=") or arg.startswith("--hostname="):
+        if arg.startswith("--repo=") or arg.startswith("--hostname=") or arg.startswith("--body-file="):
             return True
         if arg.startswith("-R") and arg != "-R":
+            return True
+    return False
+
+
+def _gh_has_path_traversal_args(args: list[str]) -> bool:
+    """Reject positional/flag arguments that reference host files outside the sandbox.
+
+    ``gh`` runs in the DAIV worker process (not the sandbox), so any argument that resolves to a
+    host filesystem path is a sandbox-boundary escape — e.g. ``gh release upload <tag> /run/secrets/x``
+    exfiltrates host files and ``gh run download -D /home/daiv/...`` writes attacker-influenced
+    artifacts to arbitrary host paths. The file-operand actions are already removed from the
+    allowlist; this is defense in depth: no remaining argument may be an absolute path or contain a
+    ``..`` path segment. A bare ``..`` (e.g. a jq recursive-descent expression, which carries no
+    ``/``) is left alone — only path-like values are rejected.
+    """
+    for arg in args:
+        if arg.startswith("/"):
+            return True
+        if "/" in arg and any(part == ".." for part in arg.split("/")):
             return True
     return False
 
@@ -794,7 +819,16 @@ async def _run_github_subcommand(
         return policy_message
 
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
-        return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
+        return (
+            "error: The repository and hostname are automatically set. Do not pass --repo, -R, "
+            "--hostname, or --body-file (host file reads/writes are not permitted)."
+        )
+
+    if _gh_has_path_traversal_args(splitted_subcommand[2:]):
+        return (
+            "error: Arguments must not be absolute paths or contain '..' segments — the gh tool "
+            "runs in the worker process and cannot reference host files outside the sandbox."
+        )
 
     token, state_update = _get_cached_github_cli_token(runtime)
 
@@ -816,9 +850,14 @@ async def _run_github_subcommand(
     if resource != "api":
         args += ["--repo", runtime.context.repository.slug]
 
+    # Pin the subprocess cwd to a fresh, empty temp directory so that any residual file operand
+    # a future allowlist entry might introduce can only resolve inside this throwaway dir (which is
+    # removed afterwards) rather than the worker's real working directory. The allowlist + path
+    # checks above are the primary boundary; this is defense in depth.
+    tmpdir = tempfile.mkdtemp(prefix="gh-cli-")
     try:
         process = await asyncio.create_subprocess_exec(
-            *args, env=envs, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *args, env=envs, cwd=tmpdir, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
 
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=DEFAULT_CLI_TIMEOUT)
@@ -834,6 +873,8 @@ async def _run_github_subcommand(
     except Exception as e:
         logger.exception("[%s] Failed to execute GitHub command.", GITHUB_TOOL_NAME)
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
@@ -972,7 +1013,8 @@ class GitPlatformMiddleware(AgentMiddleware):
                 "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
                 "Format: '<object> <action> [arguments...]'. "
                 "Do not include the 'gh' prefix. "
-                "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
+                "Do not pass '--repo', '-R', '--hostname', '--body-file' (managed or restricted by the tool), "
+                "and do not pass absolute paths or '..' segments (host files cannot be referenced). "
                 "Wrap arguments containing spaces in double quotes. "
                 "Examples: 'issue view 42', 'pr list --state open'.",
             ],
