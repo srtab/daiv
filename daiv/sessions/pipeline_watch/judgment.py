@@ -25,7 +25,8 @@ class PipelineReport:
     """A pipeline and the verdict it implies, computed once.
 
     Deliberately conservative: anything that is not an unambiguous pass or an unambiguous
-    failure is ``UNCLEAR``, which stops the watch instead of spending an attempt.
+    failure is ``UNCLEAR``, which stops the watch instead of spending an attempt. ``failed_jobs``
+    holds the jobs whose failure the project has not declared acceptable.
     """
 
     def __init__(self, pipeline: Pipeline) -> None:

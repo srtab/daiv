@@ -46,8 +46,8 @@ class PipelineWatch(BaseModel):
     CI babysitting configuration.
     """
 
-    # No site-settings factory here, unlike ``max_attempts``: ``watch_enabled`` ANDs this with
-    # the site switch, so inheriting it would only re-derive a value that gets ANDed away.
+    # No site-settings factory here, unlike ``max_attempts``: ``WatchPolicy.enabled_for`` ANDs this
+    # with the site switch, so inheriting it would only re-derive a value that gets ANDed away.
     enabled: bool = Field(
         default=True, description="Watch CI on merge requests DAIV publishes and try to fix failures."
     )

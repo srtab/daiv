@@ -105,8 +105,9 @@ async def test_a_real_failure_dispatches_a_fix_run(watched_session, watch):
 async def test_an_uninjected_dispatcher_is_a_real_fix_run_dispatcher(watched_session, watch, monkeypatch):
     """Production injects no dispatcher, so the ``FixRunDispatcher(self._store)`` default in
     ``PipelineWatch.__init__`` is the only path it takes — and every other test here injects one.
-    Without this, a signature drift in the real ``FixRunDispatcher`` would raise exactly where a
-    fix run should start, with the suite still green.
+    This pins that ``__init__`` builds the real ``FixRunDispatcher`` type (the ``isinstance``
+    assertion below) and passes it the right keyword arguments; ``adispatch`` itself is
+    monkeypatched away, so its body is not exercised here.
     """
     dispatched = []
 
@@ -134,9 +135,10 @@ async def test_an_uninjected_dispatcher_is_a_real_fix_run_dispatcher(watched_ses
 @pytest.mark.django_db(transaction=True)
 async def test_an_uninjected_notifier_is_a_real_watch_notifier(watched_session, watch, monkeypatch):
     """Production injects no notifier, so the ``WatchNotifier()`` default in ``PipelineWatch.__init__``
-    is the only path it takes — and every other test here injects one. Without this, a signature
-    drift in the real ``WatchNotifier`` would raise exactly where the give-up notification should
-    fire, with the suite still green.
+    is the only path it takes — and every other test here injects one. This pins that ``__init__``
+    builds the real ``WatchNotifier`` type (the ``isinstance`` assertion below) and passes it the
+    right keyword arguments; ``anotify_exhausted`` itself is monkeypatched away, so its body is not
+    exercised here.
     """
     notified = []
 

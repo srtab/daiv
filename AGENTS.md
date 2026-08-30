@@ -125,9 +125,9 @@ through constructor-injected collaborators, which is how tests fake CI while the
 the real database — do not reintroduce `monkeypatch` on module-level names. `WatchPlatform` is
 per-repository (constructing a GitHub client costs a live installation lookup), which is why
 `WatchReconciler` takes factories rather than instances: one sweep spans repositories.
-`WatchStore.atransition` stays the single writer of `watch_state`, and only its winner posts the
-accompanying MR comment — two events finishing together both clear their checks off their own stale
-read, and no constraint dedupes a duplicate MR comment.
+`WatchStore.atransition` is the single writer of a watch's state *transitions*, and only its winner
+posts the accompanying MR comment — two events finishing together both clear their checks off their
+own stale read, and no constraint dedupes a duplicate MR comment.
 
 **Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
 

@@ -29,7 +29,7 @@ async def test_it_hands_the_pipeline_facts_to_the_notifications_app(monkeypatch,
     )
     await WatchNotifier().anotify_exhausted(session=session, report=PipelineReport(pipeline))
 
-    # Reading the pipeline is this module's job — the allow_failure job is not a real failure — and
+    # Reading the pipeline is this package's job — the allow_failure job is not a real failure — and
     # everything else (keys, channels, dedup, wording) belongs to notifications/. The pipeline id
     # travels too: it is what scopes the dedup key to one give-up rather than to the whole thread.
     assert calls == [

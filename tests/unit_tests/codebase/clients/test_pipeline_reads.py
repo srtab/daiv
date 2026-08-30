@@ -30,7 +30,7 @@ def test_an_unknown_conclusion_is_not_silently_green():
 
 
 class TestUnreadableIsNotAbsent:
-    """``None`` means "no such pipeline", which ``judge_pipeline`` reads as UNCLEAR and the watch
+    """``None`` means "no such pipeline", which ``PipelineReport`` reads as UNCLEAR and the watch
     treats as "nothing to judge yet". A permission or rate-limit failure answering the same way
     makes an outage indistinguishable from a slow CI queue, so those must raise."""
 
