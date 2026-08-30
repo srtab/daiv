@@ -39,6 +39,12 @@ class FakePlatform:
         self.notes = []
         self.read_error = None
         self.on_read = None
+        self.client_error = None
+        self.correlated = []
+
+    async def aensure_client(self):
+        if self.client_error is not None:
+            raise self.client_error
 
     async def aread_pipeline(self, *, ref, pipeline_id):
         # A real yield point, so concurrent evaluations both get past the read before
@@ -51,6 +57,9 @@ class FakePlatform:
         return self.pipeline
 
     async def ais_head_pipeline(self, *, merge_request_iid, report):
+        self.correlated.append(merge_request_iid)
+        if not merge_request_iid:
+            return False
         return bool(self.head_sha) and report.sha == self.head_sha
 
     async def apost_note(self, *, merge_request_iid, body):
@@ -451,10 +460,10 @@ async def test_dispatching_a_fix_run_restamps_the_staleness_clock(watched_sessio
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session, watch, monkeypatch):
+async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session, watch, monkeypatch, site_setting):
     """The docs promise a repo can only tighten, but ``max_attempts`` is a plain int whose default
     comes from site settings — an explicit ``.daiv.yml`` value replaces it rather than clamping."""
-    monkeypatch.setattr(site_settings, "pipeline_watch_max_attempts", 2)
+    site_setting("pipeline_watch_max_attempts", 2)
     monkeypatch.setattr(
         "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}}),
@@ -471,8 +480,8 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_disabled_site_switch_stops_the_watch_from_arming(watch, monkeypatch):
-    monkeypatch.setattr(site_settings, "pipeline_watch_enabled", False)
+async def test_a_disabled_site_switch_stops_the_watch_from_arming(watch, monkeypatch, site_setting):
+    site_setting("pipeline_watch_enabled", False)
     monkeypatch.setattr(
         "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
         lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"enabled": True}}),
@@ -687,3 +696,58 @@ async def test_a_watched_branch_enqueues_the_evaluation(watched_session, watch, 
 
     assert await watch.make().arequest_evaluation(ref="daiv/branch", pipeline_id=42) is True
     assert enqueued == [{"repo_id": "group/repo", "ref": "daiv/branch", "pipeline_id": 42}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
+    """``aarm`` runs at the end of every publishing chat turn, job and issue-addressor run, and
+    reads only ``enabled``. Each ``site_settings`` read is a blocking thread hop, so a policy that
+    resolves the attempt cap it never looks at doubles the cost of the whole arm path.
+    """
+    # Built before recording starts: its ``max_attempts`` default factory reads site settings too,
+    # and in production that cost is paid once an hour by the config cache, not by the arm path.
+    config = RepositoryConfig()
+    monkeypatch.setattr("sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: config)
+    read = []
+    original = type(site_settings).__getattr__
+
+    def record(self, name):
+        if name.startswith("pipeline_watch_"):
+            read.append(name)
+        return original(self, name)
+
+    monkeypatch.setattr(type(site_settings), "__getattr__", record)
+
+    await watch.make().aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
+
+    assert read == ["pipeline_watch_enabled"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_client_that_cannot_be_built_is_not_a_ci_outage(watched_session, watch, caplog):
+    """A client we cannot build is a deployment fault and must reach someone.
+
+    ``is_transient_platform_error`` counts the 401/403 a dead GitHub App installation returns as
+    transient, so resolving the client lazily inside the read guard would log a permanent
+    misconfiguration at WARNING — which mints no Sentry event — on every webhook and every sweep,
+    forever, while the user is told CI produced no result.
+    """
+    watch.platform.client_error = RuntimeError("no installation")
+    watch.platform.pipeline = make_pipeline("failed")
+
+    with pytest.raises(RuntimeError, match="no installation"):
+        await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
+
+    assert "could not read the pipeline" not in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_correlation_is_asked_about_the_watched_merge_request(watched_session, watch):
+    """The head-correlation call is what decides whether a pipeline is acted on at all. Nothing else
+    checks the iid reaching it, so a wrong one would correlate against another merge request and a
+    ``None`` would silently skip every evaluation until the watch aged out.
+    """
+    watch.platform.pipeline = make_pipeline("failed")
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
+
+    assert watch.platform.correlated == [watched_session.merge_request_iid]

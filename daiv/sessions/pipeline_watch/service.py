@@ -163,6 +163,7 @@ class PipelineWatch:
         if pipeline_id is not None and session.watch_pipeline_id == pipeline_id:
             return
 
+        await self._platform.aensure_client()
         try:
             pipeline = await self._platform.aread_pipeline(ref=ref, pipeline_id=pipeline_id)
         except Exception as exc:

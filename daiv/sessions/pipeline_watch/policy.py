@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+
 from asgiref.sync import sync_to_async
 
 from codebase.repo_config import RepositoryConfig
@@ -13,23 +15,31 @@ class WatchPolicy:
 
     The site switch is a ceiling in both directions: a repository can turn the watch off but never
     turn one on that the operator disabled, and can lower the attempt cap but never raise it.
+
+    Both fields resolve on first read. Every ``site_settings`` access blocks the event loop on a
+    thread hop, and the arm path reads only ``enabled`` while the act path reads only
+    ``max_attempts`` — computing both eagerly made each of them pay for the other.
     """
 
-    def __init__(self, *, enabled: bool, max_attempts: int) -> None:
-        self.enabled = enabled
-        self.max_attempts = max_attempts
+    def __init__(self, config: RepositoryConfig) -> None:
+        self._config = config
+
+    @functools.cached_property
+    def enabled(self) -> bool:
+        return bool(self._config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled)
+
+    @functools.cached_property
+    def max_attempts(self) -> int:
+        return min(self._config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts)
 
     @classmethod
     def enabled_for(cls, config: RepositoryConfig) -> bool:
-        return bool(config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled)
+        return cls(config).enabled
 
     @classmethod
     def from_config(cls, config: RepositoryConfig) -> WatchPolicy:
-        return cls(
-            enabled=cls.enabled_for(config),
-            max_attempts=min(config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts),
-        )
+        return cls(config)
 
     @classmethod
     async def afor_repo(cls, repo_id: str) -> WatchPolicy:
-        return cls.from_config(await sync_to_async(RepositoryConfig.get_config)(repo_id))
+        return cls(await sync_to_async(RepositoryConfig.get_config)(repo_id))

@@ -39,6 +39,16 @@ class WatchPlatform:
             self._client = RepoClient.create_instance()
         return self._client
 
+    async def aensure_client(self) -> None:
+        """Build the client, raising if it cannot be built.
+
+        A client we cannot build is a deployment fault, not a CI outage: constructing a GitHub one
+        calls the API, and ``is_transient_platform_error`` counts the 401/403 a dead installation
+        returns as transient, so a read that builds it lazily would log a permanent misconfiguration
+        at WARNING forever. Call this outside the caller's read guard.
+        """
+        await sync_to_async(lambda: self.client)()
+
     async def aread_pipeline(self, *, ref: str, pipeline_id: int | None) -> Pipeline | None:
         if pipeline_id is not None:
             return await sync_to_async(self.client.get_pipeline)(self.repo_id, pipeline_id)

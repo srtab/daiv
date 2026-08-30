@@ -8,6 +8,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 from accounts.models import User
 from codebase.base import Job, Pipeline
+from core.site_settings import site_settings
 
 
 @pytest.fixture
@@ -115,3 +116,19 @@ async def amake_watched_session(
         watch_attempts=watch_attempts,
         watch_armed_at=watch_armed_at or timezone.now(),
     )
+
+
+@pytest.fixture
+def site_setting(monkeypatch):
+    """Override a site setting without leaving it behind on the singleton.
+
+    ``monkeypatch.setattr`` restores by ``setattr``, so a value that ``SiteSettings.__getattr__``
+    serves becomes a real instance attribute at teardown and no later read ever reaches
+    ``SiteConfiguration.get_cached`` again — which silently voids any test asserting on that call.
+    Patching ``__dict__`` as a mapping makes the undo a delete.
+    """
+
+    def _set(name: str, value: object) -> None:
+        monkeypatch.setitem(site_settings.__dict__, name, value)
+
+    return _set

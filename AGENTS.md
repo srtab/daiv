@@ -119,15 +119,24 @@ sandbox's own wording.
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
 **Pipeline watch layering** — `daiv/sessions/pipeline_watch/` is layered, and the layering is the
-design: `judgment` and `policy` are pure, `platform` holds the package's **only** `RepoClient`, and
-`store` is the **only** reader and writer of `Session.watch_*`. `PipelineWatch` orchestrates them
-through constructor-injected collaborators, which is how tests fake CI while the store runs against
-the real database — do not reintroduce `monkeypatch` on module-level names. `WatchPlatform` is
-per-repository (constructing a GitHub client costs a live installation lookup), which is why
-`WatchReconciler` takes factories rather than instances: one sweep spans repositories.
-`WatchStore.atransition` is the single writer of a watch's state *transitions*, and only its winner
-posts the accompanying MR comment — two events finishing together both clear their checks off their
-own stale read, and no constraint dedupes a duplicate MR comment.
+design: `judgment` is pure, `policy` is a cheap read over site settings and an injected config,
+`platform` holds the package's **only** `RepoClient`, and `store` is the **only** module that
+*queries* `Session.watch_*` (callers still read those columns off a `Session` the store handed
+back). `PipelineWatch` orchestrates them through constructor-injected collaborators, which is how
+tests fake CI while the store runs against the real database — do not reintroduce `monkeypatch` on
+module-level names. `WatchReconciler` takes factories rather than instances because `repo_id` binds
+to a `WatchPlatform` and one sweep spans repositories — **not** to avoid a per-repo installation
+lookup: `RepoClient.create_instance()` takes no `repo_id` and is `functools.cache`d, so the
+underlying client is installation-scoped and could be hoisted once per sweep.
+`WatchStore.atransition` is the single writer of a watch's *contended* state transitions, and only
+its winner posts the accompanying MR comment — two events finishing together both clear their checks
+off their own stale read, and no constraint dedupes a duplicate MR comment. Every `site_settings`
+read is a blocking thread hop, so `WatchPolicy` resolves `enabled` and `max_attempts` **lazily**:
+the arm path reads only the first and the act path only the second, and computing both up front made
+each pay for the other — a regression that shipped once. `WatchPlatform.aensure_client()` runs
+outside the caller's read guard on purpose: `is_transient_platform_error` counts the 401/403 a dead
+GitHub App installation returns as transient, so a client built lazily inside that guard logs a
+permanent misconfiguration at WARNING — which reaches no one — on every webhook and every sweep.
 
 **Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/skill-creator/scripts/init_skill.py` as the reference.
 

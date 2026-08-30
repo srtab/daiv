@@ -1,4 +1,4 @@
-"""The only reads and writes of ``Session.watch_*``. No platform I/O, no policy."""
+"""The only module that queries ``Session.watch_*``. No platform I/O, no policy."""
 
 from __future__ import annotations
 
@@ -21,9 +21,11 @@ class WatchStore:
     async def atransition(self, thread_id: str, *, expect, where: dict | None = None, **updates) -> bool:
         """Move a watch out of the states it is allowed to leave, reporting whether this caller won.
 
-        Every write to ``watch_state`` goes through here. Two events finishing together both pass
-        their checks off their own stale read, and only the row count says which one owns the
-        transition — without it each posts its own MR comment, which no constraint dedupes.
+        Every *contended* move of ``watch_state`` goes through here; ``aarm``, ``arefund_attempt``
+        and ``arecover_stale_fixing`` write the column too, each from a position only one caller can
+        hold. Two events finishing together both pass their checks off their own stale read, and only
+        the row count says which one owns the transition — without it each posts its own MR comment,
+        which no constraint dedupes.
         ``where`` adds the conditions a caller needs re-asserted inside the same statement.
         """
         expected = [expect] if isinstance(expect, str) else list(expect)
