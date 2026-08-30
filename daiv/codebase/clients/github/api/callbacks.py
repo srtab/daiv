@@ -367,7 +367,7 @@ class WorkflowRunCallback(GitHubCallback):
         return (
             self.action == "completed"
             and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
-            and WatchPolicy.from_config(self._repo_config).enabled
+            and WatchPolicy.enabled_for(self._repo_config)
         )
 
     async def process_callback(self):

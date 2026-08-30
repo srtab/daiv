@@ -20,9 +20,13 @@ class WatchPolicy:
         self.max_attempts = max_attempts
 
     @classmethod
+    def enabled_for(cls, config: RepositoryConfig) -> bool:
+        return bool(config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled)
+
+    @classmethod
     def from_config(cls, config: RepositoryConfig) -> WatchPolicy:
         return cls(
-            enabled=bool(config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled),
+            enabled=cls.enabled_for(config),
             max_attempts=min(config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts),
         )
 

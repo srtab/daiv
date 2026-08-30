@@ -387,9 +387,8 @@ class PipelineCallback(BaseCallback):
         heal on ephemeral-token repos makes those the ones worth watching. Status is tested
         first because ``_repo_config`` blocks the event loop on a cache round-trip.
         """
-        return (
-            self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES
-            and WatchPolicy.from_config(self._repo_config).enabled
+        return self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES and WatchPolicy.enabled_for(
+            self._repo_config
         )
 
     async def process_callback(self):
