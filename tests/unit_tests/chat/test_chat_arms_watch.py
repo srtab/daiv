@@ -14,23 +14,13 @@ import pytest
 from ag_ui.core import EventType
 
 from chat.api.streaming import ChatRunStreamer
+from tests.unit_tests.sessions.conftest import watch_recorder
 
 MR = {"merge_request_id": 7, "source_branch": "daiv/chat-branch"}
 
 
 def _snapshot_event(**values):
     return SimpleNamespace(type=EventType.STATE_SNAPSHOT, snapshot=values)
-
-
-def _recorder(armed):
-    class _RecordingWatch:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
-
-        async def aarm_after_run(self, **kwargs):
-            armed.append({"repo_id": self.repo_id, **kwargs})
-
-    return _RecordingWatch
 
 
 async def _drive(stream_events: list) -> list[dict]:
@@ -77,7 +67,7 @@ async def _drive(stream_events: list) -> list[dict]:
         patch("chat.api.streaming.start_chat_run", AsyncMock(return_value=None)),
         patch("chat.api.streaming.SessionLock", MagicMock(release=AsyncMock())),
         patch("chat.api.streaming.apersist_session_ref", AsyncMock()),
-        patch("chat.api.streaming.PipelineWatch", _recorder(armed)),
+        patch("chat.api.streaming.PipelineWatch", watch_recorder(armed)),
     ):
         async for _event in streamer.events():
             pass

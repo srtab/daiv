@@ -104,6 +104,8 @@ async def amake_watched_session(
     watch_state: str = WatchState.WATCHING,
     watch_attempts: int = 0,
     watch_armed_at=None,
+    watch_pipeline_id: int | None = None,
+    user: User | None = None,
 ) -> Session:
     """A session with the watch armed — the starting row for every watch test."""
     return await Session.objects.acreate(
@@ -115,7 +117,28 @@ async def amake_watched_session(
         watch_state=watch_state,
         watch_attempts=watch_attempts,
         watch_armed_at=watch_armed_at or timezone.now(),
+        watch_pipeline_id=watch_pipeline_id,
+        user=user,
     )
+
+
+def watch_recorder(armed: list[dict]):
+    """A stand-in for ``PipelineWatch`` that records the ``aarm_after_run`` calls a seam makes.
+
+    Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach
+    the watch — rather than the watch itself. Every publishing seam has such a test; keeping one
+    stub means a new keyword argument is one edit, not three, and a copy that drifts records
+    nothing while still passing.
+    """
+
+    class RecordingWatch:
+        def __init__(self, repo_id):
+            self.repo_id = repo_id
+
+        async def aarm_after_run(self, **kwargs):
+            armed.append({"repo_id": self.repo_id, **kwargs})
+
+    return RecordingWatch
 
 
 @pytest.fixture

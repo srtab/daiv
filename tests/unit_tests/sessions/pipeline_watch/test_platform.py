@@ -140,9 +140,7 @@ async def test_a_failing_note_never_propagates(caplog):
     assert "failed to comment" in caplog.text
 
 
-async def test_one_client_serves_a_read_a_correlation_and_a_note():
-    """Constructing a GitHub client costs a live installation lookup, so an evaluation must not
-    pay for three."""
+async def test_one_injected_client_serves_a_read_a_correlation_and_a_note():
     client = FakeClient()
     platform = WatchPlatform("group/repo", client)
 
@@ -150,12 +148,14 @@ async def test_one_client_serves_a_read_a_correlation_and_a_note():
     await platform.ais_head_pipeline(merge_request_iid=7, report=PipelineReport(pipeline))
     await platform.apost_note(merge_request_iid=7, body="hi")
 
-    assert platform.client is client
     assert [call[0] for call in client.calls] == ["get_pipeline", "get_merge_request", "create_merge_request_comment"]
 
 
-async def test_a_client_is_built_once_and_reused(monkeypatch):
-    """Nothing injects a client in production, so the laziness is what the reuse rests on."""
+async def test_a_client_is_resolved_once_per_instance(monkeypatch):
+    """Nothing injects a client in production, so every read resolves it lazily — and each
+    resolution is a ``sync_to_async`` hop, because the first build in a process calls the platform.
+    ``RepoClient.create_instance`` is itself cached, so what the memo saves is the hop.
+    """
     built = []
 
     def build(**_kwargs):
@@ -169,3 +169,16 @@ async def test_a_client_is_built_once_and_reused(monkeypatch):
     await platform.apost_note(merge_request_iid=7, body="two")
 
     assert len(built) == 1
+
+
+async def test_a_note_resolves_its_own_client(monkeypatch):
+    """``apost_note`` is reached without ``aensure_client`` from ``aexhaust`` and from the expiry
+    sweep, so it cannot rely on a caller having pre-built the client: resolving it inline on the
+    event loop would run the installation lookup there.
+    """
+    monkeypatch.setattr("sessions.pipeline_watch.platform.RepoClient.create_instance", lambda **_kw: FakeClient())
+    platform = WatchPlatform("group/repo")
+
+    await platform.apost_note(merge_request_iid=7, body="hi")
+
+    assert (await platform._aclient()).calls == [("create_merge_request_comment", "group/repo", 7, "hi")]

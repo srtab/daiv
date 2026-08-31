@@ -31,12 +31,14 @@ WATCH_SWEEP_LIMIT = 200
 class WatchReconciler:
     """Repair watches that events did not resolve.
 
-    The per-repository factories are the point: a sweep spans repositories, so the watch and the
-    platform it uses are built per row rather than once for the whole tick.
+    The collaborators are per-repository factories rather than instances because ``repo_id`` binds
+    to a ``WatchPlatform`` and one sweep spans repositories. That costs nothing per row:
+    ``RepoClient.create_instance`` is process-cached, so a fresh platform's first read is a thread
+    hop over a dict lookup, not another installation lookup.
     """
 
-    def __init__(self, *, store: WatchStore | None = None, watch_factory=None, platform_factory=None) -> None:
-        self._store = store or WatchStore()
+    def __init__(self, *, watch_factory=None, platform_factory=None) -> None:
+        self._store = WatchStore()
         self._watch_factory = watch_factory or PipelineWatch
         self._platform_factory = platform_factory or WatchPlatform
 

@@ -8,17 +8,17 @@ from core.models import SiteConfiguration
 
 def test_the_attempt_cap_is_clamped_to_the_site_value(site_setting):
     site_setting("pipeline_watch_max_attempts", 2)
-    assert WatchPolicy.from_config(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}})).max_attempts == 2
-    assert WatchPolicy.from_config(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 1}})).max_attempts == 1
+    assert WatchPolicy(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}})).max_attempts == 2
+    assert WatchPolicy(RepositoryConfig(**{"pipeline_watch": {"max_attempts": 1}})).max_attempts == 1
 
 
 def test_a_repo_cannot_enable_a_watch_the_operator_turned_off(site_setting):
     site_setting("pipeline_watch_enabled", False)
-    assert WatchPolicy.from_config(RepositoryConfig(**{"pipeline_watch": {"enabled": True}})).enabled is False
+    assert WatchPolicy(RepositoryConfig(**{"pipeline_watch": {"enabled": True}})).enabled is False
 
     site_setting("pipeline_watch_enabled", True)
-    assert WatchPolicy.from_config(RepositoryConfig(**{"pipeline_watch": {"enabled": False}})).enabled is False
-    assert WatchPolicy.from_config(RepositoryConfig()).enabled is True
+    assert WatchPolicy(RepositoryConfig(**{"pipeline_watch": {"enabled": False}})).enabled is False
+    assert WatchPolicy(RepositoryConfig()).enabled is True
 
 
 def test_reading_enabled_reaches_site_settings_for_a_repo_that_wants_the_watch():
@@ -47,7 +47,7 @@ def test_enabled_short_circuits_without_reading_site_settings():
 
     with patch.object(SiteConfiguration, "get_cached") as get_cached:
         assert WatchPolicy.enabled_for(config) is False
-        assert WatchPolicy.from_config(config).enabled is False
+        assert WatchPolicy(config).enabled is False
 
     get_cached.assert_not_called()
 
@@ -59,14 +59,14 @@ def test_asking_only_for_enabled_never_costs_the_attempt_cap():
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": True, "max_attempts": 10}})
 
     with patch.object(SiteConfiguration, "get_cached") as get_cached:
-        assert WatchPolicy.from_config(config).enabled is True
+        assert WatchPolicy(config).enabled is True
 
     assert get_cached.call_count == 1
 
 
 async def test_it_resolves_a_repo_id_through_the_config_cache(monkeypatch, site_setting):
     """``afor_repo`` is the seam a caller holding only a repo id uses; it must apply the same
-    ceiling as ``from_config`` rather than returning the repo's raw values."""
+    ceiling the constructor does rather than returning the repo's raw values."""
     site_setting("pipeline_watch_max_attempts", 2)
     monkeypatch.setattr(
         "sessions.pipeline_watch.policy.RepositoryConfig.get_config",

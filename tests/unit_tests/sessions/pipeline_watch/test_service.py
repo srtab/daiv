@@ -8,13 +8,22 @@ import pytest
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.notifier import WatchNotifier
+from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.reconciler import WATCH_STALE_AFTER
 from sessions.pipeline_watch.service import PipelineWatch
 
+from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
+from codebase.utils import compute_thread_id
 from core.site_settings import site_settings
 
-from ..conftest import make_job, make_pipeline
+from ..conftest import amake_watched_session, make_job, make_pipeline
+
+
+def mr_thread_id(merge_request_iid: int, repo_id: str = "group/repo") -> str:
+    """Where ``aarm`` puts the row. A test that creates a session anywhere else gets a fresh one
+    from ``aarm`` and passes without exercising anything."""
+    return compute_thread_id(repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
 
 
 @pytest.fixture
@@ -83,17 +92,25 @@ class RecordingNotifier:
 
 
 @pytest.fixture
-def watch(monkeypatch):
+def watch():
     """A ``PipelineWatch`` with the outside world faked and the store running for real."""
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
     platform, dispatcher, notifier = FakePlatform(), RecordingDispatcher(), RecordingNotifier()
 
-    def make(repo_id: str = "group/repo") -> PipelineWatch:
+    def make(repo_id: str = "group/repo", *, config: RepositoryConfig | None = None) -> PipelineWatch:
         """A fresh instance per call: two concurrent events are two tasks and two instances,
-        over one shared platform and one shared database."""
-        return PipelineWatch(repo_id, platform=platform, dispatcher=dispatcher, notifier=notifier)
+        over one shared platform and one shared database.
+
+        The policy is injected rather than monkeypatched onto ``RepositoryConfig.get_config``;
+        ``test_arming_costs_one_site_settings_read`` is what covers the un-injected path production
+        takes.
+        """
+        return PipelineWatch(
+            repo_id,
+            platform=platform,
+            dispatcher=dispatcher,
+            notifier=notifier,
+            policy=WatchPolicy(config or RepositoryConfig()),
+        )
 
     return SimpleNamespace(make=make, platform=platform, dispatcher=dispatcher, notifier=notifier)
 
@@ -429,17 +446,11 @@ async def test_the_cap_is_re_asserted_when_the_claim_lands(watched_session, watc
 async def test_arming_a_new_watch_records_the_publishing_user(watch, monkeypatch, django_user_model):
     """The MR thread has no session until the publish, so this call creates it — and a row created
     without a user gets every fix run unattributed: no notification, no user-tier env, no MCP."""
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
     user = await django_user_model.objects.acreate(username="publisher", email="publisher@example.com")
 
     armed = await watch.make().aarm(merge_request_iid=74, ref="daiv/branch", was_fix_run=False, user_id=user.pk)
 
-    assert armed == compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=74)
+    assert armed == mr_thread_id(74)
     session = await Session.objects.aget(thread_id=armed)
     assert session.user_id == user.pk
 
@@ -464,15 +475,12 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
     """The docs promise a repo can only tighten, but ``max_attempts`` is a plain int whose default
     comes from site settings — an explicit ``.daiv.yml`` value replaces it rather than clamping."""
     site_setting("pipeline_watch_max_attempts", 2)
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
-        lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}}),
-    )
     watch.platform.pipeline = make_pipeline("failed", pipeline_id=700)
     watched_session.watch_attempts = 2
     await watched_session.asave()
 
-    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=700)
+    config = RepositoryConfig(**{"pipeline_watch": {"max_attempts": 10}})
+    await watch.make(config=config).aevaluate(ref="daiv/branch", pipeline_id=700)
 
     assert watch.dispatcher.dispatched == []
     await watched_session.arefresh_from_db()
@@ -482,32 +490,18 @@ async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session,
 @pytest.mark.django_db(transaction=True)
 async def test_a_disabled_site_switch_stops_the_watch_from_arming(watch, monkeypatch, site_setting):
     site_setting("pipeline_watch_enabled", False)
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config",
-        lambda *_a, **_kw: RepositoryConfig(**{"pipeline_watch": {"enabled": True}}),
-    )
-    assert await watch.make().aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False) is None
+    config = RepositoryConfig(**{"pipeline_watch": {"enabled": True}})
+    assert await watch.make(config=config).aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False) is None
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_arming_from_a_normal_run_resets_the_counter(watch, monkeypatch):
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
 
     # The row must live at the MR thread id, or aarm creates a fresh session and the
     # assertion passes without ever exercising the reset.
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=71)
-    await Session.objects.acreate(
-        thread_id=mr_thread,
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        watch_state=WatchState.EXHAUSTED,
-        watch_attempts=3,
+    mr_thread = mr_thread_id(71)
+    await amake_watched_session(
+        thread_id=mr_thread, merge_request_iid=71, watch_state=WatchState.EXHAUSTED, watch_attempts=3
     )
     armed = await watch.make().aarm(merge_request_iid=71, ref="daiv/branch", was_fix_run=False)
     assert armed == mr_thread
@@ -518,21 +512,10 @@ async def test_arming_from_a_normal_run_resets_the_counter(watch, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 async def test_arming_from_a_fix_run_keeps_the_counter(watch, monkeypatch):
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
 
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
-
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=72)
-    await Session.objects.acreate(
-        thread_id=mr_thread,
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        watch_state=WatchState.FIXING,
-        watch_attempts=2,
+    mr_thread = mr_thread_id(72)
+    await amake_watched_session(
+        thread_id=mr_thread, merge_request_iid=72, watch_state=WatchState.FIXING, watch_attempts=2
     )
     await watch.make().aarm(merge_request_iid=72, ref="daiv/branch", was_fix_run=True)
     session = await Session.objects.aget(thread_id=mr_thread)
@@ -544,18 +527,9 @@ async def test_arming_from_a_fix_run_keeps_the_counter(watch, monkeypatch):
 async def test_a_fix_run_that_changed_nothing_gives_up(watch):
     """Invariant 7. No change means no push, which means no pipeline and no event — so this
     watch would sit in `fixing` until it aged out six hours later."""
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=73)
-    await Session.objects.acreate(
-        thread_id=mr_thread,
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        merge_request_iid=73,
-        watch_state=WatchState.FIXING,
-        watch_attempts=1,
+    mr_thread = mr_thread_id(73)
+    await amake_watched_session(
+        thread_id=mr_thread, merge_request_iid=73, watch_state=WatchState.FIXING, watch_attempts=1
     )
     await watch.make().aexhaust(merge_request_iid=73, reason="the agent made no changes")
     session = await Session.objects.aget(thread_id=mr_thread)
@@ -567,15 +541,9 @@ async def test_arming_gives_the_mr_thread_the_run_owner(watch, monkeypatch, djan
     """The MR thread is almost always created *here*, not by a human — so without an owner
     carried in, the give-up notification has no recipient and the fix run loses the user's
     personal MCP servers and USER-tier sandbox env."""
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
 
     owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=91)
+    mr_thread = mr_thread_id(91)
 
     armed = await watch.make().aarm(merge_request_iid=91, ref="daiv/branch", was_fix_run=False, user_id=owner.pk)
 
@@ -588,18 +556,10 @@ async def test_arming_gives_the_mr_thread_the_run_owner(watch, monkeypatch, djan
 async def test_arming_adopts_an_ownerless_thread(watch, monkeypatch, django_user_model):
     """An MR thread created by an earlier webhook has no user; the first owned run must adopt it
     or that thread can never notify anyone."""
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
 
     owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=92)
-    await Session.objects.acreate(
-        thread_id=mr_thread, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", ref="daiv/branch", user=None
-    )
+    mr_thread = mr_thread_id(92)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, user=None)
 
     await watch.make().aarm(merge_request_iid=92, ref="daiv/branch", was_fix_run=False, user_id=owner.pk)
 
@@ -611,19 +571,11 @@ async def test_arming_adopts_an_ownerless_thread(watch, monkeypatch, django_user
 async def test_arming_never_reassigns_an_owned_thread(watch, monkeypatch, django_user_model):
     """A human's MR conversation keeps its owner: a scheduled run publishing to the same MR must
     not silently move that thread (and its notifications) to the scheduler's user."""
-    from codebase.base import Scope
-    from codebase.utils import compute_thread_id
-
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
 
     human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
     robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
-    mr_thread = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=93)
-    await Session.objects.acreate(
-        thread_id=mr_thread, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", ref="daiv/branch", user=human
-    )
+    mr_thread = mr_thread_id(93)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, user=human)
 
     await watch.make().aarm(merge_request_iid=93, ref="daiv/branch", was_fix_run=False, user_id=robot.pk)
 
@@ -708,6 +660,9 @@ async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
     # and in production that cost is paid once an hour by the config cache, not by the arm path.
     config = RepositoryConfig()
     monkeypatch.setattr("sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: config)
+    # No injected policy: this is the only test on the ``WatchPolicy.afor_repo`` fallback that
+    # production takes, and the cost it measures is the fallback's.
+    pw = PipelineWatch("group/repo", platform=watch.platform, dispatcher=watch.dispatcher, notifier=watch.notifier)
     read = []
     original = type(site_settings).__getattr__
 
@@ -718,7 +673,7 @@ async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
 
     monkeypatch.setattr(type(site_settings), "__getattr__", record)
 
-    await watch.make().aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
+    await pw.aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
 
     assert read == ["pipeline_watch_enabled"]
 

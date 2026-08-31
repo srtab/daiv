@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -22,24 +23,31 @@ class Judgment(StrEnum):
 
 
 class PipelineReport:
-    """A pipeline and the verdict it implies, computed once.
+    """A pipeline and the verdict it implies.
 
     Deliberately conservative: anything that is not an unambiguous pass or an unambiguous
-    failure is ``UNCLEAR``, which stops the watch instead of spending an attempt. ``failed_jobs``
-    holds the jobs whose failure the project has not declared acceptable.
+    failure is ``UNCLEAR``, which stops the watch instead of spending an attempt.
+
+    Both derived fields resolve on first read: a report is built ahead of three guards that discard
+    most reports unread (not settled yet, superseded, not the head), while the one path that does
+    read ``failed_jobs`` reads it twice.
     """
 
     def __init__(self, pipeline: Pipeline) -> None:
         self.pipeline = pipeline
-        self.failed_jobs: list[Job] = [job for job in pipeline.jobs if job.is_failed() and not job.allow_failure]
-        self.judgment = self._judge()
 
     @classmethod
     def of(cls, pipeline: Pipeline | None) -> PipelineReport | None:
         """``None`` for a pipeline that could not be read, which the caller reads as unclear."""
         return None if pipeline is None else cls(pipeline)
 
-    def _judge(self) -> Judgment:
+    @functools.cached_property
+    def failed_jobs(self) -> list[Job]:
+        """The jobs whose failure the project has not declared acceptable."""
+        return [job for job in self.pipeline.jobs if job.is_failed() and not job.allow_failure]
+
+    @functools.cached_property
+    def judgment(self) -> Judgment:
         if self.pipeline.status not in VERDICT_STATUSES or not self.pipeline.jobs:
             return Judgment.UNCLEAR
         if self.pipeline.status == "success":

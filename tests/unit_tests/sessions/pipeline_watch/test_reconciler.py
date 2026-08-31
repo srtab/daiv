@@ -1,8 +1,10 @@
 from django.utils import timezone
 
 import pytest
-from sessions.models import Session, SessionOrigin, WatchState
+from sessions.models import Session, WatchState
 from sessions.pipeline_watch.reconciler import WATCH_MAX_AGE, WATCH_STALE_AFTER, WatchReconciler
+
+from ..conftest import amake_watched_session
 
 
 def _reconciler(*, evaluate=None, notes=None):
@@ -29,15 +31,7 @@ def _reconciler(*, evaluate=None, notes=None):
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_stale_watching_session_is_re_evaluated():
-    await Session.objects.acreate(
-        thread_id="stale",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        merge_request_iid=7,
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
-    )
+    await amake_watched_session(thread_id="stale", watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2)
     evaluated = []
 
     async def fake_evaluate(**kwargs):
@@ -53,14 +47,7 @@ async def test_a_stale_watching_session_is_re_evaluated():
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_fresh_watch_is_left_alone():
-    await Session.objects.acreate(
-        thread_id="fresh",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now(),
-    )
+    await amake_watched_session(thread_id="fresh")
     evaluated = []
 
     async def fake_evaluate(**kwargs):
@@ -72,14 +59,7 @@ async def test_a_fresh_watch_is_left_alone():
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_watch_past_its_lifetime_is_abandoned():
-    await Session.objects.acreate(
-        thread_id="ancient",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
-    )
+    await amake_watched_session(thread_id="ancient", watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2)
 
     async def fake_evaluate(**kwargs):
         raise AssertionError("an expired watch must not be evaluated")
@@ -96,14 +76,8 @@ async def test_an_expired_watch_says_so_on_the_merge_request():
     outage, a misconfigured cap and a pipeline that never started all look identical."""
     comments = []
 
-    await Session.objects.acreate(
-        thread_id="ancient2",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        merge_request_iid=11,
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
+    await amake_watched_session(
+        thread_id="ancient2", merge_request_iid=11, watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2
     )
 
     await _reconciler(notes=comments).areconcile()
@@ -116,14 +90,8 @@ async def test_an_expired_watch_says_so_on_the_merge_request():
 async def test_an_expired_watch_is_logged_per_session(caplog):
     """The only signal was an aggregate count with no repo and no thread, so nobody could
     reconstruct which watch gave up or why."""
-    await Session.objects.acreate(
-        thread_id="ancient3",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        merge_request_iid=12,
-        watch_state=WatchState.WATCHING,
-        watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2,
+    await amake_watched_session(
+        thread_id="ancient3", merge_request_iid=12, watch_armed_at=timezone.now() - WATCH_MAX_AGE * 2
     )
 
     with caplog.at_level("WARNING"):
@@ -135,13 +103,8 @@ async def test_an_expired_watch_is_logged_per_session(caplog):
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_stuck_fixing_watch_is_recovered():
-    await Session.objects.acreate(
-        thread_id="stuck",
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
-        watch_state=WatchState.FIXING,
-        watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
+    await amake_watched_session(
+        thread_id="stuck", watch_state=WatchState.FIXING, watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2
     )
     await _reconciler().areconcile()
 
@@ -154,13 +117,8 @@ async def test_a_stuck_fixing_watch_is_recovered():
 async def test_each_repository_gets_its_own_collaborators():
     """The sweep spans repositories, so a single shared client would address the wrong one."""
     for n, repo in enumerate(["group/a", "group/b"]):
-        await Session.objects.acreate(
-            thread_id=f"stale-{n}",
-            origin=SessionOrigin.MR_WEBHOOK,
-            repo_id=repo,
-            ref="daiv/branch",
-            watch_state=WatchState.WATCHING,
-            watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2,
+        await amake_watched_session(
+            thread_id=f"stale-{n}", repo_id=repo, watch_armed_at=timezone.now() - WATCH_STALE_AFTER * 2
         )
     seen = []
 

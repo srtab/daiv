@@ -1,4 +1,8 @@
-"""The watch's on/off switch and attempt cap. No I/O beyond the hour-cached repo config read."""
+"""The watch's on/off switch and attempt cap.
+
+No I/O of its own: the caller hands in a ``RepositoryConfig``, and only ``afor_repo`` resolves one
+— through the hour-cached ``.daiv.yml`` read, which on a cache miss does reach the platform.
+"""
 
 from __future__ import annotations
 
@@ -35,10 +39,6 @@ class WatchPolicy:
     @classmethod
     def enabled_for(cls, config: RepositoryConfig) -> bool:
         return cls(config).enabled
-
-    @classmethod
-    def from_config(cls, config: RepositoryConfig) -> WatchPolicy:
-        return cls(config)
 
     @classmethod
     async def afor_repo(cls, repo_id: str) -> WatchPolicy:

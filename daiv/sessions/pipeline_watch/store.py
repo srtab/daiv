@@ -79,6 +79,23 @@ class WatchStore:
             updates["watch_pipeline_id"] = None
         await Session.objects.filter(thread_id=thread_id).aupdate(**updates)
 
+    async def aclaim_attempt(self, thread_id: str, *, max_attempts: int, pipeline_id: int) -> bool:
+        """Charge one attempt and hand the watch to a fix run, reporting whether this caller won.
+
+        The cap is re-asserted inside the statement rather than trusted from the caller's read: a
+        stale read can outlive a whole fix-run cycle. Restamping ``watch_armed_at`` is what stops
+        the reconciler seeing the new ``fixing`` row as already stale.
+        """
+        return await self.atransition(
+            thread_id,
+            expect=WatchState.WATCHING,
+            where={"watch_attempts__lt": max_attempts},
+            watch_state=WatchState.FIXING,
+            watch_attempts=F("watch_attempts") + 1,
+            watch_pipeline_id=pipeline_id,
+            watch_armed_at=timezone.now(),
+        )
+
     async def arefund_attempt(self, thread_id: str) -> None:
         """Undo a claim whose fix run never started, so the attempt is not spent on nothing."""
         await Session.objects.filter(thread_id=thread_id, watch_state=WatchState.FIXING).aupdate(

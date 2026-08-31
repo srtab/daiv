@@ -6,8 +6,6 @@ had no ``run_id`` to read ``trigger_type`` off — the arm saw "not a fix run" a
 that wire rather than about the helper's own arguments.
 """
 
-from django.utils import timezone
-
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment
@@ -17,10 +15,9 @@ from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import PipelineReport
 
 from codebase.base import Scope
-from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
 
-from ..conftest import make_pipeline
+from ..conftest import amake_watched_session, make_pipeline
 
 MR_IID = 91
 
@@ -37,22 +34,16 @@ def stub_enqueue(monkeypatch):
             return holder["result"]
 
     monkeypatch.setattr("jobs.tasks.run_job_task", FakeTask())
-    monkeypatch.setattr(
-        "sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
     return calls, holder
 
 
 async def _make_watched_session(*, attempts: int = 0) -> Session:
-    return await Session.objects.acreate(
+    """A watch already claimed by this dispatch — the row state ``adispatch`` is called against."""
+    return await amake_watched_session(
         thread_id=compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=MR_IID),
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id="group/repo",
-        ref="daiv/branch",
         merge_request_iid=MR_IID,
         watch_state=WatchState.FIXING,
         watch_attempts=attempts,
-        watch_armed_at=timezone.now(),
     )
 
 

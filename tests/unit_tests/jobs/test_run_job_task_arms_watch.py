@@ -11,18 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from jobs.tasks import run_job_task
 
+from tests.unit_tests.sessions.conftest import watch_recorder
+
 MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
-
-
-def _recorder(armed):
-    class _RecordingWatch:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
-
-        async def aarm_after_run(self, **kwargs):
-            armed.append({"repo_id": self.repo_id, **kwargs})
-
-    return _RecordingWatch
 
 
 async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int | None = None) -> list[dict]:
@@ -53,7 +44,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("jobs.tasks.PipelineWatch", _recorder(armed)),
+        patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx

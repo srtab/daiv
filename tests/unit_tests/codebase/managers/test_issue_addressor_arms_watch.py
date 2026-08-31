@@ -18,6 +18,7 @@ from codebase.base import GitPlatform, Issue, User
 from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.sessions.conftest import watch_recorder
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -50,17 +51,6 @@ async def _noop_checkpointer():
     yield MagicMock()
 
 
-def _recorder(armed):
-    class _RecordingWatch:
-        def __init__(self, repo_id):
-            self.repo_id = repo_id
-
-        async def aarm_after_run(self, **kwargs):
-            armed.append({"repo_id": self.repo_id, **kwargs})
-
-    return _RecordingWatch
-
-
 async def _run_addressor(*, state_values: dict, acting_user_id: int | None = None) -> list[dict]:
     """Drive ``_address_issue`` to a clean finish over a canned final state, capturing the
     watch-arm calls. The agent, checkpointer and LangSmith config are all stubbed — the seam
@@ -76,7 +66,7 @@ async def _run_addressor(*, state_values: dict, acting_user_id: int | None = Non
         patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
         patch("codebase.managers.issue_addressor.create_daiv_agent", AsyncMock(return_value=agent)),
         patch("codebase.managers.issue_addressor.build_langsmith_config", return_value={}),
-        patch("codebase.managers.issue_addressor.PipelineWatch", _recorder(armed)),
+        patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder(armed)),
         patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
         patch.object(IssueAddressorManager, "_leave_comment"),
     ):
@@ -122,7 +112,7 @@ async def test_the_watch_arm_reuses_the_state_the_result_needs(stub_base_init):
         patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
         patch("codebase.managers.issue_addressor.create_daiv_agent", AsyncMock(return_value=agent)),
         patch("codebase.managers.issue_addressor.build_langsmith_config", return_value={}),
-        patch("codebase.managers.issue_addressor.PipelineWatch", _recorder([])),
+        patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder([])),
         patch.object(BaseManager, "_build_agent_result", build),
         patch.object(IssueAddressorManager, "_leave_comment"),
     ):

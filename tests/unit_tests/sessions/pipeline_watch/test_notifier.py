@@ -2,21 +2,18 @@ import pytest
 from notifications.choices import EventType
 from notifications.models import Notification
 from notifications.policy import SOURCE_SESSION
-from sessions.models import Session, SessionOrigin
 from sessions.pipeline_watch.judgment import PipelineReport
 from sessions.pipeline_watch.notifier import WatchNotifier
 
 from codebase.base import Job
 
-from ..conftest import make_pipeline
+from ..conftest import amake_watched_session, make_pipeline
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_it_hands_the_pipeline_facts_to_the_notifications_app(monkeypatch, django_user_model):
     user = await django_user_model.objects.acreate(username="owner", email="owner@example.com")
-    session = await Session.objects.acreate(
-        thread_id="t", origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", merge_request_iid=7, user=user
-    )
+    session = await amake_watched_session(thread_id="t", user=user)
 
     calls = []
     monkeypatch.setattr("notifications.watch_notifiers.emit_watch_exhausted", lambda **kw: calls.append(kw))
@@ -40,9 +37,7 @@ async def test_it_hands_the_pipeline_facts_to_the_notifications_app(monkeypatch,
 @pytest.mark.django_db(transaction=True)
 async def test_a_failing_emitter_never_breaks_the_watch(monkeypatch, django_user_model, caplog):
     user = await django_user_model.objects.acreate(username="owner2", email="owner2@example.com")
-    session = await Session.objects.acreate(
-        thread_id="t2", origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", user=user
-    )
+    session = await amake_watched_session(thread_id="t2", user=user)
 
     def boom(**_kwargs):
         raise RuntimeError("channel down")
@@ -59,14 +54,7 @@ async def test_a_failing_emitter_never_breaks_the_watch(monkeypatch, django_user
 @pytest.mark.django_db(transaction=True)
 async def test_the_notification_lands_under_the_shared_session_key(django_user_model):
     user = await django_user_model.objects.acreate(username="owner3", email="owner3@example.com")
-    session = await Session.objects.acreate(
-        thread_id="t3",
-        origin=SessionOrigin.PIPELINE_WEBHOOK,
-        repo_id="group/repo",
-        merge_request_iid=9,
-        watch_attempts=2,
-        user=user,
-    )
+    session = await amake_watched_session(thread_id="t3", merge_request_iid=9, watch_attempts=2, user=user)
 
     await WatchNotifier().anotify_exhausted(session=session, report=PipelineReport(make_pipeline()))
 

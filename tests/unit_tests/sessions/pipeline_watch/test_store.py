@@ -6,16 +6,14 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.store import WatchStore
 
+from ..conftest import amake_watched_session
+
 
 async def _make(thread_id, **kwargs):
-    return await Session.objects.acreate(
-        thread_id=thread_id,
-        origin=SessionOrigin.MR_WEBHOOK,
-        repo_id=kwargs.pop("repo_id", "group/repo"),
-        ref=kwargs.pop("ref", "daiv/branch"),
-        watch_armed_at=kwargs.pop("watch_armed_at", timezone.now()),
-        **kwargs,
-    )
+    """The shared watch row, identified by ``thread_id`` alone — these tests select on the watch
+    columns, never on a merge request."""
+    kwargs.setdefault("merge_request_iid", None)
+    return await amake_watched_session(thread_id=thread_id, **kwargs)
 
 
 def _a_non_watch_origin() -> str:

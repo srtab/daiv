@@ -1,25 +1,32 @@
+"""The orchestrator: judge one branch's pipeline and take the single action it implies.
+
+Owns no I/O and no SQL of its own — ``platform`` reads CI, ``store`` reads and writes the watch
+columns, ``policy`` says what the repository is allowed to do, and ``judgment`` says what a
+pipeline means. What lives here is the sequencing between them.
+"""
+
+from __future__ import annotations
+
 import functools
 import logging
 from typing import TYPE_CHECKING
 
-from django.db.models import F
-from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from chat.repo_state import mr_to_payload
 from codebase.base import Scope
-from codebase.clients.base import is_transient_platform_error
 from codebase.utils import compute_thread_id
-from sessions.models import Session, WatchState
+from sessions.models import WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.judgment import Judgment, PipelineReport
 from sessions.pipeline_watch.notifier import WatchNotifier
-from sessions.pipeline_watch.platform import WatchPlatform
+from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import WatchStore
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest
+    from sessions.models import Session
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -168,11 +175,7 @@ class PipelineWatch:
             pipeline = await self._platform.aread_pipeline(ref=ref, pipeline_id=pipeline_id)
         except Exception as exc:
             # Unreadable is not a verdict: leaving the watch armed lets the next event or sweep retry.
-            # The level splits on transience so an outage does not mint a Sentry error per sweep.
-            if is_transient_platform_error(exc):
-                logger.warning("pipeline_watch: could not read the pipeline for %s@%s: %s", self.repo_id, ref, exc)
-            else:
-                logger.exception("pipeline_watch: unexpected failure reading the pipeline for %s@%s", self.repo_id, ref)
+            log_read_failure(exc, what="the pipeline", target=f"{self.repo_id}@{ref}")
             return
 
         report = PipelineReport.of(pipeline)
@@ -229,14 +232,7 @@ class PipelineWatch:
                 await self._notifier.anotify_exhausted(session=session, report=report)
             return
 
-        # The cap is re-asserted in the claim itself: a stale read can outlive a fix-run cycle.
-        if await claim(
-            where={"watch_attempts__lt": max_attempts},
-            watch_state=WatchState.FIXING,
-            watch_attempts=F("watch_attempts") + 1,
-            watch_pipeline_id=report.id,
-            watch_armed_at=timezone.now(),
-        ):
+        if await self._store.aclaim_attempt(session.thread_id, max_attempts=max_attempts, pipeline_id=report.id):
             await self._dispatcher.adispatch(
                 session=session, report=report, repo_id=self.repo_id, merge_request_iid=merge_request_iid
             )
