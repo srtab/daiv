@@ -20,33 +20,70 @@ There is no separate `tailwind.config.js` — all theme configuration lives insi
 
 | Token              | Value                                                       |
 |--------------------|-------------------------------------------------------------|
-| Font family        | `"Outfit"`, ui-sans-serif, system-ui, sans-serif            |
-| Weights loaded     | 300 (light), 400 (regular), 500 (medium), 600 (semi), 700 (bold), 800 (extra-bold) |
-| Body text          | `text-[14px]` regular, `text-gray-300` or `text-gray-400`  |
-| Small / meta text  | `text-[13px]` or `text-[12px]`                              |
-| Headings           | `font-semibold` or `font-bold`, `text-white` or `text-gray-100` |
-| Uppercase labels   | `tracking-[0.15em]` to `tracking-[0.2em]`, `font-semibold` |
+| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
+| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
+| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
+| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
+| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
+| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
+| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
+| Tabular figures    | `tabular-nums` wherever digits align or change             |
 
 ### Color Palette
 
-The UI is **dark-mode only**. All colors are applied directly with Tailwind utilities — there are no custom CSS variables beyond `--font-sans`.
+The UI is **dark-mode only** (no light theme). The app shell and every new or
+restyled surface use the **semantic design-token layer** below; older pages still
+use the raw Tailwind utilities in the legacy table that follows. Prefer the tokens.
 
-| Role             | Value                              | Usage                               |
-|------------------|------------------------------------|---------------------------------------|
-| Page background  | `bg-[#030712]`                     | `<body>` background                   |
-| Surface          | `bg-white/[0.02]`                  | Cards, containers                     |
-| Surface hover    | `bg-white/[0.04]`                  | Card hover state                      |
-| Surface elevated | `bg-white/[0.06]`                  | Inline code, subtle wells             |
-| Border default   | `border-white/[0.06]`             | Card borders, dividers, form inputs   |
-| Border hover     | `border-white/[0.12]`             | Interactive hover borders             |
-| Border focus     | `border-white/[0.15]`             | Focused inputs                        |
-| Text primary     | `text-white`                       | Headings, strong content              |
-| Text secondary   | `text-gray-300`                    | Body text                             |
-| Text tertiary    | `text-gray-400`                    | Labels, meta, descriptions            |
-| Text muted       | `text-gray-500`                    | Placeholders                          |
-| Select bg        | `bg-[#0d1117]`                     | `<select>` dropdown background        |
+#### Semantic Design Tokens (Tailwind v4 `@theme`)
+
+Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
+block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
+`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). `input.css`
+declares each value exactly once and the table below documents the roles; **nothing
+else restates a value.**
+
+| Token | Value | Role |
+|---|---|---|
+| `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
+| `surface-1` | `#10151D` | sidebar + top bar |
+| `surface-2` | `#161C26` | cards + hero |
+| `surface-3` | `#1E2733` | hover / inset chips |
+| `border` | `#232B36` | 1px hairline separators |
+| `text` / `text-strong` / `text-muted` / `text-faint` | `#E6EDF3` / `#FFFFFF` / `#9AA4B0` / `#767F8E` | text ramp |
+| `brand` / `brand-bright` | `#8B5CF6` / `#A78BFA` | violet — WHO/brand & mark only, **never a CTA** |
+| `accent` / `accent-bright` / `accent-ink` | `#2DD4BF` / `#5FE6D4` / `#04211D` | teal — DO/action; owns "clickable" |
+| `focus` | = `accent-bright` | focus ring — reads the accent token, so the teal ramp moves as one |
+| `status-clear` / `status-found` / `status-attn` / `status-fail` | `#3FB950` / `#D6A036` / `#38BDF8` / `#F85149` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
+
+Weak-tint status backgrounds = the status token at ~14–16% alpha via
+`color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
+
+#### Legacy raw utilities (pages not yet on the tokens)
+
+These are what most pages still use. The last column is the token each row becomes, so
+migrating a page is mechanical rather than a judgement call — take the whole page at once,
+never half.
+
+| Role             | Legacy value                       | Usage                                 | Migrates to     |
+|------------------|------------------------------------|---------------------------------------|-----------------|
+| Surface          | `bg-white/[0.02]`                  | Cards, containers                     | `surface-2`     |
+| Surface hover    | `bg-white/[0.04]`                  | Card hover state                      | `surface-3`     |
+| Surface elevated | `bg-white/[0.06]`                  | Inline code, subtle wells             | `surface-3`     |
+| Border default   | `border-white/[0.06]`             | Card borders, dividers, form inputs   | `border`        |
+| Border hover     | `border-white/[0.12]`             | Interactive hover borders             | `border`        |
+| Border focus     | `border-white/[0.15]`             | Focused inputs                        | `focus` (ring)  |
+| Text primary     | `text-white`                       | Headings, strong content              | `text-strong`   |
+| Text secondary   | `text-gray-300`                    | Body text                             | `text`          |
+| Text tertiary    | `text-gray-400`                    | Labels, meta, descriptions            | `text-muted`    |
+| Text muted       | `text-gray-500` / `text-gray-600`  | Placeholders, captions                | `text-faint`    |
+| Select bg        | `bg-[#0d1117]`                     | `<select>` dropdown background        | `surface-2`     |
 
 ### Semantic Colors
+
+**Legacy until migrated** — the four rows below are the pre-token spelling of the four
+`status-*` tokens (success→`status-clear`, warning→`status-found`, info→`status-attn`,
+error→`status-fail`). New surfaces use the tokens.
 
 | Semantic   | Border                    | Background              | Text              |
 |------------|---------------------------|-------------------------|--------------------|
@@ -76,9 +113,27 @@ Use Tailwind's default spacing scale. Common values:
 
 ### Layout
 
-- **Max content width**: `max-w-5xl` (consistent across all pages)
+- **Content width — `container_width` tier system.** `base_app.html` exposes a
+  `{% block container_width %}` whose allowed values are `max-w-3xl` (narrow),
+  `max-w-6xl` (default), `max-w-screen-2xl` (wide), or `max-w-none` (fluid). Pick
+  the tier per page; don't hard-code arbitrary widths.
 - **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
-- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px)
+- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
+  The app shell itself reflows at **768px** (`md:` — sidebar → sheet + bottom tab
+  bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
+  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
+  sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
+  switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
+- **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
+  ramp plus hairline `border-border` — **persistent surfaces carry no box-shadow.**
+  The single sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`)
+  is reserved for transient overlays (menus / popovers / dialogs).
+- **Focus & keyboard.** A global `:focus-visible` teal ring
+  (`outline: 2px solid var(--color-focus); outline-offset: 2px`) applies to every
+  interactive element that doesn't draw its own — the chat composer and the pickers
+  still carry hand-rolled `:focus-visible` rings in `@layer components`, which win.
+  New components should rely on the global one. `Esc` closes the topmost
+  drawer/popover. No command palette.
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
 ## Component Library
@@ -86,6 +141,11 @@ Use Tailwind's default spacing scale. Common values:
 All components are Django templates. Reusable partials are **underscore-prefixed** (`_component.html`).
 
 ### Buttons
+
+**Legacy until migrated** — `.btn-primary`'s white fill predates the token layer, where
+teal `accent` owns "clickable" (see the sidebar's `bg-accent text-accent-ink` CTA). Keep
+using these classes on pages still on the legacy utilities; a page moved to the tokens
+moves its primary action to `accent` at the same time.
 
 Defined as Tailwind `@layer components` classes in `input.css`:
 
@@ -155,8 +215,9 @@ when there is more than one:
 
 The title block takes whatever the actions leave and wraps its own text; the actions
 drop to a line of their own once it would go below `16rem`. **Never add a breakpoint
-for this**: the sidebar takes 240px out of the viewport, so `sm:` (640px) fires when
-the content area is only ~350px wide, narrower than a phone. The same wrap — grow the
+for this**: a viewport breakpoint can't see the shell beside it — the sidebar is a
+64px rail from `md:` and 240px from `lg:`, so the content area a `sm:`/`lg:` rule
+switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
 controls stack (`mcp_servers/_server_list.html`), and it adapts per row when the
 controls are conditional.
@@ -197,6 +258,26 @@ Reusable partial at `accounts/templates/accounts/_pagination.html`:
 ```
 
 Requires `is_paginated` and `page_obj` in template context (standard Django `ListView`).
+
+### App Shell
+
+`base_app.html` is the chrome every signed-in page inherits: sidebar, top bar,
+scrolling `<main>`, and — below `md:` — a mobile nav sheet plus a four-tab bottom bar.
+
+- **Tiers.** `< md` sheet + bottom tab bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`; the
+  elements it re-centres carry `sidebar__brand` / `sidebar__cta` / `sidebar__nav-item` /
+  `sidebar__footer-link`, and a group heading keeps its box via `sidebar__group-heading`.
+  A new nav item wraps its text in `sidebar__collapsible`, or the label overflows the
+  4rem rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it
+  keeps its labels. A nav item's appearance is the `.sidebar__nav-item` component class,
+  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
+  `sidebar__nav-item--active`, the class that draws the 3px brand rail.
+- **Bottom tab bar.** The four tabs are `NAV_TABS` in `accounts/context_processors.py`,
+  beside the section keys they highlight against; `.tabbar__link` carries their appearance
+  and the ≥44px touch-target floor. Height is `--app-tabbar-height`, which `<main>` pads by
+  below `md` — that padding is also what keeps the chat surface's sticky dock off the bar.
+- **Top bar slot.** `{% block topbar_start %}` holds page-specific controls; empty by default.
 
 ### Header
 
@@ -310,7 +391,7 @@ Features: 300ms debounced search, abort controller, loading state.
 All pages extend `accounts/templates/base.html`, which provides:
 
 - HTML shell with `<head>` (fonts, CSS, Alpine.js, meta tags)
-- `<body class="h-full bg-[#030712] font-sans text-white antialiased">`
+- `<body class="h-full bg-ground font-sans text-text antialiased">`
 - Toast message system
 - Blocks: `title`, `meta_description`, `meta_robots`, `canonical`, `open_graph`, `head_extra`, `alpine_plugins`, `content`
 
@@ -341,8 +422,10 @@ All pages extend `accounts/templates/base.html`, which provides:
 
 - Use semantic HTML: `<nav>`, `<main>`, `<header>`, `<footer>`, `<section>`
 - Add `aria-label` on navigation landmarks
-- Maintain focus states on all interactive elements (inputs have ring styles)
-- Ensure color contrast: light text (`white`, `gray-300`) on dark backgrounds
+- Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
+  opt out (`focus:outline-none`) when replacing it with an equally visible ring
+- Ensure color contrast: the `text` / `text-muted` / `text-faint` ramp and every
+  `status-*` token are AA-legible on `ground`; check anything outside them
 - Use `x-cloak` to prevent flash of unstyled Alpine content
 
 ## Responsive Design
@@ -357,17 +440,18 @@ Mobile-first approach. Common patterns:
 <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
 ```
 
-Breakpoints are viewport-relative, but dashboard pages sit next to a sidebar a fixed
-`--app-sidebar-width` (15rem) wide, so `sm:` fires when the content area is only ~350px
-— narrower than the phone layout it replaces. Where the switch depends on whether two
-blocks still fit (a title and its actions, a list row and its controls), wrap on content
-instead: see §Page Header.
+Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
+a 64px icon rail, then the full `--app-sidebar-width` (15rem) from `lg:` — so the
+content area a rule switches on is always narrower than the width the rule names.
+Where the switch depends on whether two blocks still fit (a title and its actions, a
+list row and its controls), wrap on content instead: see §Page Header.
 
 A `position: fixed` surface has the same problem with no layout to lean on: it measures
-the viewport, not the column it belongs to. From `sm:` up, bottom sheets (pickers and the
-composer's own) are therefore inset to the content column instead, so one never opens
-across the sidebar. For the tokens and the `:root` switch that does it, see AGENTS.md
-§Floating surfaces.
+the viewport, not the column it belongs to. From `md:` up — the width the sidebar
+appears at — bottom sheets (pickers and the composer's own) are therefore inset to the
+content column instead, so one never opens across the sidebar. The `--sheet-inset-*`
+switch in `input.css` is keyed to `--breakpoint-md` for exactly that reason: move the
+sidebar's tier and that switch moves with it.
 
 ## File Paths Reference
 
@@ -376,6 +460,9 @@ across the sidebar. For the tokens and the `:root` switch that does it, see AGEN
 | Tailwind source         | `daiv/static_src/css/input.css`               |
 | Compiled CSS            | `daiv/static/css/styles.css`                  |
 | Base template           | `daiv/accounts/templates/base.html`           |
+| App shell template      | `daiv/accounts/templates/base_app.html`       |
+| Sidebar partial         | `daiv/accounts/templates/accounts/_sidebar.html` |
+| Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
 | Header partial          | `daiv/accounts/templates/accounts/_header.html` |
 | Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
 | Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |

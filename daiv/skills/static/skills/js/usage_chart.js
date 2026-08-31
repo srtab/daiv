@@ -52,7 +52,7 @@
     const gridColor = style.getPropertyValue("--chart-grid").trim() || "rgba(255,255,255,0.04)";
     const tooltipBg = style.getPropertyValue("--chart-tooltip-bg").trim() || "rgba(15,23,42,0.95)";
     const tooltipFg = style.getPropertyValue("--chart-tooltip-fg").trim() || "rgba(255,255,255,0.92)";
-    const fontFamily = style.fontFamily || "Outfit, sans-serif";
+    const fontFamily = style.fontFamily || "Geist, sans-serif";
 
     Chart.defaults.font.family = fontFamily;
     Chart.defaults.color = tickColor;

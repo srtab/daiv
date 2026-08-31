@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from git import GitCommandError
+from langchain_core.messages import AIMessage
 
 from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
 from automation.agent.middlewares.file_system import SandboxFileBackend
@@ -946,3 +947,50 @@ def test_state_merge_request_raises_on_degraded_dict(caplog):
     with caplog.at_level("ERROR"), pytest.raises(TypeError, match="expected MergeRequest"):
         GitMiddleware._state_merge_request({"merge_request": envelope})
     assert "revived as dict, not a MergeRequest" in caplog.text
+
+
+class TestAgentSummaryReachesThePublisher:
+    """The transcript is only readable here — ``BaseManager._recover_draft`` publishes from a
+    persisted checkpoint, where ``messages`` lives in a ``DeltaChannel`` and needs
+    ``aresolve_thread_messages`` to reconstruct. So this hook is the one path that can supply it."""
+
+    @staticmethod
+    async def _summary_handed_to_publish(state):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent(state, runtime)
+            return pub_cls.return_value.publish.await_args.kwargs["agent_summary"]
+
+    async def test_the_closing_summary_is_handed_to_publish(self):
+        summary = await self._summary_handed_to_publish({
+            "merge_request": None,
+            "messages": [AIMessage("Added the endpoint; could not run the suite.")],
+        })
+
+        assert summary == "Added the endpoint; could not run the suite."
+
+    async def test_a_transcript_without_prose_publishes_without_a_summary(self):
+        summary = await self._summary_handed_to_publish({
+            "merge_request": None,
+            "messages": [AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}])],
+        })
+
+        assert summary is None
+
+    async def test_a_state_carrying_no_messages_publishes_without_a_summary(self):
+        """A builtin slash command short-circuits straight to the after_agent chain."""
+        summary = await self._summary_handed_to_publish({"merge_request": None})
+
+        assert summary is None
+
+    async def test_an_unreadable_transcript_still_publishes(self, caplog):
+        """The read is evaluated as an argument to publish, so anything it raises means nothing is
+        committed, pushed or opened — over a sentence in a description."""
+        with caplog.at_level("ERROR"):
+            summary = await self._summary_handed_to_publish({"merge_request": None, "messages": object()})
+
+        assert summary is None
+        assert "closing summary" in caplog.text

@@ -24,7 +24,13 @@ CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 # `(?<!-)` keeps `border-color` and friends out: non-text has no 4.5:1 bar to clear.
 TEXT_COLOR = re.compile(r"(?<!-)color:\s*(#[0-9a-fA-F]{3,6})\b")
-SURFACE_BACKGROUND = re.compile(r"background:\s*(#[0-9a-fA-F]{6})|bg-\[(#[0-9a-fA-F]{6})\]")
+# A surface paints itself with a hex, an arbitrary utility, or a `--color-*` token; the
+# token form is resolved through `THEME_TOKEN` so the guard measures the colour that ships.
+SURFACE_BACKGROUND = re.compile(
+    r"background:\s*(#[0-9a-fA-F]{6})|bg-\[(#[0-9a-fA-F]{6})\]"
+    r"|background:\s*var\((--color-[\w-]+)\)|bg-(?!\[)([\w-]+)"
+)
+THEME_TOKEN = re.compile(r"(--color-[\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--color-[\w-]+\))\s*;")
 
 # The sheet/popover half of the `surface-rise` roster in input.css — the surfaces that open
 # over the page rather than sitting in it. `.card__menu-panel` is on the roster too but is a
@@ -62,6 +68,35 @@ def _contrast(foreground: str, background: str) -> float:
     return darker / lighter
 
 
+def theme_colours(path=None) -> dict[str, str]:
+    """Every `--color-*` in `input.css`'s `@theme`, dereferenced to a hex.
+
+    A token may point at another token (`--color-focus: var(--color-accent-bright)`), so
+    the values are followed until they land on a literal.
+    """
+    source = (path or INPUT_CSS).read_text(encoding="utf-8")
+    declared = dict(THEME_TOKEN.findall(source))
+    resolved = {}
+    for name, value in declared.items():
+        seen = set()
+        while value.startswith("var(") and name not in seen:
+            seen.add(name)
+            value = declared[value[len("var(") : -1]]
+        resolved[name] = value
+    return resolved
+
+
+def surface_background(body: str, tokens: dict[str, str]) -> str | None:
+    """The hex a surface's rule paints, whether spelled literally or as a token."""
+    for hex_value, applied_hex, token, utility in SURFACE_BACKGROUND.findall(body):
+        if hex_value or applied_hex:
+            return hex_value or applied_hex
+        name = token or f"--color-{utility}"
+        if name in tokens:
+            return tokens[name]
+    return None
+
+
 def iter_rules(*paths):
     """Selector/body pairs, comments stripped — an unstripped rule carries the preceding
     comment into its selector, which would let prose decide what gets measured."""
@@ -74,13 +109,14 @@ def iter_rules(*paths):
 def test_the_floating_surfaces_share_one_background():
     """The guard below measures one background because these surfaces declare one. Adding a
     surface, or re-toning an existing one, has to come back through here."""
+    tokens = theme_colours()
     backgrounds = {}
     for selector, body in iter_rules(INPUT_CSS):
         block = selector.split()[0].split(",")[0].split(":")[0]
         if block not in SURFACES:
             continue
-        for declared, applied in SURFACE_BACKGROUND.findall(body):
-            backgrounds.setdefault(block, declared or applied)
+        if (background := surface_background(body, tokens)) is not None:
+            backgrounds.setdefault(block, background)
 
     assert set(backgrounds) == SURFACES, f"unenrolled or renamed surface: {set(backgrounds) ^ SURFACES}"
     assert len(set(backgrounds.values())) == 1, f"surfaces no longer agree on a background: {backgrounds}"
@@ -90,11 +126,12 @@ def test_surface_text_clears_aa_on_the_surface_background():
     """Every colour that renders on a floating surface, not just the ones whose selector
     spells the surface's name — `.sheet-row__meta` mounts in the options sheet and the env
     picker without either word appearing in it."""
+    tokens = theme_colours()
     background = next(
-        (declared or applied)
+        background
         for selector, body in iter_rules(INPUT_CSS)
         if selector.split()[0].split(",")[0] == ".composer-sheet"
-        for declared, applied in SURFACE_BACKGROUND.findall(body)
+        if (background := surface_background(body, tokens)) is not None
     )
 
     measured = [

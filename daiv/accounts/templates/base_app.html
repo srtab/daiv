@@ -9,10 +9,15 @@
 {% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
      x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
-     class="flex h-dvh">
+     @keydown.escape.window="mobileNavOpen = false"
+     class="flex h-dvh bg-ground">
   {% include "accounts/_sidebar.html" %}
 
-  <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 sm:hidden">
+  {% comment %}
+  Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
+  icon-rail modifier, so it always shows full labels.
+  {% endcomment %}
+  <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 md:hidden">
     <div x-show="mobileNavOpen" x-transition.opacity
          @click="mobileNavOpen = false"
          class="absolute inset-0 bg-black/60"></div>
@@ -23,27 +28,35 @@
          x-transition:leave="transition-transform duration-150"
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="-translate-x-full"
-         class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-[#030712] shadow-2xl">
+         class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
       {% include "accounts/_sidebar.html" with sidebar_root_class="flex w-full flex-col" %}
     </div>
   </div>
 
   <div class="flex flex-1 flex-col min-w-0">
-    <header class="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5 sm:px-(--app-content-gutter)">
-      <button type="button"
-              @click="mobileNavOpen = !mobileNavOpen"
-              class="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
-              aria-label="{% translate 'Open navigation' %}">
-        {% icon "bars-3" "h-5 w-5" %}
-      </button>
-      <div class="flex-1"></div>
+    <header class="flex items-center justify-between gap-3 border-b border-border bg-surface-1 px-4 py-3 sm:px-(--app-content-gutter)">
+      <div class="flex items-center gap-3">
+        <button type="button"
+                @click="mobileNavOpen = !mobileNavOpen"
+                class="md:hidden inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:text-text"
+                aria-label="{% translate 'Open navigation' %}">
+          {% icon "bars-3" "h-5 w-5" %}
+        </button>
+
+        {% comment %}
+        Top-bar left slot for page-specific controls. Empty on shared pages, so a
+        control only appears where it makes sense.
+        {% endcomment %}
+        {% block topbar_start %}{% endblock %}
+      </div>
+
       <div class="flex items-center gap-4">
         {% include "notifications/_bell.html" %}
         {% include "accounts/_user_menu.html" %}
       </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 py-8 sm:px-(--app-content-gutter) sm:py-10">
+    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 pb-(--app-tabbar-height) sm:px-(--app-content-gutter) sm:pt-8 md:pb-10">
       {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
       <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
         {% block breadcrumb %}{% endblock %}
@@ -51,5 +64,22 @@
       </div>
     </main>
   </div>
+
+  {% comment %}
+  Bottom tab bar (< 768px). The tabs come from `NAV_TABS` in accounts.context_processors,
+  beside the section keys they highlight against; `.tabbar__link` carries the appearance
+  and the >= 44px touch-target floor.
+  {% endcomment %}
+  <nav data-testid="mobile-tab-bar" aria-label="{% translate 'Primary' %}"
+       class="fixed inset-x-0 bottom-0 z-30 flex h-(--app-tabbar-height) border-t border-border bg-surface-1 md:hidden">
+    {% for tab in nav_tabs %}
+    <a href="{% url tab.url_name %}"
+       {% if nav_active_section == tab.section %}aria-current="page"{% endif %}
+       class="tabbar__link {% if nav_active_section == tab.section %}text-text-strong{% else %}text-text-muted{% endif %}">
+      {% icon tab.icon "h-5 w-5" %}
+      <span>{{ tab.label }}</span>
+    </a>
+    {% endfor %}
+  </nav>
 </div>
 {% endblock content %}

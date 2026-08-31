@@ -25,6 +25,7 @@ from core.site_settings import site_settings
 from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
+from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -155,7 +156,13 @@ class GitChangePublisher(ChangePublisher):
     """
 
     async def publish(
-        self, *, merge_request: MergeRequest | None = None, skip_ci: bool = False, as_draft: bool = False, **kwargs
+        self,
+        *,
+        merge_request: MergeRequest | None = None,
+        skip_ci: bool = False,
+        as_draft: bool = False,
+        agent_summary: str | None = None,
+        **kwargs,
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
@@ -224,7 +231,7 @@ class GitChangePublisher(ChangePublisher):
                 snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
             )
             changes_metadata = await self._diff_to_metadata(
-                pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff
+                pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
             )
 
             if snapshot.dirty:
@@ -437,7 +444,9 @@ class GitChangePublisher(ChangePublisher):
         except Exception:
             logger.exception("Could not post the pipeline-failure note on MR !%s", merge_request.merge_request_id)
 
-    async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
+    async def _diff_to_metadata(
+        self, commit_message_diff: str, pr_metadata_diff: str | None = None, agent_summary: str | None = None
+    ) -> dict[str, Any]:
         """
         Get the PR metadata from the diff.
 
@@ -445,6 +454,9 @@ class GitChangePublisher(ChangePublisher):
             ctx: The runtime context.
             commit_message_diff: The diff of the commit message.
             pr_metadata_diff: The diff of the PR metadata. If None, the PR metadata will not be computed.
+            agent_summary: The agent's closing summary — a test that could not run, work left
+                unfinished. Reaches the PR-metadata prompt only; the commit-message template
+                declares no slot for it, so a one-line subject cannot pick up a caveat.
 
         Returns:
             The pull request metadata and commit message.
@@ -470,6 +482,9 @@ class GitChangePublisher(ChangePublisher):
             context_parts.append(refs_context)
         if context_parts:
             input_data["extra_context"] = "\n\n".join(context_parts)
+        # Its own key, not `extra_context`: that one is handed to the commit-message agent too.
+        if agent_summary and pr_metadata_diff:
+            input_data["agent_report"] = sanitize_agent_report(agent_summary)
 
         if pr_metadata_diff:
             input_data["pr_metadata_diff"] = redact_diff_content(
