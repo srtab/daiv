@@ -1,8 +1,27 @@
+import inspect
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from automation.agent.middlewares.web_search import WebSearchMiddleware, web_search_tool
+import pytest
+from ddgs import ddgs as ddgs_module
+from ddgs.exceptions import DDGSException
+from pydantic import SecretStr
+
+from automation.agent.middlewares.web_search import WebSearchConfigurationError, WebSearchMiddleware, web_search_tool
+
+
+@pytest.fixture
+def duckduckgo():
+    """Patched DuckDuckGo backend; yields the wrapper so a test only states its own behaviour."""
+    with (
+        patch("automation.agent.middlewares.web_search.site_settings") as settings,
+        patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper") as wrapper_class,
+    ):
+        settings.web_search_engine = "duckduckgo"
+        settings.web_search_max_results = 5
+        wrapper_class.return_value = wrapper = MagicMock()
+        yield wrapper
 
 
 class TestWebSearchTool:
@@ -53,6 +72,8 @@ class TestWebSearchTool:
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper")
     async def test_no_results_duckduckgo(self, mock_wrapper_class, mock_settings):
+        # Defensive twin of test_duckduckgo_no_results_is_not_a_backend_failure: the real ddgs
+        # backend raises rather than returning [], so only that test covers a reachable route.
         mock_settings.web_search_engine = "duckduckgo"
         mock_settings.web_search_max_results = 5
 
@@ -100,15 +121,87 @@ class TestWebSearchTool:
         assert parsed[0]["link"] == "https://example.com/q?a=1&b=2"
         assert parsed[0]["content"] == "body with <tag>"
 
+    # DDGSException derives straight from Exception: an `except OSError` narrowing of the tool's
+    # catch-all passes every other test in this file while reintroducing the run-killing abort.
+    @pytest.mark.parametrize(
+        "raised", [DDGSException("ConnectError: dns error"), ConnectionError("DNS error: no records found")]
+    )
+    async def test_backend_failure_returns_error_string(self, duckduckgo, raised):
+        duckduckgo.results.side_effect = raised
+
+        result = await web_search_tool.ainvoke({"query": "test query"})
+
+        # The repo-wide tool convention: `error:` instead of JSON means the tool itself failed.
+        assert result.startswith("error: Web search failed.")
+        assert f"{type(raised).__name__}: {raised}" in result
+
+    @patch("automation.agent.middlewares.web_search.site_settings")
+    @patch("automation.agent.middlewares.web_search.TavilySearchAPIWrapper")
+    async def test_backend_failure_returns_error_string_tavily(self, mock_wrapper_class, mock_settings):
+        mock_settings.web_search_engine = "tavily"
+        mock_settings.web_search_max_results = 5
+        mock_settings.web_search_api_key = SecretStr("key")
+
+        mock_wrapper = MagicMock()
+        # TavilySearchAPIWrapper flattens every non-200 into a bare Exception.
+        mock_wrapper.raw_results_async = AsyncMock(side_effect=Exception("Error 503: Service Unavailable"))
+        mock_wrapper_class.return_value = mock_wrapper
+
+        result = await web_search_tool.ainvoke({"query": "test query"})
+
+        assert result == "error: Web search failed. Details: Exception: Error 503: Service Unavailable"
+
+    async def test_backend_error_detail_is_truncated(self, duckduckgo):
+        duckduckgo.results.side_effect = DDGSException("x" * 5000)
+
+        result = await web_search_tool.ainvoke({"query": "test query"})
+
+        assert result.endswith("…[truncated]")
+        assert len(result) < 600
+
+    async def test_backend_failure_is_logged_at_error(self, duckduckgo, caplog):
+        # Sentry's default LoggingIntegration only turns ERROR into an event, so a warning here
+        # would leave a permanently dead backend degrading every run with no operator signal.
+        duckduckgo.results.side_effect = DDGSException("ConnectError: dns error")
+
+        with caplog.at_level("WARNING", logger="daiv.tools"):
+            await web_search_tool.ainvoke({"query": "test query"})
+
+        record = next(rec for rec in caplog.records if "Web search failed" in rec.getMessage())
+        assert record.levelname == "ERROR"
+        assert record.exc_info is not None
+
+    async def test_duckduckgo_no_results_is_not_a_backend_failure(self, duckduckgo):
+        # ddgs raises instead of returning [] when every engine matched nothing; the model must not
+        # be told the backend failed.
+        duckduckgo.results.side_effect = DDGSException("No results found.")
+
+        result = await web_search_tool.ainvoke({"query": "test query"})
+
+        assert json.loads(result) == []
+
+    def test_ddgs_no_results_sentinel_is_unchanged(self):
+        """Pin the upstream string the no-results mapping keys on, so a ddgs bump fails here
+        instead of silently turning an empty search back into a backend failure."""
+        source = inspect.getsource(ddgs_module.DDGS._search_sync)
+
+        assert 'raise DDGSException(err or "No results found.")' in source
+
+    @pytest.mark.parametrize("api_key", [None, SecretStr("")])
+    @patch("automation.agent.middlewares.web_search.site_settings")
+    async def test_unusable_tavily_api_key_propagates(self, mock_settings, api_key):
+        mock_settings.web_search_engine = "tavily"
+        mock_settings.web_search_api_key = api_key
+
+        with pytest.raises(WebSearchConfigurationError, match="Web search API key is not configured"):
+            await web_search_tool.ainvoke({"query": "test query"})
+
     @patch("automation.agent.middlewares.web_search.site_settings")
     async def test_invalid_search_engine(self, mock_settings):
         mock_settings.web_search_engine = "invalid_engine"
 
-        try:
+        with pytest.raises(WebSearchConfigurationError, match="Invalid web search engine: invalid_engine"):
             await web_search_tool.ainvoke({"query": "test query"})
-            raise AssertionError("Should have raised ValueError")
-        except ValueError as e:
-            assert "Invalid web search engine: invalid_engine" in str(e)
 
     @patch("automation.agent.middlewares.web_search.site_settings")
     @patch("automation.agent.middlewares.web_search.DuckDuckGoSearchAPIWrapper")
