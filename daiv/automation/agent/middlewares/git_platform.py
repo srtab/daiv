@@ -241,6 +241,7 @@ This tool is best for retrieving the current state of:
 - Workflow runs: `run list --workflow <workflow_name>`
 - Job logs: `run view <run_id> --job <job_id> --log`
 - Filtered issue list: `issue list --state open --label bug --limit <n>`
+- Create a release: `release create <tag> --title "<title>" --notes "<notes>"` (or `--generate-notes`)
 
 **Invalid examples:**
 - ✗ `gh issue view 42`
@@ -476,12 +477,12 @@ GITHUB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
         "lock",
         "unlock",
     },
-    # CI investigation workflow (read-only)
+    # CI investigation workflow
     "workflow": {"list", "view", "run"},
     "run": {"list", "view", "watch", "download", "rerun"},
-    # Supporting read-only project data
+    # Supporting project data
     "repo": {"list", "view"},
-    "release": {"list", "view", "download", "edit", "upload"},
+    "release": {"list", "view", "download", "create", "edit", "upload"},
     "ruleset": {"list", "view", "check"},
     "label": {"list", "create", "edit"},
     "cache": {"list", "delete"},
