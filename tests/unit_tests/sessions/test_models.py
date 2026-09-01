@@ -35,6 +35,7 @@ def test_session_origin_includes_chat():
         "ui_job",
         "issue_webhook",
         "mr_webhook",
+        "pipeline_webhook",
     }
 
 

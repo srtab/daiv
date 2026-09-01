@@ -246,6 +246,19 @@ class SiteConfiguration(models.Model):
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
     )
+    pipeline_watch_enabled = models.BooleanField(
+        _("pipeline watch enabled"),
+        blank=True,
+        null=True,
+        help_text=_("Watch CI on merge requests DAIV publishes and try to fix failures."),
+    )
+    pipeline_watch_max_attempts = models.PositiveSmallIntegerField(
+        _("pipeline watch max attempts"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("How many fix attempts to spend on one merge request before handing back."),
+    )
 
     # -- Commit & PR Writer --
     diff_to_metadata_model_name = models.CharField(
@@ -585,6 +598,13 @@ class SiteConfiguration(models.Model):
         ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox", category="Runtime"),
         FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs", category="Runtime"),
+        FieldGroup(
+            key="pipeline_watch",
+            title=_("Pipeline Watch"),
+            match=("pipeline_watch_*",),
+            icon="jobs",
+            category="Runtime",
+        ),
         FieldGroup(
             key="rocketchat",
             title=_("Rocket Chat"),

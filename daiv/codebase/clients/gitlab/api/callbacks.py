@@ -5,6 +5,9 @@ from typing import Any, Literal
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
+from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -27,6 +30,7 @@ from .models import (  # noqa: TC001
     Note,
     NoteableType,
     NoteAction,
+    PipelineEvent,
     Project,
     User,
 )
@@ -360,3 +364,34 @@ class PushCallback(BaseCallback):
         Process the push webhook to invalidate the cache for the repository configurations.
         """
         RepositoryConfig.invalidate_cache(self.project.path_with_namespace)
+
+
+class PipelineCallback(BaseCallback):
+    """
+    GitLab Pipeline Webhook for babysitting CI on merge requests DAIV published.
+    """
+
+    object_kind: Literal["pipeline"]
+    project: Project
+    user: User
+    object_attributes: PipelineEvent
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.project.path_with_namespace)
+
+    def accept_callback(self) -> bool:
+        """Accept pipelines the judge has an outcome for, on repos with the watch enabled.
+
+        Deliberately does *not* reject pipelines attributed to DAIV: the service-account
+        heal on ephemeral-token repos makes those the ones worth watching. Status is tested
+        first because ``_repo_config`` blocks the event loop on a cache round-trip.
+        """
+        return self.object_attributes.status in JUDGEABLE_PIPELINE_STATUSES and WatchPolicy.enabled_for(
+            self._repo_config
+        )
+
+    async def process_callback(self):
+        await PipelineWatch(self.project.path_with_namespace).arequest_evaluation(
+            ref=self.object_attributes.ref, pipeline_id=self.object_attributes.id
+        )

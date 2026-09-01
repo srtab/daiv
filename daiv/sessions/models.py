@@ -49,6 +49,7 @@ class SessionOrigin(models.TextChoices):
     UI_JOB = "ui_job", _("UI Run")
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
+    PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -59,6 +60,22 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+
+
+class WatchState(models.TextChoices):
+    """Lifecycle of a CI watch on a merge request DAIV published."""
+
+    OFF = "off", _("Not watching")
+    WATCHING = "watching", _("Waiting for CI")
+    FIXING = "fixing", _("Fixing")
+    GREEN = "green", _("Green")
+    EXHAUSTED = "exhausted", _("Attempts exhausted")
+    UNCLEAR = "unclear", _("CI unreadable")
+
+    @classmethod
+    def open(cls) -> frozenset[str]:
+        """States the reconciler sweeps."""
+        return frozenset({cls.WATCHING, cls.FIXING})
 
 
 class EnvelopeStatus(models.TextChoices):
@@ -146,6 +163,10 @@ class Session(models.Model):
     issue_iid = models.PositiveIntegerField(_("issue IID"), null=True, blank=True)
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     external_refs = models.JSONField(_("external references"), default=list, blank=True)
+    watch_state = models.CharField(_("watch state"), max_length=10, choices=WatchState.choices, default=WatchState.OFF)
+    watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
+    watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
+    watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
@@ -168,6 +189,14 @@ class Session(models.Model):
             models.Index(fields=["user", "-last_active_at"], name="session_user_active_idx"),
             models.Index(fields=["origin", "-last_active_at"], name="session_origin_active_idx"),
             models.Index(fields=["repo_id", "-last_active_at"], name="session_repo_active_idx"),
+            models.Index(fields=["repo_id", "ref", "watch_state"], name="session_watch_lookup_idx"),
+            # The reconciler filters watch_armed_at with no repo_id, so the composite above
+            # cannot serve it. Partial, because open watches are a rounding error on this table.
+            models.Index(
+                fields=["watch_armed_at"],
+                name="session_watch_sweep_idx",
+                condition=models.Q(watch_state__in=sorted(WatchState.open())),
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -177,6 +206,9 @@ class Session(models.Model):
             # ``choices=`` is not enforced at the DB layer, and the lock writes via
             # ``.aupdate()`` (bypassing field validation), so pin the enum here too.
             models.CheckConstraint(condition=models.Q(origin__in=SessionOrigin.values), name="session_origin_valid"),
+            models.CheckConstraint(
+                condition=models.Q(watch_state__in=WatchState.values), name="session_watch_state_valid"
+            ),
             # Blank ("" = no override) or a valid ThinkingLevelChoices value.
             models.CheckConstraint(
                 condition=models.Q(agent_thinking_level="")

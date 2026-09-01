@@ -15,12 +15,14 @@ from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
+    Job,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
     Note,
     NoteableType,
     NoteType,
+    Pipeline,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -40,6 +42,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.clients")
 
 EMOJI_MAP = {Emoji.THUMBSUP: "+1", Emoji.EYES: "eyes"}
+
+_GITHUB_CONCLUSION_TO_STATUS = {
+    "success": "success",
+    "neutral": "success",
+    "failure": "failed",
+    "timed_out": "failed",
+    "cancelled": "canceled",
+    "stale": "canceled",
+    "skipped": "skipped",
+    "action_required": "manual",
+}
+
+
+def github_conclusion_to_status(conclusion: str | None) -> str:
+    """Translate a GitHub Actions conclusion into the platform-neutral job/pipeline status.
+
+    An unknown conclusion maps to ``canceled`` so a vocabulary GitHub adds later reads as
+    unjudgeable rather than green.
+    """
+    if conclusion is None:
+        return "running"
+    return _GITHUB_CONCLUSION_TO_STATUS.get(conclusion, "canceled")
 
 
 class GitHubClient(RepoClient):
@@ -248,7 +272,7 @@ class GitHubClient(RepoClient):
         """
         # Adding `pull_request_review_comment` also needs a callback for it and a review-comment
         # reaction path — conversation comments and diff comments use different endpoints.
-        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request"]
+        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request", "workflow_run"]
         config = {
             "url": url,
             "content_type": "json",
@@ -675,6 +699,46 @@ class GitHubClient(RepoClient):
         else:
             to_return = pr.create_issue_comment(body).id
         return to_return
+
+    def _workflow_run_to_pipeline(self, run) -> Pipeline:
+        return Pipeline(
+            id=run.id,
+            iid=None,
+            sha=run.head_sha,
+            status=github_conclusion_to_status(run.conclusion),
+            web_url=run.html_url,
+            jobs=[
+                Job(
+                    id=job.id,
+                    name=job.name,
+                    status=github_conclusion_to_status(job.conclusion),
+                    stage="",
+                    # The Actions API does not expose per-job required-ness, so a
+                    # continue-on-error job's failure counts as real.
+                    allow_failure=False,
+                    failure_reason=None,
+                )
+                for job in run.jobs()
+            ],
+        )
+
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        repo = self.client.get_repo(repo_id, lazy=True)
+        try:
+            return self._workflow_run_to_pipeline(repo.get_workflow_run(pipeline_id))
+        except GithubException as exc:
+            # 404 only: a 403 is a rate limit or a revoked token, and answering None there makes an
+            # outage read as "no pipeline yet" — which the watch waits out in silence.
+            if exc.status == 404:
+                return None
+            raise
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        repo = self.client.get_repo(repo_id, lazy=True)
+        # ``totalCount`` costs its own request without populating the list, so take the first
+        # item straight off the iterator instead of counting and then indexing.
+        run = next(iter(repo.get_workflow_runs(branch=ref)), None)
+        return self._workflow_run_to_pipeline(run) if run is not None else None
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

@@ -143,3 +143,16 @@ class PullRequest(BaseModel):
     def has_max_label(self) -> bool:
         """Check if the pull request carries the ``daiv-max`` label (case-insensitive)."""
         return any(label.name.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+
+
+class WorkflowRun(BaseModel):
+    """
+    GitHub Actions workflow run.
+    """
+
+    id: int
+    name: str | None = None
+    status: str
+    conclusion: str | None = None
+    head_branch: str
+    head_sha: str

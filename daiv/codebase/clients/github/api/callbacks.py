@@ -6,6 +6,9 @@ from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
+from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
@@ -13,12 +16,13 @@ from codebase.api.callbacks import BaseCallback
 from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
+from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
-from .models import Comment, Issue, Label, PullRequest, Repository, User  # noqa: TC001
+from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
 
 logger = logging.getLogger("daiv.webhooks")
 
@@ -339,3 +343,34 @@ class PushCallback(GitHubCallback):
         if self.repository.default_branch and self.ref.endswith(self.repository.default_branch):
             # Invalidate the cache for the repository configurations, they could have changed.
             RepositoryConfig.invalidate_cache(self.repository.full_name)
+
+
+class WorkflowRunCallback(GitHubCallback):
+    """
+    GitHub Actions workflow_run webhook for babysitting CI on pull requests DAIV published.
+    """
+
+    action: str
+    workflow_run: WorkflowRun
+
+    @cached_property
+    def _repo_config(self) -> RepositoryConfig:
+        return RepositoryConfig.get_config(self.repository.full_name)
+
+    def accept_callback(self) -> bool:
+        """Accept finished workflow runs on repos with the watch enabled.
+
+        Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
+        Translating the conclusion puts both platforms on the judge's one vocabulary; the
+        config read comes last because it blocks the event loop on a cache round-trip.
+        """
+        return (
+            self.action == "completed"
+            and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
+            and WatchPolicy.enabled_for(self._repo_config)
+        )
+
+    async def process_callback(self):
+        await PipelineWatch(self.repository.full_name).arequest_evaluation(
+            ref=self.workflow_run.head_branch, pipeline_id=self.workflow_run.id
+        )

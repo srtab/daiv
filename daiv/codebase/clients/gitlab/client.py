@@ -14,12 +14,13 @@ from django.core.exceptions import ImproperlyConfigured
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
-from gitlab.exceptions import GitlabError
+from gitlab.exceptions import GitlabError, GitlabGetError
 
 from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
+    Job,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
@@ -381,6 +382,7 @@ class GitLabClient(RepoClient):
             "issues_events": True,
             "note_events": True,
             "merge_requests_events": True,
+            "pipeline_events": True,
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
@@ -1003,6 +1005,45 @@ class GitLabClient(RepoClient):
             last_error,
         )
         return False
+
+    def _to_pipeline(self, pipeline) -> Pipeline:
+        return Pipeline(
+            id=pipeline.id,
+            iid=getattr(pipeline, "iid", None),
+            sha=pipeline.sha,
+            status=pipeline.status,
+            web_url=pipeline.web_url,
+            jobs=[
+                Job(
+                    id=job.id,
+                    name=job.name,
+                    status=job.status,
+                    stage=job.stage,
+                    allow_failure=job.allow_failure,
+                    failure_reason=getattr(job, "failure_reason", None),
+                )
+                for job in pipeline.jobs.list(all=True, per_page=100)
+            ],
+        )
+
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            return self._to_pipeline(project.pipelines.get(pipeline_id))
+        except GitlabGetError as exc:
+            # python-gitlab wraps every failed GET in this one type, so match on the code: a
+            # 401/403/5xx answering None would make an outage read as "no pipeline yet".
+            if exc.response_code == 404:
+                return None
+            raise
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
+        if not pipelines:
+            return None
+        # The list entry already carries every field _to_pipeline reads, plus the jobs manager.
+        return self._to_pipeline(pipelines[0])
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

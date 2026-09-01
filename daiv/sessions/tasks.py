@@ -249,3 +249,28 @@ def reclassify_missing_envelopes_cron_task():
         classify_run_task.enqueue(str(run_id))
     if stranded_ids:
         logger.info("reclassify_missing_envelopes: re-enqueued %d stranded run(s)", len(stranded_ids))
+
+
+@task(queue_name=TASK_QUEUE_INTERACTIVE)
+async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int | None = None) -> None:
+    """Judge CI for a watched branch and take the one action it implies.
+
+    Short and user-visible, so it runs on the interactive queue rather than behind agent runs.
+    """
+    from sessions.pipeline_watch.service import PipelineWatch
+
+    await PipelineWatch(repo_id).aevaluate(ref=ref, pipeline_id=pipeline_id)
+
+
+@cron("*/10 * * * *")
+@task
+@locked_task(key="reconcile-pipeline-watches")
+async def reconcile_pipeline_watches_cron_task():
+    """Repair CI watches that webhook events did not resolve.
+
+    Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
+    """
+    from sessions.pipeline_watch.reconciler import WatchReconciler
+
+    touched = await WatchReconciler().areconcile()
+    logger.info("reconcile_pipeline_watches: touched %d watches", touched)

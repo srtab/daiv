@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from django.utils import timezone
 
+from ddgs.exceptions import DDGSException
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
 from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
@@ -20,6 +21,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 WEB_SEARCH_NAME = "web_search"
+
+# Third-party exception text reaches the model, the checkpoint and the trace verbatim.
+_ERROR_MAX_CHARS = 500
+
+
+class WebSearchConfigurationError(ValueError):
+    """Operator misconfiguration of the web search engine (unrecognized engine value, missing API key).
+
+    Raised past the tool's catch-all so a misconfiguration, which no rephrasing fixes, fails the
+    run instead of degrading into a tool result nobody reads.
+    """
+
 
 WEB_SEARCH_TOOL_DESCRIPTION = f"""\
 Search the web for up-to-date information and recent data, beyond your knowledge cutoff.
@@ -48,6 +61,7 @@ Use this tool to:
 Result format:
   - The tool returns a JSON array of objects with `title`, `link`, and `content` fields.
   - An empty array (`[]`) means no relevant results were found — broaden the query and retry, or tell the user no results exist.
+  - A plain string starting with `error:` instead of JSON means the search backend itself failed — this is a tool failure, not a result. Do not rephrase and retry: continue without web results and say so in your answer.
   - Tavily may prepend a synthesized summary as the first entry with `title="Suggested answer"` and `link=""`. Treat it as a hint, not a citable source.
 
 IMPORTANT - Use the correct year in search queries:
@@ -82,7 +96,7 @@ async def _get_web_search_results(query: str) -> list[dict[str, str]]:
     elif site_settings.web_search_engine == WebSearchEngineChoices.TAVILY:
         return await _get_tavily_results(query)
     else:
-        raise ValueError(f"Invalid web search engine: {site_settings.web_search_engine}")
+        raise WebSearchConfigurationError(f"Invalid web search engine: {site_settings.web_search_engine}")
 
 
 def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
@@ -96,10 +110,15 @@ def _get_duckduckgo_results(query: str) -> list[dict[str, str]]:
         list[dict[str, str]]: A list of search results.
     """
     api_wrapper = DuckDuckGoSearchAPIWrapper()
-    return [
-        {"title": result["title"], "link": result["link"], "content": result["snippet"]}
-        for result in api_wrapper.results(query, max_results=site_settings.web_search_max_results)
-    ]
+    try:
+        results = api_wrapper.results(query, max_results=site_settings.web_search_max_results)
+    except DDGSException as exc:
+        # ddgs raises rather than returning an empty list when every engine matched nothing; this
+        # exact sentinel is only produced when every engine returned cleanly with zero rows.
+        if str(exc) == "No results found.":
+            return []
+        raise
+    return [{"title": result["title"], "link": result["link"], "content": result["snippet"]} for result in results]
 
 
 async def _get_tavily_results(query: str) -> list[dict[str, str]]:
@@ -112,10 +131,13 @@ async def _get_tavily_results(query: str) -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of search results.
     """
-    if site_settings.web_search_api_key is None:
-        raise RuntimeError("Web search API key is not configured. Set DAIV_WEB_SEARCH_API_KEY or use the config UI.")
+    api_key = site_settings.web_search_api_key
+    if not api_key:
+        raise WebSearchConfigurationError(
+            "Web search API key is not configured. Set DAIV_WEB_SEARCH_API_KEY or use the config UI."
+        )
 
-    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=site_settings.web_search_api_key.get_secret_value())
+    api_wrapper = TavilySearchAPIWrapper(tavily_api_key=api_key.get_secret_value())
 
     results = await api_wrapper.raw_results_async(
         query, max_results=site_settings.web_search_max_results, include_answer=True
@@ -128,13 +150,28 @@ async def _get_tavily_results(query: str) -> list[dict[str, str]]:
     return results_content
 
 
+def _truncate(detail: str) -> str:
+    if len(detail) > _ERROR_MAX_CHARS:
+        return detail[:_ERROR_MAX_CHARS].rstrip() + "…[truncated]"
+    return detail
+
+
 @tool(WEB_SEARCH_NAME, description=WEB_SEARCH_TOOL_DESCRIPTION)
 async def web_search_tool(query: Annotated[str, "The search query."]) -> str:
     """
     Tool to search the web and use the results to inform responses.
     """  # noqa: E501
 
-    results = await _get_web_search_results(query)
+    try:
+        results = await _get_web_search_results(query)
+    except WebSearchConfigurationError:
+        raise
+    except Exception as exc:
+        # Returned, not raised: the ToolNode's default handler re-raises anything that is not a
+        # ToolInvocationError, which aborts the whole run and discards every completed step.
+        logger.exception("Web search failed for query %r", query)
+        return f"error: Web search failed. Details: {_truncate(f'{type(exc).__name__}: {exc}')}"
+
     # `ensure_ascii=False` keeps non-ASCII titles/snippets readable for the model
     # (and saves tokens vs. \uXXXX escapes). An empty array is a real, valid
     # outcome the model is told how to handle in the system prompt.
