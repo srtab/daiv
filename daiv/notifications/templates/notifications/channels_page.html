@@ -17,7 +17,9 @@
       <div>
         <h2 class="text-sm font-medium text-white">{{ row.display_name }}</h2>
         {% if row.binding %}
-          <p class="mt-0.5 text-xs text-gray-400">{{ row.binding.address }}</p>
+          <p class="mt-0.5 text-xs text-gray-400">
+            {{ row.binding.extra_config.handle|default:row.binding.address }}
+          </p>
         {% else %}
           <p class="mt-0.5 text-xs text-gray-500">{% translate "Not configured" %}</p>
         {% endif %}
@@ -33,22 +35,24 @@
           </span>
         {% endif %}
 
-        {% if row.binding and row.disconnect_url %}
-          <form method="post" action="{{ row.disconnect_url }}">
-            {% csrf_token %}
-            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
-              {% translate "Disconnect" %}
-            </button>
-          </form>
-        {% elif row.connect_url %}
-          <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
-            {% csrf_token %}
-            <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
-                   class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
-            <button type="submit" class="rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08]">
-              {% translate "Connect" %}
-            </button>
-          </form>
+        {% if row.binding %}
+          {% comment %}
+            An unverified binding is not a usable one, and only a fresh connect makes it usable
+            again — so the connect control is rendered alongside Disconnect, not instead of it.
+          {% endcomment %}
+          {% if not row.binding.is_verified %}
+            {% include "notifications/_channel_connect.html" %}
+          {% endif %}
+          {% if row.disconnect_url %}
+            <form method="post" action="{{ row.disconnect_url }}">
+              {% csrf_token %}
+              <button type="submit" class="btn-channel-action">
+                {% translate "Disconnect" %}
+              </button>
+            </form>
+          {% endif %}
+        {% else %}
+          {% include "notifications/_channel_connect.html" %}
         {% endif %}
       </div>
     </div>

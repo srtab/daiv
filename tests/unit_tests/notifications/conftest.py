@@ -26,45 +26,109 @@ def run_schedule(member_user, email_binding):
 
 
 @pytest.fixture
-def rocketchat_configured():
-    """Point ``site_settings`` at a fake Rocket Chat install with real ``SecretStr`` semantics.
+def rocketchat_configured(site_settings_override):
+    """Point ``site_settings`` at a fake Rocket Chat install with real ``SecretStr`` semantics."""
+    site_settings_override(
+        rocketchat_enabled=True,
+        rocketchat_url="https://rc.example.com",
+        rocketchat_user_id="botid",
+        rocketchat_auth_token=SecretStr("bottoken"),
+    )
 
-    ``site_settings`` resolves fields via ``__getattr__`` rather than holding real instance
-    attributes, so we poke ``__dict__`` directly on setup and pop on teardown. Using
-    ``monkeypatch.setattr`` here would leak instance attributes past teardown and shadow
-    the ``__getattr__`` fallback that later DB-backed fixtures rely on.
+
+@pytest.fixture
+def telegram_configured(site_settings_override):
+    """Point ``site_settings`` at a fake Telegram bot with real ``SecretStr`` semantics."""
+    site_settings_override(
+        telegram_enabled=True,
+        telegram_bot_username="daiv_bot",
+        telegram_bot_token=SecretStr("123:ABC"),
+        telegram_webhook_secret=SecretStr("s3cret"),
+    )
+
+
+@pytest.fixture
+def site_settings_override():
+    """Temporarily override ``site_settings`` fields, popping them on teardown.
+
+    Use this instead of ``monkeypatch.setattr(site_settings, …)``. ``site_settings`` resolves
+    fields through ``__getattr__``, so monkeypatch reads a *computed* value as the "old" one and
+    restores it as a real instance attribute — which then shadows ``__getattr__`` for every
+    later test, silently ignoring any DB-backed fixture that sets the same field.
+
+    Call it once with several keywords, or repeatedly to change a value mid-test.
     """
     from core.site_settings import site_settings
 
-    overrides = {
-        "rocketchat_enabled": True,
-        "rocketchat_url": "https://rc.example.com",
-        "rocketchat_user_id": "botid",
-        "rocketchat_auth_token": SecretStr("bottoken"),
-    }
-    for name, value in overrides.items():
-        site_settings.__dict__[name] = value
+    applied: set[str] = set()
+
+    def _override(**values) -> None:
+        for name, value in values.items():
+            site_settings.__dict__[name] = value
+            applied.add(name)
+
     try:
-        yield
+        yield _override
     finally:
-        for name in overrides:
+        for name in applied:
             site_settings.__dict__.pop(name, None)
 
 
 @pytest.fixture
-def rocketchat_channel_enabled(db):
-    # DB rows roll back with ``django_db``, but the ``SiteConfiguration`` cache is
-    # process-local, so we evict it on teardown to avoid leaking ``enabled=True``
-    # into later tests that expect the default (disabled) state.
+def enabled_with_env_token(monkeypatch):
+    """An env-locked token, which is the shape that never reaches the form's ``clean``."""
+    from core.models import SiteConfiguration
+    from core.site_settings import _docker_secret_cache, site_settings
+
+    keys = ("DAIV_TELEGRAM_BOT_TOKEN", "DAIV_TELEGRAM_ENABLED")
+    monkeypatch.setenv("DAIV_TELEGRAM_BOT_TOKEN", "123:ABC")
+    monkeypatch.setenv("DAIV_TELEGRAM_ENABLED", "true")
+    for key in keys:
+        _docker_secret_cache.pop(key, None)
+    SiteConfiguration._invalidate_cache()
+    try:
+        yield site_settings
+    finally:
+        for key in keys:
+            _docker_secret_cache.pop(key, None)
+        SiteConfiguration._invalidate_cache()
+
+
+@pytest.fixture
+def configured_site(db):
+    """Write fields onto the ``SiteConfiguration`` singleton and evict the cache afterwards.
+
+    DB rows roll back with ``django_db``, but that cache is process-local, so leaving it warm
+    leaks ``enabled=True`` into later tests that expect the default state.
+    """
     from core.models import SiteConfiguration
 
-    config = SiteConfiguration.objects.get_instance()
-    config.rocketchat_enabled = True
-    config.save()
+    def _configure(**fields):
+        config = SiteConfiguration.objects.get_instance()
+        for name, value in fields.items():
+            setattr(config, name, value)
+        config.save()
+        return config
+
     try:
-        yield config
+        yield _configure
     finally:
         SiteConfiguration._invalidate_cache()
+
+
+@pytest.fixture
+def rocketchat_channel_enabled(configured_site):
+    return configured_site(rocketchat_enabled=True)
+
+
+@pytest.fixture
+def telegram_channel_enabled(configured_site):
+    return configured_site(
+        telegram_enabled=True,
+        telegram_bot_username="daiv_bot",
+        telegram_bot_token="123:ABC",  # noqa: S106 — test constant
+        telegram_webhook_secret="s3cret",  # noqa: S106 — test constant
+    )
 
 
 @pytest.fixture

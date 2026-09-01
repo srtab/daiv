@@ -117,6 +117,9 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             if providers_formset is not None:
                 for warning in self._collect_provider_warnings(providers_formset):
                     messages.warning(request, warning)
+            if self.group.key == "telegram":
+                for warning in self._collect_telegram_warnings(form):
+                    messages.warning(request, warning)
             return redirect("site_configuration", group_key=group_key)
 
         return render(
@@ -164,6 +167,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             "web_fetch_auth_headers_formset": headers_formset,
             "web_fetch_auth_headers_env_locked": headers_env_locked,
             "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
+            "telegram_bot_username": (site_settings.telegram_bot_username if self.group.key == "telegram" else None),
         }
 
     @staticmethod
@@ -205,6 +209,27 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 continue
             out.extend(f"{slug}: {w}" for w in warnings if w)
         return out
+
+    @staticmethod
+    def _collect_telegram_warnings(form: SiteConfigurationForm) -> list[str]:
+        """Run ``sync_telegram()`` now that the save has committed.
+
+        Imported locally so ``core``'s module graph gains no ``notifications`` edge; the token
+        check in ``core/forms.py`` does the same.
+        """
+        from notifications.telegram.config import sync_telegram
+
+        warnings: list[str] = []
+        if form.telegram_token_warning:
+            warnings.append(form.telegram_token_warning)
+        try:
+            warnings.extend(sync_telegram())
+        except Exception:
+            # The row is already committed and the admin needs the success banner; a sync
+            # failure must never 500 a successful save.
+            logger.exception("Telegram sync failed after a configuration save")
+            warnings.append(str(_("Telegram synchronisation failed; check the server logs.")))
+        return warnings
 
     def _get_env_locked_fields(self) -> set[str]:
         """Return field names in the active group that are locked by an environment variable."""

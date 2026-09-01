@@ -1,3 +1,6 @@
+import re
+from typing import Any
+
 from django.core.exceptions import DisallowedHost
 
 from decouple import config
@@ -16,6 +19,44 @@ SENTRY_SEND_DEFAULT_PII = config("SENTRY_SEND_DEFAULT_PII", cast=bool, default=F
 _HEALTH_CHECK_PATHS = ("/-/alive/", "/-/version/")
 
 
+# The Telegram Bot API takes the bot token in the URL *path*, which ``sentry_sdk.utils.parse_url``
+# does not sanitize (it strips only userinfo and query values). Every httpx breadcrumb and span
+# would otherwise carry a full-control credential.
+_TELEGRAM_HOST = "api.telegram.org"
+_TELEGRAM_TOKEN_RE = re.compile(r"(api\.telegram\.org/bot)[^/\s'\"]+")
+_MAX_SCRUB_DEPTH = 12
+
+
+def scrub_telegram_token(text: str) -> str:
+    """Replace the bot token in any ``api.telegram.org/bot<TOKEN>/…`` URL with a placeholder."""
+    # ``scrub_payload`` reaches here for every string in every breadcrumb, i.e. per log record;
+    # almost none contain a Bot API URL, so the substring test keeps the regex off the hot path.
+    if _TELEGRAM_HOST not in text:
+        return text
+    return _TELEGRAM_TOKEN_RE.sub(r"\1[REDACTED]", text)
+
+
+def scrub_payload(value: Any, _depth: int = 0) -> Any:
+    """Apply ``scrub_telegram_token`` to every string reachable in a Sentry payload.
+
+    Walked generically rather than by key path: the URL shows up as a breadcrumb ``data.url``, a
+    span ``description``/``data.url`` and — when a traceback keeps an httpx frame — a frame local.
+    Anything that is not a string or a container is returned untouched, and the depth bound keeps
+    a self-referential frame local from recursing forever.
+    """
+    if isinstance(value, str):
+        return scrub_telegram_token(value)
+    if _depth >= _MAX_SCRUB_DEPTH:
+        return value
+    if isinstance(value, dict):
+        return {key: scrub_payload(item, _depth + 1) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub_payload(item, _depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(scrub_payload(item, _depth + 1) for item in value)
+    return value
+
+
 def _traces_sampler(sampling_context: dict) -> float:
     """Return 0.0 for health check requests to avoid sending noise to Sentry."""
     asgi_scope = sampling_context.get("asgi_scope", {})
@@ -23,6 +64,10 @@ def _traces_sampler(sampling_context: dict) -> float:
     if path.startswith(_HEALTH_CHECK_PATHS):
         return 0.0
     return SENTRY_TRACES_SAMPLE_RATE
+
+
+def _scrub_hook(payload: Any, hint: Any) -> Any:
+    return scrub_payload(payload)
 
 
 if SENTRY_DSN:
@@ -48,6 +93,9 @@ if SENTRY_DSN:
         debug=SENTRY_DEBUG,
         enable_logs=SENTRY_ENABLE_LOGS,
         traces_sampler=_traces_sampler,
+        before_breadcrumb=_scrub_hook,
+        before_send=_scrub_hook,
+        before_send_transaction=_scrub_hook,
         profiles_sample_rate=SENTRY_PROFILES_SAMPLE_RATE,
         send_default_pii=SENTRY_SEND_DEFAULT_PII,
         server_name=config("NODE_HOSTNAME", default=None),

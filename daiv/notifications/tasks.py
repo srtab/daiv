@@ -5,12 +5,14 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db.models import Count, Q
+from django.urls import NoReverseMatch
 from django.utils import timezone
 
 from crontask import cron
 from django_tasks import task
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
+from core.site_settings import site_settings
 from core.utils import locked_task
 from notifications.channels.registry import get_channel
 from notifications.choices import DeliveryStatus
@@ -174,3 +176,90 @@ def redrive_missing_notifications_cron_task():
 
     if redriven:
         logger.info("redrive_missing_notifications: re-emitted run_classified for %d run(s)", redriven)
+
+
+@cron("*/15 * * * *")
+@task
+@locked_task(key="telegram-webhook-reconcile")
+def telegram_webhook_reconcile_cron_task():
+    """Converge Telegram's registered webhook on the desired state.
+
+    ``sync_telegram()`` runs only on a dashboard save, and three things break that assumption:
+    an env-only instance may never save the group at all, the Site domain can change under a
+    registered webhook, and Telegram silently disables a webhook that keeps failing.
+
+    ``getWebhookInfo`` does not report whether a secret is set, so that half is checked against
+    the stored value; a healthy tick is a single call. This never touches bindings.
+
+    A reported ``last_error_message`` is never healthy, so it re-syncs rather than returning. The
+    condition that needs it is a stored secret that has diverged from Telegram's registered one —
+    an admin save racing this cron during first sync mints two and only one reaches the DB — after
+    which every update 401s forever and the URL still matches. ``setWebhook`` is idempotent, so
+    re-asserting the stored secret repairs that and every other divergence for free.
+
+    ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
+    """
+    from notifications.telegram.client import TelegramError, TGClient
+    from notifications.telegram.config import sync_telegram, webhook_url
+
+    if not site_settings.telegram_enabled:
+        return
+    client = TGClient.from_site_settings()
+    if client is None:
+        return
+
+    try:
+        result = client.get_webhook_info().get("result")
+    except TelegramError as exc:
+        # Anticipated on this */15 cron: an outage logged at ERROR would mint a Sentry event
+        # four times an hour for its whole duration.
+        logger.warning("Telegram getWebhookInfo failed: %s", exc)
+        return
+    except Exception:
+        logger.exception("Telegram getWebhookInfo failed unexpectedly")
+        return
+    info = result if isinstance(result, dict) else {}
+
+    if last_error := info.get("last_error_message"):
+        # The only visibility into a webhook dying of persistent 401s.
+        logger.warning(
+            "Telegram webhook reports last_error_message=%r pending_update_count=%s",
+            last_error,
+            info.get("pending_update_count"),
+        )
+
+    try:
+        desired = webhook_url()
+    except NoReverseMatch:
+        # The string coupling documented in telegram/config.py broke: a code bug, not a
+        # misconfiguration, and nothing else would ever report it.
+        logger.exception("Telegram reconcile: the callback route no longer reverses")
+        return
+    except Exception as exc:  # noqa: BLE001 — a Site misconfiguration must not kill the tick
+        logger.warning("Telegram reconcile could not build the webhook URL: %s", exc)
+        return
+
+    current = info.get("url") or ""
+    healthy = (
+        not last_error
+        and current == desired
+        and site_settings.telegram_bot_username
+        and site_settings.telegram_webhook_secret
+    )
+    if healthy:
+        return
+    if current and current != desired:
+        logger.warning(
+            "Telegram webhook points at a foreign URL %r; re-registering as %r. Telegram allows one "
+            "webhook per bot, so another instance sharing this token is losing its handshakes.",
+            current,
+            desired,
+        )
+
+    try:
+        warnings = sync_telegram()
+    except Exception:
+        logger.exception("Telegram reconcile: sync_telegram failed")
+        return
+    for warning in warnings:
+        logger.warning("Telegram reconcile: %s", warning)

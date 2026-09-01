@@ -337,6 +337,11 @@ html {
            hover:border-white/[0.25] hover:text-gray-300;
   }
 
+  /* Compact inline action for channel rows (Connect / Disconnect). */
+  .btn-channel-action {
+    @apply rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-gray-300 hover:bg-white/[0.08];
+  }
+
   .btn-icon {
     @apply rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200
            hover:border-white/[0.12] hover:text-white;

@@ -26,6 +26,16 @@ class NotificationChannel(ABC):
     def is_enabled(cls) -> bool:
         return True
 
+    @classmethod
+    def connect_ready(cls) -> bool:
+        """False when the channel is enabled but cannot start a connect handshake yet."""
+        return True
+
+    @classmethod
+    def connect_blocked_reason(cls) -> str:
+        """What to show the user in place of the connect control when ``connect_ready`` is False."""
+        return ""
+
     def resolve_address(self, user: User) -> str | None:
         """Return the verified address to send to, or None if this user has no usable binding."""
         from notifications.models import UserChannelBinding
