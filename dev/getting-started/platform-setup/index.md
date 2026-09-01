@@ -94,6 +94,7 @@ To confirm webhooks are configured, go to your GitLab repository → **Settings*
 - ✅ Issues events
 - ✅ Comments (Note events)
 - ✅ Merge request events
+- ✅ Pipeline events
 
 Click **Test** → **Push events** to verify connectivity.
 
@@ -189,6 +190,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
    - ✅ Issue comment
    - ✅ Pull request review
    - ✅ Pull request
+   - ✅ Workflow run
 
    Centralized Webhook Configuration
 
@@ -312,6 +314,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
      - ✅ Issue comment
      - ✅ Pull request review
      - ✅ Pull request
+     - ✅ Workflow run
 
 1. **Test Webhook Delivery**:
 

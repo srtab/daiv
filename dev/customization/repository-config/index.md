@@ -32,6 +32,10 @@ pull_request_assistant:
 slash_commands:
   enabled: true
 
+pipeline_watch:
+  enabled: true
+  max_attempts: 3
+
 # Model overrides
 models:
   agent:
@@ -102,11 +106,13 @@ slash_commands:
   enabled: false
 ```
 
-| Section                  | Option    | Default | Description                                                                                         |
-| ------------------------ | --------- | ------- | --------------------------------------------------------------------------------------------------- |
-| `issue_addressing`       | `enabled` | `true`  | [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)             |
-| `pull_request_assistant` | `enabled` | `true`  | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) |
-| `slash_commands`         | `enabled` | `true`  | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)        |
+| Section                  | Option         | Default   | Description                                                                                                                                                |
+| ------------------------ | -------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue_addressing`       | `enabled`      | `true`    | [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)                                                                    |
+| `pull_request_assistant` | `enabled`      | `true`    | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)                                                        |
+| `slash_commands`         | `enabled`      | `true`    | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)                                                               |
+| `pipeline_watch`         | `enabled`      | site-wide | [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) — disable to stop DAIV watching CI on published MRs.                   |
+| `pipeline_watch`         | `max_attempts` | site-wide | [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
 
 ## Branch naming and commit conventions
 
