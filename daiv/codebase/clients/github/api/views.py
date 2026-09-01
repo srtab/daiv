@@ -5,7 +5,13 @@ from codebase.api.router import router
 from codebase.base import GitPlatform
 from codebase.conf import settings
 
-from .callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback, PushCallback  # noqa: TC001
+from .callbacks import (  # noqa: TC001
+    IssueCallback,
+    IssueCommentCallback,
+    PullRequestCallback,
+    PushCallback,
+    WorkflowRunCallback,
+)
 from .security import validate_github_webhook
 
 logger = logging.getLogger("daiv.webhooks")
@@ -13,7 +19,9 @@ logger = logging.getLogger("daiv.webhooks")
 
 @router.post("/callbacks/github", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 @router.post("/callbacks/github/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
-async def callback(request, payload: IssueCallback | IssueCommentCallback | PullRequestCallback | PushCallback):
+async def callback(
+    request, payload: IssueCallback | IssueCommentCallback | PullRequestCallback | PushCallback | WorkflowRunCallback
+):
     """
     GitHub callback endpoint for processing callbacks.
 

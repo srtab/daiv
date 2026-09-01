@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from redis.exceptions import RedisError
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
@@ -198,6 +196,9 @@ class NoteProcessor:
 class CommentsAddressorManager(BaseManager):
     """
     Manages the comments addressing process.
+
+    Deliberately does **not** arm the CI watch: this pushes to a merge request someone else may
+    own. Pinned by ``test_every_publishing_seam_that_should_arm_does``.
     """
 
     def __init__(
@@ -345,16 +346,6 @@ class CommentsAddressorManager(BaseManager):
                     usage=build_usage_summary(usage_handler).to_dict(),
                     snapshot=snapshot,
                 )
-
-    async def _safe_get_state(self, agent, config):
-        """Read agent state, returning None on transport/serialization failure."""
-        try:
-            return await agent.aget_state(config=config)
-        except RedisError, OSError, json.JSONDecodeError:
-            logger.warning(
-                "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
-            )
-            return None
 
     def _render_protected_branch_footer(self, snapshot) -> str | None:
         """

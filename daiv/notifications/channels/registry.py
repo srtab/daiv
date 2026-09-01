@@ -6,6 +6,7 @@ from notifications.exceptions import UnknownChannelError
 
 if TYPE_CHECKING:
     from notifications.channels.base import NotificationChannel
+    from notifications.choices import ChannelType
 
 _registry: dict[str, type[NotificationChannel]] = {}
 
@@ -32,6 +33,11 @@ def all_channels() -> list[type[NotificationChannel]]:
 
 def enabled_channels() -> list[type[NotificationChannel]]:
     return [cls for cls in _registry.values() if cls.is_enabled()]
+
+
+def enabled_channel_types() -> list[ChannelType]:
+    """The channel types every emitter delivers on — the one place that list is derived."""
+    return [cls.channel_type for cls in enabled_channels()]
 
 
 def is_registered(channel_type: str) -> bool:

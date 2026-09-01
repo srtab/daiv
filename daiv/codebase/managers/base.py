@@ -1,7 +1,9 @@
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from langgraph.store.memory import InMemoryStore
+from redis.exceptions import RedisError
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
@@ -93,6 +95,18 @@ class BaseManager:
             logger.exception("Recovery failed after agent error for %s %s", entity_label, entity_id)
 
         return False
+
+    async def _safe_get_state(self, agent: CompiledAgent, config: RunnableConfig):
+        """Read the agent's persisted state, or ``None`` on transport/serialization failure.
+
+        ``None`` is what ``_build_agent_result`` reads as "the read already failed"; raising
+        instead would discard a run whose comment and merge request have already landed.
+        """
+        try:
+            return await agent.aget_state(config=config)
+        except RedisError, OSError, json.JSONDecodeError:
+            logger.warning("Failed to read agent state for thread %s", self.thread_id, exc_info=True)
+            return None
 
     @staticmethod
     async def _build_agent_result(

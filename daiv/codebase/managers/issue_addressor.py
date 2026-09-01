@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
+from sessions.pipeline_watch.service import PipelineWatch
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
@@ -164,19 +165,31 @@ class IssueAddressorManager(BaseManager):
                     )
                     self._add_unable_to_address_issue_note()
 
+                # Read once and share: the ref sync and the watch both need the published branch
+                # off the checkpoint, and ``_build_agent_result`` would otherwise read it again.
+                snapshot = await self._safe_get_state(daiv_agent, agent_config)
+
                 # The branch this run published to becomes the branch the session works on, so the
                 # next webhook turn clones it instead of the default branch and adds onto the same
                 # MR. Best-effort: a cosmetic pointer must never fail a run that already published
                 # and already answered — that would post an "unexpected error" note over real work.
-                snapshot = await daiv_agent.aget_state(config=agent_config)
                 try:
                     await apersist_session_ref(
                         thread_id=self.thread_id,
                         current_ref=self.ctx.repo.ref,
-                        merge_request=snapshot.values.get("merge_request"),
+                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
                     )
                 except Exception:
                     logger.exception("issue_addressor: failed to persist session ref for thread_id=%s", self.thread_id)
+
+                try:
+                    await PipelineWatch(self.ctx.repository.slug).aarm_after_run(
+                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
+                        published=bool(snapshot.values.get("published")) if snapshot else False,
+                        user_id=self.ctx.acting_user_id,
+                    )
+                except Exception:
+                    logger.exception("issue_addressor: failed to arm pipeline watch for issue %s", self.issue.iid)
 
                 return await self._build_agent_result(
                     daiv_agent,

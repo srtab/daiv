@@ -106,6 +106,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "sandbox_timeout": 600,
         # Jobs
         "jobs_throttle_rate": "20/hour",
+        # Pipeline watch
+        "pipeline_watch_enabled": True,
+        "pipeline_watch_max_attempts": 3,
         # Authentication
         "auth_login_enabled": False,
         "auth_signup_open": False,
@@ -212,7 +215,9 @@ class SiteSettings:
         try:
             if isinstance(field, models.BooleanField):
                 return value.lower() in ("true", "1", "yes", "on")
-            if isinstance(field, (models.PositiveIntegerField, models.BigIntegerField)):
+            # Every int width, not a roster of them: PositiveSmallIntegerField is a sibling of
+            # PositiveIntegerField, not a subclass, so a roster silently returns the raw string.
+            if isinstance(field, models.IntegerField):
                 return int(value)
             if isinstance(field, models.FloatField):
                 return float(value)

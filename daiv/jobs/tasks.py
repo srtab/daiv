@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from django_tasks import task
 from sessions.locks import SessionLock
 from sessions.models import Run, Session
+from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -217,10 +218,23 @@ async def run_job_task(
         )
     except Exception:
         logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
-    return await build_agent_result(
+
+    agent_result = await build_agent_result(
         daiv_agent,
         config,
         response=response_text,
         usage=build_usage_summary(usage_handler).to_dict(),
         snapshot=snapshot,
     )
+
+    try:
+        await PipelineWatch(repo_id).aarm_after_run(
+            run_id=run_id,
+            merge_request=snapshot.values.get("merge_request"),
+            published=bool(snapshot.values.get("published")),
+            user_id=user_id,
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to arm pipeline watch for thread_id=%s", thread_id)
+
+    return agent_result
