@@ -6,24 +6,27 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from jobs.tasks import run_job_task
 
 from automation.titling.tasks import generate_batch_title_task
 from chat.repo_state import mr_to_payload
 from codebase.authorization import aassert_can_run
+from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from accounts.models import User
     from codebase.base import MergeRequest
+    from codebase.references import RefIn
     from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.sessions")
@@ -76,7 +79,8 @@ async def aget_or_create_session(
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
-    continued via API keeps origin=issue_webhook).
+    continued via API keeps origin=issue_webhook). External refs never land here —
+    :func:`_amerge_session_refs` writes them only after a run row exists.
     """
     session, created = await Session.objects.aget_or_create(
         thread_id=thread_id,
@@ -101,6 +105,27 @@ async def aget_or_create_session(
     return session
 
 
+async def _amerge_session_refs(session: Session, external_refs: list[dict]) -> None:
+    """Merge newly declared refs into the session row under a row lock, re-reading the column
+    inside the transaction so concurrent continuations can't clobber each other's refs.
+    (SQLite ignores FOR UPDATE; on Postgres the lock is real.)
+
+    Called only after the submission's run row exists — a failed claim leaves no refs behind —
+    and before enqueue, so an enqueue failure can still leave them: accepted, since the caller
+    is told the submission failed and a resubmit re-declares them.
+    """
+
+    def _merge_locked() -> list[dict]:
+        with transaction.atomic():
+            current = Session.objects.select_for_update().only("external_refs").get(pk=session.pk).external_refs
+            merged = merge_stored_refs(current, external_refs)
+            if merged != current:
+                Session.objects.filter(pk=session.pk).update(external_refs=merged)
+            return merged
+
+    session.external_refs = await sync_to_async(_merge_locked)()
+
+
 async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None) -> None:
     """Sync ``Session.ref`` with the branch the agent published to.
 
@@ -113,6 +138,15 @@ async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_reques
     new_ref = (mr_to_payload(merge_request) or {}).get("source_branch")
     if isinstance(new_ref, str) and new_ref and new_ref != current_ref:
         await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+
+async def aget_session_ref(*, thread_id: str) -> str:
+    """The branch a session is working on, or ``""`` when it has none (or no such session).
+
+    The read side of :func:`apersist_session_ref`, for a webhook re-trigger that carries no ref of
+    its own — an issue is not a branch.
+    """
+    return await Session.objects.filter(thread_id=thread_id).values_list("ref", flat=True).afirst() or ""
 
 
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
@@ -196,13 +230,16 @@ async def acreate_run(
     )
 
 
-async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, previous_status: str) -> None:
+async def amark_failed_and_advance(
+    run: Run, *, prefix: str, err: Exception, previous_status: str, log_context: str = "submit_batch_runs"
+) -> None:
     """Transition a row to FAILED with finished_at and emit ``run_finished``.
 
     Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
     "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
-    get dispatched. Used by the services-layer post-create error paths (enqueue or
-    task-result-id-link failure). The emit is best-effort — if it raises, we log
+    get dispatched. Used by every post-create error path (enqueue or task-result-id-link
+    failure); pass ``log_context`` so the log names the caller, not this module's first
+    one. The emit is best-effort — if it raises, we log
     loudly and recommend the operator run ``release_orphan_queued_sessions`` to
     recover stranded siblings.
     """
@@ -213,13 +250,14 @@ async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, pre
         # Best-effort: on a failed save the row may be left non-terminal (still READY)
         # while we still emit below to advance siblings. release_orphan_queued_sessions
         # reconciles any row stranded this way.
-        logger.exception("submit_batch_runs: terminal save failed for run=%s", run.pk)
+        logger.exception("%s: terminal save failed for run=%s", log_context, run.pk)
     try:
         await asyncio.to_thread(emit_run_finished_if_terminal, run, previous_status=previous_status)
     except Exception:
         logger.exception(
-            "submit_batch_runs: emit_run_finished_if_terminal failed for run=%s; "
+            "%s: emit_run_finished_if_terminal failed for run=%s; "
             "queued siblings on this session may be stranded — run release_orphan_queued_sessions",
+            log_context,
             run.pk,
         )
 
@@ -237,6 +275,7 @@ async def asubmit_batch_runs(
     external_username: str = "",
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
+    references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -260,6 +299,9 @@ async def asubmit_batch_runs(
             raise ValueError("thread_id must be a UUID string") from err
         if len(repos) != 1:
             raise ValueError("thread_id continuation requires exactly one repo")
+    stored_refs = [ref.to_stored() for ref in references or []]
+    if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
+        raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
     batch_id = uuid.uuid4()
 
     schedule_run_base = 0
@@ -299,7 +341,7 @@ async def asubmit_batch_runs(
             run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
         except IntegrityError:
             try:
-                return await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
+                run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
             except Exception as inner_err:
                 logger.exception("submit_batch_runs: queued run creation failed for repo_id=%s", target.repo_id)
                 return BatchSubmitFailure(
@@ -312,6 +354,21 @@ async def asubmit_batch_runs(
             return BatchSubmitFailure(
                 repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
             )
+
+        if stored_refs:
+            try:
+                await _amerge_session_refs(run.session, stored_refs)
+            except Exception as err:  # noqa: BLE001
+                # A READY row left behind would hold the one-active-per-session claim forever
+                # (never enqueued → run_finished never fires → siblings stay QUEUED).
+                logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
+                await amark_failed_and_advance(run, prefix="refs_merge_failed", err=err, previous_status=run.status)
+                return BatchSubmitFailure(
+                    repo_id=target.repo_id, ref=target.ref, error=f"RefsMergeFailed: {type(err).__name__}: {err}"
+                )
+
+        if run.status == RunStatus.QUEUED:
+            return run
 
         try:
             task = await run_job_task.aenqueue(
@@ -327,7 +384,7 @@ async def asubmit_batch_runs(
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            await _mark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
+            await amark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
         try:
@@ -344,7 +401,7 @@ async def asubmit_batch_runs(
             # Surface in error_message that the agent may run to completion (push a
             # commit / open an MR) while this row shows FAILED — the work is real but
             # uncapturable because nothing links back to it.
-            await _mark_failed_and_advance(
+            await amark_failed_and_advance(
                 run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
             )
             return BatchSubmitFailure(

@@ -9,8 +9,10 @@ class TestNavActive:
     def test_returns_active_classes_when_section_matches(self):
         ctx = {"nav_active_section": "activity"}
         out = _render("{% load nav_tags %}{% nav_active 'activity' %}", ctx)
-        assert "bg-white/[0.06]" in out
-        assert "text-white" in out
+        assert "bg-surface-3" in out
+        assert "text-text-strong" in out
+        # Draws the 3px brand rail; every inactive item then carries no indicator at all.
+        assert "sidebar__nav-item--active" in out
 
     def test_returns_empty_string_when_section_does_not_match(self):
         ctx = {"nav_active_section": "activity"}

@@ -3,5 +3,6 @@
 from notifications.channels.rocketchat_renderers import (  # noqa: F401
     job_batch_finished,
     job_finished,
+    pipeline_watch_exhausted,
     schedule_finished,
 )

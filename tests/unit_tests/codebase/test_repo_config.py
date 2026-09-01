@@ -58,3 +58,27 @@ def test_memory_section_can_be_disabled():
 
     config = RepositoryConfig(**{"memory": {"enabled": False}})
     assert config.memory.enabled is False
+
+
+def test_pipeline_watch_defaults_come_from_site_settings():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig()
+    assert config.pipeline_watch.enabled is True
+    assert config.pipeline_watch.max_attempts == 3
+
+
+def test_pipeline_watch_a_repo_can_disable_the_watch():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig(**{"pipeline_watch": {"enabled": False}})
+    assert config.pipeline_watch.enabled is False
+    assert config.pipeline_watch.max_attempts == 3
+
+
+def test_pipeline_watch_a_repo_can_tighten_the_attempt_cap():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig(**{"pipeline_watch": {"max_attempts": 1}})
+    assert config.pipeline_watch.max_attempts == 1
+    assert config.pipeline_watch.enabled is True

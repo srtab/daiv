@@ -936,3 +936,24 @@ async def test_push_head_to_skip_ci_survives_the_integrate_on_reject_retry() -> 
     pushes = [c for c in _issued(client) if "origin HEAD:b" in c]
     assert len(pushes) == 2  # first push + rebase-retry push
     assert all("-o ci.skip" in c for c in pushes)
+
+
+async def test_head_sha_reads_the_current_commit() -> None:
+    gm, client = _sandbox_manager({"rev-parse HEAD": (0, "2e5298e41d45a0a919ce01ec9c81714fc3440fda\n")})
+    assert await gm.head_sha() == "2e5298e41d45a0a919ce01ec9c81714fc3440fda"
+    assert client.ran("rev-parse HEAD")
+
+
+async def test_head_sha_ignores_a_git_warning_printed_before_the_sha() -> None:
+    # `output` is stdout+stderr, so a warning would otherwise be returned as part of the sha and
+    # every downstream comparison against the remote would fail on a healthy repo.
+    gm, _ = _sandbox_manager({
+        "rev-parse HEAD": (0, "warning: unable to access '/root/.gitconfig'\n" + "a" * 40 + "\n")
+    })
+    assert await gm.head_sha() == "a" * 40
+
+
+async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
+    gm, _ = _sandbox_manager({"rev-parse HEAD": (0, "HEAD\n")})
+    with pytest.raises(GitCommandError):
+        await gm.head_sha()

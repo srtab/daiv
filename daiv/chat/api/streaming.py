@@ -22,6 +22,7 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
+from sessions.pipeline_watch.service import PipelineWatch
 from sessions.services import apersist_session_ref, areset_session_ref
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
     from codebase.base import MergeRequest
     from codebase.context import RuntimeCtx
+    from codebase.references import ExternalRef
 
 logger = logging.getLogger("daiv.chat")
 
@@ -245,6 +247,7 @@ class ChatRunStreamer:
     agent_model: str | None = None
     agent_thinking_level: str | None = None
     mcp_overrides: dict = field(default_factory=dict)
+    external_refs: tuple[ExternalRef, ...] = ()
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -261,6 +264,9 @@ class ChatRunStreamer:
 
     async def events(self) -> AsyncIterator[BaseEvent]:
         last_mr: MergeRequest | dict | None = None
+        # Tracked off the same snapshots as ``last_mr``: this generator's cleanup runs after the
+        # checkpointer is closed, so the stream is the only state the watch arm can read.
+        last_published = False
         effective_ref = self.ref
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
@@ -292,6 +298,7 @@ class ChatRunStreamer:
                     sandbox_env_id=self.sandbox_environment_id,
                     acting_user_id=self.user_id,
                     mcp_overrides=self.mcp_overrides,
+                    references=self.external_refs,
                     fallback_ref_on_missing=True,
                 ) as runtime_ctx,
             ):
@@ -356,8 +363,11 @@ class ChatRunStreamer:
                         async for event in stream:
                             if event.type == EventType.STATE_SNAPSHOT:
                                 snap = getattr(event, "snapshot", None) or {}
-                                if isinstance(snap, dict) and "merge_request" in snap:
-                                    last_mr = snap["merge_request"]
+                                if isinstance(snap, dict):
+                                    if "merge_request" in snap:
+                                        last_mr = snap["merge_request"]
+                                    if "published" in snap:
+                                        last_published = bool(snap["published"])
                             elif event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
                                 # Buffer the assistant text deltas for ``result_summary``. Capped at
                                 # 2000 chars — the same bound ``finalize_chat_run`` re-applies.
@@ -452,6 +462,12 @@ class ChatRunStreamer:
                     )
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
+                try:
+                    await PipelineWatch(self.repo_id).aarm_after_run(
+                        merge_request=last_mr, published=last_published, user_id=self.user_id
+                    )
+                except Exception:
+                    logger.exception("chat: failed to arm pipeline watch for thread_id=%s", self.thread_id)
             if chat_run is not None:
                 try:
                     await finalize_chat_run(

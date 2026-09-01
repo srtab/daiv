@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("notifications", "0007_per_run_notification_dedup")]
+    dependencies = [("notifications", "0009_watch_exhausted_dedup")]
 
     operations = [
         migrations.AlterField(

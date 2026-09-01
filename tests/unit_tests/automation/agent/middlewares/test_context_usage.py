@@ -111,6 +111,21 @@ async def test_an_unexpected_failure_logs_at_error_without_failing_the_call():
     log.warning.assert_not_called()
 
 
+async def test_a_doubled_streamed_name_still_divides_by_the_right_window():
+    """A gateway with no source-level dedupe streams a doubled name; the ratio the meter draws
+    is the window looked up from it. ``_request()`` carries no profile on purpose — a profile
+    resolves the window off the model instance and never reads the name at all.
+    """
+    response = _response(usage_metadata=USAGE, response_metadata={"model_name": "anthropic/claude-sonnet-4.6" * 2})
+
+    with _patched_dispatch() as dispatch:
+        await ContextUsageMiddleware().awrap_model_call(_request(), _handler(response))
+
+    payload = dispatch.await_args.args[1]
+    assert payload["model"] == "anthropic/claude-sonnet-4.6"
+    assert payload["window_tokens"] == 1_000_000
+
+
 async def test_an_unresolved_window_still_emits_the_count():
     response = _response(usage_metadata=USAGE, response_metadata={"model_name": "model-nobody-knows"})
 

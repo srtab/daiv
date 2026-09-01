@@ -14,6 +14,7 @@ from genai_prices import Usage, calc_price, data_snapshot
 from genai_prices.types import TieredPrices
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage
+from langchain_core.messages.ai import add_usage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.tracers.context import register_configure_hook
 
@@ -43,6 +44,39 @@ def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_to
                 break
         return applicable
     return field_mtok
+
+
+_MIN_COLLAPSIBLE_UNIT = 4
+
+
+@lru_cache(maxsize=512)
+def collapse_repeated_model_name(model_name: str) -> str:
+    """Collapse a model name that a streamed turn reported N times over — see the
+    ``automation.agent.chat_models`` module docstring for how it gets that way.
+
+    ``ChatOpenRouter`` prevents it at the source, so this covers what that class cannot: an
+    OpenAI-compatible gateway configured as ``provider_type=OPENAI`` (a plain ``ChatOpenAI``),
+    and rows and checkpoints written before that fix.
+
+    Only a whole-string repeat of a unit at least ``_MIN_COLLAPSIBLE_UNIT`` long. Two
+    *different* names concatenated is the same merge over a mid-stream model switch, and
+    halving a short repeat like ``"1.5"`` invents a model nobody ran — which then misses every
+    lookup exactly as the doubled name did.
+    """
+    period = (model_name * 2).find(model_name, 1)
+    return model_name[:period] if _MIN_COLLAPSIBLE_UNIT <= period < len(model_name) else model_name
+
+
+def message_model_name(message: Any) -> str | None:
+    """The model that produced ``message``, repaired for streamed duplication.
+
+    The one way DAIV reads a model name off a message: pricing, the context window and the
+    hydration seed all key on this value, so a raw ``response_metadata`` read anywhere else is
+    the bug coming back. Typed ``Any`` and read through ``getattr`` because the hydration seed
+    walks whatever a checkpoint deserialized to.
+    """
+    name = (getattr(message, "response_metadata", None) or {}).get("model_name")
+    return collapse_repeated_model_name(name) if isinstance(name, str) and name else None
 
 
 def infer_provider_id(model_name: str) -> str | None:
@@ -161,6 +195,11 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
     rate above 272K input): individual API calls stay below the threshold and bill at
     base rate, but the aggregate crosses it and gets the tier rate applied to every
     token. We override ``on_llm_end`` to price each call individually and sum.
+
+    It *replaces* rather than extends the base method: the base keys ``usage_metadata`` off a
+    raw ``response_metadata`` read, so a streamed turn would land there under the duplicated
+    model name while cost lands under the repaired one, leaving a public attribute knowingly
+    wrong for every reader and the two dicts reconciling against nothing.
     """
 
     def __init__(self) -> None:
@@ -170,8 +209,6 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         self.priced_by_model: dict[str, bool] = {}
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        super().on_llm_end(response, **kwargs)
-
         try:
             generation = response.generations[0][0]
         except IndexError:
@@ -182,9 +219,12 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
 
         message = generation.message
         usage_metadata = message.usage_metadata
-        model_name = message.response_metadata.get("model_name")
+        model_name = message_model_name(message)
         if not usage_metadata or not model_name:
             return
+
+        with self._lock:
+            self.usage_metadata[model_name] = add_usage(self.usage_metadata.get(model_name), usage_metadata)
 
         # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
         if self.priced_by_model.get(model_name) is False:

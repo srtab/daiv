@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
+
 from django.utils import timezone
 
 from notifications.choices import EventType
+
+logger = logging.getLogger("daiv.notifications")
 
 # Opaque namespacing keys for the per-run / per-batch dedup, stored on Notification.source_type and
 # pinned by the unique constraint. Spelled once here so the emit and the re-drive can't drift.
 SOURCE_RUN = "sessions.Run"
 SOURCE_BATCH = "sessions.Batch"
+SOURCE_SESSION = "sessions.Session"
 
 
 def is_schedule_run(run) -> bool:
@@ -26,6 +31,21 @@ def notify_worthy(status: str) -> bool:
     """The single notification predicate: notify only when the run produced something to look at.
     ``all-clear`` is silent (it lives in the Feed)."""
     return status in notify_worthy_statuses()
+
+
+def status_severity(status: str) -> int:
+    """Rank a classified run for a list that is then capped.
+
+    An unranked status sorts *first* — under a cap, being dropped is the one outcome a reader
+    cannot recover from.
+    """
+    from sessions.models import EnvelopeStatus
+
+    try:
+        return EnvelopeStatus.worst_first().index(status)
+    except ValueError:
+        logger.error("status_severity: unranked envelope status %r, sorting it first", status)
+        return -1
 
 
 def within_relevance_window(finished_at) -> bool:
@@ -55,6 +75,15 @@ def notification_source_for_run(run, total: int) -> tuple[str, str, EventType]:
     return SOURCE_RUN, str(run.pk), event_type
 
 
+def notification_source_for_watch(session, pipeline_id: int) -> tuple[str, str, EventType]:
+    """The key a pipeline-watch give-up is deduped on.
+
+    Scoped to the pipeline, not the thread: a ``thread_id`` outlives the merge request and a watch
+    can be re-armed with a fresh budget, so a thread-only key would mute every later give-up.
+    """
+    return SOURCE_SESSION, f"{session.thread_id}:{pipeline_id}", EventType.PIPELINE_WATCH_EXHAUSTED
+
+
 def batch_status_tone(notable: int, total: int) -> str:
     """Single source of truth for a batch's aggregate tone, shared by the email pill and the
     RocketChat attachment so the two channels can never disagree. ``notable == 0`` is all-clear
@@ -66,14 +95,23 @@ def batch_status_tone(notable: int, total: int) -> str:
     return "warning"
 
 
-def envelope_tone(status: str) -> str:
-    """A single run's tone, shared by the email pill and the RocketChat attachment so the two channels
-    agree. found-issues / needs-attention are a warning; failed is a failure. all-clear is success
-    (only reachable defensively — a notified run is never all-clear)."""
+def status_tones() -> dict[str, str]:
+    """Every status's channel tone. ``all-clear`` is spelled out rather than left to fall through,
+    which is what makes an untoned status detectable."""
     from sessions.models import EnvelopeStatus
 
-    if status == EnvelopeStatus.FAILED:
+    return {
+        EnvelopeStatus.FAILED: "failure",
+        EnvelopeStatus.FOUND_ISSUES: "warning",
+        EnvelopeStatus.NEEDS_ATTENTION: "warning",
+        EnvelopeStatus.ALL_CLEAR: "success",
+    }
+
+
+def envelope_tone(status: str) -> str:
+    """A single run's tone, shared by the email pill and the RocketChat attachment so the two
+    channels agree. An untoned status renders as a failure, never green."""
+    if (tone := status_tones().get(status)) is None:
+        logger.error("envelope_tone: untoned envelope status %r, rendering it as a failure", status)
         return "failure"
-    if status in (EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION):
-        return "warning"
-    return "success"
+    return tone

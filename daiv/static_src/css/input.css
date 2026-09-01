@@ -5,7 +5,9 @@
 @source not "../../../**/*.md";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  /* Self-hosted Geist (see @font-face below). Sans for prose/headings, Mono for data. */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* The width where floating surfaces stop being bottom sheets — see `.picker-popover`.
      A layout that swaps with them (`popover:` / default) must use this, not `lg`: `lg` is
@@ -13,17 +15,150 @@
   --breakpoint-popover: 1100px;
 
   /* The app shell's content column, restated for the `position: fixed` sheets that measure
-     the viewport instead. The shell renders from these too — see `--sheet-inset-start`. */
-  --app-sidebar-width: 15rem;
+     the viewport instead. The shell renders from these too — see `--sheet-inset-start`.
+     This is the icon rail's width; the `lg:` switch below widens it. One token, so a
+     sheet's inset can never disagree with the sidebar it dodges. */
+  --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* Skill usage chart palette — tuned for the dark body background (#030712). */
+  /* The bottom tab bar below `md`. `<main>` pads by it on the chat surface, whose
+     sticky dock would otherwise sit under the bar. */
+  --app-tabbar-height: 3.5rem;
+
+  /* Dark-only semantic token layer, declared once here — DESIGN.md documents the roles,
+     nothing else restates a value. They live in the Tailwind v4 `--color-*` namespace so
+     the utilities generate (bg-ground, text-text-muted, border-border, …). There is no
+     light variant. The `status-*` ramp is declared ahead of the surfaces that read it;
+     Tailwind emits nothing for a token no utility uses. */
+  --color-ground: #0d1117; /* base plane */
+  --color-surface-1: #10151d; /* sidebar + top bar */
+  --color-surface-2: #161c26; /* cards + hero */
+  --color-surface-3: #1e2733; /* hover / inset chips */
+  --color-border: #232b36; /* 1px hairline separators */
+
+  --color-text: #e6edf3; /* primary content */
+  --color-text-strong: #ffffff; /* the single most-important number only */
+  --color-text-muted: #9aa4b0; /* secondary meta */
+  --color-text-faint: #767f8e; /* timestamps / captions (AA-fixed) */
+
+  --color-brand: #8b5cf6; /* violet — WHO / brand fills & mark only, never a CTA */
+  --color-brand-bright: #a78bfa; /* violet text/glyphs needing an AA lift */
+
+  --color-accent: #2dd4bf; /* teal — DO / action; owns "clickable" */
+  --color-accent-bright: #5fe6d4; /* teal text (AA) */
+  --color-accent-ink: #04211d; /* text on a solid teal fill */
+
+  --color-focus: var(--color-accent-bright); /* focus ring */
+
+  --color-status-clear: #3fb950; /* all-clear (green) */
+  --color-status-found: #d6a036; /* found-issues / "fix it" (amber) */
+  --color-status-attn: #38bdf8; /* needs-attention / "review this" (cyan) */
+  --color-status-fail: #f85149; /* failed tooling / "retry" (red) */
+
+  /* Flat elevation: persistent surfaces carry NO shadow. This single overlay shadow is
+     reserved for transient overlays (menus / popovers / dialogs). */
+  --shadow-overlay: 0 16px 40px -24px rgba(0, 0, 0, 0.85);
+
+  /* Skill usage chart palette — translucent white overlays, dark-bg tuned. */
   --chart-bar: rgba(255, 255, 255, 0.18);
   --chart-bar-hover: rgba(255, 255, 255, 0.42);
   --chart-tick: rgba(255, 255, 255, 0.35);
   --chart-grid: rgba(255, 255, 255, 0.04);
   --chart-tooltip-bg: rgba(15, 23, 42, 0.95);
   --chart-tooltip-fg: rgba(255, 255, 255, 0.92);
+}
+
+/* Self-hosted Geist Sans + Geist Mono (OFL-1.1) — variable woff2, latin subset covers the
+   pt-PT diacritics (ã ç õ é). No font CDN. Paths are relative to the compiled stylesheet at
+   daiv/static/css/styles.css. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/geist/geist-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/geist/geist-mono-latin-wght-normal.woff2") format("woff2");
+}
+
+@layer base {
+  /* Global teal focus-visible ring on every interactive element that does not opt out with
+     `focus:outline-none` plus its own ring utility. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* A blanket reduced-motion kill switch. Written outside `@layer`, and `!important`, so it
+   wins over every animation utility and keyframe roster in this file. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The sidebar's icon-rail tier. Its width is `--app-sidebar-width`, so only what the rail
+   *hides* lives here. The persistent sidebar carries `.sidebar--rail`; the mobile sheet
+   reuses the same partial WITHOUT the modifier, so it always shows full labels. Bounds read
+   the breakpoint tokens rather than the px they compile to, and the rules are unlayered
+   because `display: none` has to beat the utilities on the elements it hides. */
+@media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg)) {
+  .sidebar--rail .sidebar__collapsible {
+    display: none;
+  }
+
+  .sidebar--rail .sidebar__brand,
+  .sidebar--rail .sidebar__cta,
+  .sidebar--rail .sidebar__nav-item,
+  .sidebar--rail .sidebar__footer-link {
+    justify-content: center;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  /* The heading keeps its box so the groups stay separated once its label is hidden. */
+  .sidebar--rail .sidebar__group-heading {
+    height: 1.25rem;
+  }
+}
+
+@layer components {
+  /* The app shell's two nav surfaces: the sidebar's items and the mobile tab bar. One
+     declaration each, so a tweak isn't 13 or 4 identical utility chains. */
+  .sidebar__nav-item {
+    @apply relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm
+           text-text-muted transition-colors hover:text-text;
+  }
+
+  /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
+     the one active item instead of hidden with `opacity-0` inside every other. */
+  .sidebar__nav-item--active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.375rem;
+    bottom: 0.375rem;
+    width: 3px;
+    border-radius: 0 0.25rem 0.25rem 0;
+    background: var(--color-brand);
+  }
+
+  /* `min-height` is the touch-target floor, not the height: the bar is
+     `--app-tabbar-height` and the links stretch to it. */
+  .tabbar__link {
+    @apply flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px];
+  }
 }
 
 /* Entrance animations fill `backwards`, never `both`: a filling `transform` computes to an
@@ -57,20 +192,20 @@
 .composer-autocomplete,
 .filter-menu,
 .card__menu-panel {
-  animation: surface-rise var(--surface-rise-duration, 180ms) ease-out backwards;
+  animation: surface-rise 180ms ease-out backwards;
 }
 
-/* Collapsing the duration rather than re-listing the roster: the surfaces still appear,
-   they just stop travelling. */
-@media (prefers-reduced-motion: reduce) {
+/* The sidebar's second tier: the icon rail becomes the full column. `--app-sidebar-width`
+   is the only place either width lives, so the sheet inset below tracks both tiers. */
+@media (width >= theme(--breakpoint-lg)) {
   :root {
-    --surface-rise-duration: 0.01ms;
+    --app-sidebar-width: 15rem;
   }
 }
 
-/* A bottom sheet belongs to the content column, not to the viewport: from `sm:` up the
+/* A bottom sheet belongs to the content column, not to the viewport: from `md:` up the
    sidebar is on screen while these are still sheets. Every read falls back to flush. */
-@media (width >= theme(--breakpoint-sm)) {
+@media (width >= theme(--breakpoint-md)) {
   :root {
     --sheet-inset-start: calc(var(--app-sidebar-width) + var(--app-content-gutter));
     --sheet-inset-end: var(--app-content-gutter);
@@ -102,11 +237,14 @@ html {
   display: none !important;
 }
 
-/* Drop <main>'s bottom padding on chat detail so the sticky dock reaches
-   the actual viewport bottom. `!important` is needed to beat Tailwind's
-   `py-8`/`sm:py-10` utilities applied directly on <main>. */
-main:has(.chat-shell) {
-  padding-bottom: 0 !important;
+/* Drop <main>'s bottom padding on chat detail so the sticky dock reaches the actual
+   viewport bottom. `!important` is needed to beat the padding utility on <main>. Only from
+   `md:` up: below it <main>'s own `pb-(--app-tabbar-height)` is what holds the dock clear
+   of the tab bar, since a sticky `bottom: 0` sticks to the padding box. */
+@media (width >= theme(--breakpoint-md)) {
+  main:has(.chat-shell) {
+    padding-bottom: 0 !important;
+  }
 }
 
 .animate-fade-up {
@@ -556,7 +694,7 @@ main:has(.chat-shell) {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -571,7 +709,7 @@ main:has(.chat-shell) {
   }
 
   .chat-hero__title {
-    font-family: "Outfit", system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: clamp(28px, 4.5vw, 44px);
     font-weight: 500;
     line-height: 1.1;
@@ -1055,7 +1193,7 @@ main:has(.chat-shell) {
   }
 
   .chat-text pre {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.04);
@@ -1069,7 +1207,7 @@ main:has(.chat-shell) {
   /* Inline code: tinted chip in the amber accent so it reads as a single token
      rather than a colour burst against body text. */
   .chat-text code:not(pre code) {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.88em;
     padding: 1px 6px;
     border-radius: 5px;
@@ -1088,7 +1226,7 @@ main:has(.chat-shell) {
   }
 
   .chat-text kbd {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     padding: 1px 6px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1205,7 +1343,7 @@ main:has(.chat-shell) {
     padding: 9px 12px;
     cursor: pointer;
     list-style: none;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
   }
 
@@ -1323,7 +1461,7 @@ main:has(.chat-shell) {
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 10px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     flex-shrink: 0;
   }
 
@@ -1358,7 +1496,7 @@ main:has(.chat-shell) {
   }
 
   .chat-tool__block-label {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -1367,7 +1505,7 @@ main:has(.chat-shell) {
   }
 
   .chat-tool__code {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.55;
     color: #cbd5e1;
@@ -1394,7 +1532,7 @@ main:has(.chat-shell) {
   }
 
   .chat-bash__cmd {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     color: #e2e8f0;
     word-break: break-word;
@@ -1406,7 +1544,7 @@ main:has(.chat-shell) {
   }
 
   .chat-bash__exit--err {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: #f87171;
     align-self: flex-start;
@@ -1436,7 +1574,7 @@ main:has(.chat-shell) {
     gap: 8px;
     padding: 6px 0;
     color: #94a3b8;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
   }
 
@@ -1471,7 +1609,7 @@ main:has(.chat-shell) {
     gap: 8px;
     padding: 2px 0;
     color: #94a3b8;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     cursor: pointer;
     list-style: none;
@@ -1528,7 +1666,7 @@ main:has(.chat-shell) {
     flex: 0 0 auto;
     margin: 0;
     padding: 0 0 8px;
-    background: #030712;
+    background: var(--color-ground);
     z-index: 10;
   }
 
@@ -1542,7 +1680,7 @@ main:has(.chat-shell) {
     bottom: 100%;
     height: 40px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 1));
+    background: linear-gradient(180deg, transparent, var(--color-ground));
   }
 
   .chat-dock__disclaimer {
@@ -1588,7 +1726,7 @@ main:has(.chat-shell) {
     outline: none;
     resize: none;
     padding: 4px 2px !important;
-    font-family: "Outfit", system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 15px;
     color: #fff;
     line-height: 1.55;
@@ -1679,6 +1817,13 @@ main:has(.chat-shell) {
 
   .composer-send--stop:hover {
     background: rgba(248, 113, 113, 0.2);
+  }
+
+  /* A bare span here is a flex item with a line box, and the label inside then rides that
+     strut's baseline rather than its own box centre. `min-width` lets the label truncate. */
+  .chat-composer__model {
+    display: flex;
+    min-width: 0;
   }
 
   /* Model as plain text — no border, no background. Truncates before anything else in
@@ -1839,7 +1984,9 @@ main:has(.chat-shell) {
     padding: 0 4px;
     border-radius: 999px;
     color: #94a3b8;
-    font-size: 11.5px;
+    /* Same type size as `.model-label` beside it — two adjacent readings at different sizes
+       read as a mistake. */
+    font-size: 12.5px;
     font-variant-numeric: tabular-nums;
     transition: color 0.15s ease;
     --meter-color: #94a3b8;
@@ -1949,13 +2096,24 @@ main:has(.chat-shell) {
     color: #94a3b8;
   }
 
+  /* Aligned to the first line, not the block: the sentence wraps at sheet width in several
+     locales, and `center` then parks the glyph in the gap between the two lines. */
   .context-panel__headroom {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     padding-top: 4px;
     font-size: 12px;
     color: #94a3b8;
+  }
+
+  /* Icon centred in one line box of the inherited line-height, so it tracks the sentence's
+     first line with no magic number. Both read that line-height from the parent. */
+  .context-panel__headroom-glyph {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 1lh;
   }
 
   .context-panel__headroom--warn {
@@ -1979,7 +2137,7 @@ main:has(.chat-shell) {
     border-radius: 999px;
     color: #c4b5fd;
     font-size: 12px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     backdrop-filter: blur(8px);
     animation: fade-up 0.3s ease-out backwards;
@@ -2089,7 +2247,7 @@ main:has(.chat-shell) {
     z-index: 40;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    background: #0d1117;
+    background: var(--color-surface-2);
     box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.9);
     padding: 8px;
     --surface-rise-from: 6px;
@@ -2134,7 +2292,7 @@ main:has(.chat-shell) {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     border-inline: var(--sheet-side-border, 0px) solid rgba(255, 255, 255, 0.08);
     border-radius: 18px 18px 0 0;
-    background: #0d1117;
+    background: var(--color-surface-2);
     box-shadow: 0 -20px 48px -24px rgba(0, 0, 0, 0.9);
     /* Further than a menu: a sheet enters from off the bottom edge, not from its trigger. */
     --surface-rise-from: 12px;
@@ -2231,7 +2389,7 @@ main:has(.chat-shell) {
   }
 
   .composer-sheet__label {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -2252,7 +2410,7 @@ main:has(.chat-shell) {
     text-align: left;
     padding: 3px 4px;
     color: #cbd5e1;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     border-radius: 4px;
     cursor: pointer;
@@ -2637,7 +2795,7 @@ main:has(.chat-shell) {
      it doesn't fit. Below 1100px these stop floating altogether. */
   .picker-popover {
     @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
-    background: #0d1117;
+    background: var(--color-surface-2);
     border-color: rgba(255, 255, 255, 0.08);
     left: 0;
     width: 320px;
@@ -2893,7 +3051,7 @@ main:has(.chat-shell) {
   .filter-control--active { @apply border-white/[0.12] text-white; }
   .filter-menu {
     @apply absolute z-20 mt-1.5 min-w-[12rem] rounded-xl border border-white/[0.08]
-      bg-[#0d1117] p-1 shadow-xl;
+      bg-surface-2 p-1 shadow-xl;
   }
   .filter-menu-item {
     @apply flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-gray-300

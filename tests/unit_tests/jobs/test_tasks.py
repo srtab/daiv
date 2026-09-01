@@ -1,3 +1,4 @@
+import uuid
 from contextlib import asynccontextmanager, contextmanager, suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -360,3 +361,47 @@ async def test_run_job_task_survives_a_failed_ref_sync():
         result = await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-ref-job-3")
 
     assert result == {"response": "ok"}
+
+
+async def _runtime_ctx_kwargs(thread_id: str) -> dict:
+    """Run a job just far enough to capture the kwargs it hands ``set_runtime_ctx``."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _fake_set_runtime_ctx(*args, **kwargs):
+        captured.update(kwargs)
+        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
+
+    with (
+        _job_scaffolding(AsyncMock()),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        suppress(Exception),
+    ):
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
+
+    return captured
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_session_references():
+    """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
+    from codebase.references import ExternalRef
+
+    thread_id = str(uuid.uuid4())
+    await Session.objects.acreate(
+        thread_id=thread_id,
+        origin=SessionOrigin.MCP_JOB,
+        repo_id="g/r",
+        external_refs=[{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}],
+    )
+
+    captured = await _runtime_ctx_kwargs(thread_id)
+
+    assert captured.get("references") == (ExternalRef(key="PROJ-1", provider="jira"),)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_references_default_to_empty_when_no_session():
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()))
+
+    assert captured.get("references") == ()

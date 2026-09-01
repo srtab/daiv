@@ -5,7 +5,7 @@ from codebase.api.router import router
 from codebase.base import GitPlatform
 from codebase.conf import settings
 
-from .callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PushCallback  # noqa: TC001
+from .callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PipelineCallback, PushCallback  # noqa: TC001
 from .security import validate_gitlab_webhook
 
 logger = logging.getLogger("daiv.webhooks")
@@ -13,7 +13,9 @@ logger = logging.getLogger("daiv.webhooks")
 
 @router.post("/callbacks/gitlab", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
 @router.post("/callbacks/gitlab/", response={204: None, 401: None, 403: None, 422: UnprocessableEntityResponse})
-async def callback(request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback):
+async def callback(
+    request, payload: IssueCallback | MergeRequestCallback | NoteCallback | PushCallback | PipelineCallback
+):
     """
     GitLab callback endpoint for processing callbacks.
 

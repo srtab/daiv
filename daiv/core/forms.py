@@ -245,6 +245,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "rocketchat_url",
             "rocketchat_user_id",
             "telegram_enabled",
+            "pipeline_watch_enabled",
+            "pipeline_watch_max_attempts",
             "jobs_throttle_rate",
             "auth_login_enabled",
             "auth_signup_open",

@@ -11,6 +11,7 @@ import pytest
 
 from codebase.context import RepoHandle, RuntimeCtx
 from codebase.exceptions import SingleRepoRequiredError
+from codebase.references import ExternalRef
 
 
 def _make_handle() -> RepoHandle:
@@ -53,3 +54,15 @@ def test_runtime_ctx_normalises_list_to_tuple():
     ctx = RuntimeCtx(bot_username="daiv", repos=[handle])  # type: ignore[arg-type]
     assert isinstance(ctx.repos, tuple)
     assert ctx.repos == (handle,)
+
+
+def test_runtime_ctx_defaults_to_no_references():
+    ctx = RuntimeCtx(bot_username="bot", repos=(_make_handle(),))
+    assert ctx.references == ()
+
+
+def test_runtime_ctx_normalises_references_to_a_tuple():
+    ref = ExternalRef(key="PROJ-1", provider="jira")
+    ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), references=[ref])  # type: ignore[arg-type]
+    assert isinstance(ctx.references, tuple)
+    assert ctx.references == (ref,)

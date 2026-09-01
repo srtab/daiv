@@ -44,10 +44,39 @@ class RocketChatRenderer(BaseRenderer):
         value = BaseRenderer._cost_value(ctx)
         return None if value is None else {"title": label, "value": value, "short": True}
 
+    @staticmethod
+    def _list_field(title: str, items: list[dict] | None, overflow: int, *, mono: bool = True) -> dict | None:
+        """One long field listing ``{kind, label, ref}`` rows; ``None`` when there are none.
+
+        ``mono`` backticks ``ref`` — right for a file path, wrong for the prose a batch row carries.
+        """
+        if not items:
+            return None
+        lines = []
+        for item in items:
+            prefix = f"[{item['kind']}] " if item.get("kind") else ""
+            ref = item.get("ref")
+            tail = (f" — `{ref}`" if mono else f" — {ref}") if ref else ""
+            lines.append(f"• {prefix}{item.get('label', '')}{tail}")
+        if overflow > 0:
+            lines.append(f"… and {overflow} more")
+        return {"title": title, "value": "\n".join(lines), "short": False}
+
     def _message(
         self, notification: Notification, color: str, emoji: str, fields: list[dict]
     ) -> tuple[str, list[dict]]:
-        """Assemble the shared ``(text, [attachment])`` shape every renderer returns."""
+        """Assemble the shared ``(text, [attachment])`` shape every renderer returns.
+
+        Context-derived fields are attached here, not per renderer, so a new renderer cannot omit them.
+        """
+        ctx = notification.context
+        extra = (
+            self._list_field("Findings", ctx.get("actionable"), ctx.get("actionable_overflow") or 0),
+            self._list_field(
+                "Needs a look", ctx.get("notable_runs"), ctx.get("notable_runs_overflow") or 0, mono=False
+            ),
+        )
+        fields = [*fields, *(field for field in extra if field is not None)]
         attachment = {
             "color": color,
             "title": notification.subject,
@@ -56,6 +85,8 @@ class RocketChatRenderer(BaseRenderer):
             "footer": FOOTER,
             "ts": int(notification.created.timestamp()),
         }
+        if summary := (ctx.get("summary") or "").strip():
+            attachment["text"] = summary
         return f"{emoji} {notification.subject}", [attachment]
 
     @staticmethod

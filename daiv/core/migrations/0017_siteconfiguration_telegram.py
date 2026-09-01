@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0015_siteconfiguration_session_link_enabled")]
+    dependencies = [("core", "0016_siteconfiguration_pipeline_watch")]
 
     operations = [
         migrations.AddField(

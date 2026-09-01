@@ -76,6 +76,9 @@ POST /api/jobs
 | `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default false. |
 | `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
+| `references`           | array of objects | no       | Up to 20 external work-item references (Jira/Sentry/RT tickets, git-platform issues, …) that DAIV links into the MR/PR it creates. Each item: `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }` — only `key` is required. |
+
+`references` is the same schema the MCP `submit_job` tool takes, validated by the same code; see [`references` on the MCP endpoint](mcp-endpoint.md#available-tools) for the per-field rules, the provider list, the `closes` auto-close semantics, the continuation merge, and the v1 limitation on existing MRs. An invalid reference (bad key charset, non-`http(s)` URL, more than 20 entries) is rejected with `422` and nothing is stored.
 
 !!! note
     The request body is validated strictly: unknown fields (including the removed `use_max` toggle and the removed `notify_on` field) are rejected with `422`. Use `muted` to silence notifications; use `agent_model` and `agent_thinking_level` to control the model.

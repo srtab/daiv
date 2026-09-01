@@ -14,12 +14,13 @@ from django.core.exceptions import ImproperlyConfigured
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
-from gitlab.exceptions import GitlabError
+from gitlab.exceptions import GitlabError, GitlabGetError
 
 from codebase.base import (
     Discussion,
     GitPlatform,
     Issue,
+    Job,
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
@@ -32,6 +33,7 @@ from codebase.base import (
     RepoAccessLevel,
     RepoMember,
     Repository,
+    TriggeredPipeline,
     User,
 )
 from codebase.clients import RepoClient
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from gitlab.v4.objects import (
+        Project,
         ProjectHook,
         ProjectIssue,
         ProjectIssueNote,
@@ -72,6 +75,13 @@ MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.
 # attempt) until the authorization lands — re-minting instead would just produce another brand-new
 # token that hits the same window.
 CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
+# GitLab writes `refs/merge-requests/:iid/head` asynchronously after a push, and the MR pipeline API
+# resolves its sha from that ref — so creating one straight after a push runs CI on the previous
+# commit. Sized (~61s) off the branch-visibility tail above, the same class of race, but with the
+# tail capped: doubling past a few seconds would spend longer *asleep* past a synced ref than the
+# ref took to sync, and the publish holds a worker and a sandbox session while it waits.
+MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0, *([6.0] * 9))
 
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
@@ -372,6 +382,7 @@ class GitLabClient(RepoClient):
             "issues_events": True,
             "note_events": True,
             "merge_requests_events": True,
+            "pipeline_events": True,
             "enable_ssl_verification": enable_ssl_verification,
             "push_events_branch_filter": push_events_branch_filter or "",
             "branch_filter_strategy": "wildcard" if push_events_branch_filter else "all_branches",
@@ -925,19 +936,114 @@ class GitLabClient(RepoClient):
 
         return to_return
 
-    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+    def trigger_merge_request_pipeline(
+        self, repo_id: str, merge_request_id: int, expected_sha: str | None = None
+    ) -> TriggeredPipeline:
         """Create an MR pipeline (``POST .../merge_requests/:iid/pipelines``). Runs as the PAT user
-        (the DAIV service account), so cross-project CI includes resolve with its permissions."""
+        (the DAIV service account), so cross-project CI includes resolve with its permissions.
+
+        ``expected_sha`` is the sha the caller just pushed: wait for GitLab's MR head ref to carry it
+        before creating, or the pipeline runs on the previous commit (see
+        :const:`MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS`). Without one there is nothing to
+        wait for and ``head_synced`` is False — the created pipeline's commit is simply unverified.
+
+        The returned ``head_synced`` is what the caller should judge the pipeline by. The created
+        pipeline's own ``sha`` is not comparable to ``expected_sha`` on a project with merged-results
+        pipelines, where it is a synthetic merge commit rather than the branch head.
+        """
         project = self.client.projects.get(repo_id, lazy=True)
+        head_synced = bool(expected_sha and self._await_merge_request_head_ref(project, merge_request_id, expected_sha))
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         pipeline = merge_request.pipelines.create()
+        return TriggeredPipeline(
+            pipeline=Pipeline(
+                id=pipeline.id,
+                iid=getattr(pipeline, "iid", None),
+                sha=pipeline.sha,
+                status=pipeline.status,
+                web_url=pipeline.web_url,
+            ),
+            head_synced=head_synced,
+        )
+
+    def _await_merge_request_head_ref(self, project: Project, merge_request_id: int, expected_sha: str) -> bool:
+        """Block until ``refs/merge-requests/:iid/head`` resolves to ``expected_sha``, returning
+        whether it did within the budget.
+
+        The ref is what the MR pipeline API resolves its sha from, so it is polled directly rather
+        than the MR's ``sha`` attribute, which GitLab refreshes from the same async work but not
+        necessarily in the same instant.
+
+        Any lookup failure counts as "not yet" — the ref legitimately 404s until GitLab writes it —
+        so the broad ``except`` mirrors :meth:`_branch_exists`: python-gitlab re-raises transport
+        errors (TLS/DNS/reset/timeout) unwrapped, and losing the pipeline over one would be a worse
+        outcome than creating it unverified. The per-call ``retry_transient_errors=False`` keeps the
+        backoff above the *whole* budget; the client's default would retry each 5xx ten times inside
+        every poll, turning a minute of waiting into a wedged publish.
+        """
+        ref = f"refs/merge-requests/{merge_request_id}/head"
+        last_error: str | None = None
+        for attempt, delay in enumerate((*MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS, None), start=1):
+            try:
+                if project.commits.get(ref, retry_transient_errors=False).id == expected_sha:
+                    if attempt > 1:
+                        logger.info(
+                            "MR !%s head ref reached %s after %d polls", merge_request_id, expected_sha, attempt
+                        )
+                    return True
+                last_error = None
+            except Exception as e:  # noqa: BLE001 - SDK + transport failures both mean "not yet"
+                last_error = repr(e)  # the exception itself pins its traceback for the whole budget
+            if delay is None:
+                break
+            time.sleep(delay)
+        logger.error(
+            "MR !%s head ref never reached the pushed commit %s within the retry budget; creating the "
+            "pipeline anyway — it will run on whatever commit GitLab has for the MR. Last lookup error: %s",
+            merge_request_id,
+            expected_sha,
+            last_error,
+        )
+        return False
+
+    def _to_pipeline(self, pipeline) -> Pipeline:
         return Pipeline(
             id=pipeline.id,
             iid=getattr(pipeline, "iid", None),
             sha=pipeline.sha,
             status=pipeline.status,
             web_url=pipeline.web_url,
+            jobs=[
+                Job(
+                    id=job.id,
+                    name=job.name,
+                    status=job.status,
+                    stage=job.stage,
+                    allow_failure=job.allow_failure,
+                    failure_reason=getattr(job, "failure_reason", None),
+                )
+                for job in pipeline.jobs.list(all=True, per_page=100)
+            ],
         )
+
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            return self._to_pipeline(project.pipelines.get(pipeline_id))
+        except GitlabGetError as exc:
+            # python-gitlab wraps every failed GET in this one type, so match on the code: a
+            # 401/403/5xx answering None would make an outage read as "no pipeline yet".
+            if exc.response_code == 404:
+                return None
+            raise
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
+        if not pipelines:
+            return None
+        # The list entry already carries every field _to_pipeline reads, plus the jobs manager.
+        return self._to_pipeline(pipelines[0])
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """

@@ -1,12 +1,15 @@
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from langgraph.store.memory import InMemoryStore
+from redis.exceptions import RedisError
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
-from automation.agent.publishers import GitChangePublisher
+from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
+from codebase.utils import get_repo_ref
 from core.sandbox.client import get_run_sandbox_client
 
 if TYPE_CHECKING:
@@ -61,7 +64,13 @@ class BaseManager:
         """
         try:
             snapshot = await agent.aget_state(config=config)
-            snapshot_mr = snapshot.values.get("merge_request")
+            # ``strict=False``: raising here would land in this method's own catch-all and discard
+            # the work this last attempt exists to save.
+            snapshot_mr = effective_merge_request(
+                context_mr=self.ctx.merge_request,
+                state_mr=checkpointed_merge_request(snapshot.values, strict=False),
+                current_ref=get_repo_ref(self.ctx.gitrepo),
+            )
 
             # Sandbox-mode publish runs git through the run's bound backend. Recovery runs in the same
             # run scope as the agent (client still open), but doesn't hold the agent's backend instance,
@@ -86,6 +95,18 @@ class BaseManager:
             logger.exception("Recovery failed after agent error for %s %s", entity_label, entity_id)
 
         return False
+
+    async def _safe_get_state(self, agent: CompiledAgent, config: RunnableConfig):
+        """Read the agent's persisted state, or ``None`` on transport/serialization failure.
+
+        ``None`` is what ``_build_agent_result`` reads as "the read already failed"; raising
+        instead would discard a run whose comment and merge request have already landed.
+        """
+        try:
+            return await agent.aget_state(config=config)
+        except RedisError, OSError, json.JSONDecodeError:
+            logger.warning("Failed to read agent state for thread %s", self.thread_id, exc_info=True)
+            return None
 
     @staticmethod
     async def _build_agent_result(

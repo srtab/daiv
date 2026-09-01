@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from git import GitCommandError
+from langchain_core.messages import AIMessage
 
 from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
 from automation.agent.middlewares.file_system import SandboxFileBackend
@@ -175,7 +176,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=True))
             result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
-        assert result == {"code_changes": True}
+        assert result == {"code_changes": True, "published": True}
 
     async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
@@ -185,13 +186,110 @@ class TestGitMiddleware:
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state_mr = _mr(iid=10, branch="daiv/feature")
 
-        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="daiv/feature"),
+        ):
             publisher_cls.return_value.publish = AsyncMock(
                 return_value=PublishOutcome(merge_request=state_mr, published=False)
             )
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
         assert result == {"merge_request": state_mr, "code_changes": True}
+
+    @pytest.mark.parametrize(
+        ("scope", "state_branch", "current_ref", "keeps_mr", "levels"),
+        [
+            # An issue-scope follow-up turn re-clones the default branch while the checkpoint still
+            # names the first turn's MR. Publishing there pushes a sibling of that branch's tip: the
+            # push is rejected, the rebase conflicts, and the turn's work is discarded. DAIV chose
+            # that ref itself (``Session.ref``), so the drop is its own continuity failing — ERROR is
+            # the only level this project turns into a Sentry event.
+            (Scope.ISSUE, "fix/10-update-dependencies", "master", False, ["ERROR"]),
+            # A chat turn may legitimately retarget the composer's branch pill mid-session and land
+            # on the same guard, so paging outside issue scope would train the signal away.
+            (Scope.GLOBAL, "feat/x", "feat/other", False, ["WARNING"]),
+            # The guard must not cost the normal case: still on the MR's branch, still one MR.
+            (Scope.GLOBAL, "feat/x", "feat/x", True, []),
+        ],
+    )
+    async def test_aafter_agent_publish_target_follows_the_checked_out_ref(
+        self, scope, state_branch, current_ref, keeps_mr, levels, caplog
+    ):
+        """The publish target is dropped on the same terms the prompt's MR iid already is."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=scope)
+        state_mr = _mr(iid=449, branch=state_branch)
+
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value=current_ref),
+            caplog.at_level("WARNING"),
+        ):
+            publisher = MagicMock()
+            publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(iid=450), published=True))
+            publisher_cls.return_value = publisher
+            await middleware.aafter_agent({"merge_request": state_mr}, runtime)
+
+        assert publisher.publish.await_args.kwargs["merge_request"] is (state_mr if keeps_mr else None)
+        assert [r.levelname for r in caplog.records] == levels
+        if not keeps_mr:
+            # The drop changes the run's outcome (a fresh MR instead of an update), so it must be
+            # traceable to the MR and the ref that disagreed.
+            assert all(token in caplog.text for token in ("449", state_branch, current_ref))
+
+    async def test_aafter_agent_publishes_onto_the_context_mr_on_an_mr_scope_run(self):
+        """An MR-scope run's context MR is authoritative — it is the ref the clone was made on.
+        A commit-pinned clone reports a SHA from ``get_repo_ref``, which matches no branch name,
+        so the guard must defer to the context MR instead of dropping it."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
+        context_mr = _mr(iid=77, branch="feat/z")
+        runtime.context.merge_request = context_mr
+
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="deadbeef"),
+        ):
+            publisher = MagicMock()
+            publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=context_mr, published=True))
+            publisher_cls.return_value = publisher
+            await middleware.aafter_agent({"merge_request": context_mr}, runtime)
+
+        assert publisher.publish.await_args.kwargs["merge_request"] is context_mr
+
+    async def test_aafter_agent_marks_a_real_publish_as_published(self):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result["published"] is True
+
+    async def test_aafter_agent_does_not_mark_a_no_op_turn_as_published(self):
+        """``code_changes`` stays true for a clean tree already on its MR — the dashboard and MCP
+        count the run's work — so it cannot also mean "this turn pushed". A fix run is *always*
+        already on its MR, which made the watch's no-diff give-up unreachable.
+        """
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state_mr = _mr(iid=10, branch="daiv/feature")
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=state_mr, published=False)
+            )
+            result = await mw.aafter_agent({"merge_request": state_mr}, runtime)
+        assert result["code_changes"] is True
+        assert result.get("published") is not True
+
+    async def test_abefore_agent_clears_published_each_turn(self):
+        """``published`` is per-turn, and ``aafter_agent`` only ever sets it true — so the reset
+        here is what stops turn 2 inheriting turn 1's push."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
+            result = await middleware.abefore_agent({}, runtime)
+        assert result["published"] is False
 
     async def test_aafter_agent_passes_backend_to_publisher(self):
         """Daiv publishes via the publisher; the run's bound backend is injected at construction
@@ -269,7 +367,12 @@ class TestGitMiddleware:
         lookup.assert_awaited_once_with(runtime.context)
         # `protected_branch_fallback_source` is reset to None so a stale signal from
         # a prior checkpointed turn cannot bleed into this run's reply rendering.
-        assert result == {"merge_request": existing_mr, "code_changes": False, "protected_branch_fallback_source": None}
+        assert result == {
+            "merge_request": existing_mr,
+            "code_changes": False,
+            "published": False,
+            "protected_branch_fallback_source": None,
+        }
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware()
@@ -826,22 +929,6 @@ class TestGitMiddleware:
         assert result["protected_branch_fallback_source"] is None
 
 
-def test_effective_mr_iid_prefers_context_mr():
-    assert GitMiddleware._effective_mr_iid(context_mr=_mr(1, "a"), state_mr=_mr(2, "b"), current_ref="b") == 1
-
-
-def test_effective_mr_iid_uses_state_mr_when_branch_matches():
-    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="feat/x") == 2
-
-
-def test_effective_mr_iid_drops_stale_state_mr():
-    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="main") is None
-
-
-def test_effective_mr_iid_none_when_no_mr():
-    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=None, current_ref="main") is None
-
-
 def test_state_merge_request_returns_model_when_valid():
     mr = _mr()
     assert GitMiddleware._state_merge_request({"merge_request": mr}) is mr
@@ -859,4 +946,51 @@ def test_state_merge_request_raises_on_degraded_dict(caplog):
     envelope = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
     with caplog.at_level("ERROR"), pytest.raises(TypeError, match="expected MergeRequest"):
         GitMiddleware._state_merge_request({"merge_request": envelope})
-    assert "did not revive to a MergeRequest" in caplog.text
+    assert "revived as dict, not a MergeRequest" in caplog.text
+
+
+class TestAgentSummaryReachesThePublisher:
+    """The transcript is only readable here — ``BaseManager._recover_draft`` publishes from a
+    persisted checkpoint, where ``messages`` lives in a ``DeltaChannel`` and needs
+    ``aresolve_thread_messages`` to reconstruct. So this hook is the one path that can supply it."""
+
+    @staticmethod
+    async def _summary_handed_to_publish(state):
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent(state, runtime)
+            return pub_cls.return_value.publish.await_args.kwargs["agent_summary"]
+
+    async def test_the_closing_summary_is_handed_to_publish(self):
+        summary = await self._summary_handed_to_publish({
+            "merge_request": None,
+            "messages": [AIMessage("Added the endpoint; could not run the suite.")],
+        })
+
+        assert summary == "Added the endpoint; could not run the suite."
+
+    async def test_a_transcript_without_prose_publishes_without_a_summary(self):
+        summary = await self._summary_handed_to_publish({
+            "merge_request": None,
+            "messages": [AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}])],
+        })
+
+        assert summary is None
+
+    async def test_a_state_carrying_no_messages_publishes_without_a_summary(self):
+        """A builtin slash command short-circuits straight to the after_agent chain."""
+        summary = await self._summary_handed_to_publish({"merge_request": None})
+
+        assert summary is None
+
+    async def test_an_unreadable_transcript_still_publishes(self, caplog):
+        """The read is evaluated as an argument to publish, so anything it raises means nothing is
+        committed, pushed or opened — over a sentence in a description."""
+        with caplog.at_level("ERROR"):
+            summary = await self._summary_handed_to_publish({"merge_request": None, "messages": object()})
+
+        assert summary is None
+        assert "closing summary" in caplog.text

@@ -87,7 +87,7 @@ def create_diff_to_metadata_graph(
 
     if include_pr_metadata:
         graphs["pr_metadata"] = (
-            ChatPromptTemplate.from_messages([human_pr_metadata]).partial(extra_context="")
+            ChatPromptTemplate.from_messages([human_pr_metadata]).partial(extra_context="", agent_report="")
             | create_agent(
                 model=model,
                 tools=[],  # No tools are needed for this agent, it only uses the memory and the system prompt
@@ -117,6 +117,10 @@ def create_diff_to_metadata_graph(
             input_data["commit_message_diff"] = x.get("commit_message_diff", x.get("diff", ""))
         if extra_context := x.get("extra_context", ""):
             input_data["extra_context"] = extra_context
+        # Only the PR-metadata template declares this, but both sub-agents are handed this one
+        # dict, so a runtime key overrides that template's `partial` for whichever consumes it.
+        if include_pr_metadata and (agent_report := x.get("agent_report", "")):
+            input_data["agent_report"] = agent_report
         return input_data
 
     def _output_selector(x: dict[str, Any]) -> dict[str, PullRequestMetadata | CommitMetadata]:

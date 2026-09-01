@@ -12,6 +12,7 @@ from notifications.channels.rocketchat_renderers.base import (
 )
 from notifications.channels.rocketchat_renderers.job_batch_finished import JobBatchFinishedRenderer
 from notifications.channels.rocketchat_renderers.job_finished import JobFinishedRenderer
+from notifications.channels.rocketchat_renderers.pipeline_watch_exhausted import PipelineWatchExhaustedRenderer
 from notifications.channels.rocketchat_renderers.registry import get_renderer
 from notifications.channels.rocketchat_renderers.schedule_finished import ScheduleFinishedRenderer
 from notifications.choices import EventType
@@ -40,10 +41,32 @@ def _fields_by_title(attachment):
 
 
 class TestRegistryLookup:
-    def test_all_three_event_types_are_registered(self):
+    def test_every_event_type_has_a_renderer(self):
+        # A missing renderer is not a hard failure: _build_payload degrades to plain text and logs a
+        # warning per delivery. Nothing else stops a new event shipping without a card.
+        assert [e.value for e in EventType if get_renderer(e) is None] == []
+
+    def test_the_event_types_map_to_their_own_renderers(self):
         assert isinstance(get_renderer(EventType.JOB_FINISHED), JobFinishedRenderer)
         assert isinstance(get_renderer(EventType.SCHEDULE_FINISHED), ScheduleFinishedRenderer)
         assert isinstance(get_renderer(EventType.JOB_BATCH_FINISHED), JobBatchFinishedRenderer)
+        assert isinstance(get_renderer(EventType.PIPELINE_WATCH_EXHAUSTED), PipelineWatchExhaustedRenderer)
+
+    def test_the_package_imports_every_renderer_module(self):
+        # Registration is a side effect of importing each submodule, and only __init__ does that in
+        # production. Neither the registry nor hasattr() can witness a forgotten entry: this module
+        # imports the classes directly, and Python binds a submodule onto its parent package on any
+        # import. So read what __init__ actually declares.
+        import ast
+        import pkgutil
+        from pathlib import Path
+
+        from notifications.channels import rocketchat_renderers
+
+        tree = ast.parse(Path(rocketchat_renderers.__file__).read_text())
+        declared = {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
+        modules = {m.name for m in pkgutil.iter_modules(rocketchat_renderers.__path__)} - {"base", "registry"}
+        assert modules - declared == set()
 
     def test_lookup_works_with_bare_string_value(self):
         # Callers receive notification.event_type as a string off the CharField; the registry
@@ -233,3 +256,190 @@ class TestJobBatchFinishedRenderer:
         notif = _stub_notification(context=self._ctx(repo_ids=[]))
         _text, attachments = JobBatchFinishedRenderer().render(notif)
         assert "Repositories" not in _fields_by_title(attachments[0])
+
+
+class TestClassifierReasonRidesEveryAttachment:
+    """The summary and findings are attached in ``_message``, not per renderer, so a new renderer
+    cannot ship without the reason a human was paged."""
+
+    @pytest.mark.parametrize(
+        "renderer", [JobFinishedRenderer(), ScheduleFinishedRenderer(), JobBatchFinishedRenderer()]
+    )
+    def test_summary_becomes_the_attachment_text(self, renderer):
+        notif = _stub_notification(context={"status_tone": "warning", "summary": "Two flaky auth tests"})
+        _text, [attachment] = renderer.render(notif)
+        assert attachment["text"] == "Two flaky auth tests"
+
+    @pytest.mark.parametrize("summary", [None, "", "   "])
+    def test_a_blank_summary_omits_the_text_key(self, summary):
+        # An absent summary must not fall back to the body, which repeats the title.
+        notif = _stub_notification(context={"status_tone": "warning", "summary": summary})
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert "text" not in attachment
+
+    def test_context_without_a_summary_key_still_renders(self):
+        _text, [attachment] = JobFinishedRenderer().render(_stub_notification(context={"status_tone": "warning"}))
+        assert "text" not in attachment
+
+    def test_findings_render_as_one_long_field(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [
+                    {"kind": "bug", "label": "off-by-one in paging", "ref": "app/views.py:42"},
+                    {"kind": "test-failure", "label": "auth suite flakes", "ref": "tests/test_auth.py"},
+                ],
+                "actionable_overflow": 0,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        field = next(f for f in attachment["fields"] if f["title"] == "Findings")
+        assert field["short"] is False
+        assert field["value"] == (
+            "• [bug] off-by-one in paging — `app/views.py:42`\n"
+            "• [test-failure] auth suite flakes — `tests/test_auth.py`"
+        )
+
+    def test_overflow_gets_its_own_line(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+                "actionable_overflow": 4,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"].endswith("… and 4 more")
+
+    def test_a_nonsensical_overflow_count_is_not_rendered(self):
+        # The count is read back from persisted context, not recomputed, so the gate is on the sign:
+        # a truthiness check would print "… and -2 more" to a recipient.
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+                "actionable_overflow": -2,
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `b`"
+
+    def test_a_finding_missing_kind_or_ref_still_renders_its_label(self):
+        notif = _stub_notification(
+            context={"status_tone": "warning", "actionable": [{"kind": "", "label": "just a label", "ref": ""}]}
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• just a label"
+
+    def test_no_findings_adds_no_field(self):
+        notif = _stub_notification(context={"status_tone": "failure", "actionable": [], "actionable_overflow": 0})
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert "Findings" not in _fields_by_title(attachment)
+
+    def test_findings_come_after_the_renderer_own_fields(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "trigger_label": "Schedule",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "b"}],
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert [f["title"] for f in attachment["fields"]] == ["Trigger", "Duration", "Findings"]
+
+
+class TestBatchNotableRunsField:
+    """A batch's rows put a prose summary in the ``ref`` slot, so they must not be backticked the
+    way a finding's file path is."""
+
+    CTX = {
+        "status_tone": "warning",
+        "notable_runs": [
+            {"kind": "Failed", "label": "acme/api", "ref": "migration 0042 errored"},
+            {"kind": "Needs attention", "label": "acme/infra", "ref": ""},
+        ],
+        "notable_runs_overflow": 2,
+    }
+
+    def test_notable_runs_render_without_backticks(self):
+        _text, [attachment] = JobBatchFinishedRenderer().render(_stub_notification(context=self.CTX))
+        assert _fields_by_title(attachment)["Needs a look"] == (
+            "• [Failed] acme/api — migration 0042 errored\n• [Needs attention] acme/infra\n… and 2 more"
+        )
+
+    def test_findings_keep_their_backticks(self):
+        # The same formatter serves both lists; only the batch call opts out of monospace.
+        notif = _stub_notification(
+            context={"status_tone": "warning", "actionable": [{"kind": "bug", "label": "a", "ref": "app/x.py"}]}
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        assert _fields_by_title(attachment)["Findings"] == "• [bug] a — `app/x.py`"
+
+    def test_a_batch_without_notable_rows_adds_no_field(self):
+        notif = _stub_notification(context={"status_tone": "success", "notable_runs": []})
+        _text, [attachment] = JobBatchFinishedRenderer().render(notif)
+        assert "Needs a look" not in _fields_by_title(attachment)
+
+    def test_both_lists_can_coexist_on_one_attachment(self):
+        notif = _stub_notification(
+            context={
+                "status_tone": "warning",
+                "actionable": [{"kind": "bug", "label": "a", "ref": "app/x.py"}],
+                "notable_runs": [{"kind": "Failed", "label": "acme/api", "ref": "boom"}],
+            }
+        )
+        _text, [attachment] = JobFinishedRenderer().render(notif)
+        titles = [f["title"] for f in attachment["fields"]]
+        assert titles == ["Trigger", "Duration", "Findings", "Needs a look"]
+
+
+class TestPipelineWatchExhaustedRenderer:
+    @staticmethod
+    def _notification():
+        return _stub_notification(
+            subject="CI still failing on group/repo!7",
+            body="I could not get CI green after 3 attempts.",
+            link_url="/sessions/repo-mr-7/",
+            context={
+                "status_tone": "failure",
+                "status_label": "CI still failing",
+                "repo_id": "group/repo",
+                "merge_request_iid": 7,
+                "attempts": 3,
+                "failing_jobs": ["tests", "lint"],
+                "pipeline_url": "https://ci.example.com/p/100",
+            },
+        )
+
+    def test_it_renders_a_failure_card(self):
+        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+
+        assert attachments[0]["color"] == COLOR_FAILURE
+
+    def test_it_reports_the_repo_attempts_and_failing_jobs(self):
+        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+
+        fields = _fields_by_title(attachments[0])
+        assert fields["Repository"] == "group/repo"
+        assert fields["Attempts"] == "3"
+        assert fields["Failing jobs"] == "tests, lint"
+        assert fields["Merge request"] == "!7"
+
+    def test_it_carries_the_pipeline_url_unprefixed(self):
+        # The CI URL is already absolute; passing it through _link() would prefix the DAIV domain.
+        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+
+        assert _fields_by_title(attachments[0])["Pipeline"] == "https://ci.example.com/p/100"
+
+    def test_the_card_title_still_links_to_the_session(self):
+        _text, attachments = PipelineWatchExhaustedRenderer().render(self._notification())
+
+        assert attachments[0]["title_link"] == "https://example.com/sessions/repo-mr-7/"
+
+    def test_a_watch_with_no_named_jobs_omits_the_field(self):
+        notification = self._notification()
+        notification.context = {**notification.context, "failing_jobs": []}
+
+        _text, attachments = PipelineWatchExhaustedRenderer().render(notification)
+
+        assert "Failing jobs" not in _fields_by_title(attachments[0])

@@ -24,6 +24,7 @@ from codebase.base import (
     RepoAccessLevel,
     RepoMember,
     Repository,
+    TriggeredPipeline,
     User,
 )
 from codebase.conf import settings
@@ -36,6 +37,26 @@ if TYPE_CHECKING:
     from gitlab import Gitlab
 
 logger = logging.getLogger("daiv.clients")
+
+
+def is_transient_platform_error(exc: BaseException) -> bool:
+    """True for an anticipated GitLab/GitHub outage rather than a bug in how we call it.
+
+    Callers that poll on a schedule log a transient failure at WARNING without a traceback, so an
+    hours-long platform outage does not mint one Sentry error per sweep — the same split
+    ``is_transient_bus_error`` and ``_is_transient_mcp_error`` draw. Auth (401/403) counts as
+    transient: DAIV's project-scoped tokens are ephemeral and expire mid-watch by design.
+    """
+    from github import GithubException
+    from gitlab.exceptions import GitlabError
+
+    transient_status = {401, 403, 408, 429, 500, 502, 503, 504}
+    if isinstance(exc, GithubException):
+        return exc.status in transient_status
+    if isinstance(exc, GitlabError):
+        return exc.response_code in transient_status
+    # Both clients transport over ``requests``, whose RequestException is an OSError.
+    return isinstance(exc, OSError)
 
 
 class Emoji(StrEnum):
@@ -268,11 +289,26 @@ class RepoClient(abc.ABC):
         includes and must be re-triggered as the service account. Base default: ``False``."""
         return False
 
-    def trigger_merge_request_pipeline(self, repo_id: str, merge_request_id: int) -> Pipeline:
+    def trigger_merge_request_pipeline(
+        self, repo_id: str, merge_request_id: int, expected_sha: str | None = None
+    ) -> TriggeredPipeline:
         """Create a CI pipeline for the merge request as the service account, so it runs with the
         service account's permissions (e.g. reading private cross-project CI includes). GitLab-only
         capability: the publish path calls this only when :meth:`push_uses_ephemeral_token` is true,
-        so reaching the base implementation means a mis-wired caller, not a supported no-op."""
+        so reaching the base implementation means a mis-wired caller, not a supported no-op.
+
+        ``expected_sha`` is the sha the caller just pushed, for platforms that must wait for it to
+        become the merge request's head before the pipeline resolves to the right commit. Passing
+        ``None`` (nothing to wait for) must answer ``head_synced=False``: the commit is unverified,
+        which is not the same as verified-and-wrong but is equally not a confirmed success."""
+        raise NotImplementedError
+
+    def get_pipeline(self, repo_id: str, pipeline_id: int) -> Pipeline | None:
+        """Read one pipeline with its jobs. ``None`` when it no longer exists."""
+        raise NotImplementedError
+
+    def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
+        """Most recent pipeline for a branch, with its jobs. ``None`` when the branch has none."""
         raise NotImplementedError
 
     def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:

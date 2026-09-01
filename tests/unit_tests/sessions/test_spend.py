@@ -57,6 +57,35 @@ def test_per_model_merge_across_runs(member_user):
 
 
 @pytest.mark.django_db
+def test_a_name_a_streamed_turn_recorded_twice_over_merges_into_its_one_model(member_user):
+    """Rows written before the read-side repair carry the duplicated name (see
+    ``collapse_repeated_model_name``). Aggregating verbatim splits one model across two rows
+    and prints the doubled name; the price stays lost, because it was never computed.
+    """
+    session = create_session(member_user)
+    _run(
+        session,
+        input_tokens=100,
+        output_tokens=10,
+        total_tokens=110,
+        usage_by_model={
+            "z-ai/glm-5.2z-ai/glm-5.2": {"input_tokens": 60, "output_tokens": 6, "total_tokens": 66},
+            "z-ai/glm-5.2": {"input_tokens": 40, "output_tokens": 4, "total_tokens": 44, "cost_usd": "0.10"},
+        },
+    )
+
+    spend = build_session_spend(session.runs.all())
+
+    assert [row["model"] for row in spend["by_model"]] == ["z-ai/glm-5.2"]
+    assert spend["by_model"][0]["total_tokens"] == 110
+    assert spend["cost_is_floor"] is True
+    # The $0.10 the clean entry carried stays in the session total, but the merged row reads
+    # "—": half of it never priced, and one row per model beats two with one name.
+    assert spend["cost_usd"] == "0.10"
+    assert spend["by_model"][0]["cost_usd"] is None
+
+
+@pytest.mark.django_db
 def test_an_unpriced_model_yields_a_floor_total_not_a_silently_smaller_one(member_user):
     session = create_session(member_user)
     _run(
@@ -74,7 +103,6 @@ def test_an_unpriced_model_yields_a_floor_total_not_a_silently_smaller_one(membe
 
     assert spend["cost_usd"] == "0.10"
     assert spend["cost_is_floor"] is True
-    assert spend["unpriced_models"] == ["mystery"]
     mystery = next(row for row in spend["by_model"] if row["model"] == "mystery")
     assert mystery["cost_usd"] is None
     assert mystery["total_tokens"] == 44
@@ -126,6 +154,43 @@ def test_a_corrupt_cost_degrades_to_unpriced_and_is_logged(member_user, caplog):
     with caplog.at_level("WARNING", logger="daiv.sessions"):
         spend = build_session_spend(session.runs.all())
 
-    assert spend["unpriced_models"] == ["m1"]
-    assert spend["cost_is_floor"] is True
+    assert spend["by_model"][0]["cost_usd"] is None
+    # The run's only model is unpriced, so there is no total to mark as a floor.
+    assert spend["cost_usd"] is None
+    assert spend["cost_is_floor"] is False
     assert any("cost_usd" in record.message for record in caplog.records)
+
+
+@pytest.mark.django_db
+def test_a_session_where_nothing_priced_reports_unknown_rather_than_zero(member_user):
+    """``"0"`` renders "$0.00+", which reads as "nearly free" rather than "we have no idea" —
+    and the footnote that used to disambiguate it is gone. None drops the segment instead.
+    """
+    session = create_session(member_user)
+    _run(
+        session,
+        input_tokens=100,
+        output_tokens=10,
+        total_tokens=110,
+        usage_by_model={"mystery": {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}},
+    )
+
+    spend = build_session_spend(session.runs.all())
+
+    assert spend["cost_usd"] is None
+    assert spend["total_tokens"] == 110
+
+
+@pytest.mark.django_db
+def test_a_run_recording_tokens_but_no_per_model_usage_is_unknown_too(member_user):
+    """It reaches the same "nothing priced" state by a different route, and adds no name to the
+    unpriced set — so keying the rule on that set would report "$0.00" here.
+    """
+    session = create_session(member_user)
+    _run(session, input_tokens=100, output_tokens=10, total_tokens=110, usage_by_model={})
+
+    spend = build_session_spend(session.runs.all())
+
+    assert spend["cost_usd"] is None
+    assert spend["total_tokens"] == 110
+    assert spend["by_model"] == []

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from django_tasks import task
 from sessions.locks import SessionLock
 from sessions.models import Run, Session
+from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -138,8 +139,11 @@ async def run_job_task(
     input_data = {"messages": [HumanMessage(content=prompt)]}
 
     holder_id = run_id or f"job-{thread_id[:8]}"
-    session_row = await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides").afirst()
+    session_row = (
+        await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
+    )
     mcp_overrides = session_row.mcp_overrides if session_row is not None else {}
+    session_refs = session_row.external_references() if session_row is not None else ()
     locked = await _acquire_session_lock(thread_id, holder_id, session_exists=session_row is not None)
     heartbeat_task = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if locked else None
     try:
@@ -152,6 +156,7 @@ async def run_job_task(
                     sandbox_env_id=sandbox_environment_id,
                     acting_user_id=user_id,
                     mcp_overrides=mcp_overrides,
+                    references=session_refs,
                 ) as runtime_ctx,
                 open_checkpointer() as checkpointer,
             ):
@@ -213,10 +218,23 @@ async def run_job_task(
         )
     except Exception:
         logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
-    return await build_agent_result(
+
+    agent_result = await build_agent_result(
         daiv_agent,
         config,
         response=response_text,
         usage=build_usage_summary(usage_handler).to_dict(),
         snapshot=snapshot,
     )
+
+    try:
+        await PipelineWatch(repo_id).aarm_after_run(
+            run_id=run_id,
+            merge_request=snapshot.values.get("merge_request"),
+            published=bool(snapshot.values.get("published")),
+            user_id=user_id,
+        )
+    except Exception:
+        logger.exception("run_job_task: failed to arm pipeline watch for thread_id=%s", thread_id)
+
+    return agent_result

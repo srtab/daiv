@@ -67,7 +67,21 @@ class RepositoryFile(BaseModel):
 class Job(BaseModel):
     id: int
     name: str
-    status: Literal["created", "pending", "running", "failed", "success", "canceled", "skipped", "manual", "scheduled"]
+    status: Literal[
+        "canceled",
+        "canceling",
+        "created",
+        "failed",
+        "manual",
+        "pending",
+        "preparing",
+        "running",
+        "scheduled",
+        "skipped",
+        "success",
+        "waiting_for_callback",
+        "waiting_for_resource",
+    ]
     stage: str
     allow_failure: bool
     failure_reason: str | None = None
@@ -83,6 +97,15 @@ class Pipeline(BaseModel):
     status: str
     web_url: str
     jobs: list[Job] = Field(default_factory=list)
+
+
+class TriggeredPipeline(BaseModel):
+    """A pipeline the agent asked the platform to create, and whether the platform's merge-request
+    head was confirmed to carry the commit it was asked for (see
+    :meth:`~codebase.clients.base.RepoClient.trigger_merge_request_pipeline`)."""
+
+    pipeline: Pipeline
+    head_synced: bool
 
 
 class MergeRequest(BaseModel):
