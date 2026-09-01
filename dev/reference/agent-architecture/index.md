@@ -78,9 +78,9 @@ Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`,
 
 ### Git platform
 
-| Tool            | Description                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| `gitlab` / `gh` | Inspect issues, merge requests, pipeline status, and job logs (the GitHub tool exposes the `gh` CLI) |
+| Tool            | Description                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `gitlab` / `gh` | Inspect and update issues, merge/pull requests, pipelines, job logs, and releases (the GitHub tool exposes the `gh` CLI) |
 
 ### Sandbox
 
