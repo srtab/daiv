@@ -86,7 +86,9 @@ def _allow_job_submission(user) -> bool:
     """Apply the shared per-user jobs budget (same cache bucket as the REST/chat endpoints).
 
     FastMCP has no ninja throttle layer, so reuse ``JobsRateThrottle`` with a minimal
-    request stand-in — ``AuthRateThrottle`` only reads ``request.auth``.
+    request stand-in — ``AuthRateThrottle`` only reads ``request.auth``. Used by both
+    ``submit_job`` and ``get_job_status(wait=true)`` (a 10-minute long-poll), so the
+    two share one per-user budget.
     """
     from types import SimpleNamespace
 
@@ -98,6 +100,12 @@ def _allow_job_submission(user) -> bool:
 TERMINAL_STATUSES = RunStatus.terminal()
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
+# Grace window before a job id that never appeared in the database is declared not
+# found. Without it, an unknown id pins the long-poll for the full MAX_POLL_DURATION
+# (DoS surface — MCP runs in the same ASGI process as Django). A few seconds covers
+# the enqueue-to-persist lag of a real just-submitted job; anything still absent
+# past that is not a job this user submitted.
+NOT_FOUND_GRACE = 5.0
 
 
 class RepoSubmitSpec(BaseModel):
@@ -380,23 +388,35 @@ async def _poll_batch_until_complete(
 
 
 async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
-    """Poll a job until it reaches a terminal status or the timeout is exceeded."""
+    """Poll a job until it reaches a terminal status or the timeout is exceeded.
+
+    A job id that never appears in the database is declared not found after
+    ``NOT_FOUND_GRACE`` seconds rather than blocking for the full poll window — an
+    unknown id otherwise pins an ASGI connection for 10 minutes (platform-wide DoS
+    surface, since MCP shares Django's process)."""
     job_uuid = uuid_mod.UUID(job_id)
     elapsed = 0.0
+    not_found_elapsed = 0.0
     last: Run | None = None
 
     while elapsed < MAX_POLL_DURATION:
         await asyncio.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
+        not_found_elapsed += POLL_INTERVAL
 
         try:
             last = await Run.objects.aget(id=job_uuid, user=mcp_user)
         except Run.DoesNotExist:
+            if not_found_elapsed >= NOT_FOUND_GRACE:
+                logger.info("Job %s not found after %.0fs, giving up", job_id, not_found_elapsed)
+                return json.dumps({"error": f"Job '{job_id}' not found.", "job_id": job_id})
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
         except Exception:
             logger.exception("Failed to poll job status for job_id=%s", job_id)
             return json.dumps({"error": "Failed to retrieve job status. Please try again later.", "job_id": job_id})
+
+        not_found_elapsed = 0.0
 
         if last.status in TERMINAL_STATUSES:
             return _build_job_response(last)
@@ -409,13 +429,20 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
         return _build_job_response(last)
 
     logger.warning("Polling timeout for job_id=%s after %.0fs, job never appeared in database", job_id, elapsed)
-    return json.dumps({
-        "error": (
-            f"Job '{job_id}' was submitted but has not appeared yet after {int(MAX_POLL_DURATION)}s. "
-            "The task queue may be backed up. Use get_job_status to check later."
-        ),
-        "job_id": job_id,
-    })
+    return json.dumps({"error": f"Job '{job_id}' not found.", "job_id": job_id})
+
+
+async def _wait_for_job(job_id: str, mcp_user: object) -> str:
+    """Throttle then long-poll a job to completion.
+
+    ``get_job_status(wait=true)`` is a 10-minute long-poll and FastMCP has no
+    ninja throttle layer, so the shared per-user jobs budget (``JobsRateThrottle``,
+    the same bucket ``submit_job`` uses) is applied by hand here. An unthrottled
+    long-poll is platform-wide DoS surface (MCP shares Django's ASGI process).
+    """
+    if not await asyncio.to_thread(_allow_job_submission, mcp_user):
+        return json.dumps({"error": "Rate limit exceeded for job status polling. Try again later."})
+    return await _poll_job_until_complete(job_id, mcp_user)
 
 
 @mcp.tool()
@@ -447,14 +474,14 @@ async def get_job_status(
         run = await Run.objects.aget(id=run_uuid, user=mcp_user)
     except Run.DoesNotExist:
         if wait:
-            return await _poll_job_until_complete(job_id, mcp_user)
+            return await _wait_for_job(job_id, mcp_user)
         return json.dumps({"error": "Job not found."})
     except Exception:
         logger.exception("Failed to retrieve job status for job_id=%s", job_id)
         return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
 
     if wait and run.status not in TERMINAL_STATUSES:
-        return await _poll_job_until_complete(job_id, mcp_user)
+        return await _wait_for_job(job_id, mcp_user)
 
     return _build_job_response(run)
 
