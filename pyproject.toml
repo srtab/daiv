@@ -60,7 +60,7 @@ dependencies = [
   "python-gitlab==8.5.0",
   "pyyaml==6.0.3",
   "rank-bm25==0.2.2",
-  "redis==7.4.1",
+  "redis==8.1.0",
   "sentry-sdk==2.68.1",
   "unidiff==1.0.0",
   "uvicorn[standard]==0.52.4",
