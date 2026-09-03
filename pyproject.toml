@@ -52,7 +52,7 @@ dependencies = [
   "nh3==0.3.7",
   "parable",
   "prompt-toolkit==3.0.53",
-  "psycopg[pool]==3.3.4",
+  "psycopg[pool]==3.3.5",
   "pydantic==2.13.5",
   "pydantic-settings==2.15.0",
   "pygithub==2.10.0",
