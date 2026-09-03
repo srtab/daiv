@@ -64,11 +64,12 @@ If the user already knows the `repo_id`, skip discovery and call `submit_job` di
 Write specific prompts describing the intended change: include file paths, function names, \
 or error messages. Vague requests produce poor results.
 
-`ref` is the STARTING POINT the agent reads from (base branch or commit SHA), not a target \
-branch name. Omit it to start from the repository default branch. If `ref` is a branch \
-that already has an open MR/PR, DAIV pushes the new commit onto that same branch and \
-updates the existing MR/PR — useful for fixing CI or in-review branch. \
-Otherwise DAIV creates a new branch and opens a new MR/PR.
+`ref` is the STARTING POINT the agent reads from, and must be a BRANCH that exists on the \
+remote — a commit SHA is rejected at clone time and fails the job. Omit it to start from the \
+repository default branch. If `ref` is a branch that already has an open MR/PR, DAIV pushes the \
+new commit onto that same branch and updates the existing MR/PR — useful for fixing CI or an \
+in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new MR/PR targeting \
+`ref` itself.
 
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
@@ -103,7 +104,7 @@ MAX_POLL_DURATION = 600.0  # 10 minutes
 class RepoSubmitSpec(BaseModel):
     repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
     ref: str | None = Field(
-        default=None, description="Git reference (branch name or commit SHA). None / empty string = default branch."
+        default=None, description="Branch name to start from. None / empty string = default branch."
     )
 
 

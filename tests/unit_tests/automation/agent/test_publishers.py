@@ -1,6 +1,6 @@
 import inspect
 from contextlib import asynccontextmanager, nullcontext
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 from urllib.parse import parse_qs, urlparse
 
 from django.contrib.sites.models import Site
@@ -8,6 +8,7 @@ from django.contrib.sites.models import Site
 import pytest
 from git import GitCommandError
 
+from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import (
     SESSION_TRAILER,
@@ -16,6 +17,7 @@ from automation.agent.publishers import (
     append_trailer,
     checkpointed_merge_request,
     effective_merge_request,
+    run_base_branch,
 )
 from codebase.base import (
     GitPlatform,
@@ -37,11 +39,14 @@ from core.site_settings import site_settings
 _LOCAL_STATS = MergeRequestDiffStats()
 
 
-def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=(), has_unpushed: bool = True) -> Mock:
+def _fake_git_manager(
+    *, dirty: bool = True, diff: str = "diff", remote_branches=("main",), has_unpushed: bool = True
+) -> Mock:
     """A stand-in for the (sandbox/local) GitManager the publisher opens via open_git_manager.
 
     The publisher reads everything it needs from a single ``status_snapshot``; the mutation methods
-    (``commit_all``/``push_head_to``) stay separate AsyncMocks.
+    (``commit_all``/``push_head_to``) stay separate AsyncMocks. ``remote_branches`` carries the
+    default base branch so a publish does not trip the vanished-target degrade by default.
     """
     gm = Mock()
     gm.status_snapshot = AsyncMock(
@@ -95,6 +100,7 @@ def _make_publisher(
     git_platform: GitPlatform = GitPlatform.GITLAB,
     context_file_name: str | None = "AGENTS.md",
     thread_id: str | None = None,
+    base_ref: str = "main",
 ):
     ctx = Mock()
     ctx.repository.slug = "owner/repo"
@@ -106,6 +112,9 @@ def _make_publisher(
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
     ctx.references = ()
+    ctx.acting_user_id = None
+    # The clone's ref: what run_base_branch reads to pick the diff base and the MR target.
+    ctx.gitrepo.active_branch.name = base_ref
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -225,10 +234,10 @@ class TestSuggestContextFile:
 
 
 def _publisher_no_issue(
-    *, git_platform: GitPlatform = GitPlatform.GITLAB, thread_id: str | None = None
+    *, git_platform: GitPlatform = GitPlatform.GITLAB, thread_id: str | None = None, **kwargs
 ) -> GitChangePublisher:
     """A publisher rendering the description template on its own, with no issue to close."""
-    publisher = _make_publisher(git_platform=git_platform, thread_id=thread_id)
+    publisher = _make_publisher(git_platform=git_platform, thread_id=thread_id, **kwargs)
     publisher.ctx.issue = None
     publisher.ctx.bot_username = "daiv"
     return publisher
@@ -243,7 +252,9 @@ class TestCreateMergeRequestDescription:
             source_branch="dev", merge_request_id=42, web_url="https://gitlab.com/owner/repo/-/merge_requests/42"
         )
 
-        await publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+        await publisher._create_merge_request(
+            "feature-fix", "Title", "Body", target_branch="main", as_draft=False, fallback_from_mr=original
+        )
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "dev" in description
@@ -253,7 +264,7 @@ class TestCreateMergeRequestDescription:
     async def test_omits_back_link_when_no_fallback(self):
         publisher = _publisher_no_issue()
 
-        await publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main", as_draft=False)
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "is protected on the remote" not in description
@@ -264,27 +275,20 @@ class TestCreateMergeRequestDescription:
             source_branch="main", merge_request_id=10, web_url="https://github.com/owner/repo/pull/10"
         )
 
-        await publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+        await publisher._create_merge_request(
+            "feature-fix", "Title", "Body", target_branch="main", as_draft=False, fallback_from_mr=original
+        )
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "#10" in description
         assert "!10" not in description
 
-    async def test_fallback_mr_inherits_original_target(self):
-        """A protected-branch fallback MR targets the original MR's target, not the default."""
-        publisher = _publisher_no_issue()
-        original = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
-
-        await publisher._create_merge_request("feature-fix", "Title", "Body", fallback_from_mr=original)
-
-        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "release/x"
-
-    async def test_new_mr_targets_default_without_fallback(self):
+    async def test_new_mr_targets_the_resolved_base_branch(self):
         publisher = _publisher_no_issue()
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="master")
 
-        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "master"
 
 
 def _session_link_disabled(publisher, where: str | None):
@@ -313,7 +317,7 @@ class TestCreateMergeRequestSessionLink:
 
         async def _render(thread_id: str = "abc123def") -> str:
             publisher = _publisher_no_issue(thread_id=thread_id)
-            await publisher._create_merge_request("feature", "Title", "Body")
+            await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
             return publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
 
         return _render
@@ -348,7 +352,7 @@ class TestCreateMergeRequestSessionLink:
         publisher = _publisher_no_issue(thread_id=thread_id)
 
         with _session_link_disabled(publisher, disable):
-            await publisher._create_merge_request("feature", "Title", "Body")
+            await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "view sessions" not in description
@@ -367,7 +371,7 @@ class TestCreateMergeRequestSessionLink:
             monkeypatch.setattr("automation.agent.publishers.build_absolute_url", url_builder)
         publisher = _publisher_no_issue(thread_id=thread_id)
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "view sessions" not in description
@@ -480,7 +484,7 @@ class TestCreateMergeRequestAssignee:
             assignee=User(id=7, username="assignee"), author=User(id=9, username="author")
         )
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 7
 
@@ -488,7 +492,7 @@ class TestCreateMergeRequestAssignee:
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 9
 
@@ -496,17 +500,91 @@ class TestCreateMergeRequestAssignee:
         publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
         publisher.ctx.issue = self._issue(assignee=None, author=User(id=9, username="author"))
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == "author"
 
-    async def test_no_assignee_when_no_issue(self):
+    async def test_no_assignee_when_no_issue_and_no_acting_user(self):
+        """A webhook run with neither an issue nor a triggering user leaves the MR unassigned."""
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.ctx.issue = None
 
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+
+
+class TestCreateMergeRequestActingUserAssignee:
+    """With no issue, the MR is assigned to the DAIV user who triggered the run."""
+
+    def _publisher(self, monkeypatch, *, git_platform=GitPlatform.GITLAB, identity):
+        publisher = _make_publisher(git_platform=git_platform)
+        publisher.ctx.issue = None
+        publisher.ctx.acting_user_id = 3
+        self.resolve = AsyncMock(return_value=identity)
+        monkeypatch.setattr("automation.agent.publishers.aget_platform_identity", self.resolve)
+        return publisher
+
+    async def test_assigns_acting_user_by_numeric_uid_on_gitlab(self, monkeypatch):
+        publisher = self._publisher(monkeypatch, identity=PlatformIdentity(uid=7, username="dev"))
+
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 7
+        assert self.resolve.await_args.kwargs == {"user_id": 3, "provider": GitPlatform.GITLAB}
+
+    async def test_assigns_acting_user_by_login_on_github(self, monkeypatch):
+        publisher = self._publisher(
+            monkeypatch, git_platform=GitPlatform.GITHUB, identity=PlatformIdentity(uid=7, username="octocat")
+        )
+
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == "octocat"
+        # Pins the provider the lookup runs against: a hardcoded "gitlab" here would find the
+        # user's GitLab link and hand its username to GitHub as a login.
+        assert self.resolve.await_args.kwargs == {"user_id": 3, "provider": GitPlatform.GITHUB}
+
+    async def test_unlinked_acting_user_leaves_the_mr_unassigned(self, monkeypatch):
+        publisher = self._publisher(monkeypatch, identity=None)
+
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+        # Without this, a future test that forgets to patch would pass on the real resolver's
+        # own swallowed failure instead of on the behaviour under test.
+        self.resolve.assert_awaited_once()
+
+    async def test_gitlab_link_without_a_numeric_uid_is_dropped_and_logged(self, monkeypatch, caplog):
+        publisher = self._publisher(monkeypatch, identity=PlatformIdentity(uid=None, username="dev"))
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+        assert "numeric user id" in caplog.text
+
+    async def test_github_link_without_a_login_is_dropped_and_logged(self, monkeypatch, caplog):
+        """The only place that can tell "linked but the payload had no login" from "fine" — a
+        silent drop here would make the feature never work on GitHub, undiagnosably."""
+        publisher = self._publisher(
+            monkeypatch, git_platform=GitPlatform.GITHUB, identity=PlatformIdentity(uid=7, username=None)
+        )
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] is None
+        assert "login" in caplog.text
+
+    async def test_issue_assignee_wins_over_the_acting_user(self, monkeypatch):
+        publisher = self._publisher(monkeypatch, identity=PlatformIdentity(uid=7, username="dev"))
+        publisher.ctx.issue = Issue(iid=5, title="t", description="d", author=User(id=9, username="author"))
+
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["assignee_id"] == 9
+        self.resolve.assert_not_awaited()
 
 
 class TestReferenceFooter:
@@ -518,7 +596,7 @@ class TestReferenceFooter:
         publisher = self._capture_description(_make_publisher())
         publisher.ctx.issue = Issue(iid=42, title="t", author=User(id=1, username="u"))
         publisher.ctx.references = (ExternalRef(key="42", provider="gitlab-issue", relation="closes"),)
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "\nCloses: owner/repo#42+\n" in description
         assert "**References:**" not in description
@@ -526,7 +604,7 @@ class TestReferenceFooter:
     async def test_no_refs_renders_no_footer(self):
         publisher = self._capture_description(_make_publisher())
         publisher.ctx.issue = None
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "Closes:" not in description
         assert "**References:**" not in description
@@ -538,7 +616,7 @@ class TestReferenceFooter:
         publisher.ctx.issue = None
         url = "https://rt.example.com/Ticket/Display.html?id=77&user=a%20b#top"
         publisher.ctx.references = (ExternalRef(key="RT-77", provider="rt", url=url),)
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert f"- [RT-77]({url})" in description
         assert "&amp;" not in description
@@ -550,7 +628,7 @@ class TestReferenceFooter:
             ExternalRef(key="DAIV-1V", provider="sentry", url="https://s.example.com/1", relation="closes"),
             ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),
         )
-        await publisher._create_merge_request("feature", "Title", "Body")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "**References:**" in description
         assert "- Fixes DAIV-1V ([Sentry](https://s.example.com/1))" in description
@@ -611,6 +689,87 @@ class TestPublishLocalAuthEnv:
 
         assert captured["auth_env"] is None
         publisher.client.get_git_auth_env.assert_not_called()
+
+
+class TestPublishDiffBase:
+    """The diff the commit message and MR description are generated from is the run's own delta."""
+
+    async def test_diff_base_is_the_mr_target_when_there_is_an_mr(self, monkeypatch):
+        publisher = _make_publisher(base_ref="feature")
+        gm = _fake_git_manager(dirty=False, diff="")
+        _patch_open_git_manager(monkeypatch, gm)
+
+        await publisher.publish(merge_request=_make_merge_request(target_branch="release/x"))
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
+
+
+class TestRunBaseBranch:
+    """The branch a fresh MR targets and its diff is taken against, read off the clone's HEAD."""
+
+    def _ctx(self, *, branch: str | None, default_branch: str = "main"):
+        ctx = Mock()
+        ctx.config.default_branch = default_branch
+        if branch is None:
+            # What GitPython raises for a detached HEAD, which is how a tag ref clones.
+            type(ctx.gitrepo).active_branch = PropertyMock(side_effect=TypeError)
+        else:
+            ctx.gitrepo.active_branch.name = branch
+        return ctx
+
+    def test_attached_head_names_the_branch_the_clone_is_on(self):
+        assert run_base_branch(self._ctx(branch="master")) == "master"
+
+    def test_detached_head_falls_back_to_the_default_branch(self):
+        """A tag ref (or the SWE eval client's --detach) names no branch; a hexsha would reach the
+        platform as an unusable origin/<sha> diff base and MR target."""
+        assert run_base_branch(self._ctx(branch=None)) == "main"
+
+
+class TestLiveTargetBranch:
+    """A caller-supplied base branch can be deleted while the run works; the hardcoded default
+    branch it replaced could not."""
+
+    def test_keeps_a_branch_that_is_still_a_remote_head(self):
+        assert GitChangePublisher._live_target_branch("master", ["main", "master"], "main") == "master"
+
+    def test_degrades_to_the_default_branch_when_it_vanished(self, caplog):
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            assert GitChangePublisher._live_target_branch("gone", ["main"], "main") == "main"
+
+        assert "no longer a remote head" in caplog.text
+
+
+class TestPublishBaseBranchInvariant:
+    """The MR's target and the diff its description was generated from must be the same branch, so
+    publish() resolves it once and hands it down rather than letting each side derive its own."""
+
+    async def test_one_publish_sends_the_same_branch_to_the_diff_and_the_mr(self, monkeypatch):
+        publisher = _publisher_no_issue(base_ref="daiv/fix-foo")
+        gm = _fake_git_manager(remote_branches=["main", "daiv/fix-foo"])
+        _patch_open_git_manager(monkeypatch, gm)
+        monkeypatch.setattr(publisher, "_diff_to_metadata", AsyncMock(return_value=_metadata_stub()))
+
+        await publisher.publish(merge_request=None)
+
+        # Also the stale-bot-branch case: a session whose MR was closed re-publishes onto its own
+        # previous branch and targets it, rather than showing a diff the MR never described.
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "daiv/fix-foo"
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "daiv/fix-foo"
+
+    async def test_a_vanished_base_branch_retargets_the_mr_but_keeps_the_diff(self, monkeypatch):
+        """The source branch is already pushed by now: creating the MR against a branch the
+        platform no longer has would orphan it and discard the turn's reply. Only the target moves —
+        the diff stays on the branch the work actually forked from."""
+        publisher = _publisher_no_issue(base_ref="master")
+        gm = _fake_git_manager(remote_branches=["main"])
+        _patch_open_git_manager(monkeypatch, gm)
+        monkeypatch.setattr(publisher, "_diff_to_metadata", AsyncMock(return_value=_metadata_stub()))
+
+        await publisher.publish(merge_request=None)
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "master"
 
 
 class TestPublishSandboxEgressRefresh:
@@ -810,7 +969,7 @@ class TestPublishSuggestsContextFile:
         visibility race. The degrade outcome must still carry the fallback source."""
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
         publisher.client.is_branch_protected.return_value = True
-        gm = _fake_git_manager()
+        gm = _fake_git_manager(remote_branches=["main", "release/x"])
         _patch_open_git_manager(monkeypatch, gm)
 
         with (
@@ -836,7 +995,7 @@ class TestPublishSuggestsContextFile:
         existing_mr = _make_merge_request(source_branch="dev", target_branch="release/x", merge_request_id=42)
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
-        gm = _fake_git_manager()
+        gm = _fake_git_manager(remote_branches=["main", "release/x"])
         _patch_open_git_manager(monkeypatch, gm)
 
         with (
@@ -858,14 +1017,14 @@ class TestPublishSuggestsContextFile:
             # populated pr_metadata_diff (the new MR needs title/branch/description).
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
             # Fresh unique branch generated + pushed for the fallback MR (no remote work to integrate).
-            gm.unique_branch_name.assert_called_once_with("feature-fix", [])
+            gm.unique_branch_name.assert_called_once_with("feature-fix", ["main", "release/x"])
             gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False, skip_ci=False)
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
-            # The original MR's non-default target flows through to the fallback (paired with the unit
-            # test that _create_merge_request derives target_branch from it).
-            assert mock_create_mr.call_args.kwargs["fallback_from_mr"].target_branch == "release/x"
+            # The original MR's non-default target flows through to the fallback, resolved by
+            # publish() from that same MR — the diff was taken against it too.
+            assert mock_create_mr.call_args.kwargs["target_branch"] == "release/x"
             # No fallback comment is posted from the publisher itself.
             publisher.client.create_merge_request_comment.assert_not_called()
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
@@ -1478,7 +1637,9 @@ class TestDescriptionBoilerplate:
     async def _rendered(*, references=(), fallback_from_mr=None) -> str:
         publisher = _publisher_no_issue(thread_id=None)
         publisher.ctx.references = references
-        await publisher._create_merge_request("feature", "Title", "Body", fallback_from_mr=fallback_from_mr)
+        await publisher._create_merge_request(
+            "feature", "Title", "Body", target_branch="main", fallback_from_mr=fallback_from_mr
+        )
         return publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
 
     async def test_a_blank_line_separates_the_references_from_the_footer(self):

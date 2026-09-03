@@ -363,7 +363,7 @@ async def test_run_job_task_survives_a_failed_ref_sync():
     assert result == {"response": "ok"}
 
 
-async def _runtime_ctx_kwargs(thread_id: str) -> dict:
+async def _runtime_ctx_kwargs(thread_id: str, **job_kwargs) -> dict:
     """Run a job just far enough to capture the kwargs it hands ``set_runtime_ctx``."""
     captured: dict = {}
 
@@ -377,9 +377,19 @@ async def _runtime_ctx_kwargs(thread_id: str) -> dict:
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         suppress(Exception),
     ):
-        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id)
+        await run_job_task.func(repo_id="g/r", prompt="p", thread_id=thread_id, **job_kwargs)
 
     return captured
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_ref_and_acting_user():
+    """Both are now user-visible on the published MR: ``ref`` becomes its target branch and the
+    acting user becomes its assignee."""
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), ref="master", user_id=42)
+
+    assert captured.get("ref") == "master"
+    assert captured.get("acting_user_id") == 42
 
 
 @pytest.mark.django_db(transaction=True)
