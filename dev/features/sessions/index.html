@@ -1966,6 +1966,8 @@
 <ul>
 <li>Selecting a repository defaults the ref to its <strong>default branch</strong>; you can switch to any other branch.</li>
 <li>If the chosen ref already has an open merge/pull request, the workspace surfaces it.</li>
+<li>The ref is the branch the work is based on: when the agent opens a new merge/pull request, that ref is its <strong>target branch</strong>. If it has been deleted from the remote by the time the agent publishes, the request targets the default branch instead.</li>
+<li>The new merge/pull request is <strong>assigned to you</strong>, when your DAIV account is linked to the git platform through OAuth login.</li>
 </ul>
 <p>Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (<code>/dashboard/sessions/&lt;thread_id&gt;/</code>) so you can bookmark it or share it with teammates who have access.</p>
 <div class="admonition note">
@@ -2032,7 +2034,7 @@
 <ul>
 <li><strong>Prompt</strong> — what you want the agent to do</li>
 <li><strong>Repositories</strong> — one or more repositories. Submitting one prompt across multiple repositories creates a <a href="#filtering">batch</a>: each repository runs as an independent session, and after submission you land on the batch-filtered Sessions list.</li>
-<li><strong>Ref</strong> — the starting branch or commit each run reads from (defaults to the repository's default branch)</li>
+<li><strong>Ref</strong> — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)</li>
 <li><strong>Sandbox environment</strong> — the named <a href="../sandbox-environments/">sandbox environment</a> the run executes in</li>
 <li><strong>Agent model and thinking level</strong> — per-run overrides (leave empty to inherit the repo defaults)</li>
 <li>Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass <code>muted</code> via the <a href="../jobs-api/">Jobs API</a> or <a href="../mcp-endpoint/">MCP endpoint</a>; for scheduled runs, use the schedule's Mute toggle.</li>
@@ -2115,7 +2117,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2026 22:48:14 UTC">September 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2026 20:53:29 UTC">September 3, 2026</span>
   </span>
 
     
@@ -2125,7 +2127,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2026 22:48:14 UTC">September 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2026 20:53:29 UTC">September 3, 2026</span>
   </span>
 
     

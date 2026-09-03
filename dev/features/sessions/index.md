@@ -93,6 +93,8 @@ Before the composer appears, pick a **repository** in the hero picker. Each sess
 
 - Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
 - If the chosen ref already has an open merge/pull request, the workspace surfaces it.
+- The ref is the branch the work is based on: when the agent opens a new merge/pull request, that ref is its **target branch**. If it has been deleted from the remote by the time the agent publishes, the request targets the default branch instead.
+- The new merge/pull request is **assigned to you**, when your DAIV account is linked to the git platform through OAuth login.
 
 Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
 
@@ -159,7 +161,7 @@ The composer accepts:
 
 - **Prompt** — what you want the agent to do
 - **Repositories** — one or more repositories. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent session, and after submission you land on the batch-filtered Sessions list.
-- **Ref** — the starting branch or commit each run reads from (defaults to the repository's default branch)
+- **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
 - Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass `muted` via the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md); for scheduled runs, use the schedule's Mute toggle.
