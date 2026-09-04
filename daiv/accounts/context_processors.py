@@ -172,17 +172,18 @@ def nav(request) -> dict[str, Any]:
 def social_consent(request) -> dict[str, Any]:
     """What the sign-in page must say about the authorisation it is about to request (FR-007).
 
+    The wider scope is requested and the token stored on every sign-in, whether or not
+    cross-project access is switched on, so the disclosure tracks the **grant** and not the
+    capability — gating it on the toggle would stay silent in exactly the case where a token is
+    collected that nothing will use.
+
     Separate from :func:`nav`, which returns nothing for an anonymous request — and the sign-in
     page is the one place where the person is not signed in yet.
     """
     from codebase.base import GitPlatform
     from codebase.conf import settings as codebase_settings
-    from core.site_settings import site_settings
 
     platform = codebase_settings.CLIENT
     if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
         return {}
-    return {
-        "socialaccount_platform": platform.value.capitalize(),
-        "socialaccount_cross_project_enabled": bool(site_settings.cross_project_access_enabled),
-    }
+    return {"socialaccount_platform": platform.value.capitalize(), "socialaccount_discloses_wider_grant": True}

@@ -218,6 +218,7 @@ class CrossProjectAccessRecord(models.Model):
         DENIED_NO_ACCESS = "denied_no_access", _("Denied — no access")
         DENIED_NO_CREDENTIAL = "denied_no_credential", _("Denied — no usable credential")
         DENIED_DISABLED = "denied_disabled", _("Denied — capability disabled")
+        DENIED_POLICY = "denied_policy", _("Denied — not permitted cross-project")
         ERROR = "error", _("Error")
 
     occurred_at = models.DateTimeField(_("occurred at"), auto_now_add=True, db_index=True)

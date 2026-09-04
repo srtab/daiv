@@ -152,6 +152,14 @@ msgstr ""
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
+#, python-format
+msgid ""
+"\n"
+"                Signing in also authorises DAIV to act as you on %(platform)s — it never sees more\n"
+"                than you can, and you can review or withdraw this any time in your account settings.\n"
+"                "
+msgstr ""
+
 msgid "New"
 msgstr ""
 
@@ -291,9 +299,7 @@ msgstr "Autorizar"
 msgid "Authorise"
 msgstr "Autorizar"
 
-msgid ""
-"Disconnect this authorisation? DAIV will no longer be able to reach other "
-"projects as you."
+msgid "Disconnect this authorisation? DAIV will stop acting as you. The authorisation stays on the git platform until you remove it there, and signing in to DAIV again restores it."
 msgstr ""
 
 msgid "Disconnect"
@@ -302,9 +308,7 @@ msgstr ""
 msgid "What this allows"
 msgstr ""
 
-msgid ""
-"A run you start can read issues, merge requests and pipelines in other "
-"projects — but only those you can already see yourself."
+msgid "A run you start can read issues, merge requests and pipelines in other projects — and comment on them — but only where you can already do so yourself."
 msgstr ""
 
 msgid ""
@@ -317,8 +321,7 @@ msgid ""
 "cannot reach is refused, not silently empty."
 msgstr ""
 
-msgid ""
-"Disconnecting takes effect immediately and deletes the stored authorisation."
+msgid "Disconnecting takes effect immediately and clears the secrets DAIV stored. It does not withdraw the authorisation on the git platform, so signing in again restores it."
 msgstr ""
 
 msgid ""

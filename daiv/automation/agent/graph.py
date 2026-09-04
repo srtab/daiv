@@ -14,6 +14,7 @@ from langchain.agents.middleware import (
     dynamic_prompt,
 )
 
+from accounts.utils import aproven_acting_user_id
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import (
     AGENTS_MEMORY_PATH,
@@ -261,7 +262,10 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id, overrides=ctx.mcp_overrides)
+    # Personal MCP servers carry that person's own decrypted auth headers, so the identity has to
+    # be proven rather than merely resolved — a webhook's username/email match is not proof.
+    mcp_user_id = await aproven_acting_user_id(ctx.acting_user_id, ctx.acting_platform_uid, ctx.git_platform)
+    mcp_tools = await MCPToolkit.get_tools(user_id=mcp_user_id, overrides=ctx.mcp_overrides)
 
     subagents = [
         create_general_purpose_subagent(

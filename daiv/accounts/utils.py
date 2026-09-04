@@ -97,3 +97,34 @@ async def aget_platform_identity(*, user_id: int, provider: GitPlatform) -> Plat
         uid=int(account.uid) if account.uid.isdecimal() else None,
         username=handle if isinstance(handle, str) and handle else None,
     )
+
+
+async def aproven_acting_user_id(
+    acting_user_id: int | None, acting_platform_uid: str | None, provider: GitPlatform | str
+) -> int | None:
+    """The acting DAIV user id, but only where the platform identity behind it is proven theirs.
+
+    :func:`resolve_user` matches on platform username and email before social uid, so a platform
+    account that merely shares a username or a verified email with a DAIV account resolves to it.
+    That is acceptable for choosing an MR assignee and not for anything that spends the account's
+    own credentials. A run with no ``acting_platform_uid`` did not come from a webhook — a signed-in
+    DAIV session already established who it is — and needs no further proof.
+    """
+    if acting_user_id is None or acting_platform_uid is None:
+        return acting_user_id
+
+    from allauth.socialaccount.models import SocialAccount
+
+    linked = await SocialAccount.objects.filter(
+        provider=GitPlatform(provider).value, uid=str(acting_platform_uid), user_id=acting_user_id
+    ).aexists()
+    if not linked:
+        logger.error(
+            "Run resolved to user_id=%s for %s uid=%s, but that identity is not linked to the account; "
+            "declining to act as them.",
+            acting_user_id,
+            provider,
+            acting_platform_uid,
+        )
+        return None
+    return acting_user_id

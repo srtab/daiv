@@ -16,7 +16,9 @@ The `gitlab` and `gh` agent tools gain one optional argument, `project`:
 | the attached repository's own path | same as above | same as above |
 | any other project path | that project | the OAuth credential of the person who requested the run |
 
-Everything else is unchanged: the same allowed subcommands, the same 30-second timeout, the same automatic saving of oversized results, the same blocked GitHub `api` resource.
+Everything else is unchanged: the same 30-second timeout, the same automatic saving of oversized
+results, the same blocked GitHub `api` resource. Two things are narrower outside the attached
+project — see [What a cross-project call may not do](#what-a-cross-project-call-may-not-do).
 
 !!! warning "The attached project always uses DAIV's identity"
     Comments, merge requests and commits on the repository a run is attached to are still authored by DAIV, whether or not this feature is on. Only calls that name a *different* project act as a person.
@@ -51,7 +53,9 @@ DAIV uses the **same OAuth application** that already powers dashboard sign-in �
 
 ### GitLab
 
-Requested scopes become `read_user api`, up from `read_user` alone.
+Requested scopes become `read_user api`, up from `read_user` alone. This happens on every
+sign-in, whether or not cross-project access is switched on, so the sign-in page always discloses
+the wider authorisation it is about to request.
 
 | Scope | What it buys |
 |---|---|
@@ -100,6 +104,12 @@ This is a visible behaviour change for people who already use DAIV.
 
 Tell people they may re-authorise from **Account → Git authorisation** in the dashboard, where they can also see the state of their authorisation, when its current token expires, which scopes the platform actually granted, and a **Disconnect** action that clears the stored secrets immediately.
 
+!!! note "Disconnect is local"
+    Disconnecting clears what DAIV stored; it does not withdraw the authorisation on the git
+    platform. Because the platform still holds the grant, signing in to DAIV again completes
+    without a fresh consent prompt and restores it. To withdraw it for good, remove DAIV from the
+    authorised applications in the git platform's own settings.
+
 ---
 
 ## Where the credential lives
@@ -143,7 +153,30 @@ Parity is functional: both platforms reach the same capability. Two mechanical d
 | Token lifetime | Always expiring, always rotating | Expiring only if the App enables it |
 | Reaching a repo DAIV is not installed on | Possible | **Not possible** — the App must be installed |
 
-One capability is deliberately unavailable on both: **inline merge request diff comments can only be created on the attached project**. The inline path goes through DAIV's own platform client, which holds the service token — the one identity a cross-project call may not use. A regular note works cross-project.
+### What a cross-project call may not do
+
+Two limits apply outside the attached project and nowhere else.
+
+**Inline merge request diff comments can only be created on the attached project.** The inline path
+goes through DAIV's own platform client, which holds the service token — the one identity a
+cross-project call may not use. A regular note works cross-project.
+
+**Destructive verbs are refused by policy, not by the platform.** The person's own token would
+carry them, so the platform will not object; but what the token is spent on can be chosen by issue
+or comment text somebody else wrote. Reads, and the issue, merge-request and note writes the agent
+exists to make, still cross. These do not:
+
+| GitLab | GitHub |
+|---|---|
+| `project delete-merged-branches`, `project trigger-pipeline` | `run rerun`, `workflow run` |
+| `project-pipeline create/cancel/retry`, `project-merge-request-pipeline create` | `issue close/reopen/lock/unlock/develop` |
+| `project-job retry/play` | `pr close/reopen/lock/unlock` |
+| `project-branch create`, `project-tag create` | `release create/edit/upload` |
+| `project-release create/update`, `project-release-link create/update` | `cache delete` |
+| any award-emoji `delete`, `project-issue-link delete`, `project-merge-request-draft-note delete` | |
+
+Each refusal is recorded in the access log with the outcome **Denied — not permitted
+cross-project**. All of them remain available on the attached project, under DAIV's own identity.
 
 ---
 

@@ -764,6 +764,7 @@ class TestGitHubReleasePolicy:
 from accounts.credentials import CredentialReason, ResolvedCredential  # noqa: E402
 from automation.agent.middlewares.git_platform import (  # noqa: E402
     REFUSAL_CREDENTIAL_REJECTED,
+    REFUSAL_DESTRUCTIVE_CROSS_PROJECT,
     REFUSAL_DISABLED,
     REFUSAL_EXPIRED,
     REFUSAL_INSUFFICIENT_SCOPE,
@@ -1286,3 +1287,103 @@ class TestPlatformFailureClassificationIsAnchored:
 
         mocks.invalidate.assert_awaited_once()
         assert result == REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
+
+
+class TestDestructiveSubcommandsAreRefusedCrossProject:
+    """The person genuinely holds the permission, so the platform will not stop these. The action,
+    though, can be chosen by issue text somebody else wrote — so refuse the destructive verbs by
+    policy outside the attached project, and leave them available on it."""
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "project delete-merged-branches",
+            "project trigger-pipeline --ref main",
+            "project-pipeline cancel --pipeline-id 3",
+            "project-pipeline retry --pipeline-id 3",
+            "project-pipeline create --ref main",
+            "project-branch create --branch x --ref main",
+            "project-tag create --tag-name v1 --ref main",
+            "project-release create --tag-name v1",
+            "project-job retry --job-id 4",
+            "project-merge-request-draft-note delete --mr-iid 1 --draft-note-id 2",
+        ],
+    )
+    async def test_gitlab_destructive_verbs_are_refused(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gitlab_subcommand(
+                subcommand,
+                runtime,
+                "simplified",
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        mocks.create_proc.assert_not_called()
+        resource, action = subcommand.split()[:2]
+        assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action=f"{resource} {action}", attached=ATTACHED, project=OTHER
+        )
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        ["issue close 1", "pr close 2", "pr reopen 2", "run rerun 5", "workflow run ci.yml", "cache delete 9"],
+    )
+    async def test_github_destructive_verbs_are_refused(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_github_subcommand(
+                subcommand,
+                runtime,
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        mocks.create_proc.assert_not_called()
+        resource, action = subcommand.split()[:2]
+        assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action=f"{resource} {action}", attached=ATTACHED, project=OTHER
+        )
+
+    @pytest.mark.parametrize(
+        "subcommand", ["project-pipeline cancel --pipeline-id 3", "project delete-merged-branches"]
+    )
+    async def test_the_attached_project_keeps_them(self, subcommand):
+        """Nothing about the attached project changes: it still runs under DAIV's own identity."""
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            await _run_gitlab_subcommand(
+                subcommand,
+                runtime,
+                "simplified",
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project="",
+                cross_project_enabled=True,
+            )
+
+        mocks.create_proc.assert_called_once()
+
+    async def test_reads_and_comments_still_cross(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            await _run_gitlab_subcommand(
+                'project-issue-note create --issue-iid 1 --body "hi"',
+                runtime,
+                "simplified",
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        mocks.create_proc.assert_called_once()

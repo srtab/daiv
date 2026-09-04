@@ -34,6 +34,7 @@ class TestCreateDaivAgentDeferredFlag:
         from langchain_core.tools import StructuredTool
 
         from automation.agent.graph import create_daiv_agent
+        from codebase.base import GitPlatform
 
         patches = _common_patches()
         managers = [p.start() for p in patches]
@@ -75,7 +76,11 @@ class TestCreateDaivAgentDeferredFlag:
             ctx.gitrepo.working_dir = "/repo"
             ctx.sandbox.enabled = False
             ctx.config.context_file_name = "AGENTS.md"
-            ctx.git_platform = MagicMock()
+            # A real platform and a real acting identity: MCP selection resolves the platform enum
+            # and only trusts a webhook uid that is linked, so a bare MagicMock is not usable here.
+            ctx.git_platform = GitPlatform.GITLAB
+            ctx.acting_user_id = None
+            ctx.acting_platform_uid = None
 
             await create_daiv_agent(ctx=ctx, auto_commit_changes=False)
             return (

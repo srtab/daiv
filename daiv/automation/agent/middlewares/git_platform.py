@@ -476,6 +476,37 @@ GITLAB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
     "project-snippet-award-emoji": {"list", "get", "create", "delete"},
 }
 
+# Verbs refused outside the attached project even though the person's own token would carry them.
+# The platform cannot help here: the person genuinely holds the permission, and what it is spent on
+# can be chosen by issue or comment text somebody else wrote. Reads, and the issue/MR/note writes
+# the agent exists to make, still cross; deleting data, moving refs and driving CI do not.
+GITLAB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
+    "project": frozenset({"delete-merged-branches", "trigger-pipeline"}),
+    "project-pipeline": frozenset({"create", "cancel", "retry"}),
+    "project-merge-request-pipeline": frozenset({"create"}),
+    "project-job": frozenset({"retry", "play"}),
+    "project-branch": frozenset({"create"}),
+    "project-tag": frozenset({"create"}),
+    "project-release": frozenset({"create", "update"}),
+    "project-release-link": frozenset({"create", "update"}),
+    "project-issue-link": frozenset({"delete"}),
+    "project-issue-award-emoji": frozenset({"delete"}),
+    "project-merge-request-award-emoji": frozenset({"delete"}),
+    "project-merge-request-note-award-emoji": frozenset({"delete"}),
+    "project-merge-request-draft-note": frozenset({"delete"}),
+    "project-snippet-award-emoji": frozenset({"delete"}),
+    "project-snippet-note-award-emoji": frozenset({"delete"}),
+}
+
+GITHUB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
+    "issue": frozenset({"close", "reopen", "lock", "unlock", "develop"}),
+    "pr": frozenset({"close", "reopen", "lock", "unlock"}),
+    "workflow": frozenset({"run"}),
+    "run": frozenset({"rerun"}),
+    "release": frozenset({"create", "edit", "upload"}),
+    "cache": frozenset({"delete"}),
+}
+
 GITHUB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
     # Typical issue workflow
     "issue": {"status", "list", "view", "create", "edit", "comment", "close", "reopen", "lock", "unlock", "develop"},
@@ -608,6 +639,11 @@ REFUSAL_PLATFORM_DENIED = (
 REFUSAL_WRONG_HOST = "error: {project} is not on {host}, which is the only platform this deployment is configured for."
 REFUSAL_PROJECT_IS_A_FLAG = "error: The project must be a project path, not a flag."
 REFUSAL_PROJECT_NOT_A_PATH = "error: The project must be a single project path (e.g. 'group/name')."
+REFUSAL_DESTRUCTIVE_CROSS_PROJECT = (
+    "error: '{action}' changes state beyond reading and commenting, so it is only allowed on "
+    "{attached}, not on {project}. Run it against the current project, or ask someone with access "
+    "to {project} to do it there."
+)
 REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT = (
     "error: Inline merge request diff comments can only be created on {attached}, not on {project}. "
     "Use a regular merge request note there instead."
@@ -656,6 +692,17 @@ class _TargetDecision:
     @property
     def is_cross_project(self) -> bool:
         return self.target is not None
+
+
+def _cross_project_policy_refusal(
+    resource: str, action: str, *, denied: dict[str, frozenset[str]], attached: str, project: str
+) -> str | None:
+    """Refuse a destructive verb outside the attached project, before any credential is spent."""
+    if action in denied.get(resource, frozenset()):
+        return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action=f"{resource} {action}", attached=attached, project=project
+        )
+    return None
 
 
 def _validate_project(project: str, attached: str, provider: GitPlatform) -> tuple[str | None, str | None]:
@@ -957,6 +1004,20 @@ async def _run_gitlab_subcommand(
 
     target_slug = decision.target or runtime.context.repository.slug
 
+    if decision.is_cross_project and (
+        policy_refusal := _cross_project_policy_refusal(
+            resource,
+            action,
+            denied=GITLAB_CROSS_PROJECT_DENIED_ACTIONS,
+            attached=runtime.context.repository.slug,
+            project=target_slug,
+        )
+    ):
+        await _record_cross_project_access(
+            runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="denied_policy"
+        )
+        return policy_refusal
+
     # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
     # hash params (position[base_sha], position[position_type], …) via the CLI.
     if resource == "project-merge-request-discussion" and action == "create":
@@ -1166,6 +1227,20 @@ async def _run_github_subcommand(
         return decision.refusal
 
     target_slug = decision.target or runtime.context.repository.slug
+
+    if decision.is_cross_project and (
+        policy_refusal := _cross_project_policy_refusal(
+            resource,
+            action,
+            denied=GITHUB_CROSS_PROJECT_DENIED_ACTIONS,
+            attached=runtime.context.repository.slug,
+            project=target_slug,
+        )
+    ):
+        await _record_cross_project_access(
+            runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome="denied_policy"
+        )
+        return policy_refusal
 
     if decision.is_cross_project:
         # A cross-project decision always carries a token — a resolution without one is a refusal,

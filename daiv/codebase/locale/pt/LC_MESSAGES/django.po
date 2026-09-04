@@ -167,6 +167,9 @@ msgstr ""
 msgid "Denied — capability disabled"
 msgstr ""
 
+msgid "Denied — not permitted cross-project"
+msgstr ""
+
 msgid "Error"
 msgstr ""
 
