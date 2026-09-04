@@ -59,11 +59,11 @@
             </a>
             {% endif %}
             {% endfor %}
-            {% if socialaccount_discloses_wider_grant %}
+            {% if socialaccount_platform %}
             {% comment %}FR-007: say what the authorisation permits before it is granted, not after.
             The grant is requested on every sign-in, so this is not gated on the capability.{% endcomment %}
             <p class="mt-3 text-center text-[12px] font-light leading-relaxed tracking-wide text-gray-400">
-                {% blocktranslate with platform=socialaccount_platform|default:"your git platform" %}
+                {% blocktranslate with platform=socialaccount_platform %}
                 Signing in also authorises DAIV to act as you on {{ platform }} — it never sees more
                 than you can, and you can review or withdraw this any time in your account settings.
                 {% endblocktranslate %}

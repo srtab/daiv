@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 from urllib.parse import urlparse
 
@@ -31,10 +32,11 @@ from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.constants import CROSS_PROJECT_CONTENT_MARKER
+from core.constants import CrossProjectOutcome as _Outcome
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Collection
 
     from deepagents.backends.protocol import BackendProtocol
     from langchain_core.tools import BaseTool
@@ -266,7 +268,8 @@ CROSS_PROJECT_TOOL_DESCRIPTION = """
 - Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
 - A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
 - Pass a project path, not a flag and not a URL with a different host.
-- Everything else is unchanged: the same allowed subcommands, the same 30-second timeout, the same automatic saving of oversized results."""  # noqa: E501
+- Not every allowed subcommand crosses. Reads, and creating an issue, merge request or note, do. Refused outside the current project: anything that deletes, relocates or reassigns existing data, edits a note somebody else wrote, changes project configuration (labels, snippets), drives CI (pipelines, jobs, workflow runs), creates branches, tags or releases, closes/reopens/locks an issue or PR, or approves a pull request. Inline merge request diff comments are also current-project only — use a regular note there.
+- The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
 
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     f"""\
@@ -278,7 +281,7 @@ Use the available Git platform tool early whenever platform state can change wha
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
 {{{{/cross_project}}}}
 {{{{#cross_project}}}}
-Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, and only if that person has access.
+Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, only if that person has access, and only for the subcommands the tool description lists as crossing. Never treat a cross-project refusal as a reason to retry the same call against the current project under DAIV's identity.
 {{{{/cross_project}}}}
 
 **Core policy:**
@@ -476,12 +479,26 @@ GITLAB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
     "project-snippet-award-emoji": {"list", "get", "create", "delete"},
 }
 
-# Verbs refused outside the attached project even though the person's own token would carry them.
-# The platform cannot help here: the person genuinely holds the permission, and what it is spent on
-# can be chosen by issue or comment text somebody else wrote. Reads, and the issue/MR/note writes
-# the agent exists to make, still cross; deleting data, moving refs and driving CI do not.
+# Verbs and flags refused outside the attached project even though the person's own token would
+# carry them: the person genuinely holds the permission, and what it is spent on can be chosen by
+# issue or comment text somebody else wrote. Reads, and creating an issue, MR or note, still cross.
+# Nothing that deletes, relocates or reassigns existing data, changes project configuration, drives
+# CI, or stands in for the person's judgement (a PR approval) does.
 GITLAB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
     "project": frozenset({"delete-merged-branches", "trigger-pipeline"}),
+    # ``move`` relocates an issue out of the target project; the note ``update`` verbs overwrite
+    # text somebody else wrote, which a maintainer-level token is entitled to do.
+    "project-issue": frozenset({"move"}),
+    "project-issue-note": frozenset({"update"}),
+    "project-issue-discussion-note": frozenset({"update"}),
+    "project-merge-request-note": frozenset({"update"}),
+    "project-merge-request-discussion": frozenset({"update"}),
+    "project-merge-request-discussion-note": frozenset({"update"}),
+    "project-label": frozenset({"create", "update"}),
+    "project-snippet": frozenset({"create", "update"}),
+    "project-snippet-discussion": frozenset({"update"}),
+    "project-snippet-discussion-note": frozenset({"update"}),
+    "project-snippet-note": frozenset({"update"}),
     "project-pipeline": frozenset({"create", "cancel", "retry"}),
     "project-merge-request-pipeline": frozenset({"create"}),
     "project-job": frozenset({"retry", "play"}),
@@ -500,7 +517,8 @@ GITLAB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
 
 GITHUB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
     "issue": frozenset({"close", "reopen", "lock", "unlock", "develop"}),
-    "pr": frozenset({"close", "reopen", "lock", "unlock"}),
+    # ``review`` includes --approve, which can satisfy a required review and release auto-merge.
+    "pr": frozenset({"close", "reopen", "lock", "unlock", "review"}),
     "workflow": frozenset({"run"}),
     "run": frozenset({"rerun"}),
     "release": frozenset({"create", "edit", "upload"}),
@@ -585,19 +603,16 @@ def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-project access
-#
-# A call that names another project is executed with an OAuth credential belonging to the person
-# the run acts for, so the git platform's own permission check decides what comes back. The
-# contract these strings and rules implement is
-# ``specs/001-cross-project-user-tokens/contracts/agent-tools.md``.
+# Cross-project access: a call naming another project runs under an OAuth credential belonging to
+# the person the run acts for, so the platform's own permission check decides what comes back.
 # ---------------------------------------------------------------------------
 
 PROJECT_ARG_DESCRIPTION = (
     "Project to target, as a project path such as 'group/name'. Leave empty (the default) to "
     "target the current project, which is what almost every call wants. Naming a different "
     "project runs that call as the person who requested this run: it returns only what they can "
-    "see, and is refused outright — not silently empty — if they cannot see it."
+    "see, and is refused outright — not silently empty — if they cannot see it. Some subcommands "
+    "they *can* perform are still refused there by policy; see the tool description."
 )
 
 REFUSAL_DISABLED = "error: Cross-project access is not enabled on this DAIV deployment. Only {attached} can be reached."
@@ -629,6 +644,11 @@ REFUSAL_UNREADABLE = (
     "error: {person}'s stored {provider} authorisation can no longer be read by this deployment, so "
     "it has been cleared. They need to re-authorise from their DAIV account settings."
 )
+REFUSAL_IDENTITY_MISMATCH = (
+    "error: This run was attributed to {person} by name, but the {provider} account that triggered "
+    "it is not linked to their DAIV account, so their authorisation cannot be used. Only {attached} "
+    "can be reached. They can link the account from their DAIV account settings."
+)
 REFUSAL_INSUFFICIENT_SCOPE = (
     "error: {person}'s {provider} authorisation does not permit this operation on {project}. "
     "Re-authorising from DAIV account settings will request the required access."
@@ -648,12 +668,21 @@ REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT = (
     "error: Inline merge request diff comments can only be created on {attached}, not on {project}. "
     "Use a regular merge request note there instead."
 )
+REFUSAL_BODY_FILE_CROSS_PROJECT = (
+    "error: Publishing a body from a file is only allowed on the current project. Pass the text with --body instead."
+)
+REFUSAL_NO_ACTING_IDENTITY = "error: Could not establish the requesting user's identity for {project}."
 
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
-# stderr is never echoed on the cross-project path, so the CLI's failure has to be classified from
-# it instead. Both lists are heuristics over what python-gitlab and gh print; anything unmatched
-# degrades to a generic failure rather than leaking the text.
+
+def _redact_token(text: str, token: str | None) -> str:
+    """Blank the acting token out of text bound for a log record."""
+    return text.replace(token, "***") if token else text
+
+
+# stderr is never echoed cross-project, so failures are classified from it instead. Anything
+# unmatched degrades to a generic failure rather than leaking the text.
 _PLATFORM_DENIED_MARKERS = ("404", "403", "not found", "forbidden", "could not resolve", "no such")
 _PLATFORM_UNAUTHORIZED_RE = re.compile(
     # A bare "401" also matches issue, run and branch numbers the CLIs echo back, so the digits
@@ -663,20 +692,23 @@ _PLATFORM_UNAUTHORIZED_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_OUTCOME_BY_REASON = {
-    CredentialReason.DISABLED: "denied_disabled",
-    CredentialReason.NO_ACTING_USER: "denied_no_credential",
-    CredentialReason.NO_CREDENTIAL: "denied_no_credential",
-    CredentialReason.EXPIRED: "denied_no_credential",
-    CredentialReason.REVOKED: "denied_no_credential",
-    CredentialReason.INSUFFICIENT_SCOPE: "denied_no_credential",
-    CredentialReason.REFRESH_FAILED: "error",
-    CredentialReason.UNREADABLE: "error",
+# Both projections of a reason in one table, so the assert below covers both and a new reason
+# cannot acquire an outcome while falling through to the wrong message.
+_REFUSAL_BY_REASON: dict[CredentialReason, tuple[str, str]] = {
+    CredentialReason.DISABLED: (REFUSAL_DISABLED, _Outcome.DENIED_DISABLED),
+    CredentialReason.NO_ACTING_USER: (REFUSAL_NO_ACTING_USER, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.NO_CREDENTIAL: (REFUSAL_NO_CREDENTIAL, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.EXPIRED: (REFUSAL_EXPIRED, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.REVOKED: (REFUSAL_REVOKED, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.INSUFFICIENT_SCOPE: (REFUSAL_INSUFFICIENT_SCOPE, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.IDENTITY_MISMATCH: (REFUSAL_IDENTITY_MISMATCH, _Outcome.DENIED_NO_CREDENTIAL),
+    CredentialReason.REFRESH_FAILED: (REFUSAL_REFRESH_FAILED, _Outcome.ERROR),
+    CredentialReason.UNREADABLE: (REFUSAL_UNREADABLE, _Outcome.ERROR),
 }
-assert set(_OUTCOME_BY_REASON) == set(CredentialReason), "every refusal reason needs an audit outcome"
+assert set(_REFUSAL_BY_REASON) == set(CredentialReason), "every refusal reason needs a message and an outcome"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class _TargetDecision:
     """Where a call goes and under whose identity.
 
@@ -689,19 +721,68 @@ class _TargetDecision:
     target: str | None = None
     token: str | None = None
 
+    def __post_init__(self) -> None:
+        # Structural FR-006: with this held, a runner reading ``self.token or <service token>``
+        # provably cannot run a cross-project call under DAIV's own identity.
+        if self.target is not None and not self.token:
+            raise ValueError("a cross-project decision must carry the acting person's token")
+
     @property
     def is_cross_project(self) -> bool:
         return self.target is not None
 
+    def __repr__(self) -> str:
+        # This value is a live local across the runners' ``logger.exception``, so a generated
+        # repr is how a person's token would reach an error report.
+        return (
+            f"_TargetDecision(target={self.target!r}, refused={self.refusal is not None}, has_token={bool(self.token)})"
+        )
+
+
+CROSS_PROJECT_DENIED_ACTIONS: dict[GitPlatform, dict[str, frozenset[str]]] = {
+    GitPlatform.GITLAB: GITLAB_CROSS_PROJECT_DENIED_ACTIONS,
+    GitPlatform.GITHUB: GITHUB_CROSS_PROJECT_DENIED_ACTIONS,
+}
+
+# ``update`` has to stay reachable cross-project — editing a description is one of the writes the
+# agent exists to make — so the verb tables cannot express these. Each flag turns an allowed
+# ``update`` into a verb the tables refuse: closing, relocating, or repointing an MR.
+CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
+    GitPlatform.GITLAB: frozenset({"--state-event", "--to-project-id", "--target-branch", "--assignee-ids"}),
+    GitPlatform.GITHUB: frozenset({"--add-assignee", "--remove-assignee", "--milestone"}),
+}
+
+
+def _first_flag_in(args: list[str], flags: Collection[str]) -> str | None:
+    """The first of ``flags`` present in ``args``, in either the ``--flag value`` or ``--flag=value`` form."""
+    for arg in args:
+        name = arg.split("=", 1)[0]
+        if name in flags:
+            return name
+    return None
+
+
+# Every flag that publishes text a webhook can hand back: gh's ``--body``/``-b`` and python-gitlab's
+# ``--description``/``--note``/``--body``. ``--body-file`` is refused instead of marked, because
+# marking it would mean rewriting the file the person named.
+_BODY_FLAGS = ("--body", "-b", "--description", "--note")
+_BODY_FILE_FLAGS = ("--body-file", "-F")
+
 
 def _cross_project_policy_refusal(
-    resource: str, action: str, *, denied: dict[str, frozenset[str]], attached: str, project: str
+    resource: str, action: str, args: list[str], *, provider: GitPlatform, attached: str, project: str
 ) -> str | None:
-    """Refuse a destructive verb outside the attached project, before any credential is spent."""
-    if action in denied.get(resource, frozenset()):
+    """Refuse a destructive verb or flag outside the attached project, before a credential is spent."""
+    if action in CROSS_PROJECT_DENIED_ACTIONS.get(provider, {}).get(resource, frozenset()):
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action}", attached=attached, project=project
         )
+    if flag := _first_flag_in(args, CROSS_PROJECT_DENIED_FLAGS.get(provider, frozenset())):
+        return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action=f"{resource} {action} {flag}", attached=attached, project=project
+        )
+    if _first_flag_in(args, _BODY_FILE_FLAGS):
+        return REFUSAL_BODY_FILE_CROSS_PROJECT
     return None
 
 
@@ -731,11 +812,6 @@ def _validate_project(project: str, attached: str, provider: GitPlatform) -> tup
     return candidate, None
 
 
-# Both CLIs spell the published text ``--body``; gh also accepts ``-b``. Nothing else DAIV can
-# write cross-project (a release note, a branch name) can come back as a webhook event.
-_BODY_FLAGS = ("--body", "-b")
-
-
 def _mark_cross_project_body(args: list[str]) -> list[str]:
     """Append the FR-015 marker to a body published outside the attached project.
 
@@ -752,6 +828,9 @@ def _mark_cross_project_body(args: list[str]) -> list[str]:
             if arg.startswith(f"{flag}="):
                 marked[index] = f"{arg}\n\n{CROSS_PROJECT_CONTENT_MARKER}"
                 return marked
+    # Nothing recognised published text, so nothing was marked. Worth saying out loud: an unmarked
+    # cross-project write in a DAIV-watched project is what starts a run on DAIV's own output.
+    logger.warning("[git-platform] Cross-project call published no recognised body flag; no loop marker applied.")
     return marked
 
 
@@ -767,23 +846,11 @@ async def _acting_person_label(acting_user_id: int | None) -> str:
 
 def _credential_refusal(
     reason: CredentialReason | None, *, attached: str, project: str, provider: GitPlatform, person: str
-) -> str:
-    provider_label = provider.value
-    if reason is CredentialReason.DISABLED:
-        return REFUSAL_DISABLED.format(attached=attached)
-    if reason is CredentialReason.NO_ACTING_USER:
-        return REFUSAL_NO_ACTING_USER.format(attached=attached)
-    if reason is CredentialReason.EXPIRED:
-        return REFUSAL_EXPIRED.format(person=person, provider=provider_label)
-    if reason is CredentialReason.REVOKED:
-        return REFUSAL_REVOKED.format(person=person, provider=provider_label)
-    if reason is CredentialReason.INSUFFICIENT_SCOPE:
-        return REFUSAL_INSUFFICIENT_SCOPE.format(person=person, provider=provider_label, project=project)
-    if reason is CredentialReason.REFRESH_FAILED:
-        return REFUSAL_REFRESH_FAILED.format(person=person, provider=provider_label)
-    if reason is CredentialReason.UNREADABLE:
-        return REFUSAL_UNREADABLE.format(person=person, provider=provider_label)
-    return REFUSAL_NO_CREDENTIAL.format(person=person, provider=provider_label)
+) -> tuple[str, str]:
+    """``(refusal the agent reads, audit outcome)`` for a reason no token could be issued for."""
+    template, outcome = _REFUSAL_BY_REASON.get(reason, _REFUSAL_BY_REASON[CredentialReason.NO_CREDENTIAL])
+    # Every template draws from this one kwargs set; str.format ignores the keys it does not name.
+    return template.format(attached=attached, project=project, provider=provider.value, person=person), outcome
 
 
 async def _record_cross_project_access(
@@ -792,7 +859,7 @@ async def _record_cross_project_access(
     provider: GitPlatform,
     target_repo_id: str,
     outcome: str,
-    identity_kind: str = "user",
+    person: str | None = None,
 ) -> None:
     """One row per cross-project attempt, allowed or refused (FR-016).
 
@@ -801,11 +868,12 @@ async def _record_cross_project_access(
     """
     from codebase.models import CrossProjectAccessRecord
 
+    acting_user_id = runtime.context.acting_user_id
     try:
         await CrossProjectAccessRecord.objects.acreate(
             thread_id=str(runtime.config.get("configurable", {}).get("thread_id", "") or ""),
-            acting_user_id=getattr(runtime.context, "acting_user_id", None),
-            identity_kind=identity_kind,
+            acting_user_id=acting_user_id,
+            acting_user_label=(person or await _acting_person_label(acting_user_id))[:255],
             provider=provider.value,
             target_repo_id=target_repo_id[:255],
             outcome=outcome,
@@ -814,51 +882,137 @@ async def _record_cross_project_access(
         logger.exception("[git-platform] Failed to record cross-project access to %s", target_repo_id)
 
 
+async def _record_refused_before_decision(
+    runtime: ToolRuntime[RuntimeCtx], *, provider: GitPlatform, project: str
+) -> None:
+    """Audit a cross-project attempt the allow-list refused before ``_decide_target`` ran.
+
+    The allow-list check has to come first (it is what keeps an unknown subcommand from reaching
+    the target logic at all), so its refusals would otherwise be the one cross-project attempt
+    with no row.
+    """
+    target, _ = _validate_project(project, runtime.context.repository.slug, provider)
+    if target is not None:
+        await _record_cross_project_access(
+            runtime, provider=provider, target_repo_id=target, outcome=_Outcome.DENIED_POLICY
+        )
+
+
 async def _decide_target(
-    project: str, runtime: ToolRuntime[RuntimeCtx], *, provider: GitPlatform, cross_project_enabled: bool
+    resource: str,
+    action: str,
+    args: list[str],
+    project: str,
+    runtime: ToolRuntime[RuntimeCtx],
+    *,
+    provider: GitPlatform,
+    cross_project_enabled: bool,
 ) -> _TargetDecision:
-    """Pick the project and the identity for one call, and record the attempt when it crosses out."""
+    """Pick the project and the identity for one call, and record the attempt when it crosses out.
+
+    Every pre-flight refusal — bad path, capability off, denied verb or flag, body from a file,
+    unusable credential — is decided and audited here, so a new caller cannot inherit the audit
+    row without the policy gate. Execution-time failures are classified and audited by
+    ``_cross_project_failure``; between them, no refusal path is the runner's to remember.
+    """
     attached = runtime.context.repository.slug
     target, refusal = _validate_project(project, attached, provider)
 
     if refusal is not None:
-        await _record_cross_project_access(runtime, provider=provider, target_repo_id=project.strip(), outcome="error")
+        logger.warning(
+            "[git-platform] Rejected %s project argument %r for thread=%s",
+            provider.value,
+            project.strip()[:255],
+            runtime.config.get("configurable", {}).get("thread_id", ""),
+        )
+        await _record_cross_project_access(
+            runtime, provider=provider, target_repo_id=project.strip(), outcome=_Outcome.ERROR
+        )
         return _TargetDecision(refusal=refusal)
 
     if target is None:
         return _TargetDecision()
 
-    acting_user_id = getattr(runtime.context, "acting_user_id", None)
+    acting_user_id = runtime.context.acting_user_id
     if not cross_project_enabled:
-        await _record_cross_project_access(runtime, provider=provider, target_repo_id=target, outcome="denied_disabled")
+        logger.warning(
+            "[git-platform] Refused cross-project %s access to %s: the capability is disabled.", provider.value, target
+        )
+        await _record_cross_project_access(
+            runtime, provider=provider, target_repo_id=target, outcome=_Outcome.DENIED_DISABLED
+        )
         return _TargetDecision(refusal=REFUSAL_DISABLED.format(attached=attached))
+
+    # Before ``aresolve_access_token``: resolving first would spend a GitLab refresh-token
+    # rotation on a call that can never run.
+    if policy_refusal := _cross_project_policy_refusal(
+        resource, action, args, provider=provider, attached=attached, project=target
+    ):
+        logger.warning(
+            "[git-platform] Refused cross-project %s '%s %s' against %s by policy.",
+            provider.value,
+            resource,
+            action,
+            target,
+        )
+        await _record_cross_project_access(
+            runtime, provider=provider, target_repo_id=target, outcome=_Outcome.DENIED_POLICY
+        )
+        return _TargetDecision(refusal=policy_refusal)
 
     resolved = await aresolve_access_token(
         acting_user_id=acting_user_id,
         provider=provider,
-        platform_uid=getattr(runtime.context, "acting_platform_uid", None),
+        # Not getattr with a default: RuntimeCtx is a dataclass, so the attribute always exists,
+        # and a silent None here disables the only check proving the account owns this identity.
+        platform_uid=runtime.context.acting_platform_uid,
     )
     if resolved.ok:
+        if not resolved.token:
+            # FR-006 as a branch rather than an ``or``: substituting the service token here would
+            # run the call against another project under DAIV's own privileged identity.
+            logger.error(
+                "[git-platform] Cross-project %s decision for %s carried no token; refusing rather "
+                "than falling back to the service identity.",
+                provider.value,
+                target,
+            )
+            await _record_cross_project_access(
+                runtime, provider=provider, target_repo_id=target, outcome=_Outcome.ERROR
+            )
+            return _TargetDecision(refusal=REFUSAL_NO_ACTING_IDENTITY.format(project=target))
         return _TargetDecision(target=target, token=resolved.token)
 
     person = await _acting_person_label(acting_user_id)
+    credential_refusal, outcome = _credential_refusal(
+        resolved.reason, attached=attached, project=target, provider=provider, person=person
+    )
+    # error at ``error`` level: these two mean the deployment cannot renew anyone's grant, which is
+    # operator-actionable, while a missing or revoked grant is the person's own to fix.
+    log = logger.error if outcome == _Outcome.ERROR else logger.warning
+    log(
+        "[git-platform] No usable %s credential for user_id=%s targeting %s (reason=%s).",
+        provider.value,
+        acting_user_id,
+        target,
+        resolved.reason,
+    )
     await _record_cross_project_access(
-        runtime,
-        provider=provider,
-        target_repo_id=target,
-        outcome=_OUTCOME_BY_REASON.get(resolved.reason, "denied_no_credential"),
+        runtime, provider=provider, target_repo_id=target, outcome=outcome, person=person
     )
-    return _TargetDecision(
-        refusal=_credential_refusal(
-            resolved.reason, attached=attached, project=target, provider=provider, person=person
-        )
-    )
+    return _TargetDecision(refusal=credential_refusal)
 
 
 async def _cross_project_failure(
-    stderr_text: str, runtime: ToolRuntime[RuntimeCtx], *, project: str, provider: GitPlatform
-) -> tuple[str, str]:
-    """``(tool result, audit outcome)`` for a failed cross-project call.
+    stderr_text: str,
+    runtime: ToolRuntime[RuntimeCtx],
+    *,
+    project: str,
+    provider: GitPlatform,
+    token: str | None = None,
+    returncode: int | None = None,
+) -> str:
+    """The tool result for a failed cross-project call, audited on the way out.
 
     stderr is classified, never echoed: it can carry token fragments, and repository names the
     person is not entitled to see. The denied string deliberately does not distinguish "does not
@@ -866,7 +1020,13 @@ async def _cross_project_failure(
     existence oracle for private projects.
     """
     lowered = stderr_text.lower()
-    person = await _acting_person_label(getattr(runtime.context, "acting_user_id", None))
+    person = await _acting_person_label(runtime.context.acting_user_id)
+
+    async def refuse(message: str, outcome: str) -> str:
+        await _record_cross_project_access(
+            runtime, provider=provider, target_repo_id=project, outcome=outcome, person=person
+        )
+        return message
 
     if _PLATFORM_UNAUTHORIZED_RE.search(stderr_text):
         # Drop the cached token, but leave the stored grant alone: only the refresh endpoint can
@@ -878,19 +1038,45 @@ async def _cross_project_failure(
                 await ainvalidate_cached_token(user_id=acting_user_id, provider=provider)
             except Exception:
                 logger.exception("[git-platform] Failed to drop the cached %s token", provider.value)
-        return REFUSAL_CREDENTIAL_REJECTED.format(person=person, provider=provider.value), "denied_no_access"
-
-    if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
-        return (
-            REFUSAL_PLATFORM_DENIED.format(project=project, person=person, provider=provider.value),
-            "denied_no_access",
+        logger.warning(
+            "[git-platform] %s rejected the credential for user_id=%s against %s (exit %s).",
+            provider.value,
+            runtime.context.acting_user_id,
+            project,
+            returncode,
+        )
+        return await refuse(
+            REFUSAL_CREDENTIAL_REJECTED.format(person=person, provider=provider.value), _Outcome.DENIED_NO_ACCESS
         )
 
-    return (
+    if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
+        logger.warning(
+            "[git-platform] %s denied user_id=%s access to %s (exit %s).",
+            provider.value,
+            runtime.context.acting_user_id,
+            project,
+            returncode,
+        )
+        return await refuse(
+            REFUSAL_PLATFORM_DENIED.format(project=project, person=person, provider=provider.value),
+            _Outcome.DENIED_NO_ACCESS,
+        )
+
+    # The one branch with no classification: an unmatched stderr is the only diagnostic there is,
+    # and it provably matched none of the token-shaped markers. Logged at error because it is
+    # equally likely to be a platform outage misreported to the agent as a permission denial.
+    logger.error(
+        "[git-platform] Unclassified cross-project %s failure against %s (exit %s): %s",
+        provider.value,
+        project,
+        returncode,
+        _redact_token(stderr_text, token),
+    )
+    return await refuse(
         f"error: The {provider.value} command against {project} failed. The details are withheld "
         f"because they come from a project outside this run. Re-check the subcommand, or run it "
         f"against the current project instead.",
-        "error",
+        _Outcome.ERROR,
     )
 
 
@@ -989,13 +1175,21 @@ async def _run_gitlab_subcommand(
 
     is_allowed, policy_message = _is_allowed_cli_command(resource, action, GITLAB_CLI_ALLOW_COMMANDS)
     if not is_allowed:
+        await _record_refused_before_decision(runtime, provider=GitPlatform.GITLAB, project=project)
         return policy_message
 
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
+        await _record_refused_before_decision(runtime, provider=GitPlatform.GITLAB, project=project)
         return "error: The project ID and output format are automatically set."
 
     decision = await _decide_target(
-        project, runtime, provider=GitPlatform.GITLAB, cross_project_enabled=cross_project_enabled
+        resource,
+        action,
+        splitted_subcommand[2:],
+        project,
+        runtime,
+        provider=GitPlatform.GITLAB,
+        cross_project_enabled=cross_project_enabled,
     )
     if decision.refusal is not None:
         # FR-006: the refusal is the whole answer. Retrying under the service identity here is
@@ -1003,20 +1197,7 @@ async def _run_gitlab_subcommand(
         return decision.refusal
 
     target_slug = decision.target or runtime.context.repository.slug
-
-    if decision.is_cross_project and (
-        policy_refusal := _cross_project_policy_refusal(
-            resource,
-            action,
-            denied=GITLAB_CROSS_PROJECT_DENIED_ACTIONS,
-            attached=runtime.context.repository.slug,
-            project=target_slug,
-        )
-    ):
-        await _record_cross_project_access(
-            runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="denied_policy"
-        )
-        return policy_refusal
+    record = partial(_record_cross_project_access, runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug)
 
     # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
     # hash params (position[base_sha], position[position_type], …) via the CLI.
@@ -1026,19 +1207,20 @@ async def _run_gitlab_subcommand(
             if decision.is_cross_project:
                 # The bypass goes through RepoClient, which holds the service token — the one
                 # identity a cross-project call may not use.
-                await _record_cross_project_access(
-                    runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="error"
-                )
+                await record(outcome=_Outcome.ERROR)
                 return REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT.format(
                     attached=runtime.context.repository.slug, project=target_slug
                 )
             return await _create_gitlab_inline_discussion(rest_args, runtime)
 
+    # Not an FR-006 fallback: ``_TargetDecision`` refuses to exist with a target and no token.
+    acting_token = decision.token or settings.GITLAB_AUTH_TOKEN.get_secret_value()
+
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
-        "GITLAB_PRIVATE_TOKEN": decision.token or settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+        "GITLAB_PRIVATE_TOKEN": acting_token,
         "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
         "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
         "GITLAB_USER_AGENT": USER_AGENT,
@@ -1070,10 +1252,15 @@ async def _run_gitlab_subcommand(
             await process.wait()
         except Exception as e:
             logger.warning("[%s] Failed to kill GitLab process: %s", GITLAB_TOOL_NAME, e)
+        if decision.is_cross_project:
+            # The subprocess held the person's token and may well have completed the write before
+            # the timeout; a row has to exist for the attempt either way.
+            await record(outcome=_Outcome.ERROR)
         return "error: GitLab command timed out after 30 seconds. The operation may be too complex or the API is slow."
     except Exception as e:
         logger.exception("[%s] Failed to execute GitLab command.", GITLAB_TOOL_NAME)
         if decision.is_cross_project:
+            await record(outcome=_Outcome.ERROR)
             # Same reason stderr is withheld: an exception raised around a subprocess carrying a
             # person's token in its environment is not a safe string to hand back.
             return f"error: Failed to execute the GitLab command against {target_slug}."
@@ -1082,19 +1269,18 @@ async def _run_gitlab_subcommand(
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
         if decision.is_cross_project:
-            message, outcome = await _cross_project_failure(
-                stderr_text, runtime, project=target_slug, provider=GitPlatform.GITLAB
+            return await _cross_project_failure(
+                stderr_text,
+                runtime,
+                project=target_slug,
+                provider=GitPlatform.GITLAB,
+                token=acting_token,
+                returncode=process.returncode,
             )
-            await _record_cross_project_access(
-                runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome=outcome
-            )
-            return message
         return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
 
     if decision.is_cross_project:
-        await _record_cross_project_access(
-            runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="allowed"
-        )
+        await record(outcome=_Outcome.ALLOWED)
 
     output = stdout.decode("utf-8").strip()
     if not output:
@@ -1214,43 +1400,37 @@ async def _run_github_subcommand(
 
     is_allowed, policy_message = _is_allowed_cli_command(resource, action, GITHUB_CLI_ALLOW_COMMANDS)
     if not is_allowed:
+        await _record_refused_before_decision(runtime, provider=GitPlatform.GITHUB, project=project)
         return policy_message
 
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
+        await _record_refused_before_decision(runtime, provider=GitPlatform.GITHUB, project=project)
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
 
     decision = await _decide_target(
-        project, runtime, provider=GitPlatform.GITHUB, cross_project_enabled=cross_project_enabled
+        resource,
+        action,
+        splitted_subcommand[2:],
+        project,
+        runtime,
+        provider=GitPlatform.GITHUB,
+        cross_project_enabled=cross_project_enabled,
     )
     if decision.refusal is not None:
         # FR-006: never retried under the service identity.
         return decision.refusal
 
     target_slug = decision.target or runtime.context.repository.slug
-
-    if decision.is_cross_project and (
-        policy_refusal := _cross_project_policy_refusal(
-            resource,
-            action,
-            denied=GITHUB_CROSS_PROJECT_DENIED_ACTIONS,
-            attached=runtime.context.repository.slug,
-            project=target_slug,
-        )
-    ):
-        await _record_cross_project_access(
-            runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome="denied_policy"
-        )
-        return policy_refusal
+    record = partial(_record_cross_project_access, runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug)
 
     if decision.is_cross_project:
-        # A cross-project decision always carries a token — a resolution without one is a refusal,
-        # returned above.
-        assert decision.token is not None, "cross-project decision without a token"
         # FR-012 / D6: the installation token is DAIV's own and may live in checkpointed state; a
-        # person's token may not, so this path never produces a state update.
-        token, state_update = decision.token, None
+        # person's token may not, so this path mints none and produces no state update.
+        service_token, state_update = "", None
     else:
-        token, state_update = _get_cached_github_cli_token(runtime)
+        service_token, state_update = _get_cached_github_cli_token(runtime)
+    # Not an FR-006 fallback: ``_TargetDecision`` refuses to exist with a target and no token.
+    token = decision.token or service_token
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -1283,30 +1463,32 @@ async def _run_github_subcommand(
         except Exception as e:
             logger.warning("[%s] Failed to kill GitHub process: %s", GITHUB_TOOL_NAME, e)
 
+        if decision.is_cross_project:
+            await record(outcome=_Outcome.ERROR)
         return "error: GitHub command timed out after 30 seconds. The operation may be too complex or the API is slow."
 
     except Exception as e:
         logger.exception("[%s] Failed to execute GitHub command.", GITHUB_TOOL_NAME)
         if decision.is_cross_project:
+            await record(outcome=_Outcome.ERROR)
             return f"error: Failed to execute the GitHub command against {target_slug}."
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
         if decision.is_cross_project:
-            message, outcome = await _cross_project_failure(
-                stderr_text, runtime, project=target_slug, provider=GitPlatform.GITHUB
+            return await _cross_project_failure(
+                stderr_text,
+                runtime,
+                project=target_slug,
+                provider=GitPlatform.GITHUB,
+                token=token,
+                returncode=process.returncode,
             )
-            await _record_cross_project_access(
-                runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome=outcome
-            )
-            return message
         return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
 
     if decision.is_cross_project:
-        await _record_cross_project_access(
-            runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome="allowed"
-        )
+        await record(outcome=_Outcome.ALLOWED)
 
     output = stdout.decode("utf-8").strip()
     if not output:

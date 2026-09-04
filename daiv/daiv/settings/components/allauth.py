@@ -30,11 +30,8 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
 LOGIN_URL = "/accounts/login/"
 
-# GitLab needs `api` on top of `read_user` for the agent to reach another project as the person
-# who asked. Deployments that only want read-only cross-project context can narrow this to
-# `read_user read_api` — cross-project writes then fail at the platform, which is the point.
-# GitHub's list is inert: a GitHub App ignores the OAuth `scope` parameter and derives reach from
-# the App's installed permissions instead.
+# Narrow to `read_user read_api` for read-only cross-project context. GitHub's list is inert: a
+# GitHub App ignores the OAuth `scope` parameter and derives reach from its installed permissions.
 GITLAB_OAUTH_SCOPE = config("DAIV_GITLAB_OAUTH_SCOPE", default="read_user api", cast=Csv(delimiter=" "))
 
 # Provider scopes are always registered; whether a provider is actually usable

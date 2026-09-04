@@ -9,6 +9,7 @@ from django_extensions.db.models import TimeStampedModel
 
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings as codebase_settings
+from core.constants import CrossProjectOutcome
 
 
 class PlatformType(models.TextChoices):
@@ -21,6 +22,19 @@ class PlatformType(models.TextChoices):
 # from it so the two can never silently drift; a new tier without a label here fails loudly.
 _ACCESS_LEVEL_LABELS = {RepoAccessLevel.READ: _("Read"), RepoAccessLevel.WRITE: _("Write")}
 ACCESS_LEVEL_CHOICES = [(level.value, _ACCESS_LEVEL_LABELS[level]) for level in RepoAccessLevel]
+
+# Same contract for cross-project outcomes: ``CrossProjectOutcome`` in ``core.constants`` is the
+# source of truth (the middleware names outcomes without importing models), so a new outcome
+# without a label here fails loudly instead of rendering raw.
+_OUTCOME_LABELS = {
+    CrossProjectOutcome.ALLOWED: _("Allowed"),
+    CrossProjectOutcome.DENIED_NO_ACCESS: _("Denied — no access"),
+    CrossProjectOutcome.DENIED_NO_CREDENTIAL: _("Denied — no usable credential"),
+    CrossProjectOutcome.DENIED_DISABLED: _("Denied — capability disabled"),
+    CrossProjectOutcome.DENIED_POLICY: _("Denied — not permitted cross-project"),
+    CrossProjectOutcome.ERROR: _("Error"),
+}
+CROSS_PROJECT_OUTCOME_CHOICES = [(outcome.value, _OUTCOME_LABELS[outcome]) for outcome in CrossProjectOutcome]
 
 
 class MergeMetric(TimeStampedModel):
@@ -201,25 +215,17 @@ class RepositoryCatalog(models.Model):
 class CrossProjectAccessRecord(models.Model):
     """One row per attempt to reach a project other than the run's attached one.
 
-    Written per call, not per run: two identities coexist inside a single run, so a per-run row
-    could not answer "under whose identity was this project reached".
+    Written per call, not per run: one run can reach several projects, and each call is decided
+    separately. Every row is a call made under the requesting person's own identity — work on the
+    attached project uses DAIV's service token and is not cross-project, so it writes no row.
 
     It records **that** a project was reached, never **what** was in it. No token, no fragment of
     one, and no content fetched from the target — otherwise the audit trail becomes a second copy
     of the very data the permission check protects.
     """
 
-    class IdentityKind(models.TextChoices):
-        USER = "user", _("Requesting user")
-        SERVICE = "service", _("Service identity")
-
-    class Outcome(models.TextChoices):
-        ALLOWED = "allowed", _("Allowed")
-        DENIED_NO_ACCESS = "denied_no_access", _("Denied — no access")
-        DENIED_NO_CREDENTIAL = "denied_no_credential", _("Denied — no usable credential")
-        DENIED_DISABLED = "denied_disabled", _("Denied — capability disabled")
-        DENIED_POLICY = "denied_policy", _("Denied — not permitted cross-project")
-        ERROR = "error", _("Error")
+    Outcome = CrossProjectOutcome
+    OUTCOME_CHOICES = CROSS_PROJECT_OUTCOME_CHOICES
 
     occurred_at = models.DateTimeField(_("occurred at"), auto_now_add=True, db_index=True)
     thread_id = models.CharField(_("thread ID"), max_length=255, blank=True, db_index=True)
@@ -230,17 +236,22 @@ class CrossProjectAccessRecord(models.Model):
         blank=True,
         related_name="cross_project_access_records",
     )
-    identity_kind = models.CharField(
-        _("identity kind"), max_length=10, choices=IdentityKind.choices, default=IdentityKind.USER
-    )
+    # Snapshotted: SET_NULL would otherwise let an unrelated user deletion erase the one answer
+    # this table exists to give.
+    acting_user_label = models.CharField(_("acting user"), max_length=255, blank=True, default="")
     provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)
     target_repo_id = models.CharField(_("target repository ID"), max_length=255, db_index=True)
-    outcome = models.CharField(_("outcome"), max_length=24, choices=Outcome.choices)
+    outcome = models.CharField(_("outcome"), max_length=24, choices=OUTCOME_CHOICES)
 
     class Meta:
         verbose_name = _("Cross-Project Access Record")
         verbose_name_plural = _("Cross-Project Access Records")
         indexes = [models.Index(fields=["occurred_at", "outcome"])]
+        constraints = [
+            # A row without an outcome records nothing an auditor can use, and ``choices`` is not
+            # a database constraint.
+            models.CheckConstraint(condition=~models.Q(outcome=""), name="cross_project_access_record_outcome_required")
+        ]
 
     def __str__(self) -> str:
-        return f"{self.acting_user_id or 'unknown'} -> {self.target_repo_id} ({self.outcome})"
+        return f"{self.acting_user_label or self.acting_user_id or 'unknown'} -> {self.target_repo_id} ({self.outcome})"

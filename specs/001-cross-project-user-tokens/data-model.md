@@ -44,8 +44,14 @@ connected ──expires_at passes, refresh succeeds──▶ connected   (tokens
 connected ──expires_at passes, refresh fails─────▶ expired
 connected ──user disconnects in DAIV─────────────▶ revoked  (secrets cleared)
 connected ──platform-side revocation, seen as 401 on use──▶ revoked  (secrets cleared)
-expired | revoked ──re-consent──▶ connected
+expired ──re-consent──▶ connected
+revoked ──explicit "Authorise" in DAIV (clears the row) then re-consent──▶ connected
 ```
+
+A revoked row is **not** resurrected by the next sign-in. The platform still holds the grant, so
+the OAuth round trip shows no consent screen; treating that as re-consent would make Disconnect
+advice rather than revocation. Only `clear_revoked`, reached from the account page's Authorise
+button, undoes it.
 
 `expired` and `revoked` are distinct because FR-011 must name the cause: `expired` tells the person
 to re-authorise, `revoked` tells them the grant was withdrawn. Both clear the stored secrets — a row
@@ -67,7 +73,7 @@ Spec entity: *Access record*.
 | `occurred_at` | datetime, indexed | |
 | `thread_id` | char, indexed | Ties the record to the run and its `Activity` row. |
 | `acting_user` | FK → `accounts.User`, `SET_NULL`, nullable | Null when no acting person could be resolved. |
-| `identity_kind` | char enum | `user` or `service`. Makes "which of the two identities acted" answerable without joining. |
+| `acting_user_label` | char | The acting person's name, snapshotted at write time so `on_delete=SET_NULL` cannot erase the answer the table exists to give. |
 | `provider` | char | |
 | `target_repo_id` | char, indexed | The project actually targeted. |
 | `outcome` | char enum | `allowed` / `denied_no_access` / `denied_no_credential` / `denied_disabled` / `error`. |

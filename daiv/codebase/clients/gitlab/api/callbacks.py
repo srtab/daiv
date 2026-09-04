@@ -61,6 +61,9 @@ class IssueCallback(BaseCallback):
             and self.object_attributes.type == "Issue"
             and self.object_attributes.state == "opened"
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+            # A cross-project issue DAIV opens carries a person's attribution, so the bot-id
+            # checks elsewhere cannot see it is DAIV's own.
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.object_attributes.description or "")
         ):
             return False
 
@@ -144,6 +147,7 @@ class IssueCallback(BaseCallback):
                 use_max=self.object_attributes.has_max_label(),
                 user=daiv_user,
                 external_username=self.user.username,
+                acting_platform_uid=str(self.user.id),
                 title=self.object_attributes.title,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
@@ -234,6 +238,7 @@ class NoteCallback(BaseCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
+                    acting_platform_uid=str(self.user.id),
                     title=self.issue.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,
@@ -275,6 +280,7 @@ class NoteCallback(BaseCallback):
                     use_max=self.merge_request.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
+                    acting_platform_uid=str(self.user.id),
                     title=self.merge_request.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,

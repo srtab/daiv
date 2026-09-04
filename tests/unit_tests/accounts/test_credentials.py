@@ -135,12 +135,17 @@ class TestResolution:
 
     async def test_platform_uid_mismatch_is_not_a_match(self, person):
         """``resolve_user`` matches by username/email first, so the resolved DAIV account may
-        never have linked this platform identity — that must not spend their credential."""
+        never have linked this platform identity — that must not spend their credential.
+
+        Told apart from ``NO_CREDENTIAL``: the grant exists, so a refusal telling the person to
+        authorise would send them to a settings page that already reads Connected.
+        """
         await _credential_async(person, platform_uid="77")
         result = await credentials.aresolve_access_token(
             acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST, platform_uid="999"
         )
-        assert result.reason is CredentialReason.NO_CREDENTIAL
+        assert result.reason is CredentialReason.IDENTITY_MISMATCH
+        assert result.token is None
 
     async def test_platform_uid_match_resolves(self, person):
         await _credential_async(person, platform_uid="77")
@@ -372,9 +377,33 @@ class TestStore:
         assert PlatformCredential.objects.filter(user=person).count() == 1
         assert PlatformCredential.objects.get(user=person).access_token == "tok-second"  # noqa: S105
 
-    def test_re_authorising_after_a_revoke_reconnects(self, person):
+    def test_signing_in_again_does_not_undo_a_revoke(self, person):
+        """Withdrawing has to outlast the next sign-in, or it is advice rather than revocation.
+
+        The platform still remembers the authorisation, so the OAuth round trip shows no consent
+        screen — there is no moment at which the person is asked again.
+        """
         _credential(person)
         credentials.revoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+
+        credentials.store(
+            user_id=person.pk,
+            provider=GitPlatform.GITLAB,
+            host=HOST,
+            platform_uid="77",
+            access_token="tok-again",  # noqa: S106
+            scopes=["read_user", "api"],
+        )
+
+        credential = PlatformCredential.objects.get(user=person)
+        assert credential.state == CredentialState.REVOKED
+        assert credential.access_token is None
+
+    def test_clear_revoked_lets_an_explicit_re_authorisation_through(self, person):
+        _credential(person)
+        credentials.revoke(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+
+        assert credentials.clear_revoked(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST) is True
 
         credentials.store(
             user_id=person.pk,
@@ -389,9 +418,15 @@ class TestStore:
         assert credential.state == CredentialState.CONNECTED
         assert credential.access_token == "tok-again"  # noqa: S105
 
-    def test_an_expiry_with_no_refresh_token_is_stored_as_non_expiring(self, person):
-        """The model rejects a credential that will die silently; dropping the expiry keeps the
-        grant usable until the platform itself refuses it."""
+    def test_clear_revoked_leaves_a_live_grant_alone(self, person):
+        _credential(person)
+        assert credentials.clear_revoked(user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST) is False
+        assert PlatformCredential.objects.filter(user=person).exists()
+
+    def test_an_expiry_with_no_refresh_token_is_stored_as_expired(self, person):
+        """Dropping the expiry would not make the token non-expiring, only make DAIV blind to it:
+        ``_needs_refresh`` would never fire, and every call after the platform's own expiry would
+        401 while the settings page still read Connected."""
         credentials.store(
             user_id=person.pk,
             provider=GitPlatform.GITHUB,
@@ -405,7 +440,7 @@ class TestStore:
 
         credential = PlatformCredential.objects.get(user=person, provider="github")
         assert credential.expires_at is None
-        assert credential.state == CredentialState.CONNECTED
+        assert credential.state == CredentialState.EXPIRED
 
     def test_store_drops_a_stale_cached_token(self, person):
         key = credentials.token_cache_key(person.pk, GitPlatform.GITLAB, HOST)
@@ -430,10 +465,6 @@ class TestRefreshFailuresAreClassified:
     malformed body and a genuine ``invalid_grant`` alike — and ``_arefresh`` answered all of them
     by clearing both secrets. Only the platform refusing the grant itself is terminal.
     """
-
-    @pytest.fixture
-    def _expiring(self, person):
-        return _credential(person, expires_at=timezone.now() + timedelta(seconds=60))
 
     async def test_a_transport_failure_leaves_the_grant_intact(self, person):
         credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
@@ -602,3 +633,51 @@ class TestTheGitHubTokenEndpointFollowsTheConfiguredHost:
             cfg.GITHUB_URL = None
             endpoint = credentials._token_endpoint(GitPlatform.GITHUB)
         assert endpoint == "https://github.com/login/oauth/access_token"
+
+
+class TestUnknownStateFailsClosed:
+    """``choices`` is not a database constraint and ``queryset.update()`` bypasses ``save()``, so
+    a state this module does not recognise must refuse rather than fall through to the token."""
+
+    async def test_an_unrecognised_state_refuses(self, person):
+        await _credential_async(person)
+        await PlatformCredential.objects.filter(user=person).aupdate(state="disconnected")
+
+        result = await credentials.aresolve_access_token(
+            acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
+        )
+
+        assert result.token is None
+        assert result.reason is CredentialReason.EXPIRED
+
+
+class TestHostMismatch:
+    """``platform_host`` derives from the codebase URL while allauth mints the token against
+    ``auth_gitlab_url``; nothing else compares them."""
+
+    def test_a_grant_minted_elsewhere_is_not_stored(self, person, settings):
+        with patch("accounts.credentials.auth_host", return_value="gitlab.com"):
+            result = credentials.store(
+                user_id=person.pk,
+                provider=GitPlatform.GITLAB,
+                host="git.internal",
+                platform_uid="77",
+                access_token="tok",  # noqa: S106
+                scopes=["api"],
+            )
+
+        assert result is None
+        assert not PlatformCredential.objects.filter(user=person).exists()
+
+    def test_matching_hosts_store_normally(self, person):
+        with patch("accounts.credentials.auth_host", return_value=HOST):
+            credentials.store(
+                user_id=person.pk,
+                provider=GitPlatform.GITLAB,
+                host=HOST,
+                platform_uid="77",
+                access_token="tok",  # noqa: S106
+                scopes=["api"],
+            )
+
+        assert PlatformCredential.objects.get(user=person).access_token == "tok"  # noqa: S105

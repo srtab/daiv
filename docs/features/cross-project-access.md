@@ -34,6 +34,8 @@ A project the requesting person cannot reach is **refused with a stated reason**
 | Not authorised | They have not authorised DAIV; the message points at their account settings |
 | Expired / revoked | The authorisation is gone and must be granted again |
 | Insufficient scope | The authorisation is narrower than the operation needs |
+| Identity not linked | The run was attributed to them by platform username or email, but that platform account is not linked to their DAIV account, so their authorisation is not spent |
+| Not permitted cross-project | They hold the permission, but the operation is refused outside the attached project (see below) |
 | Platform denied | The project is not accessible to them — deliberately ambiguous between "does not exist" and "you may not see it", so the tool cannot be used to probe for private projects |
 
 ---
@@ -104,11 +106,11 @@ This is a visible behaviour change for people who already use DAIV.
 
 Tell people they may re-authorise from **Account → Git authorisation** in the dashboard, where they can also see the state of their authorisation, when its current token expires, which scopes the platform actually granted, and a **Disconnect** action that clears the stored secrets immediately.
 
-!!! note "Disconnect is local"
-    Disconnecting clears what DAIV stored; it does not withdraw the authorisation on the git
-    platform. Because the platform still holds the grant, signing in to DAIV again completes
-    without a fresh consent prompt and restores it. To withdraw it for good, remove DAIV from the
-    authorised applications in the git platform's own settings.
+!!! note "Disconnect is local, and it sticks"
+    Disconnecting clears what DAIV stored and stays in effect across later sign-ins — only
+    pressing **Authorise** on that page again restores it. It does not withdraw the authorisation
+    on the git platform: to do that, remove DAIV from the authorised applications in the git
+    platform's own settings.
 
 ---
 
@@ -132,7 +134,7 @@ DAIV does **not** use allauth's own `SocialToken` table: it stores tokens in pla
 
 Every attempt to reach another project writes one record — allowed *and* refused — visible to admins at **Cross-project access** in the sidebar, filterable by target project, thread and outcome.
 
-A record holds who acted, which project they reached, under which identity, on which thread, and how it ended. It holds **no token and no content fetched from the target project**: it proves *that* a project was reached, never *what* was in it. Rows are pruned automatically after 90 days (`CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS`).
+A record holds who acted, which project they reached, on which thread, and how it ended. Every row is a call made under the requesting person's own identity — work on the attached project uses DAIV's service token and writes no row. The person's name is snapshotted onto the row, so deleting their account does not erase the answer. A record holds **no token and no content fetched from the target project**: it proves *that* a project was reached, never *what* was in it. Rows are pruned automatically after 90 days (`CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS`).
 
 ---
 
@@ -163,20 +165,50 @@ cross-project call may not use. A regular note works cross-project.
 
 **Destructive verbs are refused by policy, not by the platform.** The person's own token would
 carry them, so the platform will not object; but what the token is spent on can be chosen by issue
-or comment text somebody else wrote. Reads, and the issue, merge-request and note writes the agent
-exists to make, still cross. These do not:
+or comment text somebody else wrote. Reads, and creating an issue, merge request or note, still
+cross. These do not:
 
 | GitLab | GitHub |
 |---|---|
 | `project delete-merged-branches`, `project trigger-pipeline` | `run rerun`, `workflow run` |
 | `project-pipeline create/cancel/retry`, `project-merge-request-pipeline create` | `issue close/reopen/lock/unlock/develop` |
 | `project-job retry/play` | `pr close/reopen/lock/unlock` |
-| `project-branch create`, `project-tag create` | `release create/edit/upload` |
-| `project-release create/update`, `project-release-link create/update` | `cache delete` |
+| `project-branch create`, `project-tag create` | `pr review` (an approval can release auto-merge) |
+| `project-release create/update`, `project-release-link create/update` | `release create/edit/upload` |
+| `project-issue move` | `cache delete` |
+| note and discussion-note `update` (editing text somebody else wrote) | |
+| `project-label create/update`, `project-snippet create/update` | |
 | any award-emoji `delete`, `project-issue-link delete`, `project-merge-request-draft-note delete` | |
+
+`update` itself still crosses — editing a description is one of the writes the agent exists to
+make — so four GitLab flags are refused separately, because each turns an allowed `update` into a
+verb from the table above: `--state-event` (closes), `--to-project-id` (relocates),
+`--target-branch` (repoints an MR) and `--assignee-ids` (reassigns). On GitHub the equivalents are
+`--add-assignee`, `--remove-assignee` and `--milestone`. Publishing a body from a file
+(`--body-file`, `-F`) is also refused, because the loop marker below cannot be appended to a file
+the person named.
 
 Each refusal is recorded in the access log with the outcome **Denied — not permitted
 cross-project**. All of them remain available on the attached project, under DAIV's own identity.
+
+## What this does not defend against
+
+Cross-project access is bounded by *whose* permissions are spent, not by *who chose to spend them*.
+DAIV reads the issue bodies, comments and repository files of the attached project, and any of
+those can be written by somebody other than the person the run acts for — including
+`.agents/AGENTS.md` on a contributor's merge-request branch. Text there can name a project and ask
+the agent to fetch it.
+
+The consequence is bounded but real: an attacker who can get content into a project DAIV watches,
+and can get a person with wider access to trigger a run on it, can have that person's token spend
+a read on a project the attacker cannot reach — and see the result wherever the run reports. The
+policy table above is what limits this to reads and comments rather than state changes, and every
+attempt appears in the access log under that person's name.
+
+Deployments that cannot accept this should leave the capability off. Where it is on, the
+mitigations that matter are the ones already in the platform: keep DAIV's webhooks on projects
+whose contributors you trust to open merge requests, and rely on the access log rather than on the
+agent's own account of what it did.
 
 ---
 

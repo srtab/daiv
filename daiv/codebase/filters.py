@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 import django_filters
 
 from codebase.models import CrossProjectAccessRecord
@@ -12,7 +14,7 @@ class CrossProjectAccessRecordFilterSet(django_filters.FilterSet):
     acting_user = django_filters.CharFilter(method="filter_acting_user", label="Acting user")
     target_repo_id = django_filters.CharFilter(lookup_expr="icontains", label="Target project")
     thread_id = django_filters.CharFilter(label="Thread")
-    outcome = django_filters.ChoiceFilter(choices=CrossProjectAccessRecord.Outcome.choices)
+    outcome = django_filters.ChoiceFilter(choices=CrossProjectAccessRecord.OUTCOME_CHOICES)
     occurred_after = django_filters.DateFilter(field_name="occurred_at", lookup_expr="date__gte")
     occurred_before = django_filters.DateFilter(field_name="occurred_at", lookup_expr="date__lte")
 
@@ -25,6 +27,10 @@ class CrossProjectAccessRecordFilterSet(django_filters.FilterSet):
         value = (value or "").strip()
         if not value:
             return queryset
-        return queryset.filter(acting_user__email__icontains=value) | queryset.filter(
-            acting_user__username__icontains=value
+        # The snapshot label is searched too, not only the FK: a deleted account is exactly the
+        # case the snapshot exists for, and its rows must stay findable by name.
+        return queryset.filter(
+            Q(acting_user_label__icontains=value)
+            | Q(acting_user__email__icontains=value)
+            | Q(acting_user__username__icontains=value)
         )

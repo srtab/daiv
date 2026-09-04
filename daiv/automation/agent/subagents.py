@@ -128,6 +128,7 @@ def _build_general_purpose_middleware(
     sandbox_enabled: bool,
     web_search_enabled: bool,
     web_fetch_enabled: bool,
+    cross_project_enabled: bool = False,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
@@ -153,7 +154,12 @@ def _build_general_purpose_middleware(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
         ),
-        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
+        # ``cross_project_enabled`` is the parent's own value, threaded down rather than re-read:
+        # a subagent told "current project only" while the parent was told otherwise is a
+        # disagreement the model has to resolve mid-run.
+        GitPlatformMiddleware(
+            git_platform=runtime.git_platform, backend=backend, cross_project_enabled=cross_project_enabled
+        ),
         *_shared_subagent_middleware(model, backend),
     ]
 
@@ -317,6 +323,7 @@ def create_general_purpose_subagent(
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
+    cross_project_enabled: bool = False,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
@@ -336,6 +343,7 @@ def create_general_purpose_subagent(
             sandbox_enabled,
             web_search_enabled,
             web_fetch_enabled,
+            cross_project_enabled,
             fallback_models,
             client,
             sandbox_backend,
@@ -602,6 +610,7 @@ async def load_custom_subagents(
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
+    cross_project_enabled: bool = False,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
@@ -623,6 +632,7 @@ async def load_custom_subagents(
         sandbox_enabled: Whether to enable the sandbox middleware.
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
+        cross_project_enabled: Whether the git platform tools may reach other projects.
         fallback_models: Optional fallback models for model failover.
         mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
@@ -690,6 +700,7 @@ async def load_custom_subagents(
                 sandbox_enabled,
                 web_search_enabled,
                 web_fetch_enabled,
+                cross_project_enabled,
                 fallback_models,
                 client,
                 sandbox_backend,

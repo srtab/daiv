@@ -18,7 +18,6 @@ def records(admin_user, member_user):
     CrossProjectAccessRecord.objects.create(
         thread_id=THREAD,
         acting_user=member_user,
-        identity_kind=CrossProjectAccessRecord.IdentityKind.USER,
         provider="gitlab",
         target_repo_id="other-group/reachable",
         outcome=CrossProjectAccessRecord.Outcome.ALLOWED,
@@ -26,7 +25,6 @@ def records(admin_user, member_user):
     CrossProjectAccessRecord.objects.create(
         thread_id=THREAD,
         acting_user=member_user,
-        identity_kind=CrossProjectAccessRecord.IdentityKind.USER,
         provider="gitlab",
         target_repo_id="secret-group/denied",
         outcome=CrossProjectAccessRecord.Outcome.DENIED_NO_ACCESS,
@@ -34,7 +32,6 @@ def records(admin_user, member_user):
     CrossProjectAccessRecord.objects.create(
         thread_id="another-thread",
         acting_user=admin_user,
-        identity_kind=CrossProjectAccessRecord.IdentityKind.USER,
         provider="gitlab",
         target_repo_id="unrelated/repo",
         outcome=CrossProjectAccessRecord.Outcome.ALLOWED,

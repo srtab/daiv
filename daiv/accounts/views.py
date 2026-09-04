@@ -9,6 +9,7 @@ from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q,
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.timezone import localdate
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
@@ -17,12 +18,12 @@ from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts import credentials
 from accounts.context_processors import running_jobs_count
+from accounts.credentials import OAUTH_CAPABLE_PLATFORMS
 from accounts.emails import send_welcome_email
 from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
-from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from codebase.models import MergeMetric
 from core.site_settings import site_settings
@@ -335,7 +336,7 @@ class PlatformCredentialView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         provider = codebase_settings.CLIENT
         context["provider"] = provider.value
-        context["supported"] = provider in (GitPlatform.GITLAB, GitPlatform.GITHUB)
+        context["supported"] = provider in OAUTH_CAPABLE_PLATFORMS
         context["cross_project_enabled"] = bool(site_settings.cross_project_access_enabled)
         if context["supported"]:
             context["status"] = credentials.status(user_id=self.request.user.pk, provider=provider)
@@ -348,15 +349,35 @@ class PlatformCredentialRevokeView(LoginRequiredMixin, View):
 
     def post(self, request):
         provider = codebase_settings.CLIENT
-        if provider not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
-            messages.error(request, "This deployment has no git platform authorisation to disconnect.")
+        if provider not in OAUTH_CAPABLE_PLATFORMS:
+            messages.error(request, _("This deployment has no git platform authorisation to disconnect."))
             return redirect("platform_credential")
 
         if credentials.revoke(user_id=request.user.pk, provider=provider):
-            messages.success(request, f"Disconnected your {provider.value} authorisation.")
+            messages.success(request, _("Disconnected your %(provider)s authorisation.") % {"provider": provider.value})
         else:
-            messages.info(request, f"There was no {provider.value} authorisation to disconnect.")
+            messages.info(
+                request, _("There was no %(provider)s authorisation to disconnect.") % {"provider": provider.value}
+            )
         return redirect("platform_credential")
+
+
+class PlatformCredentialReconnectView(LoginRequiredMixin, View):
+    """Clear a revoked grant so the next sign-in may store a fresh one, then start the OAuth flow.
+
+    ``credentials.store`` refuses to resurrect a revoked row, so without this the Disconnect
+    button would be undone by the next sign-in. Going through a POST is what makes the
+    re-authorisation the person's deliberate act rather than a side effect of logging in.
+    """
+
+    def post(self, request):
+        provider = codebase_settings.CLIENT
+        if provider not in OAUTH_CAPABLE_PLATFORMS:
+            messages.error(request, _("This deployment has no git platform authorisation to grant."))
+            return redirect("platform_credential")
+
+        credentials.clear_revoked(user_id=request.user.pk, provider=provider)
+        return redirect(f"{provider.value}_login")
 
 
 class APIKeyRevokeView(LoginRequiredMixin, View):

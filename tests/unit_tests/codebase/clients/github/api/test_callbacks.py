@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from github.GithubException import GithubException
@@ -576,4 +576,75 @@ class TestCrossProjectMarker:
             issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[Label(id=1, name=BOT_LABEL)]),
             comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "ada"})),
         )
+        assert callback.accept_callback() is True
+
+
+class TestGitHubForwardsActingIdentity:
+    """FR-014 — GitHub's enqueue sites were the unpinned half of this: dropping
+    ``acting_platform_uid`` while keeping ``acting_user_id`` does not fail closed, it silently
+    downgrades a webhook run to the "already authenticated, no proof needed" branch."""
+
+    @staticmethod
+    async def _issue_calls(daiv_user):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
+        with (
+            patch("codebase.clients.github.api.callbacks.resolve_user", AsyncMock(return_value=daiv_user)),
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as task_mock,
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.acreate_run", AsyncMock()) as create_run,
+        ):
+            task_mock.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            await callback.process_callback()
+        return task_mock.aenqueue.call_args.kwargs, create_run.call_args.kwargs
+
+    async def test_the_issue_run_carries_the_uid(self, monkeypatch_dependencies, mock_repo_config, mock_repo_client):
+        enqueued, _ = await self._issue_calls(Mock(pk=42))
+
+        assert enqueued["acting_user_id"] == 42
+        assert enqueued["acting_platform_uid"] == "10"
+
+    async def test_the_issue_session_records_the_uid(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        """A pipeline-watch fix run reads its identity off the Session, so the uid has to persist
+        there or the second hop spends a username match's credential."""
+        _, run_kwargs = await self._issue_calls(Mock(pk=42))
+
+        assert run_kwargs["acting_platform_uid"] == "10"
+
+    async def test_an_unmapped_user_still_carries_the_uid(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        enqueued, _ = await self._issue_calls(None)
+
+        assert enqueued["acting_user_id"] is None
+        assert enqueued["acting_platform_uid"] == "10"
+
+
+class TestGitHubIssueMarker:
+    """The issue callbacks had no marker check, so even a correctly marked cross-project issue
+    body started a run in a DAIV-watched target project."""
+
+    def test_daiv_own_cross_project_issue_starts_no_run(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        callback = IssueCallback(
+            action="opened",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100,
+                number=42,
+                title="Context you asked for",
+                body=f"Here it is.\n\n{CROSS_PROJECT_CONTENT_MARKER}",
+                state="open",
+                labels=[Label(id=1, name=BOT_LABEL)],
+            ),
+            label=None,
+            sender=User(**{"id": 10, "login": "ada"}),
+        )
+        assert callback.accept_callback() is False
+
+    def test_a_persons_own_issue_still_starts_a_run(self, monkeypatch_dependencies, mock_repo_config, mock_repo_client):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
+
         assert callback.accept_callback() is True

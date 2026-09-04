@@ -132,6 +132,12 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `EMAIL_USE_TLS` | Use TLS for SMTP connection | `False` | `True` |
 | `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
 
+!!! warning "Must name the same GitLab as `CODEBASE_GITLAB_URL`"
+    The per-user token for [cross-project access](../features/cross-project-access.md) is minted
+    against `ALLAUTH_GITLAB_URL` and spent against `CODEBASE_GITLAB_URL`. If they name different
+    hosts, DAIV refuses to store the credential and logs an error rather than sending one
+    instance's token to another.
+
 !!! info "Setting up social providers"
     **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
 

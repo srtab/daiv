@@ -69,6 +69,9 @@ class FixRunDispatcher:
                 sandbox_environment_id=sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=session.user_id,
+                # Session.user may be a username/email match; without this the fix run would
+                # spend that account's credentials on a platform identity it never linked.
+                acting_platform_uid=session.acting_platform_uid,
             )
         except Exception as err:  # noqa: BLE001
             # The claim already charged the attempt and moved the row to FIXING, but nothing will

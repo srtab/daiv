@@ -55,6 +55,9 @@ class IssueCallback(GitHubCallback):
             self._repo_config.issue_addressing.enabled
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
+            # A cross-project issue DAIV opens carries a person's attribution, so the bot-id
+            # checks elsewhere cannot see it is DAIV's own.
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.issue.body or "")
         ):
             return False
 
@@ -127,6 +130,7 @@ class IssueCallback(GitHubCallback):
                 use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
+                acting_platform_uid=str(self.sender.id),
                 title=self.issue.title,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
@@ -211,6 +215,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    acting_platform_uid=str(self.comment.user.id),
                     title=self.issue.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,
@@ -262,6 +267,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    acting_platform_uid=str(self.comment.user.id),
                     title=self.issue.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,

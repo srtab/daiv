@@ -1,14 +1,26 @@
+from enum import StrEnum
+
 BOT_NAME = "DAIV"
 BOT_LABEL = "daiv"
 BOT_MAX_LABEL = "daiv-max"
 BOT_AUTO_LABEL = "daiv-auto"
 
-# Appended to anything DAIV publishes in a project other than the run's attached one. Those writes
-# carry a person's attribution rather than the bot's, so the webhook's "is this my own event?"
-# check (which compares against the bot user) cannot recognise them — and a DAIV-watched target
-# project would otherwise feed DAIV's own comment straight back as a new run. Renders as nothing
-# on both platforms.
+# A cross-project write carries a person's attribution, so the webhook's "is this my own event?"
+# check cannot recognise it. Renders as nothing on both platforms.
 CROSS_PROJECT_CONTENT_MARKER = "<!-- daiv:cross-project -->"
+
+
+class CrossProjectOutcome(StrEnum):
+    """How one cross-project attempt ended. ``codebase.models`` derives its choices from this so
+    the middleware can name an outcome without importing models at app-load time."""
+
+    ALLOWED = "allowed"
+    DENIED_NO_ACCESS = "denied_no_access"
+    DENIED_NO_CREDENTIAL = "denied_no_credential"
+    DENIED_DISABLED = "denied_disabled"
+    DENIED_POLICY = "denied_policy"
+    ERROR = "error"
+
 
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the
 # RUN_ERROR event message and persisted to Run.error_message), and rendered verbatim in

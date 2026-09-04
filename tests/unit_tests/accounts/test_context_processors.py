@@ -184,7 +184,6 @@ class TestSocialConsentTracksTheGrantNotTheCapability:
             context = social_consent(rf.get("/accounts/login/"))
 
         assert context["socialaccount_platform"] == "Gitlab"
-        assert context["socialaccount_discloses_wider_grant"] is True
 
     def test_a_platform_without_oauth_says_nothing(self, rf):
         from accounts.context_processors import social_consent

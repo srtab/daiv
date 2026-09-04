@@ -15,8 +15,8 @@ Five invariants this module exists to keep:
   per run — a long run outlives a 2-hour GitLab token;
 * clearing a grant is **irreversible**, so only the platform naming it dead does it. A transport
   error, a 5xx or a rotated-token race yields :attr:`CredentialReason.REFRESH_FAILED` and leaves
-  the row alone; every path that does clear a grant logs at ``error``, because a person losing
-  their authorisation is an operator-visible event;
+  the row alone. A grant DAIV gives up on logs at ``error`` — an authorisation lost to key
+  rotation or a dead refresh token is operator-actionable; a person revoking their own is not;
 * no token, and no fragment of one, reaches a log record or a ``repr``.
 """
 
@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -73,6 +74,7 @@ class CredentialReason(StrEnum):
     INSUFFICIENT_SCOPE = "insufficient_scope"
     REFRESH_FAILED = "refresh_failed"
     UNREADABLE = "unreadable"
+    IDENTITY_MISMATCH = "identity_mismatch"
 
 
 class RefreshFailure(StrEnum):
@@ -100,6 +102,12 @@ class ResolvedCredential:
     reason: CredentialReason | None = None
     scopes: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        # Held structurally so a refusal table can be indexed by ``reason`` without a fallback
+        # that would silently rename one refusal as another.
+        if (self.token is None) == (self.reason is None):
+            raise ValueError("a resolved credential carries exactly one of a token or a reason")
+
     @property
     def ok(self) -> bool:
         return self.token is not None
@@ -121,6 +129,10 @@ class CredentialStatus:
     permits_cross_project: bool = False
 
 
+OAUTH_CAPABLE_PLATFORMS = (GitPlatform.GITLAB, GitPlatform.GITHUB)
+"""The platforms that issue a per-user OAuth credential. Everything here refuses the rest."""
+
+
 def platform_host(provider: GitPlatform | str) -> str:
     """The platform origin this deployment's credentials are valid for."""
     provider = GitPlatform(provider)
@@ -131,6 +143,28 @@ def platform_host(provider: GitPlatform | str) -> str:
         url = codebase_settings.GITHUB_URL
         return url.host if url is not None and url.host else "github.com"
     raise ValueError(f"{provider} issues no per-user OAuth credential.")
+
+
+def _gitlab_auth_base() -> str:
+    """The GitLab origin allauth mints against. One expression, because ``auth_host`` and the
+    refresh endpoint disagreeing about it is how a token reaches the wrong host."""
+    return str(site_settings.auth_gitlab_server_url or site_settings.auth_gitlab_url or "")
+
+
+def auth_host(provider: GitPlatform | str) -> str | None:
+    """The platform origin the OAuth grant is actually minted against, or ``None`` for GitHub.
+
+    ``platform_host`` derives from the *codebase* URL while allauth mints the token against
+    ``auth_gitlab_url``. Nothing else compares them, so a deployment that sets one and not the
+    other would send a gitlab.com token to its internal host.
+    """
+    if GitPlatform(provider) != GitPlatform.GITLAB:
+        return None
+    base = _gitlab_auth_base()
+    if not base:
+        return None
+    parsed = urlparse(base if "://" in base else f"https://{base}")
+    return parsed.hostname
 
 
 def token_cache_key(user_id: int, provider: GitPlatform | str, host: str) -> str:
@@ -183,13 +217,28 @@ async def aresolve_access_token(
     credential = await PlatformCredential.objects.filter(
         user_id=acting_user_id, provider=provider_value, host=host
     ).afirst()
-    if credential is None or (platform_uid is not None and str(platform_uid) != credential.platform_uid):
+    if credential is None:
         return ResolvedCredential(reason=CredentialReason.NO_CREDENTIAL)
 
-    if credential.state == CredentialState.EXPIRED:
-        return ResolvedCredential(reason=CredentialReason.EXPIRED)
-    if credential.state == CredentialState.REVOKED:
-        return ResolvedCredential(reason=CredentialReason.REVOKED)
+    if platform_uid is not None and str(platform_uid) != credential.platform_uid:
+        # Distinct from "no credential": the account has authorised DAIV, and the identity asking
+        # to spend it is not the one that authorised. Told apart so the refusal stops sending the
+        # person to a settings page that already reads Connected, and so it is visible to an
+        # operator — a username collision looks exactly like an impersonation attempt from here.
+        logger.error(
+            "Declining to spend the %s credential of user_id=%s: the run presented uid=%s, the grant holds uid=%s.",
+            provider_value,
+            acting_user_id,
+            platform_uid,
+            credential.platform_uid,
+        )
+        return ResolvedCredential(reason=CredentialReason.IDENTITY_MISMATCH)
+
+    # Not a check per dead state: ``choices`` is not a DB constraint and ``queryset.update()``
+    # bypasses ``save()``, so an unrecognised state must refuse rather than fall through.
+    if credential.state != CredentialState.CONNECTED:
+        revoked = credential.state == CredentialState.REVOKED
+        return ResolvedCredential(reason=CredentialReason.REVOKED if revoked else CredentialReason.EXPIRED)
 
     scopes = _as_scopes(credential.scopes)
     if not scopes_permit_cross_project(provider, scopes):
@@ -209,9 +258,8 @@ async def aresolve_access_token(
     try:
         token = credential.access_token
     except DecryptionError:
-        # A rotated DAIV_ENCRYPTION_KEY is a documented operator action, and the ciphertext is
-        # unrecoverable. Expire the row so the person is asked to re-authorise once, not on
-        # every call, and so the account page stops reporting the grant as connected.
+        # The ciphertext is unrecoverable, so expire the row: the person re-authorises once
+        # rather than on every call, and the account page stops reporting it as connected.
         logger.error(
             "The %s credential for user_id=%s cannot be decrypted; expiring it. DAIV_ENCRYPTION_KEY may have rotated.",
             provider_value,
@@ -272,21 +320,51 @@ def store(
     """Persist a fresh grant as ``connected``. Called from allauth's (synchronous) login path.
 
     ``scopes`` records what the platform actually granted, which may be narrower than requested.
+
+    Returns the stored row, or ``None`` when the grant was minted against a different host than
+    this deployment talks to. A revoked row is left revoked and returned unchanged: withdrawing
+    has to outlast the next sign-in, and :func:`clear_revoked` is the one path that undoes it.
     """
     from accounts.models import CredentialState, PlatformCredential
 
-    # An expiring grant with no refresh token can never renew; the model rejects that
-    # combination, so drop the expiry rather than write a row that will die silently.
-    if expires_at is not None and not refresh_token:
-        logger.warning(
-            "Platform credential for user_id=%s provider=%s carries an expiry but no refresh token; "
-            "storing it as non-expiring.",
+    provider_value = GitPlatform(provider).value
+
+    if (minted_against := auth_host(provider)) is not None and minted_against != host:
+        # Fail closed and loudly: sending this token to ``host`` would hand one deployment's
+        # platform a credential issued by another.
+        logger.error(
+            "Refusing to store the %s credential for user_id=%s: it was issued by %s but this "
+            "deployment talks to %s. Align ALLAUTH_GITLAB_URL with CODEBASE_GITLAB_URL.",
+            provider_value,
             user_id,
-            provider,
+            minted_against,
+            host,
+        )
+        return None
+
+    existing = PlatformCredential.objects.filter(user_id=user_id, provider=provider_value, host=host).first()
+    if existing is not None and existing.state == CredentialState.REVOKED:
+        # Withdrawing has to outlast the next sign-in, or it is advice rather than revocation.
+        # ``PlatformCredentialReconnectView`` is the one path that clears the revoked row.
+        logger.info(
+            "Leaving the revoked %s credential for user_id=%s revoked; re-authorisation is explicit.",
+            provider_value,
+            user_id,
+        )
+        return existing
+
+    # An expiring grant with no refresh token can never renew; the model rejects that combination,
+    # so store it as already expired rather than as a connected grant that dies silently.
+    state = CredentialState.CONNECTED
+    if expires_at is not None and not refresh_token:
+        logger.error(
+            "The %s grant for user_id=%s carries an expiry but no refresh token, so DAIV can never "
+            "renew it; storing it as expired. Check the OAuth app's configuration.",
+            provider_value,
+            user_id,
         )
         expires_at = None
-
-    provider_value = GitPlatform(provider).value
+        state = CredentialState.EXPIRED
 
     def _write():
         # Not ``get_or_create``: a row created by its ``defaults`` alone would have no access
@@ -302,7 +380,7 @@ def store(
         credential.refresh_token = refresh_token
         credential.expires_at = expires_at
         credential.scopes = list(scopes)
-        credential.state = CredentialState.CONNECTED
+        credential.state = state
         credential.save()
         return credential
 
@@ -326,6 +404,20 @@ def revoke(*, user_id: int, provider: GitPlatform | str, host: str | None = None
 def expire(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> bool:
     """Mark a grant unusable because renewal failed. Same shape as :func:`revoke`, different cause."""
     return _transition(user_id=user_id, provider=provider, host=host, state=_state().EXPIRED)
+
+
+def clear_revoked(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> bool:
+    """Drop revoked rows for one identity so a fresh grant may be stored. Returns whether any went.
+
+    The counterpart to ``store``'s refusal to resurrect a revoked grant: withdrawing outlasts the
+    next sign-in, and only an explicit re-authorisation undoes it.
+    """
+    from accounts.models import CredentialState
+
+    deleted, _ = _rows_for(user_id, provider, host).filter(state=CredentialState.REVOKED).delete()
+    if deleted:
+        logger.info("Cleared %s revoked %s credential row(s) for user_id=%s", deleted, provider, user_id)
+    return bool(deleted)
 
 
 def invalidate_cached_token(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> None:
@@ -383,6 +475,18 @@ def _cache_ttl_seconds(credential) -> int:
     return int(min(TOKEN_CACHE_MAX_TTL_SECONDS, max(0, remaining)))
 
 
+def _clear_secrets(credential, state: str) -> None:
+    """Strip both secrets from a locked row and set ``state``. The only place a grant dies."""
+    credential.access_token = None
+    credential.refresh_token = None
+    # An expiry with no refresh token is rejected by the model, and a dead row has neither.
+    credential.expires_at = None
+    credential.state = state
+    credential.save(
+        update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
+    )
+
+
 def _transition(*, user_id: int, provider: GitPlatform | str, host: str | None, state: str) -> bool:
     """Clear the secrets and set ``state``. With no ``host``, every row for the identity.
 
@@ -391,29 +495,25 @@ def _transition(*, user_id: int, provider: GitPlatform | str, host: str | None, 
     """
     changed = False
     with transaction.atomic():
+        hosts = []
         for credential in _rows_for(user_id, provider, host).select_for_update():
-            credential.access_token = None
-            credential.refresh_token = None
-            # An expiry with no refresh token is rejected by the model, and a dead row has neither.
-            credential.expires_at = None
-            credential.state = state
-            credential.save(
-                update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
-            )
-            cache.delete(token_cache_key(user_id, provider, credential.host))
+            _clear_secrets(credential, state)
+            hosts.append(credential.host)
             changed = True
+        # After the commit, not inside it: a Redis error here would otherwise roll back the
+        # revocation itself, and a cache entry outliving a cleared grant is the lesser failure.
+        transaction.on_commit(lambda: [cache.delete(token_cache_key(user_id, provider, each)) for each in hosts])
     return changed
 
 
 def _token_endpoint(provider: GitPlatform) -> str:
     if provider == GitPlatform.GITHUB:
-        # Reuses the login adapter's own derivation: a GitHub Enterprise deployment must not POST
-        # its client secret and the person's refresh token to github.com.
+        # The login adapter's own endpoint, not a second derivation of it: a GitHub Enterprise
+        # deployment must not POST its client secret and the person's refresh token to github.com.
         from accounts.socialaccount import GitHubAppOAuth2Adapter
 
-        return f"{GitHubAppOAuth2Adapter._web_url()}/login/oauth/access_token"
-    base = site_settings.auth_gitlab_server_url or site_settings.auth_gitlab_url
-    return f"{str(base).rstrip('/')}/oauth/token"
+        return GitHubAppOAuth2Adapter.access_token_endpoint()
+    return f"{_gitlab_auth_base().rstrip('/')}/oauth/token"
 
 
 def _oauth_client() -> tuple[str, str] | None:
@@ -435,8 +535,22 @@ async def _arefresh(credential):
     try:
         refresh_token = credential.refresh_token
     except DecryptionError:
+        logger.error(
+            "The %s refresh token for user_id=%s cannot be decrypted; expiring the grant. "
+            "DAIV_ENCRYPTION_KEY may have rotated.",
+            credential.provider,
+            credential.user_id,
+        )
+        await aexpire(user_id=credential.user_id, provider=credential.provider, host=credential.host)
         return CredentialReason.UNREADABLE
     if not refresh_token:
+        # Reaching this means the ``platform_credential_expiring_needs_refresh`` constraint was
+        # bypassed, so it is worth an operator's attention rather than a silent expiry.
+        logger.error(
+            "The %s credential for user_id=%s expires but carries no refresh token; expiring it.",
+            credential.provider,
+            credential.user_id,
+        )
         await aexpire(user_id=credential.user_id, provider=credential.provider, host=credential.host)
         return CredentialReason.EXPIRED
 
@@ -479,13 +593,7 @@ def _expire_unless_renewed(pk: int, *, seen_modified):
             return CredentialReason.NO_CREDENTIAL
         if credential.modified != seen_modified:
             return credential if credential.state == CredentialState.CONNECTED else CredentialReason.EXPIRED
-        credential.access_token = None
-        credential.refresh_token = None
-        credential.expires_at = None
-        credential.state = CredentialState.EXPIRED
-        credential.save(
-            update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
-        )
+        _clear_secrets(credential, CredentialState.EXPIRED)
     cache.delete(token_cache_key(credential.user_id, credential.provider, credential.host))
     return CredentialReason.EXPIRED
 

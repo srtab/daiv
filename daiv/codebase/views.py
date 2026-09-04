@@ -92,5 +92,5 @@ class CrossProjectAccessLogView(AdminRequiredMixin, FilterView):
         context["search_query"] = cleaned.get("target_repo_id") or ""
         context["current_outcome"] = cleaned.get("outcome") or ""
         context["thread_query"] = cleaned.get("thread_id") or ""
-        context["outcome_choices"] = CrossProjectAccessRecord.Outcome.choices
+        context["outcome_choices"] = CrossProjectAccessRecord.OUTCOME_CHOICES
         return context

@@ -13,7 +13,8 @@ service and receives either a usable token or a typed reason it cannot have one.
 | resolve | acting user id, provider, host | A usable access token, or a typed refusal reason |
 | status | user, provider | State, expiry, granted scopes — never the secret |
 | store | user, provider, host, token response | Persists the grant, `state = connected` |
-| revoke | user, provider, host | `state = revoked`, secrets cleared |
+| revoke | user, provider, host | `state = revoked`, secrets cleared; survives later sign-ins |
+| clear_revoked | user, provider, host | Deletes revoked rows so an explicit re-authorisation can store a fresh grant |
 
 ## Resolution order
 
@@ -47,8 +48,11 @@ the wording. Reasons are never collapsed into a generic failure — FR-011 requi
    expiry. The margin is **5 minutes**: comfortably wider than one call's 30-second CLI timeout plus
    retries, and narrow enough not to refresh on every call. It is a named constant, not a literal at
    the comparison site.
-5. **A 401/403 from the platform on a token this service issued** transitions the row to `revoked`,
-   so the next call reports the real cause instead of retrying a dead credential.
+5. **Only the platform condemning the grant itself clears it.** A 401/403 on a *call* drops the
+   cached token and nothing else — CLI prose is not proof a grant is dead — so the next call
+   re-resolves and refreshes or refuses on the platform's own word. Clearing is reserved for the
+   refresh endpoint answering `invalid_grant`; a transport error, a 5xx or a malformed body leaves
+   the row alone, because losing an authorisation to a momentary outage is unrecoverable.
 6. **Never logged.** No token, and no prefix or suffix of one, reaches a log record — including
    exception messages, which is where they usually escape.
 

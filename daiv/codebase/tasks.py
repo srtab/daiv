@@ -201,10 +201,8 @@ def sync_repository_access_cron_task():
     # cleared, it no longer has "prior rows" and stops being flagged as degraded.
     RepositoryAccess.objects.filter(provider=provider).stale().delete()
 
-    # Rides along on the access sync rather than earning its own cron: it is the same kind of
-    # bounded-growth housekeeping, at a cadence far finer than the retention window needs. Isolated
-    # like the catalog prune — the audit log is not access-load-bearing, so a failure here degrades
-    # the run rather than aborting the sync.
+    # Isolated like the catalog prune: the audit log is not access-load-bearing, so a failure here
+    # degrades the run rather than aborting the sync.
     try:
         prune_cross_project_access_records()
     except Exception:

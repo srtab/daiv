@@ -37,13 +37,7 @@
             <div class="min-w-0 flex-1">
                 <span class="audit-repo">{{ record.target_repo_id }}</span>
                 <div class="audit-row__meta">
-                    <span>
-                        {% if record.identity_kind == 'service' %}
-                            {% translate "DAIV service identity" %}
-                        {% else %}
-                            {{ record.acting_user|default:_("unknown user") }}
-                        {% endif %}
-                    </span>
+                    <span>{{ record.acting_user|default:record.acting_user_label|default:_("unknown user") }}</span>
                     <span aria-hidden="true">&middot;</span>
                     <span>{{ record.get_provider_display }}</span>
                     {% if record.thread_id %}

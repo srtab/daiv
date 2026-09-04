@@ -197,7 +197,13 @@ def dispatch_next_in_session(sender: type, run: Any, **kwargs: Any) -> None:
 
     consecutive_failures = 0
     while True:
-        next_q = Run.objects.filter(session_id=session_id, status=RunStatus.QUEUED).order_by("created_at").first()
+        next_q = (
+            Run.objects
+            .filter(session_id=session_id, status=RunStatus.QUEUED)
+            .select_related("session")
+            .order_by("created_at")
+            .first()
+        )
         if next_q is None:
             return
 
@@ -252,6 +258,7 @@ def _enqueue_queued_run(run: Any) -> bool:
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
+            acting_platform_uid=run.session.acting_platform_uid,
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)

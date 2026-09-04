@@ -186,4 +186,4 @@ def social_consent(request) -> dict[str, Any]:
     platform = codebase_settings.CLIENT
     if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
         return {}
-    return {"socialaccount_platform": platform.value.capitalize(), "socialaccount_discloses_wider_grant": True}
+    return {"socialaccount_platform": platform.value.capitalize()}

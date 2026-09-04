@@ -136,6 +136,9 @@ class Session(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    # ``user`` may be a username or email match, which is enough to assign an MR and not enough to
+    # spend that account's credentials; this is the uid that proves the link, when a webhook knew it.
+    acting_platform_uid = models.CharField(_("acting platform user ID"), max_length=191, blank=True, default="")
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")

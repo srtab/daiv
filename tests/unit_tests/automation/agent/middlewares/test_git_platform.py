@@ -34,7 +34,16 @@ def _mock_backend(*, error: str | None = None):
     return backend
 
 
-async def _run_gl(subcommand, runtime, *, output_mode="simplified", to_file=False, backend=None):
+async def _run_gl(
+    subcommand,
+    runtime,
+    *,
+    output_mode="simplified",
+    to_file=False,
+    backend=None,
+    project="",
+    cross_project_enabled=False,
+):
     """Invoke the gitlab tool implementation with a default mock backend + results prefix."""
     return await _run_gitlab_subcommand(
         subcommand,
@@ -43,10 +52,12 @@ async def _run_gl(subcommand, runtime, *, output_mode="simplified", to_file=Fals
         to_file,
         backend=backend if backend is not None else _mock_backend(),
         large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+        project=project,
+        cross_project_enabled=cross_project_enabled,
     )
 
 
-async def _run_gh(subcommand, runtime, *, to_file=False, backend=None):
+async def _run_gh(subcommand, runtime, *, to_file=False, backend=None, project="", cross_project_enabled=False):
     """Invoke the gh tool implementation with a default mock backend + results prefix."""
     return await _run_github_subcommand(
         subcommand,
@@ -54,6 +65,8 @@ async def _run_gh(subcommand, runtime, *, to_file=False, backend=None):
         to_file,
         backend=backend if backend is not None else _mock_backend(),
         large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+        project=project,
+        cross_project_enabled=cross_project_enabled,
     )
 
 
@@ -865,16 +878,7 @@ class TestProjectValidation:
     async def test_a_rejected_project_never_spawns_a_subprocess(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project="--oops",
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project="--oops", cross_project_enabled=True)
         assert result == REFUSAL_PROJECT_IS_A_FLAG
         mocks.create_proc.assert_not_called()
         mocks.resolve.assert_not_called()
@@ -886,16 +890,7 @@ class TestIdentitySelection:
     async def test_gitlab_empty_project_uses_the_service_token(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project="",
-                cross_project_enabled=True,
-            )
+            await _run_gl("project-issue list", runtime, project="", cross_project_enabled=True)
         envs = mocks.create_proc.call_args.kwargs["env"]
         assert envs["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
         assert mocks.create_proc.call_args.args[-1] == ATTACHED
@@ -904,32 +899,14 @@ class TestIdentitySelection:
     async def test_gitlab_self_referential_project_uses_the_service_token(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=ATTACHED,
-                cross_project_enabled=True,
-            )
+            await _run_gl("project-issue list", runtime, project=ATTACHED, cross_project_enabled=True)
         assert mocks.create_proc.call_args.kwargs["env"]["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
         mocks.resolve.assert_not_called()
 
     async def test_gitlab_another_project_uses_the_persons_token(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         args = mocks.create_proc.call_args.args
         envs = mocks.create_proc.call_args.kwargs["env"]
         assert envs["GITLAB_PRIVATE_TOKEN"] == "person-token"  # noqa: S105
@@ -941,15 +918,7 @@ class TestIdentitySelection:
         runtime.state["github_token"] = "install-token"  # noqa: S105
         runtime.state["github_token_expires_at"] = 9999999999.0
         with _patched_platform() as mocks:
-            await _run_github_subcommand(
-                "issue list",
-                runtime,
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project="",
-                cross_project_enabled=True,
-            )
+            await _run_gh("issue list", runtime, project="", cross_project_enabled=True)
         assert mocks.create_proc.call_args.kwargs["env"]["GH_TOKEN"] == "install-token"  # noqa: S105
         mocks.resolve.assert_not_called()
 
@@ -958,15 +927,7 @@ class TestIdentitySelection:
         runtime.state["github_token"] = "install-token"  # noqa: S105
         runtime.state["github_token_expires_at"] = 9999999999.0
         with _patched_platform() as mocks:
-            result = await _run_github_subcommand(
-                "issue list",
-                runtime,
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gh("issue list", runtime, project=OTHER, cross_project_enabled=True)
         args = mocks.create_proc.call_args.args
         assert mocks.create_proc.call_args.kwargs["env"]["GH_TOKEN"] == "person-token"  # noqa: S105
         assert args[-2:] == ("--repo", OTHER)
@@ -1033,15 +994,8 @@ class TestExistingLimitsApplyCrossProject:
     async def test_disallowed_gitlab_subcommand_is_refused_identically(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-variable delete --key SECRET",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
+            result = await _run_gl(
+                "project-variable delete --key SECRET", runtime, project=OTHER, cross_project_enabled=True
             )
         assert result == "error: The subcommand 'project-variable' is not allowed by policy."
         mocks.create_proc.assert_not_called()
@@ -1050,15 +1004,7 @@ class TestExistingLimitsApplyCrossProject:
     async def test_github_api_resource_stays_blocked_cross_project(self):
         runtime = _xproj_runtime(GitPlatform.GITHUB)
         with _patched_platform() as mocks:
-            result = await _run_github_subcommand(
-                "api /repos/other/other/issues",
-                runtime,
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gh("api /repos/other/other/issues", runtime, project=OTHER, cross_project_enabled=True)
         assert result == "error: The subcommand 'api' is not allowed by policy."
         mocks.create_proc.assert_not_called()
 
@@ -1101,16 +1047,7 @@ class TestRefusalVocabulary:
     async def test_each_reason_gets_its_own_string(self, reason, expected):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform(resolved=ResolvedCredential(reason=reason)) as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         assert result.startswith("error: ")
         assert result == expected
         mocks.create_proc.assert_not_called()
@@ -1119,16 +1056,7 @@ class TestRefusalVocabulary:
         """T029 — the tool must not become an existence oracle for private projects."""
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform(returncode=1, stderr=b"404: 404 Project Not Found"):
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         assert result == REFUSAL_PLATFORM_DENIED.format(project=OTHER, person="Ada", provider="gitlab")
         assert "may not have access" in result
         assert "may not exist" in result
@@ -1138,16 +1066,7 @@ class TestRefusalVocabulary:
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         secret = "glpat-SECRETVALUE and secret-group/secret-repo"  # noqa: S105
         with _patched_platform(returncode=1, stderr=secret.encode()):
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         assert "glpat-SECRETVALUE" not in result
         assert "secret-group/secret-repo" not in result
         assert result.startswith("error: ")
@@ -1155,16 +1074,7 @@ class TestRefusalVocabulary:
     async def test_attached_project_failures_still_report_stderr(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform(returncode=1, stderr=b"boom"):
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project="",
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project="", cross_project_enabled=True)
         assert "boom" in result
 
 
@@ -1182,16 +1092,7 @@ class TestCrossProjectInlineDiscussionIsRefused:
                 'project-merge-request-discussion create --mr-iid 1 --body "x" '
                 f"--position '{json.dumps(VALID_POSITION)}'"
             )
-            result = await _run_gitlab_subcommand(
-                subcommand,
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
         assert result.startswith("error: Inline merge request diff comments")
         inline_mock.assert_not_called()
 
@@ -1202,16 +1103,7 @@ class TestActingIdentityReachesTheCredentialLookup:
     async def test_the_platform_uid_from_the_run_is_passed_through(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB, acting_user_id=7, acting_platform_uid="4242")
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         assert mocks.resolve.call_args.kwargs["platform_uid"] == "4242"
         assert mocks.resolve.call_args.kwargs["acting_user_id"] == 7
 
@@ -1219,16 +1111,7 @@ class TestActingIdentityReachesTheCredentialLookup:
         """A signed-in chat run is unambiguous — there is no platform event to cross-check."""
         runtime = _xproj_runtime(GitPlatform.GITLAB, acting_user_id=7)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         assert mocks.resolve.call_args.kwargs["platform_uid"] is None
 
 
@@ -1250,16 +1133,7 @@ class TestPlatformFailureClassificationIsAnchored:
     async def test_an_ordinary_not_found_does_not_touch_the_grant(self, stderr):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform(returncode=1, stderr=stderr) as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
 
         mocks.invalidate.assert_not_awaited()
         assert result != REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
@@ -1274,16 +1148,7 @@ class TestPlatformFailureClassificationIsAnchored:
         token makes the next call re-resolve, which refreshes or refuses on the platform's word."""
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform(returncode=1, stderr=stderr) as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
 
         mocks.invalidate.assert_awaited_once()
         assert result == REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
@@ -1312,16 +1177,7 @@ class TestDestructiveSubcommandsAreRefusedCrossProject:
     async def test_gitlab_destructive_verbs_are_refused(self, subcommand):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            result = await _run_gitlab_subcommand(
-                subcommand,
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
 
         mocks.create_proc.assert_not_called()
         resource, action = subcommand.split()[:2]
@@ -1336,15 +1192,7 @@ class TestDestructiveSubcommandsAreRefusedCrossProject:
     async def test_github_destructive_verbs_are_refused(self, subcommand):
         runtime = _xproj_runtime(GitPlatform.GITHUB)
         with _patched_platform() as mocks:
-            result = await _run_github_subcommand(
-                subcommand,
-                runtime,
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
 
         mocks.create_proc.assert_not_called()
         resource, action = subcommand.split()[:2]
@@ -1359,29 +1207,16 @@ class TestDestructiveSubcommandsAreRefusedCrossProject:
         """Nothing about the attached project changes: it still runs under DAIV's own identity."""
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
-                subcommand,
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project="",
-                cross_project_enabled=True,
-            )
+            await _run_gl(subcommand, runtime, project="", cross_project_enabled=True)
 
         mocks.create_proc.assert_called_once()
 
     async def test_reads_and_comments_still_cross(self):
         runtime = _xproj_runtime(GitPlatform.GITLAB)
         with _patched_platform() as mocks:
-            await _run_gitlab_subcommand(
+            await _run_gl(
                 'project-issue-note create --issue-iid 1 --body "hi"',
                 runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
                 project=OTHER,
                 cross_project_enabled=True,
             )

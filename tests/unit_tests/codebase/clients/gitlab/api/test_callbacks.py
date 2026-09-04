@@ -759,6 +759,27 @@ class TestIssueCallbackForwardsActingIdentity:
             await callback.process_callback()
         return task_mock.aenqueue.call_args.kwargs
 
+    @staticmethod
+    async def _run_kwargs(daiv_user):
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", AsyncMock(return_value=daiv_user)),
+            patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as task_mock,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", AsyncMock(return_value=None)),
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run", AsyncMock()) as create_run,
+        ):
+            task_mock.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            await callback.process_callback()
+        return create_run.call_args.kwargs
+
+    async def test_the_session_records_the_uid_so_a_fix_run_can_prove_it(self, monkeypatch_dependencies):
+        """A pipeline-watch fix run reads its identity off the Session, not off the webhook, so
+        the uid has to be persisted there or the second hop spends a username match's credential.
+        """
+        kwargs = await self._run_kwargs(Mock(pk=42))
+
+        assert kwargs["acting_platform_uid"] == "10"
+
     async def test_a_mapped_triggering_user_is_forwarded(self, monkeypatch_dependencies):
         kwargs = await self._enqueue_kwargs(Mock(pk=42))
 

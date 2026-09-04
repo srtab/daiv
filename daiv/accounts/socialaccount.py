@@ -74,9 +74,18 @@ class GitHubAppOAuth2Adapter(TokenResponseCaptureMixin, GitHubOAuth2Adapter):
         web_url = cls._web_url()
         return "https://api.github.com" if web_url == "https://github.com" else f"{web_url}/api/v3"
 
+    @classmethod
+    def access_token_endpoint(cls) -> str:
+        """The token endpoint, off the instance so the refresh path can reach it too.
+
+        A GitHub Enterprise deployment must not POST its client secret to github.com, and having
+        the login exchange and the refresh derive that host from two expressions is how they drift.
+        """
+        return f"{cls._web_url()}/login/oauth/access_token"
+
     @property
     def access_token_url(self):
-        return f"{self._web_url()}/login/oauth/access_token"
+        return self.access_token_endpoint()
 
     @property
     def authorize_url(self):

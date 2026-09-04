@@ -61,6 +61,7 @@ match the existing convention that `test_git_platform.py` asserts on.
 | No credential | `error: <person> has not authorised DAIV to access other projects on <provider>. They can authorise it from their DAIV account settings.` |
 | Expired, refresh failed | `error: <person>'s <provider> authorisation has expired and could not be renewed. They need to re-authorise from their DAIV account settings.` |
 | Revoked | `error: <person>'s <provider> authorisation was revoked. They need to re-authorise from their DAIV account settings.` |
+| Identity not linked | `error: This run was attributed to <person> by name, but the <provider> account that triggered it is not linked to their DAIV account, ...` |
 | Insufficient scope | `error: <person>'s <provider> authorisation does not permit this operation on <project>. Re-authorising from DAIV account settings will request the required access.` |
 | Platform denied (404/403) | `error: <project> is not accessible to <person> on <provider>. It may not exist, or they may not have access.` |
 | Wrong host | `error: <project> is not on <host>, which is the only platform this deployment is configured for.` |
