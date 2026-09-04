@@ -8,7 +8,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.github.api.callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback
 from codebase.clients.github.api.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 from codebase.repo_config import RepositoryConfig
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 
 
 @pytest.fixture
@@ -540,3 +540,40 @@ class TestReactionFailureVisibility:
             await callback.process_callback()
 
         mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)
+
+
+class TestCrossProjectMarker:
+    """FR-015 / SC-006 — DAIV's own cross-project comment carries a person's attribution, so the
+    ``current_user.id`` check cannot recognise it. The marker must, or a DAIV-watched target
+    project feeds DAIV's own output back as a new run."""
+
+    def test_daiv_own_cross_project_comment_starts_no_run(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[Label(id=1, name=BOT_LABEL)]),
+            comment=Comment(
+                id=200,
+                body=f"@daiv-bot here is the context you asked for\n\n{CROSS_PROJECT_CONTENT_MARKER}",
+                user=User(**{"id": 10, "login": "ada"}),
+            ),
+        )
+        assert callback.accept_callback() is False
+
+    def test_the_same_persons_own_comment_still_starts_a_run(
+        self, monkeypatch_dependencies, mock_repo_config, mock_repo_client
+    ):
+        """The marker must suppress DAIV's output, not that person's."""
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", labels=[Label(id=1, name=BOT_LABEL)]),
+            comment=Comment(id=200, body="@daiv-bot help", user=User(**{"id": 10, "login": "ada"})),
+        )
+        assert callback.accept_callback() is True

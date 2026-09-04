@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -201,12 +201,44 @@ def sync_repository_access_cron_task():
     # cleared, it no longer has "prior rows" and stops being flagged as degraded.
     RepositoryAccess.objects.filter(provider=provider).stale().delete()
 
+    # Rides along on the access sync rather than earning its own cron: it is the same kind of
+    # bounded-growth housekeeping, at a cadence far finer than the retention window needs. Isolated
+    # like the catalog prune — the audit log is not access-load-bearing, so a failure here degrades
+    # the run rather than aborting the sync.
+    try:
+        prune_cross_project_access_records()
+    except Exception:
+        failures += 1
+        logger.exception("Repository access sync: failed to prune cross-project access records")
+
     if failures:
         state.status = RepositoryAccessSyncState.Status.FAILED
     else:
         state.status = RepositoryAccessSyncState.Status.OK
         state.last_success_at = timezone.now()
     state.save(update_fields=["status", "last_success_at"])
+
+
+def prune_cross_project_access_records() -> int:
+    """Drop cross-project access records past the retention window; returns how many went.
+
+    The table grows one row per cross-project tool call, so it needs a ceiling the way
+    ``RepositoryAccess`` needs its hard TTL. Retention is an operator choice
+    (``CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS``); a value of ``0`` keeps rows forever, for
+    deployments whose own retention policy owns this data.
+    """
+    from django.utils import timezone
+
+    from codebase.models import CrossProjectAccessRecord
+
+    retention_days = codebase_settings.CROSS_PROJECT_RECORD_RETENTION_DAYS
+    if retention_days <= 0:
+        return 0
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    deleted, _ = CrossProjectAccessRecord.objects.filter(occurred_at__lt=cutoff).delete()
+    if deleted:
+        logger.info("Pruned %s cross-project access records older than %s days", deleted, retention_days)
+    return deleted
 
 
 @task(dedup=True)
@@ -217,6 +249,8 @@ async def address_issue_task(
     ref: str | None = None,
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
+    acting_user_id: int | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -232,6 +266,10 @@ async def address_issue_task(
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
+        acting_user_id (int | None): The DAIV user the triggering platform user resolved to. The
+            run acts for them beyond the attached project.
+        acting_platform_uid (str | None): That platform user's own id, which the credential
+            lookup must match — the DAIV account may have been resolved by username or email.
     """
     # Local: keeps this module off the codebase -> sessions -> jobs.tasks import chain.
     from sessions.services import aget_session_ref, areset_session_ref
@@ -249,6 +287,8 @@ async def address_issue_task(
         ref=effective_ref or None,
         issue=issue,
         sandbox_env_id=sandbox_environment_id,
+        acting_user_id=acting_user_id,
+        acting_platform_uid=acting_platform_uid,
         fallback_ref_on_missing=True,
     ) as runtime_ctx:
         # A merged-and-deleted branch degrades to the default branch; re-pin so the next turn
@@ -401,6 +441,8 @@ async def address_mr_comments_task(
     mention_comment_id: str,
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
+    acting_user_id: int | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -415,6 +457,10 @@ async def address_mr_comments_task(
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
+        acting_user_id (int | None): The DAIV user the commenting platform user resolved to. The
+            run acts for them beyond the attached project.
+        acting_platform_uid (str | None): That platform user's own id, which the credential
+            lookup must match — the DAIV account may have been resolved by username or email.
     """
     from codebase.managers.review_addressor import CommentsAddressorManager
 
@@ -438,6 +484,8 @@ async def address_mr_comments_task(
             ref=merge_request.source_branch,
             merge_request=merge_request,
             sandbox_env_id=sandbox_environment_id,
+            acting_user_id=acting_user_id,
+            acting_platform_uid=acting_platform_uid,
         ) as runtime_ctx:
             return await CommentsAddressorManager.address_comments(
                 merge_request=merge_request,

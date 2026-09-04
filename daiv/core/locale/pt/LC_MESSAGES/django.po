@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-09-04 09:42+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -116,8 +116,7 @@ msgstr ""
 
 msgid "Slug is immutable after creation; delete and re-add to change."
 msgstr ""
-"O slug é imutável após a criação; elimine e volte a adicionar para o "
-"alterar."
+"O slug é imutável após a criação; elimine e volte a adicionar para o alterar."
 
 msgid "Locked provider; provider type cannot be changed."
 msgstr "Fornecedor bloqueado; o tipo de fornecedor não pode ser alterado."
@@ -126,8 +125,8 @@ msgid "Base URL must use http or https."
 msgstr "O URL base tem de usar http ou https."
 
 msgid ""
-"Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI"
-" SDK appends paths verbatim, so requests may hit the wrong route."
+"Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI "
+"SDK appends paths verbatim, so requests may hit the wrong route."
 msgstr ""
 "O URL base parece não ter um segmento de versão (ex.: '/v1'). O SDK da "
 "OpenAI acrescenta os caminhos tal como estão, pelo que os pedidos podem "
@@ -228,8 +227,8 @@ msgstr "nível de raciocínio"
 msgid ""
 "Extended thinking depth for agent tasks. Leave empty to disable thinking."
 msgstr ""
-"Profundidade de raciocínio alargado para tarefas do agente. Deixe vazio para"
-" desativar o raciocínio."
+"Profundidade de raciocínio alargado para tarefas do agente. Deixe vazio para "
+"desativar o raciocínio."
 
 msgid "max model"
 msgstr "modelo max"
@@ -242,8 +241,8 @@ msgstr "nível de raciocínio max"
 
 msgid "Thinking depth for daiv-max tasks. Leave empty to disable thinking."
 msgstr ""
-"Profundidade de raciocínio para tarefas daiv-max. Deixe vazio para desativar"
-" o raciocínio."
+"Profundidade de raciocínio para tarefas daiv-max. Deixe vazio para desativar "
+"o raciocínio."
 
 msgid "explore model"
 msgstr "modelo de exploração"
@@ -263,6 +262,21 @@ msgstr "limite de recursão"
 msgid "Maximum recursion depth for agent loops."
 msgstr "Profundidade máxima de recursão para os ciclos do agente."
 
+#, fuzzy
+#| msgid "web fetch enabled"
+msgid "pipeline watch enabled"
+msgstr "obtenção web ativada"
+
+msgid "Watch CI on merge requests DAIV publishes and try to fix failures."
+msgstr ""
+
+msgid "pipeline watch max attempts"
+msgstr ""
+
+msgid ""
+"How many fix attempts to spend on one merge request before handing back."
+msgstr ""
+
 msgid "Model for generating commit messages and PR descriptions from diffs."
 msgstr ""
 "Modelo para gerar mensagens de commit e descrições de PR a partir de diffs."
@@ -279,8 +293,8 @@ msgid "memory enabled"
 msgstr "memória ativada"
 
 msgid ""
-"Capture learnings from finished runs, consolidate them, and inject them into"
-" future runs. A per-repository .daiv.yml flag can still opt an individual "
+"Capture learnings from finished runs, consolidate them, and inject them into "
+"future runs. A per-repository .daiv.yml flag can still opt an individual "
 "repository out."
 msgstr ""
 "Captura aprendizagens de execuções concluídas, consolida-as e injeta-as em "
@@ -323,6 +337,17 @@ msgstr ""
 "Consolida quando tiverem acumulado pelo menos este número de observações "
 "pendentes (sujeito ao intervalo de consolidação abaixo)."
 
+#, fuzzy
+#| msgid "consolidation threshold"
+msgid "consolidation flush age (days)"
+msgstr "limiar de consolidação"
+
+msgid ""
+"Consolidate a repository that is still below the threshold above once its "
+"oldest pending observation reaches this age, so low-volume repositories "
+"still form memory."
+msgstr ""
+
 msgid "consolidation interval (hours)"
 msgstr "intervalo de consolidação (horas)"
 
@@ -332,16 +357,37 @@ msgstr "Número mínimo de horas entre consolidações para o mesmo repositório
 msgid "memory max lines"
 msgstr "máximo de linhas de memória"
 
-msgid "Hard cap on the consolidated memory document length, in lines."
+#, fuzzy
+#| msgid "Hard cap on the consolidated memory document length, in lines."
+msgid ""
+"Cap on the memory document length in lines; entries beyond it are evicted."
 msgstr ""
 "Limite máximo do comprimento do documento de memória consolidado, em linhas."
 
 msgid "memory max bytes"
 msgstr "máximo de bytes de memória"
 
-msgid "Hard cap on the consolidated memory document size, in bytes."
+#, fuzzy
+#| msgid "Hard cap on the consolidated memory document size, in bytes."
+msgid ""
+"Cap on the memory document size in bytes; entries beyond it are evicted."
 msgstr ""
 "Limite máximo do tamanho do documento de memória consolidado, em bytes."
+
+msgid "classifier model"
+msgstr "modelo do classificador"
+
+msgid ""
+"Model that classifies each finished scheduled run's report into an envelope."
+msgstr ""
+"Modelo que classifica o relatório de cada execução agendada concluída num "
+"envelope."
+
+msgid "classifier fallback model"
+msgstr "modelo de recurso do classificador"
+
+msgid "Fallback model when the classifier model fails."
+msgstr "Modelo de recurso quando o modelo do classificador falha."
 
 msgid "web search enabled"
 msgstr "pesquisa web ativada"
@@ -393,6 +439,15 @@ msgstr ""
 "Tamanho máximo do conteúdo da página (em caracteres) a analisar numa só "
 "passagem."
 
+msgid "cross-project access enabled"
+msgstr ""
+
+msgid ""
+"Allow the git platform tools to target projects other than the attached one, "
+"acting as the person who requested the run. Off by default: enabling it "
+"widens what the agent can reach."
+msgstr ""
+
 msgid "sandbox timeout"
 msgstr "tempo limite da sandbox"
 
@@ -435,27 +490,34 @@ msgid "GitLab server URL"
 msgstr "URL do servidor GitLab"
 
 msgid ""
-"Server-to-server URL for GitLab API calls (token exchange, profile fetch) in"
-" Docker-internal networks. Leave empty to use the GitLab URL."
+"Server-to-server URL for GitLab API calls (token exchange, profile fetch) in "
+"Docker-internal networks. Leave empty to use the GitLab URL."
 msgstr ""
 "URL servidor-a-servidor para chamadas à API do GitLab (troca de token, "
-"obtenção de perfil) em redes internas do Docker. Deixe vazio para usar o URL"
-" do GitLab."
+"obtenção de perfil) em redes internas do Docker. Deixe vazio para usar o URL "
+"do GitLab."
 
 msgid "suggest context file"
 msgstr "sugerir ficheiro de contexto"
 
-msgid ""
-"Suggest creating a context file (e.g. AGENTS.md) on new merge requests."
+msgid "Suggest creating a context file (e.g. AGENTS.md) on new merge requests."
 msgstr ""
-"Sugerir a criação de um ficheiro de contexto (ex.: AGENTS.md) em novos merge"
-" requests."
+"Sugerir a criação de um ficheiro de contexto (ex.: AGENTS.md) em novos merge "
+"requests."
+
+msgid "link sessions from merge requests"
+msgstr ""
+
+msgid ""
+"Link back to the DAIV sessions that produced the changes, from the "
+"descriptions of merge requests DAIV opens and from a DAIV-Session trailer on "
+"every commit. Disable to keep the DAIV URL off the git platform."
+msgstr ""
 
 msgid "jobs throttle rate"
 msgstr "limite de frequência de tarefas"
 
-msgid ""
-"Rate limit for job submissions per authenticated user (e.g. '20/hour')."
+msgid "Rate limit for job submissions per authenticated user (e.g. '20/hour')."
 msgstr ""
 "Limite de frequência para submissões de tarefas por utilizador autenticado "
 "(ex.: '20/hour')."
@@ -464,8 +526,7 @@ msgid "enable Rocket Chat"
 msgstr "ativar Rocket Chat"
 
 msgid "Offer Rocket Chat as a notification channel for users."
-msgstr ""
-"Oferecer o Rocket Chat como canal de notificação para os utilizadores."
+msgstr "Oferecer o Rocket Chat como canal de notificação para os utilizadores."
 
 msgid "Rocket Chat URL"
 msgstr "URL do Rocket Chat"
@@ -491,6 +552,9 @@ msgstr "Titulação"
 msgid "Memory"
 msgstr "Memória"
 
+msgid "Run classifier"
+msgstr "Classificador de execuções"
+
 msgid "Providers"
 msgstr "Fornecedores"
 
@@ -500,11 +564,17 @@ msgstr "Pesquisa Web"
 msgid "Web Fetch"
 msgstr "Obtenção Web"
 
+msgid "Cross-project access"
+msgstr ""
+
 msgid "Sandbox"
 msgstr "Sandbox"
 
 msgid "Jobs"
 msgstr "Tarefas"
+
+msgid "Pipeline Watch"
+msgstr ""
 
 msgid "Rocket Chat"
 msgstr "Rocket Chat"
@@ -549,9 +619,9 @@ msgid "use Responses API"
 msgstr "usar Responses API"
 
 msgid ""
-"Only honored for OpenAI-typed providers. Enable for servers that expose "
-"/v1/responses (real OpenAI, some hosted gateways). Disable for "
-"/v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+"Only honored for OpenAI-typed providers. Enable for servers that expose /v1/"
+"responses (real OpenAI, some hosted gateways). Disable for /v1/chat/"
+"completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
 msgstr ""
 "Apenas considerado para fornecedores do tipo OpenAI. Ative para servidores "
 "que expõem /v1/responses (OpenAI real, alguns gateways alojados). Desative "
@@ -566,9 +636,9 @@ msgid ""
 "Skipping verification exposes the connection to MITM attacks; prefer "
 "mounting the internal CA into the daiv containers when possible."
 msgstr ""
-"Desative apenas para endpoints auto-alojados por detrás de uma CA "
-"interna/autoassinada. Ignorar a verificação expõe a ligação a ataques MITM; "
-"sempre que possível, prefira montar a CA interna nos contentores do daiv."
+"Desative apenas para endpoints auto-alojados por detrás de uma CA interna/"
+"autoassinada. Ignorar a verificação expõe a ligação a ataques MITM; sempre "
+"que possível, prefira montar a CA interna nos contentores do daiv."
 
 msgid "provider"
 msgstr "fornecedor"
@@ -576,8 +646,15 @@ msgstr "fornecedor"
 msgid "providers"
 msgstr "fornecedores"
 
-msgid ""
-"Configure model providers. Reach a model from agent config via the form"
+#, fuzzy
+#| msgid "site configuration"
+msgid "Configuration section"
+msgstr "configuração do site"
+
+msgid "Section"
+msgstr ""
+
+msgid "Configure model providers. Reach a model from agent config via the form"
 msgstr ""
 "Configure os fornecedores de modelos. Alcance um modelo a partir da "
 "configuração do agente através do formulário"
@@ -596,6 +673,9 @@ msgstr "Personalizado"
 
 msgid "Add custom provider"
 msgstr "Adicionar fornecedor personalizado"
+
+msgid "Close"
+msgstr "Fechar"
 
 msgid "Per-domain auth headers"
 msgstr "Cabeçalhos de autenticação por domínio"
@@ -666,16 +746,15 @@ msgid ""
 "OpenAI-typed providers only. Enable for servers exposing /v1/responses; "
 "disable for /v1/chat/completions-only servers."
 msgstr ""
-"Apenas para fornecedores do tipo OpenAI. Ative para servidores que expõem "
-"/v1/responses; desative para servidores apenas com /v1/chat/completions."
+"Apenas para fornecedores do tipo OpenAI. Ative para servidores que expõem /"
+"v1/responses; desative para servidores apenas com /v1/chat/completions."
 
 msgid ""
 "Disable only for self-hosted endpoints behind an internal/self-signed CA. "
 "Insecure — prefer mounting the CA into the daiv containers."
 msgstr ""
-"Desative apenas para endpoints auto-alojados por detrás de uma CA "
-"interna/autoassinada. Inseguro — prefira montar a CA nos contentores do "
-"daiv."
+"Desative apenas para endpoints auto-alojados por detrás de uma CA interna/"
+"autoassinada. Inseguro — prefira montar a CA nos contentores do daiv."
 
 msgid "Clear"
 msgstr "Limpar"
@@ -685,21 +764,3 @@ msgstr "Armazenado:"
 
 msgid "(new)"
 msgstr "(novo)"
-
-msgid "classifier model"
-msgstr "modelo do classificador"
-
-msgid "Model that classifies each finished scheduled run's report into an envelope."
-msgstr "Modelo que classifica o relatório de cada execução agendada concluída num envelope."
-
-msgid "classifier fallback model"
-msgstr "modelo de recurso do classificador"
-
-msgid "Fallback model when the classifier model fails."
-msgstr "Modelo de recurso quando o modelo do classificador falha."
-
-msgid "Run classifier"
-msgstr "Classificador de execuções"
-
-msgid "Close"
-msgstr "Fechar"

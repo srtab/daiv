@@ -15,13 +15,17 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 from django_filters.views import FilterView
 from sessions.models import Run, RunStatus, SessionOrigin
 
+from accounts import credentials
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
 from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
+from codebase.base import GitPlatform
+from codebase.conf import settings as codebase_settings
 from codebase.models import MergeMetric
+from core.site_settings import site_settings
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -316,6 +320,43 @@ class APIKeyCreateView(LoginRequiredMixin, View):
         request.session["new_api_key"] = key
         messages.success(request, f"API key '{form.cleaned_data['name']}' created.")
         return redirect("api_keys")
+
+
+class PlatformCredentialView(LoginRequiredMixin, TemplateView):
+    """Where a person sees and withdraws the authorisation DAIV acts with on their behalf.
+
+    Shows state, expiry and the scopes the platform actually granted — never the token, which
+    only ``accounts.credentials`` may read.
+    """
+
+    template_name = "accounts/platform_credential.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        provider = codebase_settings.CLIENT
+        context["provider"] = provider.value
+        context["supported"] = provider in (GitPlatform.GITLAB, GitPlatform.GITHUB)
+        context["cross_project_enabled"] = bool(site_settings.cross_project_access_enabled)
+        if context["supported"]:
+            context["status"] = credentials.status(user_id=self.request.user.pk, provider=provider)
+            context["connect_url"] = reverse(f"{provider.value}_login")
+        return context
+
+
+class PlatformCredentialRevokeView(LoginRequiredMixin, View):
+    """Disconnect: clear both secrets and mark the grant revoked. Only ever one's own."""
+
+    def post(self, request):
+        provider = codebase_settings.CLIENT
+        if provider not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+            messages.error(request, "This deployment has no git platform authorisation to disconnect.")
+            return redirect("platform_credential")
+
+        if credentials.revoke(user_id=request.user.pk, provider=provider):
+            messages.success(request, f"Disconnected your {provider.value} authorisation.")
+        else:
+            messages.info(request, f"There was no {provider.value} authorisation to disconnect.")
+        return redirect("platform_credential")
 
 
 class APIKeyRevokeView(LoginRequiredMixin, View):

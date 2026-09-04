@@ -207,3 +207,63 @@ class TestSocialAccountAdapterListApps:
         result = adapter.list_apps(Mock())
         assert result[0].settings["gitlab_url"] == "https://gitlab.com"
         assert result[0].settings["gitlab_server_url"] == ""
+
+
+def _make_social_login_with_token(user, *, provider="gitlab", uid="77", scope="read_user api", expires_at=None):
+    from accounts.socialaccount import TOKEN_RESPONSE_ATTR
+
+    token = Mock(token="tok-from-platform", token_secret="refresh-from-platform", expires_at=expires_at)  # noqa: S106
+    setattr(token, TOKEN_RESPONSE_ATTR, {"scope": scope} if scope is not None else {})
+    sociallogin = Mock(user=user, token=token, account=Mock(provider=provider, uid=uid))
+    return sociallogin
+
+
+@pytest.mark.django_db
+class TestCapturePlatformCredential:
+    """The seam between allauth's login and DAIV's own credential store."""
+
+    def test_a_social_login_stores_the_grant(self, adapter, user_in_db):
+        from accounts.models import CredentialState, PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+
+        credential = PlatformCredential.objects.get(user=user_in_db)
+        assert credential.state == CredentialState.CONNECTED
+        assert credential.access_token == "tok-from-platform"  # noqa: S105
+        assert credential.platform_uid == "77"
+
+    def test_it_records_the_scopes_the_platform_granted(self, adapter, user_in_db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, scope="read_user"))
+
+        assert PlatformCredential.objects.get(user=user_in_db).scopes == ["read_user"]
+
+    def test_an_unreported_scope_is_recorded_as_unknown_not_as_the_requested_set(self, adapter, user_in_db):
+        """The raw response does not survive allauth's signup session round-trip; recording the
+        *requested* scopes there would be a different, false claim."""
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, scope=None))
+
+        assert PlatformCredential.objects.get(user=user_in_db).scopes == []
+
+    def test_an_unsaved_user_stores_nothing(self, adapter, db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(User(email="ghost@test.com")))
+
+        assert not PlatformCredential.objects.exists()
+
+    def test_an_unknown_provider_stores_nothing(self, adapter, user_in_db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, provider="bitbucket"))
+
+        assert not PlatformCredential.objects.exists()
+
+    def test_a_storage_failure_never_breaks_sign_in(self, adapter, user_in_db, caplog):
+        with patch("accounts.credentials.store", side_effect=RuntimeError("db down")):
+            adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+
+        assert "Failed to store" in caplog.text

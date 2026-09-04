@@ -18,7 +18,7 @@ from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 
 from .models import (  # noqa: TC001
     Issue,
@@ -124,13 +124,17 @@ class IssueCallback(BaseCallback):
         # GLOBAL repo envs and the GLOBAL default apply — mirroring set_runtime_ctx's contract.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        # Resolved before the enqueue, not after: the run acts for this person beyond the attached
+        # project, so the task needs their identity, not only the Run row.
+        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         result = await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_user_id=daiv_user.pk if daiv_user else None,
+            acting_platform_uid=str(self.user.id),
         )
-        daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
             await acreate_run(
                 trigger_type=SessionOrigin.ISSUE_WEBHOOK,
@@ -174,6 +178,9 @@ class NoteCallback(BaseCallback):
             self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
             or self.object_attributes.system
             or self.user.id == self._client.current_user.id
+            # A cross-project write is attributed to a person, so the bot-id check above cannot
+            # see it is DAIV's own. The marker is what stops DAIV replying to itself here.
+            or CROSS_PROJECT_CONTENT_MARKER in (self.object_attributes.note or "")
         ):
             return False
 
@@ -214,6 +221,8 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_user_id=daiv_user.pk if daiv_user else None,
+                acting_platform_uid=str(self.user.id),
             )
             try:
                 await acreate_run(
@@ -252,6 +261,8 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_user_id=daiv_user.pk if daiv_user else None,
+                acting_platform_uid=str(self.user.id),
             )
             try:
                 await acreate_run(

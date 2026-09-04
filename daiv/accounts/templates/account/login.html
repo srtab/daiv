@@ -59,6 +59,15 @@
             </a>
             {% endif %}
             {% endfor %}
+            {% if socialaccount_cross_project_enabled %}
+            {% comment %}FR-007: say what the authorisation permits before it is granted, not
+            after. Only shown when the capability that needs the wider grant is actually on.{% endcomment %}
+            <p class="mt-3 text-center text-[12px] font-light leading-relaxed tracking-wide text-gray-400">
+                Signing in also authorises DAIV to act as you on {{ socialaccount_platform|default:"your git platform" }}
+                when a run you start needs another project — it never sees more than you can.
+                You can review or disconnect this any time in your account settings.
+            </p>
+            {% endif %}
         </div>
 
         <!-- Divider -->

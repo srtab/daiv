@@ -90,9 +90,16 @@ class RuntimeCtx:
     """External work items this run addresses; rendered into the MR description and commit
     trailers by the publisher. Includes the derived platform issue ref for issue-scoped runs."""
     acting_user_id: int | None = None
-    """The DAIV user who triggered this run, when known. Selects that user's
-    personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
-    which load global servers only."""
+    """The DAIV user this run acts for, when known. Selects that user's personal MCP servers and,
+    beyond the attached project, the credential the git platform tools act with. Webhook-triggered
+    runs carry the user the event resolved to; ``None`` only when no DAIV account could be
+    resolved, or for a run with no requesting person at all."""
+    acting_platform_uid: str | None = None
+    """The platform's own user id for the event that started this run, when it came from a webhook.
+
+    ``resolve_user`` matches on username and email before social uid, so ``acting_user_id`` can
+    name an account that never linked this platform identity — fine for choosing an MR assignee,
+    not for choosing whose credential to spend. When set, the credential must carry the same uid."""
     mcp_overrides: dict = field(default_factory=dict)
     """Per-run MCP server selection deviations ({name: "on"|"off"}). Empty = pure default set.
     Stamped on the Session at creation and read on every run; ``build_runtime_servers`` applies it."""
@@ -176,6 +183,7 @@ async def set_runtime_ctx(
     offline: bool = False,
     sandbox_env_id: str | None = None,
     acting_user_id: int | None = None,
+    acting_platform_uid: str | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
@@ -195,7 +203,11 @@ async def set_runtime_ctx(
             When not provided, Auto-resolution selects an env via
             :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
             to the GLOBAL default env if nothing matches.
-        acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
+        acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers
+            and, beyond the attached project, the credential the git platform tools act with.
+        acting_platform_uid: The platform's own user id for a webhook-triggered run, used to prove
+            the resolved DAIV account really linked that platform identity before spending its
+            credential.
         mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
         references: Caller-declared external references, from ``Session.external_refs``.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
@@ -272,6 +284,7 @@ async def set_runtime_ctx(
                     references, scope=scope, issue=issue, git_platform=repo_client.git_platform
                 ),
                 acting_user_id=acting_user_id,
+                acting_platform_uid=acting_platform_uid,
                 mcp_overrides=mcp_overrides or {},
             )
             token = runtime_ctx.set(ctx)

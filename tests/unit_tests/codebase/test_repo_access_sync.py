@@ -319,3 +319,44 @@ class TestSyncRepositoryCatalog:
         assert not RepositoryAccess.objects.filter(repo_id="old/gone").exists()
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+
+@pytest.mark.django_db
+class TestCrossProjectRecordRetention:
+    """T060 — one row per cross-project tool call needs a ceiling, the way ``RepositoryAccess``
+    needs its hard TTL."""
+
+    @staticmethod
+    def _record(age_days: int):
+        from codebase.models import CrossProjectAccessRecord
+
+        record = CrossProjectAccessRecord.objects.create(
+            thread_id="t", provider="gitlab", target_repo_id="g/r", outcome="allowed"
+        )
+        # occurred_at is auto_now_add, so age it after the fact.
+        CrossProjectAccessRecord.objects.filter(pk=record.pk).update(
+            occurred_at=timezone.now() - timedelta(days=age_days)
+        )
+        return record
+
+    def test_records_past_the_window_are_pruned(self):
+        from codebase.models import CrossProjectAccessRecord
+        from codebase.tasks import prune_cross_project_access_records
+
+        old = self._record(120)
+        recent = self._record(5)
+
+        assert prune_cross_project_access_records() == 1
+        remaining = list(CrossProjectAccessRecord.objects.values_list("pk", flat=True))
+        assert remaining == [recent.pk]
+        assert old.pk not in remaining
+
+    def test_a_zero_window_keeps_everything(self):
+        from codebase.models import CrossProjectAccessRecord
+        from codebase.tasks import prune_cross_project_access_records
+
+        self._record(3650)
+
+        with patch.object(codebase_settings, "CROSS_PROJECT_RECORD_RETENTION_DAYS", 0):
+            assert prune_cross_project_access_records() == 0
+        assert CrossProjectAccessRecord.objects.count() == 1

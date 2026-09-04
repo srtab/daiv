@@ -3,6 +3,13 @@ BOT_LABEL = "daiv"
 BOT_MAX_LABEL = "daiv-max"
 BOT_AUTO_LABEL = "daiv-auto"
 
+# Appended to anything DAIV publishes in a project other than the run's attached one. Those writes
+# carry a person's attribution rather than the bot's, so the webhook's "is this my own event?"
+# check (which compares against the bot user) cannot recognise them — and a DAIV-watched target
+# project would otherwise feed DAIV's own comment straight back as a new run. Renders as nothing
+# on both platforms.
+CROSS_PROJECT_CONTENT_MARKER = "<!-- daiv:cross-project -->"
+
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the
 # RUN_ERROR event message and persisted to Run.error_message), and rendered verbatim in
 # the session transcript on reload, so they must never carry raw exception text. The

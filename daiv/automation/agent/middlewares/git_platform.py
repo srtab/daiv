@@ -4,8 +4,11 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -20,12 +23,14 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
+from accounts.credentials import CredentialReason, aresolve_access_token, arevoke, platform_host
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
+from core.constants import CROSS_PROJECT_CONTENT_MARKER
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -163,7 +168,6 @@ This tool is best for retrieving the current state of:
 - ✗ `project-issue get --iid 42 --project-id 123`
 - ✗ `project-issue get --id 42`
 - ✗ `project-issue list --output json`
-- ✗ `project list --topic test` (unsupported: this tool is project-scoped)
 
 **Special case: inline merge request comments**
 - For a new inline comment on an MR diff, use `project-merge-request-discussion create`, not `project-merge-request-note create`.
@@ -255,13 +259,27 @@ This tool is best for retrieving the current state of:
 - When the output is long, extract only the decisive facts needed for the next step"""  # noqa: E501
 
 
+CROSS_PROJECT_TOOL_DESCRIPTION = """
+
+**Targeting another project (`project`):**
+- Leave `project` empty — the default — to target the current project. That is the right choice for almost every call, and it behaves exactly as described above.
+- Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
+- A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
+- Pass a project path, not a flag and not a URL with a different host.
+- Everything else is unchanged: the same allowed subcommands, the same 30-second timeout, the same automatic saving of oversized results."""  # noqa: E501
+
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     f"""\
 ## Git Platform Tools
 
 Use the available Git platform tool early whenever platform state can change what you should do.
 
+{{{{^cross_project}}}}
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
+{{{{/cross_project}}}}
+{{{{#cross_project}}}}
+Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, and only if that person has access.
+{{{{/cross_project}}}}
 
 **Core policy:**
 - If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code.
@@ -535,6 +553,274 @@ def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Cross-project access
+#
+# A call that names another project is executed with an OAuth credential belonging to the person
+# the run acts for, so the git platform's own permission check decides what comes back. The
+# contract these strings and rules implement is
+# ``specs/001-cross-project-user-tokens/contracts/agent-tools.md``.
+# ---------------------------------------------------------------------------
+
+PROJECT_ARG_DESCRIPTION = (
+    "Project to target, as a project path such as 'group/name'. Leave empty (the default) to "
+    "target the current project, which is what almost every call wants. Naming a different "
+    "project runs that call as the person who requested this run: it returns only what they can "
+    "see, and is refused outright — not silently empty — if they cannot see it."
+)
+
+REFUSAL_DISABLED = "error: Cross-project access is not enabled on this DAIV deployment. Only {attached} can be reached."
+REFUSAL_NO_ACTING_USER = (
+    "error: This run has no requesting user, so only {attached} can be reached. Cross-project access "
+    "needs a run started by a signed-in user, or by a platform user with a linked DAIV account."
+)
+REFUSAL_NO_CREDENTIAL = (
+    "error: {person} has not authorised DAIV to access other projects on {provider}. They can "
+    "authorise it from their DAIV account settings."
+)
+REFUSAL_EXPIRED = (
+    "error: {person}'s {provider} authorisation has expired and could not be renewed. They need to "
+    "re-authorise from their DAIV account settings."
+)
+REFUSAL_REVOKED = (
+    "error: {person}'s {provider} authorisation was revoked. They need to re-authorise from their "
+    "DAIV account settings."
+)
+REFUSAL_INSUFFICIENT_SCOPE = (
+    "error: {person}'s {provider} authorisation does not permit this operation on {project}. "
+    "Re-authorising from DAIV account settings will request the required access."
+)
+REFUSAL_PLATFORM_DENIED = (
+    "error: {project} is not accessible to {person} on {provider}. It may not exist, or they may not have access."
+)
+REFUSAL_WRONG_HOST = "error: {project} is not on {host}, which is the only platform this deployment is configured for."
+REFUSAL_PROJECT_IS_A_FLAG = "error: The project must be a project path, not a flag."
+REFUSAL_PROJECT_NOT_A_PATH = "error: The project must be a single project path (e.g. 'group/name')."
+REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT = (
+    "error: Inline merge request diff comments can only be created on {attached}, not on {project}. "
+    "Use a regular merge request note there instead."
+)
+
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+
+# stderr is never echoed on the cross-project path, so the CLI's failure has to be classified from
+# it instead. Both lists are heuristics over what python-gitlab and gh print; anything unmatched
+# degrades to a generic failure rather than leaking the text.
+_PLATFORM_DENIED_MARKERS = ("404", "403", "not found", "forbidden", "could not resolve", "no such")
+_PLATFORM_UNAUTHORIZED_MARKERS = ("401", "unauthorized", "bad credentials", "invalid_token")
+
+_OUTCOME_BY_REASON = {
+    CredentialReason.DISABLED: "denied_disabled",
+    CredentialReason.NO_ACTING_USER: "denied_no_credential",
+    CredentialReason.NO_CREDENTIAL: "denied_no_credential",
+    CredentialReason.EXPIRED: "denied_no_credential",
+    CredentialReason.REVOKED: "denied_no_credential",
+    CredentialReason.INSUFFICIENT_SCOPE: "denied_no_credential",
+}
+
+
+@dataclass(frozen=True)
+class _TargetDecision:
+    """Where a call goes and under whose identity.
+
+    ``refusal`` set is the whole answer: a refused cross-project call is never retried under the
+    service identity (FR-006). ``target`` unset with no refusal is the attached-project path,
+    unchanged from before this feature existed.
+    """
+
+    refusal: str | None = None
+    target: str | None = None
+    token: str | None = None
+
+    @property
+    def is_cross_project(self) -> bool:
+        return self.target is not None
+
+
+def _validate_project(project: str, attached: str, provider: GitPlatform) -> tuple[str | None, str | None]:
+    """``(target, refusal)``. Both ``None`` means the attached-project path.
+
+    ``argv`` reaches ``create_subprocess_exec`` without a shell, so the risk here is flag
+    confusion, not quoting.
+    """
+    candidate = project.strip()
+    if not candidate:
+        return None, None
+    if candidate.startswith("-"):
+        return None, REFUSAL_PROJECT_IS_A_FLAG
+    if _CONTROL_CHARACTERS.search(candidate) or any(character.isspace() for character in candidate):
+        return None, REFUSAL_PROJECT_NOT_A_PATH
+    if "://" in candidate:
+        host = platform_host(provider)
+        parsed = urlparse(candidate)
+        if parsed.hostname != host:
+            return None, REFUSAL_WRONG_HOST.format(project=candidate, host=host)
+        candidate = parsed.path.strip("/")
+        if not candidate:
+            return None, REFUSAL_PROJECT_NOT_A_PATH
+    if candidate == attached:
+        return None, None
+    return candidate, None
+
+
+# Both CLIs spell the published text ``--body``; gh also accepts ``-b``. Nothing else DAIV can
+# write cross-project (a release note, a branch name) can come back as a webhook event.
+_BODY_FLAGS = ("--body", "-b")
+
+
+def _mark_cross_project_body(args: list[str]) -> list[str]:
+    """Append the FR-015 marker to a body published outside the attached project.
+
+    Cross-project writes are attributed to a person, not to the bot, so the webhook's
+    ``current_user.id`` check cannot recognise them as DAIV's own. Without the marker, a comment
+    DAIV leaves in a DAIV-watched project starts a new run on itself.
+    """
+    marked = list(args)
+    for index, arg in enumerate(marked):
+        if arg in _BODY_FLAGS and index + 1 < len(marked):
+            marked[index + 1] = f"{marked[index + 1]}\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+            return marked
+        for flag in _BODY_FLAGS:
+            if arg.startswith(f"{flag}="):
+                marked[index] = f"{arg}\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+                return marked
+    return marked
+
+
+async def _acting_person_label(acting_user_id: int | None) -> str:
+    """How a refusal names the person. Falls back to a role, never to an id."""
+    if not acting_user_id:
+        return "The requesting user"
+    from accounts.models import User
+
+    user = await User.objects.filter(pk=acting_user_id).afirst()
+    return str(user) if user is not None else "The requesting user"
+
+
+def _credential_refusal(
+    reason: CredentialReason | None, *, attached: str, project: str, provider: GitPlatform, person: str
+) -> str:
+    provider_label = provider.value
+    if reason is CredentialReason.DISABLED:
+        return REFUSAL_DISABLED.format(attached=attached)
+    if reason is CredentialReason.NO_ACTING_USER:
+        return REFUSAL_NO_ACTING_USER.format(attached=attached)
+    if reason is CredentialReason.EXPIRED:
+        return REFUSAL_EXPIRED.format(person=person, provider=provider_label)
+    if reason is CredentialReason.REVOKED:
+        return REFUSAL_REVOKED.format(person=person, provider=provider_label)
+    if reason is CredentialReason.INSUFFICIENT_SCOPE:
+        return REFUSAL_INSUFFICIENT_SCOPE.format(person=person, provider=provider_label, project=project)
+    return REFUSAL_NO_CREDENTIAL.format(person=person, provider=provider_label)
+
+
+async def _record_cross_project_access(
+    runtime: ToolRuntime[RuntimeCtx],
+    *,
+    provider: GitPlatform,
+    target_repo_id: str,
+    outcome: str,
+    identity_kind: str = "user",
+) -> None:
+    """One row per cross-project attempt, allowed or refused (FR-016).
+
+    A refused call must still be recorded — a pattern of refusals is what an auditor is looking
+    for — but losing the row must never cost the run its answer.
+    """
+    from codebase.models import CrossProjectAccessRecord
+
+    try:
+        await CrossProjectAccessRecord.objects.acreate(
+            thread_id=str(runtime.config.get("configurable", {}).get("thread_id", "") or ""),
+            acting_user_id=getattr(runtime.context, "acting_user_id", None),
+            identity_kind=identity_kind,
+            provider=provider.value,
+            target_repo_id=target_repo_id[:255],
+            outcome=outcome,
+        )
+    except Exception:
+        logger.exception("[git-platform] Failed to record cross-project access to %s", target_repo_id)
+
+
+async def _decide_target(
+    project: str, runtime: ToolRuntime[RuntimeCtx], *, provider: GitPlatform, cross_project_enabled: bool
+) -> _TargetDecision:
+    """Pick the project and the identity for one call, and record the attempt when it crosses out."""
+    attached = runtime.context.repository.slug
+    target, refusal = _validate_project(project, attached, provider)
+
+    if refusal is not None:
+        await _record_cross_project_access(runtime, provider=provider, target_repo_id=project.strip(), outcome="error")
+        return _TargetDecision(refusal=refusal)
+
+    if target is None:
+        return _TargetDecision()
+
+    acting_user_id = getattr(runtime.context, "acting_user_id", None)
+    if not cross_project_enabled:
+        await _record_cross_project_access(runtime, provider=provider, target_repo_id=target, outcome="denied_disabled")
+        return _TargetDecision(refusal=REFUSAL_DISABLED.format(attached=attached))
+
+    resolved = await aresolve_access_token(
+        acting_user_id=acting_user_id,
+        provider=provider,
+        platform_uid=getattr(runtime.context, "acting_platform_uid", None),
+    )
+    if resolved.ok:
+        return _TargetDecision(target=target, token=resolved.token)
+
+    person = await _acting_person_label(acting_user_id)
+    await _record_cross_project_access(
+        runtime,
+        provider=provider,
+        target_repo_id=target,
+        outcome=_OUTCOME_BY_REASON.get(resolved.reason, "denied_no_credential"),
+    )
+    return _TargetDecision(
+        refusal=_credential_refusal(
+            resolved.reason, attached=attached, project=target, provider=provider, person=person
+        )
+    )
+
+
+async def _cross_project_failure(
+    stderr_text: str, runtime: ToolRuntime[RuntimeCtx], *, project: str, provider: GitPlatform
+) -> tuple[str, str]:
+    """``(tool result, audit outcome)`` for a failed cross-project call.
+
+    stderr is classified, never echoed: it can carry token fragments, and repository names the
+    person is not entitled to see. The denied string deliberately does not distinguish "does not
+    exist" from "you may not see it", mirroring the platform, so the tool cannot be used as an
+    existence oracle for private projects.
+    """
+    lowered = stderr_text.lower()
+    person = await _acting_person_label(getattr(runtime.context, "acting_user_id", None))
+
+    if any(marker in lowered for marker in _PLATFORM_UNAUTHORIZED_MARKERS):
+        # The platform rejected a token this service issued: the grant is gone, so say so instead
+        # of retrying a dead credential on the next call.
+        acting_user_id = getattr(runtime.context, "acting_user_id", None)
+        if acting_user_id:
+            try:
+                await arevoke(user_id=acting_user_id, provider=provider)
+            except Exception:
+                logger.exception("[git-platform] Failed to mark the %s credential revoked", provider.value)
+        return REFUSAL_REVOKED.format(person=person, provider=provider.value), "denied_no_access"
+
+    if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
+        return (
+            REFUSAL_PLATFORM_DENIED.format(project=project, person=person, provider=provider.value),
+            "denied_no_access",
+        )
+
+    return (
+        f"error: The {provider.value} command against {project} failed. The details are withheld "
+        f"because they come from a project outside this run. Re-check the subcommand, or run it "
+        f"against the current project instead.",
+        "error",
+    )
+
+
 async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Create an inline MR diff discussion via the python-gitlab Python API.
@@ -593,6 +879,8 @@ async def _run_gitlab_subcommand(
     *,
     backend: BackendProtocol,
     large_tool_results_prefix: str,
+    project: str = "",
+    cross_project_enabled: bool = False,
 ) -> str:
     """
     Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool.
@@ -602,6 +890,10 @@ async def _run_gitlab_subcommand(
     and a compact confirmation is returned; otherwise the output is returned inline and the
     deepagents FilesystemMiddleware evicts it to that same dir if it exceeds the middleware's
     tool-result token limit.
+
+    ``project`` empty (or equal to the attached repository) is the unchanged path: the attached
+    project under the deployment's service token. Any other project is executed with the acting
+    person's own credential, and is refused rather than falling back.
     """
     if not subcommand or not subcommand.strip():
         return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
@@ -629,18 +921,37 @@ async def _run_gitlab_subcommand(
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The project ID and output format are automatically set."
 
+    decision = await _decide_target(
+        project, runtime, provider=GitPlatform.GITLAB, cross_project_enabled=cross_project_enabled
+    )
+    if decision.refusal is not None:
+        # FR-006: the refusal is the whole answer. Retrying under the service identity here is
+        # exactly the leak this feature exists to prevent.
+        return decision.refusal
+
+    target_slug = decision.target or runtime.context.repository.slug
+
     # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
     # hash params (position[base_sha], position[position_type], …) via the CLI.
     if resource == "project-merge-request-discussion" and action == "create":
         rest_args = splitted_subcommand[2:]
         if any(arg == "--position" or arg.startswith("--position=") for arg in rest_args):
+            if decision.is_cross_project:
+                # The bypass goes through RepoClient, which holds the service token — the one
+                # identity a cross-project call may not use.
+                await _record_cross_project_access(
+                    runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="error"
+                )
+                return REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT.format(
+                    attached=runtime.context.repository.slug, project=target_slug
+                )
             return await _create_gitlab_inline_discussion(rest_args, runtime)
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
-        "GITLAB_PRIVATE_TOKEN": settings.GITLAB_AUTH_TOKEN.get_secret_value(),
+        "GITLAB_PRIVATE_TOKEN": decision.token or settings.GITLAB_AUTH_TOKEN.get_secret_value(),
         "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
         "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
         "GITLAB_USER_AGENT": USER_AGENT,
@@ -657,8 +968,8 @@ async def _run_gitlab_subcommand(
     elif output_mode == "detailed":
         args.append("--verbose")
 
-    args += splitted_subcommand
-    args += ["--project-id" if resource != "project" else "--id", runtime.context.repository.slug]
+    args += _mark_cross_project_body(splitted_subcommand) if decision.is_cross_project else splitted_subcommand
+    args += ["--project-id" if resource != "project" else "--id", target_slug]
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -675,11 +986,28 @@ async def _run_gitlab_subcommand(
         return "error: GitLab command timed out after 30 seconds. The operation may be too complex or the API is slow."
     except Exception as e:
         logger.exception("[%s] Failed to execute GitLab command.", GITLAB_TOOL_NAME)
+        if decision.is_cross_project:
+            # Same reason stderr is withheld: an exception raised around a subprocess carrying a
+            # person's token in its environment is not a safe string to hand back.
+            return f"error: Failed to execute the GitLab command against {target_slug}."
         return f"error: Failed to execute GitLab command. Details: {str(e)}"
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
+        if decision.is_cross_project:
+            message, outcome = await _cross_project_failure(
+                stderr_text, runtime, project=target_slug, provider=GitPlatform.GITLAB
+            )
+            await _record_cross_project_access(
+                runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome=outcome
+            )
+            return message
         return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
+
+    if decision.is_cross_project:
+        await _record_cross_project_access(
+            runtime, provider=GitPlatform.GITLAB, target_repo_id=target_slug, outcome="allowed"
+        )
 
     output = stdout.decode("utf-8").strip()
     if not output:
@@ -759,6 +1087,8 @@ async def _run_github_subcommand(
     *,
     backend: BackendProtocol,
     large_tool_results_prefix: str,
+    project: str = "",
+    cross_project_enabled: bool = False,
 ) -> str | Command:
     """
     Run a `gh` CLI subcommand on behalf of the ``gh`` tool.
@@ -769,7 +1099,12 @@ async def _run_github_subcommand(
     deepagents FilesystemMiddleware evicts it to that same dir if it exceeds the middleware's
     tool-result token limit.
     ``gh`` has no global JSON flag, so for jq-able output include ``--json <fields>`` in the
-    subcommand. Returns a ``Command`` when a refreshed CLI token must be written back to state.
+    subcommand. Returns a ``Command`` when a refreshed CLI token must be written back to state —
+    never on the cross-project path, whose token belongs to a person and must not be checkpointed.
+
+    ``project`` empty (or equal to the attached repository) is the unchanged path: the attached
+    repository under the App installation token. Any other repository is executed with the acting
+    person's own credential, and is refused rather than falling back.
     """
     if not subcommand or not subcommand.strip():
         return "error: Subcommand cannot be empty. Format: '<object> <action> [arguments...]'"
@@ -797,7 +1132,24 @@ async def _run_github_subcommand(
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
 
-    token, state_update = _get_cached_github_cli_token(runtime)
+    decision = await _decide_target(
+        project, runtime, provider=GitPlatform.GITHUB, cross_project_enabled=cross_project_enabled
+    )
+    if decision.refusal is not None:
+        # FR-006: never retried under the service identity.
+        return decision.refusal
+
+    target_slug = decision.target or runtime.context.repository.slug
+
+    if decision.is_cross_project:
+        # A cross-project decision always carries a token — a resolution without one is a refusal,
+        # returned above.
+        assert decision.token is not None, "cross-project decision without a token"
+        # FR-012 / D6: the installation token is DAIV's own and may live in checkpointed state; a
+        # person's token may not, so this path never produces a state update.
+        token, state_update = decision.token, None
+    else:
+        token, state_update = _get_cached_github_cli_token(runtime)
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -809,13 +1161,13 @@ async def _run_github_subcommand(
     }
 
     args = ["gh"]
-    args += splitted_subcommand
+    args += _mark_cross_project_body(splitted_subcommand) if decision.is_cross_project else splitted_subcommand
     # The "api" resource is intentionally excluded from GITHUB_CLI_ALLOW_COMMANDS
     # (and therefore blocked by _is_allowed_cli_command above) because it would
     # bypass the --repo scoping applied below. If "api" were ever allowed, it
     # must NOT receive the --repo flag and would need its own access controls.
     if resource != "api":
-        args += ["--repo", runtime.context.repository.slug]
+        args += ["--repo", target_slug]
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -834,11 +1186,26 @@ async def _run_github_subcommand(
 
     except Exception as e:
         logger.exception("[%s] Failed to execute GitHub command.", GITHUB_TOOL_NAME)
+        if decision.is_cross_project:
+            return f"error: Failed to execute the GitHub command against {target_slug}."
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
 
     if process.returncode != 0:
         stderr_text = stderr.decode("utf-8").strip()
+        if decision.is_cross_project:
+            message, outcome = await _cross_project_failure(
+                stderr_text, runtime, project=target_slug, provider=GitPlatform.GITHUB
+            )
+            await _record_cross_project_access(
+                runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome=outcome
+            )
+            return message
         return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
+
+    if decision.is_cross_project:
+        await _record_cross_project_access(
+            runtime, provider=GitPlatform.GITHUB, target_repo_id=target_slug, outcome="allowed"
+        )
 
     output = stdout.decode("utf-8").strip()
     if not output:
@@ -867,6 +1234,57 @@ async def _run_github_subcommand(
         return Command(update=state_update)
 
     return final_output
+
+
+# Tool argument annotations, shared by the with- and without-``project`` shapes of each tool so
+# the two variants cannot drift in what they tell the model.
+
+GitLabSubcommandArg = Annotated[
+    str,
+    "Single GitLab CLI subcommand string, parsed with shell-like quoting. "
+    "Format: '<object> <action> [arguments...]'. "
+    "Do not include the 'gitlab' prefix, '--project-id', or any output/verbosity flags "
+    "managed by the tool. Wrap arguments containing spaces in double quotes. "
+    "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'.",
+]
+
+GitHubSubcommandArg = Annotated[
+    str,
+    "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
+    "Format: '<object> <action> [arguments...]'. "
+    "Do not include the 'gh' prefix. "
+    "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
+    "Wrap arguments containing spaces in double quotes. "
+    "Examples: 'issue view 42', 'pr list --state open'.",
+]
+
+OutputModeArg = Annotated[
+    Literal["detailed", "simplified"],
+    "Controls the detail level of the returned output. "
+    "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific "
+    "resource or reading logs. Ignored when output_to_file is true (JSON is forced). "
+    "Default: 'simplified'.",
+]
+
+GitLabOutputToFileArg = Annotated[
+    bool,
+    "Set true to write the FULL result to a file for bash/jq/grep instead of returning it "
+    "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
+    "compact confirmation (path + size + short preview). The result is written as JSON "
+    "(output_mode ignored); a project-job trace is written as raw log text. Use this when "
+    "you intend to post-process the result with bash. Default: false.",
+]
+
+GitHubOutputToFileArg = Annotated[
+    bool,
+    "Set true to write the FULL stdout to a file for bash/jq/grep instead of returning it "
+    "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
+    "compact confirmation (path + size + short preview). gh has no global JSON flag — for "
+    "jq-able output include gh's own --json <fields> [--jq ...] in the subcommand. Use this "
+    "when you intend to post-process the result with bash. Default: false.",
+]
+
+ProjectArg = Annotated[str, PROJECT_ARG_DESCRIPTION]
 
 
 class GitPlatformState(AgentState):
@@ -898,18 +1316,25 @@ class GitPlatformMiddleware(AgentMiddleware):
         ```
     """
 
-    def __init__(self, git_platform: GitPlatform, backend: BackendProtocol) -> None:
+    def __init__(
+        self, git_platform: GitPlatform, backend: BackendProtocol, cross_project_enabled: bool = False
+    ) -> None:
         """
         Initialize the middleware.
 
         ``backend`` is the same filesystem backend the agent's file tools use; the platform tools
         write ``to_file`` dumps through it, into the same large-tool-results dir the deepagents
         FilesystemMiddleware auto-evicts to (derived identically from the backend's artifacts root).
+
+        ``cross_project_enabled`` off — the default — builds exactly the tool that existed before
+        this feature: no ``project`` argument in the schema, and the cross-project branch
+        unreachable (FR-019).
         """
         super().__init__()
 
         self._backend = backend
         self._large_tool_results_prefix = _large_tool_results_prefix(backend)
+        self._cross_project_enabled = cross_project_enabled
 
         self.tools = []
 
@@ -919,36 +1344,43 @@ class GitPlatformMiddleware(AgentMiddleware):
             self.tools.append(self._build_github_tool())
 
     def _build_gitlab_tool(self) -> BaseTool:
-        """Build the ``gitlab`` tool as a closure over the bound backend + results prefix."""
+        """Build the ``gitlab`` tool as a closure over the bound backend + results prefix.
+
+        Two shapes, because a capability that is off must not appear in the schema at all: the
+        argument list is what the model sees, and an argument documented as unavailable is worse
+        than an absent one.
+        """
         backend = self._backend
         large_tool_results_prefix = self._large_tool_results_prefix
+        cross_project_enabled = self._cross_project_enabled
 
-        @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
-        async def gitlab(
-            subcommand: Annotated[
-                str,
-                "Single GitLab CLI subcommand string, parsed with shell-like quoting. "
-                "Format: '<object> <action> [arguments...]'. "
-                "Do not include the 'gitlab' prefix, '--project-id', or any output/verbosity flags "
-                "managed by the tool. Wrap arguments containing spaces in double quotes. "
-                "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'.",
-            ],
+        if not cross_project_enabled:
+
+            @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
+            async def gitlab(
+                subcommand: GitLabSubcommandArg,
+                runtime: ToolRuntime[RuntimeCtx],
+                output_mode: OutputModeArg = "simplified",
+                output_to_file: GitLabOutputToFileArg = False,
+            ) -> str:
+                return await _run_gitlab_subcommand(
+                    subcommand,
+                    runtime,
+                    output_mode,
+                    output_to_file,
+                    backend=backend,
+                    large_tool_results_prefix=large_tool_results_prefix,
+                )
+
+            return gitlab
+
+        @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION + CROSS_PROJECT_TOOL_DESCRIPTION)
+        async def gitlab_cross_project(
+            subcommand: GitLabSubcommandArg,
             runtime: ToolRuntime[RuntimeCtx],
-            output_mode: Annotated[
-                Literal["detailed", "simplified"],
-                "Controls the detail level of the returned output. "
-                "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific "
-                "resource or reading logs. Ignored when output_to_file is true (JSON is forced). "
-                "Default: 'simplified'.",
-            ] = "simplified",
-            output_to_file: Annotated[
-                bool,
-                "Set true to write the FULL result to a file for bash/jq/grep instead of returning it "
-                "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
-                "compact confirmation (path + size + short preview). The result is written as JSON "
-                "(output_mode ignored); a project-job trace is written as raw log text. Use this when "
-                "you intend to post-process the result with bash. Default: false.",
-            ] = False,
+            project: ProjectArg = "",
+            output_mode: OutputModeArg = "simplified",
+            output_to_file: GitLabOutputToFileArg = False,
         ) -> str:
             return await _run_gitlab_subcommand(
                 subcommand,
@@ -957,35 +1389,42 @@ class GitPlatformMiddleware(AgentMiddleware):
                 output_to_file,
                 backend=backend,
                 large_tool_results_prefix=large_tool_results_prefix,
+                project=project,
+                cross_project_enabled=True,
             )
 
-        return gitlab
+        return gitlab_cross_project
 
     def _build_github_tool(self) -> BaseTool:
         """Build the ``gh`` tool as a closure over the bound backend + results prefix."""
         backend = self._backend
         large_tool_results_prefix = self._large_tool_results_prefix
+        cross_project_enabled = self._cross_project_enabled
 
-        @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
-        async def github(
-            subcommand: Annotated[
-                str,
-                "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
-                "Format: '<object> <action> [arguments...]'. "
-                "Do not include the 'gh' prefix. "
-                "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
-                "Wrap arguments containing spaces in double quotes. "
-                "Examples: 'issue view 42', 'pr list --state open'.",
-            ],
+        if not cross_project_enabled:
+
+            @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
+            async def github(
+                subcommand: GitHubSubcommandArg,
+                runtime: ToolRuntime[RuntimeCtx],
+                output_to_file: GitHubOutputToFileArg = False,
+            ) -> str | Command:
+                return await _run_github_subcommand(
+                    subcommand,
+                    runtime,
+                    output_to_file,
+                    backend=backend,
+                    large_tool_results_prefix=large_tool_results_prefix,
+                )
+
+            return github
+
+        @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION + CROSS_PROJECT_TOOL_DESCRIPTION)
+        async def github_cross_project(
+            subcommand: GitHubSubcommandArg,
             runtime: ToolRuntime[RuntimeCtx],
-            output_to_file: Annotated[
-                bool,
-                "Set true to write the FULL stdout to a file for bash/jq/grep instead of returning it "
-                "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
-                "compact confirmation (path + size + short preview). gh has no global JSON flag — for "
-                "jq-able output include gh's own --json <fields> [--jq ...] in the subcommand. Use this "
-                "when you intend to post-process the result with bash. Default: false.",
-            ] = False,
+            project: ProjectArg = "",
+            output_to_file: GitHubOutputToFileArg = False,
         ) -> str | Command:
             return await _run_github_subcommand(
                 subcommand,
@@ -993,9 +1432,11 @@ class GitPlatformMiddleware(AgentMiddleware):
                 output_to_file,
                 backend=backend,
                 large_tool_results_prefix=large_tool_results_prefix,
+                project=project,
+                cross_project_enabled=True,
             )
 
-        return github
+        return github_cross_project
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -1007,6 +1448,7 @@ class GitPlatformMiddleware(AgentMiddleware):
             git_platform_system_prompt = GIT_PLATFORM_SYSTEM_PROMPT.format(
                 gitlab_platform=request.runtime.context.git_platform == GitPlatform.GITLAB,
                 github_platform=request.runtime.context.git_platform == GitPlatform.GITHUB,
+                cross_project=self._cross_project_enabled,
             )
             request = request.override(
                 system_prompt=request.system_prompt + "\n\n" + git_platform_system_prompt.content

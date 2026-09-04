@@ -83,6 +83,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
                 "accounts.context_processors.nav",
+                "accounts.context_processors.social_consent",
                 "core.context_processors.build_info",
             ]
         },

@@ -25,6 +25,7 @@ The configuration is split into the following groups, organized by category.
 | **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |
 | **Web Search** | Agent tools | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key. |
 | **Web Fetch** | Agent tools | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers. |
+| **Cross-project access** | Agent tools | Enable/disable [cross-project access](../features/cross-project-access.md) — whether the git platform tools may target a project other than the one a run is attached to, acting as the person who requested it. Off by default. |
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
 | **Rocket Chat** | Integrations | Enable Rocket Chat as a notification channel, with the instance URL, bot user ID, and auth token. |
