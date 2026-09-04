@@ -80,7 +80,7 @@ async def _run_gitlab(runtime, *, project, resolved, returncode=0, stdout=b"ok\n
         patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
         patch("automation.agent.middlewares.git_platform.settings", _gitlab_settings()),
         patch("automation.agent.middlewares.git_platform.aresolve_access_token", return_value=resolved),
-        patch("automation.agent.middlewares.git_platform.arevoke", AsyncMock(return_value=True)),
+        patch("automation.agent.middlewares.git_platform.ainvalidate_cached_token", AsyncMock(return_value=None)),
     ):
         create_proc.return_value = proc
         result = await _run_gitlab_subcommand(
@@ -178,7 +178,7 @@ class TestNoTargetContentSurvivesADenial:
                 "automation.agent.middlewares.git_platform.aresolve_access_token",
                 return_value=ResolvedCredential(token="person-token"),  # noqa: S106
             ),
-            patch("automation.agent.middlewares.git_platform.arevoke", AsyncMock(return_value=True)),
+            patch("automation.agent.middlewares.git_platform.ainvalidate_cached_token", AsyncMock(return_value=None)),
         ):
             create_proc.return_value = proc
             result = await _run_github_subcommand(
@@ -309,5 +309,5 @@ class TestNoTokenReachesALogRecord:
 
             payload = await credentials._arequest_refresh(credential, "rt-SECRET")
 
-        assert payload is None
+        assert payload is credentials.RefreshFailure.TERMINAL
         assert "rt-SECRET" not in caplog.text

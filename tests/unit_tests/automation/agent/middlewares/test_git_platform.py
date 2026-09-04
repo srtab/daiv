@@ -763,6 +763,7 @@ class TestGitHubReleasePolicy:
 
 from accounts.credentials import CredentialReason, ResolvedCredential  # noqa: E402
 from automation.agent.middlewares.git_platform import (  # noqa: E402
+    REFUSAL_CREDENTIAL_REJECTED,
     REFUSAL_DISABLED,
     REFUSAL_EXPIRED,
     REFUSAL_INSUFFICIENT_SCOPE,
@@ -821,14 +822,16 @@ def _patched_platform(*, resolved=None, returncode=0, stdout=b"ok\n", stderr=b""
         patch("automation.agent.middlewares.git_platform.settings", _gitlab_settings()),
         patch("automation.agent.middlewares.git_platform.aresolve_access_token") as resolve_mock,
         patch("automation.agent.middlewares.git_platform._record_cross_project_access") as record_mock,
-        patch("automation.agent.middlewares.git_platform.arevoke") as revoke_mock,
+        patch("automation.agent.middlewares.git_platform.ainvalidate_cached_token") as invalidate_mock,
         patch("automation.agent.middlewares.git_platform._acting_person_label", AsyncMock(return_value="Ada")),
     ):
         create_proc.return_value = proc
         resolve_mock.return_value = resolved if resolved is not None else ResolvedCredential(token="person-token")  # noqa: S106
         record_mock.return_value = None
-        revoke_mock.return_value = True
-        yield SimpleNamespace(create_proc=create_proc, resolve=resolve_mock, record=record_mock, revoke=revoke_mock)
+        invalidate_mock.return_value = None
+        yield SimpleNamespace(
+            create_proc=create_proc, resolve=resolve_mock, record=record_mock, invalidate=invalidate_mock
+        )
 
 
 class TestProjectValidation:
@@ -1163,22 +1166,6 @@ class TestRefusalVocabulary:
             )
         assert "boom" in result
 
-    async def test_a_dead_token_is_marked_revoked_rather_than_retried(self):
-        runtime = _xproj_runtime(GitPlatform.GITLAB)
-        with _patched_platform(returncode=1, stderr=b"401 Unauthorized") as mocks:
-            result = await _run_gitlab_subcommand(
-                "project-issue list",
-                runtime,
-                "simplified",
-                False,
-                backend=_mock_backend(),
-                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
-                project=OTHER,
-                cross_project_enabled=True,
-            )
-        assert result == REFUSAL_REVOKED.format(person="Ada", provider="gitlab")
-        mocks.revoke.assert_awaited_once()
-
 
 class TestCrossProjectInlineDiscussionIsRefused:
     """The python-gitlab CLI cannot encode a nested position hash, so inline discussions go
@@ -1242,3 +1229,60 @@ class TestActingIdentityReachesTheCredentialLookup:
                 cross_project_enabled=True,
             )
         assert mocks.resolve.call_args.kwargs["platform_uid"] is None
+
+
+class TestPlatformFailureClassificationIsAnchored:
+    """``401`` was matched as a bare substring against CLI stderr, ahead of the 404/403 list, and
+    a match destroyed the person's grant. The CLIs echo the requested object's number, so an
+    ordinary not-found on issue 401 read as a dead token."""
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            b"GraphQL: Could not resolve to an Issue with the number of 401. (repository.issue)",
+            b"HTTP 404: Not Found (https://api.github.com/repos/o/r/issues/401)",
+            b"404 Not Found: run 1401 does not exist",
+            b"could not find branch ticket-401",
+        ],
+        ids=["issue-401", "404-url-with-401", "run-1401", "branch-name"],
+    )
+    async def test_an_ordinary_not_found_does_not_touch_the_grant(self, stderr):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform(returncode=1, stderr=stderr) as mocks:
+            result = await _run_gitlab_subcommand(
+                "project-issue list",
+                runtime,
+                "simplified",
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        mocks.invalidate.assert_not_awaited()
+        assert result != REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [b"401 Unauthorized", b"HTTP 401: Bad credentials", b"error: invalid_token", b"401: Unauthorized"],
+        ids=["gitlab", "gh", "invalid-token", "gitlab-colon"],
+    )
+    async def test_a_real_auth_failure_drops_the_cached_token_without_revoking(self, stderr):
+        """The stored grant is authoritative only via the refresh endpoint. Dropping the cached
+        token makes the next call re-resolve, which refreshes or refuses on the platform's word."""
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform(returncode=1, stderr=stderr) as mocks:
+            result = await _run_gitlab_subcommand(
+                "project-issue list",
+                runtime,
+                "simplified",
+                False,
+                backend=_mock_backend(),
+                large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        mocks.invalidate.assert_awaited_once()
+        assert result == REFUSAL_CREDENTIAL_REJECTED.format(person="Ada", provider="gitlab")

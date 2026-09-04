@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 
 from accounts import credentials
 from accounts.credentials import CredentialReason, ResolvedCredential
@@ -173,7 +174,7 @@ class TestRefresh:
 
     async def test_failed_refresh_lands_in_expired_and_clears_the_secret(self, person):
         credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
-        with patch("accounts.credentials._arequest_refresh", return_value=None):
+        with patch("accounts.credentials._arequest_refresh", return_value=credentials.RefreshFailure.TERMINAL):
             result = await credentials.aresolve_access_token(
                 acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
             )
@@ -420,3 +421,184 @@ class TestStore:
         )
 
         assert cache.get(key) is None
+
+
+class TestRefreshFailuresAreClassified:
+    """A renewal that failed for a transport reason must not destroy the grant.
+
+    ``_arequest_refresh`` used to return ``None`` for every cause — a connect timeout, a 502, a
+    malformed body and a genuine ``invalid_grant`` alike — and ``_arefresh`` answered all of them
+    by clearing both secrets. Only the platform refusing the grant itself is terminal.
+    """
+
+    @pytest.fixture
+    def _expiring(self, person):
+        return _credential(person, expires_at=timezone.now() + timedelta(seconds=60))
+
+    async def test_a_transport_failure_leaves_the_grant_intact(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        with patch("accounts.credentials._arequest_refresh", return_value=credentials.RefreshFailure.TRANSIENT):
+            result = await credentials.aresolve_access_token(
+                acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
+            )
+
+        assert result.reason is CredentialReason.REFRESH_FAILED
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.state == CredentialState.CONNECTED
+        assert reloaded.refresh_token == "refresh-live"  # noqa: S105
+
+    async def test_the_platform_refusing_the_grant_expires_it(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        with patch("accounts.credentials._arequest_refresh", return_value=credentials.RefreshFailure.TERMINAL):
+            result = await credentials.aresolve_access_token(
+                acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
+            )
+
+        assert result.reason is CredentialReason.EXPIRED
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.state == CredentialState.EXPIRED
+        assert reloaded.refresh_token is None
+
+    @pytest.mark.parametrize(
+        ("status_code", "body", "expected"),
+        [
+            (500, {"error": "server_error"}, "TRANSIENT"),
+            (502, {}, "TRANSIENT"),
+            (429, {"error": "rate_limited"}, "TRANSIENT"),
+            (400, {"error": "invalid_grant"}, "TERMINAL"),
+            (401, {"error": "invalid_grant"}, "TERMINAL"),
+            (200, {"error": "invalid_grant"}, "TERMINAL"),
+            (200, {"error": "temporarily_unavailable"}, "TRANSIENT"),
+        ],
+    )
+    async def test_only_an_invalid_grant_is_terminal(self, person, status_code, body, expected):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        response = Mock(status_code=status_code)
+        response.json.return_value = body
+        client = AsyncMock()
+        client.post.return_value = response
+        with patch("accounts.credentials.httpx.AsyncClient") as http_mock:
+            http_mock.return_value.__aenter__.return_value = client
+            outcome = await credentials._arequest_refresh(credential, "refresh-live")  # noqa: S106
+
+        assert outcome is getattr(credentials.RefreshFailure, expected)
+
+    async def test_a_non_json_body_is_transient(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        response = Mock(status_code=200)
+        response.json.side_effect = ValueError("not json")
+        client = AsyncMock()
+        client.post.return_value = response
+        with patch("accounts.credentials.httpx.AsyncClient") as http_mock:
+            http_mock.return_value.__aenter__.return_value = client
+            outcome = await credentials._arequest_refresh(credential, "refresh-live")  # noqa: S106
+
+        assert outcome is credentials.RefreshFailure.TRANSIENT
+
+    async def test_a_missing_oauth_client_is_transient_not_terminal(self, person, _capability_on):
+        """A deployment that never configured the OAuth client must not lose every credential
+        it touches — that is a misconfiguration, not a withdrawn grant."""
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+        _capability_on.auth_client_id = None
+        outcome = await credentials._arequest_refresh(credential, "refresh-live")  # noqa: S106
+        assert outcome is credentials.RefreshFailure.TRANSIENT
+
+
+class TestConcurrentRefreshDoesNotClobberTheWinner:
+    """GitLab rotates the refresh token on first use, so the loser of two parallel refreshes is
+    told ``invalid_grant`` for a token the winner has already replaced. Expiring on that would
+    clear the grant the winner just renewed."""
+
+    async def test_a_losing_refresh_returns_the_winners_token(self, person):
+        credential = await _credential_async(person, expires_at=timezone.now() + timedelta(seconds=60))
+
+        async def _winner_lands_first(cred, refresh_token):
+            await sync_to_async(credentials._persist_refresh)(
+                cred.pk,
+                access_token="tok-winner",  # noqa: S106
+                refresh_token="refresh-winner",  # noqa: S106
+                expires_at=timezone.now() + timedelta(hours=2),
+                scopes=["api"],
+            )
+            return credentials.RefreshFailure.TERMINAL
+
+        with patch("accounts.credentials._arequest_refresh", side_effect=_winner_lands_first):
+            result = await credentials.aresolve_access_token(
+                acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
+            )
+
+        assert result.token == "tok-winner"  # noqa: S105
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.state == CredentialState.CONNECTED
+
+
+class TestAnUndecryptableCredentialRefusesInsteadOfRaising:
+    """A rotated ``DAIV_ENCRYPTION_KEY`` is a documented operator action. The store's contract is
+    a token or a typed reason, so the descriptor's ``DecryptionError`` must not escape."""
+
+    async def test_resolution_returns_a_typed_reason(self, person):
+        from cryptography.fernet import InvalidToken
+
+        await _credential_async(person)
+        with patch("core.encryption.decrypt_value", side_effect=InvalidToken):
+            result = await credentials.aresolve_access_token(
+                acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST
+            )
+
+        assert result.reason is CredentialReason.UNREADABLE
+        assert result.token is None
+
+    async def test_an_undecryptable_credential_stops_being_retried(self, person):
+        from cryptography.fernet import InvalidToken
+
+        credential = await _credential_async(person)
+        with patch("core.encryption.decrypt_value", side_effect=InvalidToken):
+            await credentials.aresolve_access_token(acting_user_id=person.pk, provider=GitPlatform.GITLAB, host=HOST)
+
+        reloaded = await PlatformCredential.objects.aget(pk=credential.pk)
+        assert reloaded.state == CredentialState.EXPIRED
+
+
+class TestDisconnectFindsTheGrantAfterTheHostChanges:
+    """``platform_host`` is derived live from settings; the row's host was frozen at sign-in. A
+    person clicking Disconnect must not be told there was nothing to disconnect."""
+
+    def test_revoke_clears_a_row_stored_under_another_host(self, person):
+        credential = _credential(person, host="gitlab.example.com")
+
+        with patch("accounts.credentials.platform_host", return_value="gitlab.com"):
+            changed = credentials.revoke(user_id=person.pk, provider=GitPlatform.GITLAB)
+
+        assert changed is True
+        credential.refresh_from_db()
+        assert credential.state == CredentialState.REVOKED
+        assert credential.access_token is None
+
+    def test_status_reports_a_row_stored_under_another_host(self, person):
+        _credential(person, host="gitlab.example.com")
+
+        with patch("accounts.credentials.platform_host", return_value="gitlab.com"):
+            result = credentials.status(user_id=person.pk, provider=GitPlatform.GITLAB)
+
+        assert result.connected is True
+        assert result.host == "gitlab.example.com"
+
+    def test_revoke_still_reports_no_change_when_there_is_no_grant(self, person):
+        with patch("accounts.credentials.platform_host", return_value="gitlab.com"):
+            assert credentials.revoke(user_id=person.pk, provider=GitPlatform.GITLAB) is False
+
+
+class TestTheGitHubTokenEndpointFollowsTheConfiguredHost:
+    """A GitHub Enterprise deployment must not POST its client secret to github.com."""
+
+    def test_enterprise_host_is_honoured(self):
+        with patch("accounts.socialaccount.codebase_settings") as cfg:
+            cfg.GITHUB_URL = "https://ghe.example.com"
+            endpoint = credentials._token_endpoint(GitPlatform.GITHUB)
+        assert endpoint == "https://ghe.example.com/login/oauth/access_token"
+
+    def test_github_dot_com_is_the_default(self):
+        with patch("accounts.socialaccount.codebase_settings") as cfg:
+            cfg.GITHUB_URL = None
+            endpoint = credentials._token_endpoint(GitPlatform.GITHUB)
+        assert endpoint == "https://github.com/login/oauth/access_token"

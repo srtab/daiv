@@ -5,7 +5,7 @@ Every other caller asks here and receives either a usable token or a typed
 :class:`CredentialReason`; the contract is
 ``specs/001-cross-project-user-tokens/contracts/credential-store.md``.
 
-Four invariants this module exists to keep:
+Five invariants this module exists to keep:
 
 * the token cache is keyed on the **identity**, never the thread — a resumed thread whose acting
   person differs must not read the previous person's token;
@@ -13,6 +13,10 @@ Four invariants this module exists to keep:
   rotates the refresh token on every use;
 * refresh happens at the point of use, within :data:`REFRESH_MARGIN_SECONDS` of expiry, not once
   per run — a long run outlives a 2-hour GitLab token;
+* clearing a grant is **irreversible**, so only the platform naming it dead does it. A transport
+  error, a 5xx or a rotated-token race yields :attr:`CredentialReason.REFRESH_FAILED` and leaves
+  the row alone; every path that does clear a grant logs at ``error``, because a person losing
+  their authorisation is an operator-visible event;
 * no token, and no fragment of one, reaches a log record or a ``repr``.
 """
 
@@ -33,6 +37,7 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
+from core.encryption import DecryptionError
 from core.site_settings import site_settings
 from daiv import USER_AGENT
 
@@ -50,8 +55,6 @@ TOKEN_CACHE_PREFIX = "platform_credential_token"  # noqa: S105
 TOKEN_CACHE_MAX_TTL_SECONDS = 300
 REFRESH_TIMEOUT_SECONDS = 15
 
-GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"  # noqa: S105
-
 GITLAB_CROSS_PROJECT_SCOPES = ("api", "read_api")
 """Either is enough to read another project; only ``api`` can also write there, which GitLab
 itself enforces. A grant holding neither is the pre-existing ``read_user``-only authorisation
@@ -68,6 +71,25 @@ class CredentialReason(StrEnum):
     EXPIRED = "expired"
     REVOKED = "revoked"
     INSUFFICIENT_SCOPE = "insufficient_scope"
+    REFRESH_FAILED = "refresh_failed"
+    UNREADABLE = "unreadable"
+
+
+class RefreshFailure(StrEnum):
+    """Whether a failed renewal condemns the grant or only this attempt.
+
+    Only the platform refusing the grant itself is terminal. A transport error, a 5xx or a
+    malformed body says nothing about the refresh token, and clearing it on those grounds is
+    unrecoverable — the person must re-authorise for what was a momentary outage.
+    """
+
+    TERMINAL = "terminal"
+    TRANSIENT = "transient"
+
+
+TERMINAL_OAUTH_ERRORS = frozenset({"invalid_grant"})
+"""RFC 6749's one unambiguous "this refresh token is dead" code. Everything else — including
+``invalid_request`` and ``server_error`` — can be our bug or the platform's, so it is transient."""
 
 
 @dataclass(frozen=True, repr=False)
@@ -178,12 +200,26 @@ async def aresolve_access_token(
         return ResolvedCredential(token=cached, scopes=scopes)
 
     if _needs_refresh(credential):
-        credential = await _arefresh(credential)
-        if credential is None:
-            return ResolvedCredential(reason=CredentialReason.EXPIRED)
+        refreshed = await _arefresh(credential)
+        if isinstance(refreshed, CredentialReason):
+            return ResolvedCredential(reason=refreshed)
+        credential = refreshed
         scopes = _as_scopes(credential.scopes)
 
-    token = credential.access_token
+    try:
+        token = credential.access_token
+    except DecryptionError:
+        # A rotated DAIV_ENCRYPTION_KEY is a documented operator action, and the ciphertext is
+        # unrecoverable. Expire the row so the person is asked to re-authorise once, not on
+        # every call, and so the account page stops reporting the grant as connected.
+        logger.error(
+            "The %s credential for user_id=%s cannot be decrypted; expiring it. DAIV_ENCRYPTION_KEY may have rotated.",
+            provider_value,
+            acting_user_id,
+        )
+        await aexpire(user_id=acting_user_id, provider=provider_value, host=host)
+        return ResolvedCredential(reason=CredentialReason.UNREADABLE)
+
     if not token:
         return ResolvedCredential(reason=CredentialReason.EXPIRED)
 
@@ -192,16 +228,26 @@ async def aresolve_access_token(
     return ResolvedCredential(token=token, scopes=scopes)
 
 
+def _rows_for(user_id: int, provider: GitPlatform | str, host: str | None):
+    """Rows for one identity, preferring ``host`` but never limited to it when none was asked for.
+
+    ``platform_host`` is derived live from settings while the row's host was frozen at sign-in, so
+    a deployment that has since moved its platform URL would otherwise hide the person's own grant
+    from the page that offers to disconnect it.
+    """
+    from accounts.models import PlatformCredential
+
+    rows = PlatformCredential.objects.filter(user_id=user_id, provider=GitPlatform(provider).value)
+    return rows.filter(host=host) if host is not None else rows.order_by("-modified")
+
+
 def status(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> CredentialStatus:
     """State, expiry and granted scopes for the account-settings page. Never the secret."""
-    from accounts.models import CredentialState, PlatformCredential
+    from accounts.models import CredentialState
 
-    host = host or platform_host(provider)
-    credential = PlatformCredential.objects.filter(
-        user_id=user_id, provider=GitPlatform(provider).value, host=host
-    ).first()
+    credential = _rows_for(user_id, provider, host).first()
     if credential is None:
-        return CredentialStatus(connected=False, host=host)
+        return CredentialStatus(connected=False, host=host or platform_host(provider))
     return CredentialStatus(
         connected=credential.state == CredentialState.CONNECTED,
         state=credential.state,
@@ -282,10 +328,22 @@ def expire(*, user_id: int, provider: GitPlatform | str, host: str | None = None
     return _transition(user_id=user_id, provider=provider, host=host, state=_state().EXPIRED)
 
 
+def invalidate_cached_token(*, user_id: int, provider: GitPlatform | str, host: str | None = None) -> None:
+    """Drop the cached token without touching the stored grant.
+
+    A platform rejecting a token mid-call is not proof the grant is gone — only the refresh
+    endpoint can say that. Dropping the cache makes the next call re-resolve, which refreshes or
+    refuses on the platform's own word instead of on a guess about CLI prose.
+    """
+    for credential in _rows_for(user_id, provider, host).only("host"):
+        cache.delete(token_cache_key(user_id, provider, credential.host))
+
+
 astatus = sync_to_async(status)
 arevoke = sync_to_async(revoke)
 aexpire = sync_to_async(expire)
 astore = sync_to_async(store)
+ainvalidate_cached_token = sync_to_async(invalidate_cached_token)
 
 
 # ---------------------------------------------------------------------------
@@ -326,33 +384,34 @@ def _cache_ttl_seconds(credential) -> int:
 
 
 def _transition(*, user_id: int, provider: GitPlatform | str, host: str | None, state: str) -> bool:
-    from accounts.models import PlatformCredential
+    """Clear the secrets and set ``state``. With no ``host``, every row for the identity.
 
-    host = host or platform_host(provider)
+    Disconnecting is a statement about a provider, not about whichever host the settings happen to
+    name today, so an unqualified call must not leave a usable grant behind.
+    """
+    changed = False
     with transaction.atomic():
-        credential = (
-            PlatformCredential.objects
-            .select_for_update()
-            .filter(user_id=user_id, provider=GitPlatform(provider).value, host=host)
-            .first()
-        )
-        if credential is None:
-            return False
-        credential.access_token = None
-        credential.refresh_token = None
-        # An expiry with no refresh token is rejected by the model, and a dead row has neither.
-        credential.expires_at = None
-        credential.state = state
-        credential.save(
-            update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
-        )
-    cache.delete(token_cache_key(user_id, provider, host))
-    return True
+        for credential in _rows_for(user_id, provider, host).select_for_update():
+            credential.access_token = None
+            credential.refresh_token = None
+            # An expiry with no refresh token is rejected by the model, and a dead row has neither.
+            credential.expires_at = None
+            credential.state = state
+            credential.save(
+                update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
+            )
+            cache.delete(token_cache_key(user_id, provider, credential.host))
+            changed = True
+    return changed
 
 
 def _token_endpoint(provider: GitPlatform) -> str:
     if provider == GitPlatform.GITHUB:
-        return GITHUB_TOKEN_ENDPOINT
+        # Reuses the login adapter's own derivation: a GitHub Enterprise deployment must not POST
+        # its client secret and the person's refresh token to github.com.
+        from accounts.socialaccount import GitHubAppOAuth2Adapter
+
+        return f"{GitHubAppOAuth2Adapter._web_url()}/login/oauth/access_token"
     base = site_settings.auth_gitlab_server_url or site_settings.auth_gitlab_url
     return f"{str(base).rstrip('/')}/oauth/token"
 
@@ -367,28 +426,34 @@ def _oauth_client() -> tuple[str, str] | None:
 
 
 async def _arefresh(credential):
-    """Renew a credential in one transaction, or mark it ``expired`` and return ``None``.
+    """Renew a credential in one transaction, or return the reason it could not be renewed.
 
     GitLab rotates the refresh token on every use, so a partial write leaves a credential that can
     never renew again — access token, refresh token and expiry go together or not at all.
     """
-    refresh_token = credential.refresh_token
+    seen_modified = credential.modified
+    try:
+        refresh_token = credential.refresh_token
+    except DecryptionError:
+        return CredentialReason.UNREADABLE
     if not refresh_token:
         await aexpire(user_id=credential.user_id, provider=credential.provider, host=credential.host)
-        return None
+        return CredentialReason.EXPIRED
 
     payload = await _arequest_refresh(credential, refresh_token)
-    if payload is None:
-        await aexpire(user_id=credential.user_id, provider=credential.provider, host=credential.host)
-        return None
+    if isinstance(payload, RefreshFailure):
+        if payload is RefreshFailure.TRANSIENT:
+            return CredentialReason.REFRESH_FAILED
+        return await sync_to_async(_expire_unless_renewed)(credential.pk, seen_modified=seen_modified)
 
     access_token = payload.get("access_token")
     if not access_token:
         logger.warning(
-            "Refresh for user_id=%s provider=%s returned no access token.", credential.user_id, credential.provider
+            "Refresh for user_id=%s provider=%s returned no access token; leaving the grant in place.",
+            credential.user_id,
+            credential.provider,
         )
-        await aexpire(user_id=credential.user_id, provider=credential.provider, host=credential.host)
-        return None
+        return CredentialReason.REFRESH_FAILED
 
     new_refresh = payload.get("refresh_token") or refresh_token
     expires_in = payload.get("expires_in")
@@ -397,6 +462,32 @@ async def _arefresh(credential):
     return await sync_to_async(_persist_refresh)(
         credential.pk, access_token=access_token, refresh_token=new_refresh, expires_at=expires_at, scopes=scopes
     )
+
+
+def _expire_unless_renewed(pk: int, *, seen_modified):
+    """Clear the grant, unless another worker renewed it while this refresh was in flight.
+
+    GitLab rotates the refresh token on first use, so the loser of two parallel refreshes is told
+    ``invalid_grant`` for a token the winner already replaced. Expiring on that word would clear
+    the grant the winner just renewed.
+    """
+    from accounts.models import CredentialState, PlatformCredential
+
+    with transaction.atomic():
+        credential = PlatformCredential.objects.select_for_update().filter(pk=pk).first()
+        if credential is None:
+            return CredentialReason.NO_CREDENTIAL
+        if credential.modified != seen_modified:
+            return credential if credential.state == CredentialState.CONNECTED else CredentialReason.EXPIRED
+        credential.access_token = None
+        credential.refresh_token = None
+        credential.expires_at = None
+        credential.state = CredentialState.EXPIRED
+        credential.save(
+            update_fields=["_access_token_encrypted", "_refresh_token_encrypted", "expires_at", "state", "modified"]
+        )
+    cache.delete(token_cache_key(credential.user_id, credential.provider, credential.host))
+    return CredentialReason.EXPIRED
 
 
 def _persist_refresh(pk: int, *, access_token: str, refresh_token: str | None, expires_at, scopes):
@@ -423,15 +514,18 @@ def _persist_refresh(pk: int, *, access_token: str, refresh_token: str | None, e
     return credential
 
 
-async def _arequest_refresh(credential, refresh_token: str) -> dict[str, Any] | None:
-    """POST the refresh grant. Returns the parsed payload, or ``None`` on any failure.
+async def _arequest_refresh(credential, refresh_token: str) -> dict[str, Any] | RefreshFailure:
+    """POST the refresh grant. Returns the parsed payload, or why the attempt failed.
 
-    Nothing from the response body is logged: an OAuth error body routinely echoes the token.
+    Nothing from the response body is logged beyond the OAuth ``error`` code: an error body
+    routinely echoes the token.
     """
     client = _oauth_client()
     if client is None:
-        logger.warning("Cannot refresh platform credentials: no OAuth client is configured.")
-        return None
+        # Deployment-wide and self-inflicted: every expiring credential hits this. Transient, so
+        # it does not destroy the grants it cannot renew.
+        logger.error("Cannot refresh platform credentials: no OAuth client is configured.")
+        return RefreshFailure.TRANSIENT
     client_id, client_secret = client
 
     provider = GitPlatform(credential.provider)
@@ -453,29 +547,33 @@ async def _arequest_refresh(credential, refresh_token: str) -> dict[str, Any] | 
             credential.provider,
             credential.user_id,
         )
-        return None
-
-    if response.status_code >= 400:
-        logger.warning(
-            "Refreshing the %s credential for user_id=%s was rejected (HTTP %s).",
-            credential.provider,
-            credential.user_id,
-            response.status_code,
-        )
-        return None
+        return RefreshFailure.TRANSIENT
 
     try:
         payload = response.json()
     except ValueError:
-        logger.warning("Refresh response for user_id=%s was not JSON.", credential.user_id)
-        return None
+        payload = None
 
-    if not isinstance(payload, dict) or payload.get("error"):
-        # GitHub reports refresh failures with HTTP 200 and an ``error`` key.
-        logger.warning(
-            "Refreshing the %s credential for user_id=%s was refused by the platform.",
+    # GitHub reports refresh failures with HTTP 200 and an ``error`` key, so the body decides
+    # rather than the status: only the platform naming the grant itself dead is terminal.
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if error in TERMINAL_OAUTH_ERRORS:
+        logger.error(
+            "The %s grant for user_id=%s was refused as %s; clearing it.",
             credential.provider,
             credential.user_id,
+            error,
         )
-        return None
+        return RefreshFailure.TERMINAL
+
+    if error or response.status_code >= 400 or not isinstance(payload, dict):
+        logger.warning(
+            "Refreshing the %s credential for user_id=%s did not succeed (HTTP %s, error=%s); "
+            "leaving the grant in place.",
+            credential.provider,
+            credential.user_id,
+            response.status_code,
+            error or "-",
+        )
+        return RefreshFailure.TRANSIENT
     return payload

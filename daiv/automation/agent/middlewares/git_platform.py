@@ -23,7 +23,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
-from accounts.credentials import CredentialReason, aresolve_access_token, arevoke, platform_host
+from accounts.credentials import CredentialReason, ainvalidate_cached_token, aresolve_access_token, platform_host
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
@@ -586,6 +586,18 @@ REFUSAL_REVOKED = (
     "error: {person}'s {provider} authorisation was revoked. They need to re-authorise from their "
     "DAIV account settings."
 )
+REFUSAL_CREDENTIAL_REJECTED = (
+    "error: {provider} rejected {person}'s authorisation for this call. It will be renewed on the "
+    "next attempt; if it keeps failing they need to re-authorise from their DAIV account settings."
+)
+REFUSAL_REFRESH_FAILED = (
+    "error: {person}'s {provider} authorisation could not be renewed just now — {provider} did not "
+    "answer the renewal. The authorisation is intact; retry shortly."
+)
+REFUSAL_UNREADABLE = (
+    "error: {person}'s stored {provider} authorisation can no longer be read by this deployment, so "
+    "it has been cleared. They need to re-authorise from their DAIV account settings."
+)
 REFUSAL_INSUFFICIENT_SCOPE = (
     "error: {person}'s {provider} authorisation does not permit this operation on {project}. "
     "Re-authorising from DAIV account settings will request the required access."
@@ -607,7 +619,13 @@ _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 # it instead. Both lists are heuristics over what python-gitlab and gh print; anything unmatched
 # degrades to a generic failure rather than leaking the text.
 _PLATFORM_DENIED_MARKERS = ("404", "403", "not found", "forbidden", "could not resolve", "no such")
-_PLATFORM_UNAUTHORIZED_MARKERS = ("401", "unauthorized", "bad credentials", "invalid_token")
+_PLATFORM_UNAUTHORIZED_RE = re.compile(
+    # A bare "401" also matches issue, run and branch numbers the CLIs echo back, so the digits
+    # only count next to an HTTP-status word or at the start of a line, as both CLIs print them.
+    r"\bunauthorized\b|\bbad credentials\b|\binvalid_token\b|\btoken (?:is )?(?:expired|invalid|revoked)\b"
+    r"|(?:\b(?:http|status)\b\W{0,8}|^)401\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 _OUTCOME_BY_REASON = {
     CredentialReason.DISABLED: "denied_disabled",
@@ -616,7 +634,10 @@ _OUTCOME_BY_REASON = {
     CredentialReason.EXPIRED: "denied_no_credential",
     CredentialReason.REVOKED: "denied_no_credential",
     CredentialReason.INSUFFICIENT_SCOPE: "denied_no_credential",
+    CredentialReason.REFRESH_FAILED: "error",
+    CredentialReason.UNREADABLE: "error",
 }
+assert set(_OUTCOME_BY_REASON) == set(CredentialReason), "every refusal reason needs an audit outcome"
 
 
 @dataclass(frozen=True)
@@ -711,6 +732,10 @@ def _credential_refusal(
         return REFUSAL_REVOKED.format(person=person, provider=provider_label)
     if reason is CredentialReason.INSUFFICIENT_SCOPE:
         return REFUSAL_INSUFFICIENT_SCOPE.format(person=person, provider=provider_label, project=project)
+    if reason is CredentialReason.REFRESH_FAILED:
+        return REFUSAL_REFRESH_FAILED.format(person=person, provider=provider_label)
+    if reason is CredentialReason.UNREADABLE:
+        return REFUSAL_UNREADABLE.format(person=person, provider=provider_label)
     return REFUSAL_NO_CREDENTIAL.format(person=person, provider=provider_label)
 
 
@@ -796,16 +821,17 @@ async def _cross_project_failure(
     lowered = stderr_text.lower()
     person = await _acting_person_label(getattr(runtime.context, "acting_user_id", None))
 
-    if any(marker in lowered for marker in _PLATFORM_UNAUTHORIZED_MARKERS):
-        # The platform rejected a token this service issued: the grant is gone, so say so instead
-        # of retrying a dead credential on the next call.
-        acting_user_id = getattr(runtime.context, "acting_user_id", None)
+    if _PLATFORM_UNAUTHORIZED_RE.search(stderr_text):
+        # Drop the cached token, but leave the stored grant alone: only the refresh endpoint can
+        # authoritatively say a grant is dead, and clearing the refresh token here would make a
+        # misread of CLI prose cost the person a re-authorisation.
+        acting_user_id = runtime.context.acting_user_id
         if acting_user_id:
             try:
-                await arevoke(user_id=acting_user_id, provider=provider)
+                await ainvalidate_cached_token(user_id=acting_user_id, provider=provider)
             except Exception:
-                logger.exception("[git-platform] Failed to mark the %s credential revoked", provider.value)
-        return REFUSAL_REVOKED.format(person=person, provider=provider.value), "denied_no_access"
+                logger.exception("[git-platform] Failed to drop the cached %s token", provider.value)
+        return REFUSAL_CREDENTIAL_REJECTED.format(person=person, provider=provider.value), "denied_no_access"
 
     if any(marker in lowered for marker in _PLATFORM_DENIED_MARKERS):
         return (

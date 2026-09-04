@@ -68,7 +68,7 @@ DAIV_GITLAB_OAUTH_SCOPE="read_user read_api"
 Update the redirect URI list on your GitLab application if it is not already correct for dashboard login — it is unchanged by this feature.
 
 !!! note "Short-lived tokens, with rotation"
-    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within a five-minute margin of expiry, and writes the new access token, refresh token and expiry in one transaction. A renewal that fails marks the authorisation expired and tells the person to re-authorise.
+    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within a five-minute margin of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired; a timeout, a 5xx or an unreadable answer leaves it in place and fails just that call, so a momentary outage does not cost the person a re-authorisation.
 
 ### GitHub
 
@@ -83,7 +83,7 @@ GitHub Apps **ignore the OAuth `scope` parameter** entirely. A user-to-server to
 | Actions | Read |
 | Metadata | Read |
 
-Both "Expire user authorization tokens" settings work. Enabled gives 8-hour tokens plus refresh tokens; disabled gives non-expiring tokens and renewal is a no-op.
+Both "Expire user authorization tokens" settings work. Enabled gives 8-hour tokens plus refresh tokens; disabled gives non-expiring tokens and renewal is a no-op. Renewal posts to the host `CODEBASE_GITHUB_URL` names, so a GitHub Enterprise deployment renews against its own server rather than github.com.
 
 !!! warning "The App must be installed on the target"
     A user-to-server token cannot reach a repository the App is not installed on, even when the person can. Install the App on every organisation whose repositories the agent should be able to read.
@@ -114,7 +114,7 @@ Tell people they may re-authorise from **Account → Git authorisation** in the 
 DAIV does **not** use allauth's own `SocialToken` table: it stores tokens in plaintext, has no revocation state, and is recreated on every login.
 
 !!! danger "Rotating `DAIV_ENCRYPTION_KEY` invalidates every stored authorisation"
-    The stored access and refresh tokens are encrypted with that key. Rotate it and no credential can be decrypted any more — **every user must sign in again to re-authorise**, on top of re-entering the configuration secrets the key already protects (see [Site Configuration](../reference/site-configuration.md)). There is no migration path that preserves them; a stored token is not worth a key-rotation escape hatch.
+    The stored access and refresh tokens are encrypted with that key. Rotate it and no credential can be decrypted any more: the next cross-project call clears the unreadable grant and asks that person to re-authorise, so **every user must sign in again**, on top of re-entering the configuration secrets the key already protects (see [Site Configuration](../reference/site-configuration.md)). There is no migration path that preserves them; a stored token is not worth a key-rotation escape hatch.
 
 ---
 
