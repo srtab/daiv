@@ -43,8 +43,10 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     },
     "channels": {"user_channels"},
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
+    "platform_credential": {"platform_credential", "platform_credential_revoke"},
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
+    "cross_project_access": {"codebase:cross-project-access"},
     "skills": {"skills:list", "skills:upload", "skills:detail", "skills:delete", "skills:download"},
     "sandbox_envs": {
         "sandbox_envs:list",
@@ -165,3 +167,23 @@ def nav(request) -> dict[str, Any]:
         "nav_tabs": NAV_TABS,
         "git_platform": codebase_settings.CLIENT.value,
     }
+
+
+def social_consent(request) -> dict[str, Any]:
+    """What the sign-in page must say about the authorisation it is about to request (FR-007).
+
+    The wider scope is requested and the token stored on every sign-in, whether or not
+    cross-project access is switched on, so the disclosure tracks the **grant** and not the
+    capability — gating it on the toggle would stay silent in exactly the case where a token is
+    collected that nothing will use.
+
+    Separate from :func:`nav`, which returns nothing for an anonymous request — and the sign-in
+    page is the one place where the person is not signed in yet.
+    """
+    from codebase.base import GitPlatform
+    from codebase.conf import settings as codebase_settings
+
+    platform = codebase_settings.CLIENT
+    if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+        return {}
+    return {"socialaccount_platform": platform.value.capitalize()}

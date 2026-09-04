@@ -3099,3 +3099,45 @@ html {
       border border-white/[0.08] bg-white/[0.03];
   }
 }
+
+/* -- Cross-project access log ---------------------------------------------
+   One row per attempt to reach another project, plus the outcome badge that
+   is the whole point of reading the page. */
+
+@layer components {
+  .audit-row {
+    @apply flex items-center justify-between gap-4 border-b border-white/[0.06]
+      px-6 py-4 last:border-b-0;
+  }
+  .audit-row__meta {
+    @apply mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400;
+  }
+  .audit-repo { @apply font-mono text-[13px] text-white; }
+  .audit-badge {
+    @apply shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .audit-badge--allowed { @apply bg-emerald-900/40 text-emerald-300; }
+  .audit-badge--denied  { @apply bg-amber-900/40 text-amber-300; }
+  .audit-badge--error   { @apply bg-red-900/40 text-red-300; }
+}
+
+/* -- Git authorisation (per-person OAuth grant) ---------------------------- */
+
+@layer components {
+  .credential-panel {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6;
+  }
+  .credential-state {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .credential-state--connected { @apply bg-emerald-900/40 text-emerald-300; }
+  .credential-state--expired   { @apply bg-amber-900/40 text-amber-300; }
+  .credential-state--revoked   { @apply bg-gray-800/60 text-gray-400; }
+  .credential-scope {
+    @apply inline-flex items-center rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-xs text-gray-300;
+  }
+  .btn-danger-outline {
+    @apply rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium
+      text-gray-400 transition-all duration-200 hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300;
+  }
+}

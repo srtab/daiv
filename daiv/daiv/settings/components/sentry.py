@@ -25,6 +25,17 @@ def _traces_sampler(sampling_context: dict) -> float:
     return SENTRY_TRACES_SAMPLE_RATE
 
 
+# sentry_sdk's scrubber matches frame-local and dict keys *exactly* against its denylist, so
+# ``GH_TOKEN`` and friends survive it; ``recursive`` is what reaches inside a captured env dict.
+SENTRY_EXTRA_SCRUB_KEYS = [
+    "gitlab_private_token",
+    "gh_token",
+    "github_token",
+    "gh_enterprise_token",
+    "access_token",
+    "refresh_token",
+]
+
 if SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.anthropic import AnthropicIntegration
@@ -32,9 +43,11 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.langchain import LangchainIntegration
     from sentry_sdk.integrations.langgraph import LanggraphIntegration
     from sentry_sdk.integrations.openai import OpenAIIntegration
+    from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 
     sentry_sdk.init(
         ignore_errors=[DisallowedHost, KeyboardInterrupt],
+        event_scrubber=EventScrubber(denylist=DEFAULT_DENYLIST + SENTRY_EXTRA_SCRUB_KEYS, recursive=True),
         integrations=[
             AnthropicIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),
             GoogleGenAIIntegration(include_prompts=SENTRY_SEND_DEFAULT_PII),

@@ -20,7 +20,7 @@ from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 
 from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
 
@@ -55,6 +55,9 @@ class IssueCallback(GitHubCallback):
             self._repo_config.issue_addressing.enabled
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
+            # A cross-project issue DAIV opens carries a person's attribution, so the bot-id
+            # checks elsewhere cannot see it is DAIV's own.
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.issue.body or "")
         ):
             return False
 
@@ -107,13 +110,17 @@ class IssueCallback(GitHubCallback):
         # GLOBAL repo envs and the GLOBAL default apply — mirroring set_runtime_ctx's contract.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        # Resolved before the enqueue, not after: the run acts for this person beyond the attached
+        # project, so the task needs their identity, not only the Run row.
+        daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         result = await address_issue_task.aenqueue(
             repo_id=self.repository.full_name,
             issue_iid=self.issue.number,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_user_id=daiv_user.pk if daiv_user else None,
+            acting_platform_uid=str(self.sender.id),
         )
-        daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
             await acreate_run(
                 trigger_type=SessionOrigin.ISSUE_WEBHOOK,
@@ -123,6 +130,7 @@ class IssueCallback(GitHubCallback):
                 use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
+                acting_platform_uid=str(self.sender.id),
                 title=self.issue.title,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
@@ -152,6 +160,9 @@ class IssueCommentCallback(GitHubCallback):
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
+            # A cross-project write is attributed to a person, so the bot-id check above cannot
+            # see it is DAIV's own. The marker is what stops DAIV replying to itself here.
+            or CROSS_PROJECT_CONTENT_MARKER in (self.comment.body or "")
         ):
             return False
 
@@ -191,6 +202,8 @@ class IssueCommentCallback(GitHubCallback):
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_user_id=daiv_user.pk if daiv_user else None,
+                acting_platform_uid=str(self.comment.user.id),
             )
             try:
                 await acreate_run(
@@ -202,6 +215,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    acting_platform_uid=str(self.comment.user.id),
                     title=self.issue.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,
@@ -229,6 +243,8 @@ class IssueCommentCallback(GitHubCallback):
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_user_id=daiv_user.pk if daiv_user else None,
+                acting_platform_uid=str(self.comment.user.id),
             )
             # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
             # fails the activity is still useful without a branch — don't drop it.
@@ -251,6 +267,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    acting_platform_uid=str(self.comment.user.id),
                     title=self.issue.title,
                     thread_id=thread_id,
                     sandbox_environment_id=sandbox_environment_id,

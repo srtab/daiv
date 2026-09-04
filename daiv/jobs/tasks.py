@@ -95,6 +95,7 @@ async def run_job_task(
     sandbox_environment_id: str | None = None,
     run_id: str | None = None,
     user_id: int | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -106,6 +107,9 @@ async def run_job_task(
     ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
     ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
     to select the user's personal MCP servers.
+    ``acting_platform_uid``: the platform uid that proves ``user_id`` really owns that platform
+    identity. Required whenever ``user_id`` came from a webhook rather than a DAIV login — without
+    it the credential store cannot tell a username match from a linked account.
     Webhook callers (issue/review addressors) bypass this task and call
     ``create_daiv_agent`` directly; ``use_max`` is therefore not accepted here.
     """
@@ -155,6 +159,7 @@ async def run_job_task(
                     ref=ref,
                     sandbox_env_id=sandbox_environment_id,
                     acting_user_id=user_id,
+                    acting_platform_uid=acting_platform_uid or None,
                     mcp_overrides=mcp_overrides,
                     references=session_refs,
                 ) as runtime_ctx,

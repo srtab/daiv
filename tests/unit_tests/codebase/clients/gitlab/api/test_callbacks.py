@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
 
 from codebase.base import Discussion
@@ -20,6 +22,7 @@ from codebase.clients.gitlab.api.models import (
     User,
 )
 from codebase.repo_config import RepositoryConfig
+from core.constants import CROSS_PROJECT_CONTENT_MARKER
 
 
 class StubClient:
@@ -720,3 +723,75 @@ class TestProcessCallbackSandboxEnvironment:
 
         assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+
+
+class TestCrossProjectMarker:
+    """FR-015 / SC-006 — DAIV's own cross-project comment carries a person's attribution, so the
+    ``current_user.id`` check cannot recognise it. The marker must, or a DAIV-watched target
+    project feeds DAIV's own output back as a new run."""
+
+    def test_daiv_own_cross_project_comment_starts_no_run(self, monkeypatch_dependencies, stub_client):
+        callback = create_note_callback(f"@daiv here is the context you asked for\n\n{CROSS_PROJECT_CONTENT_MARKER}")
+
+        assert callback.accept_callback() is False
+
+    def test_the_same_persons_own_comment_still_starts_a_run(self, monkeypatch_dependencies, stub_client):
+        """The marker must suppress DAIV's output, not that person's."""
+        callback = create_note_callback("@daiv please review this code")
+
+        assert callback.accept_callback() is True
+
+
+class TestIssueCallbackForwardsActingIdentity:
+    """T055 / FR-014 — the callback already resolves the triggering platform user; the enqueued
+    run must receive that identity, or a labelled issue can never reach a second project."""
+
+    @staticmethod
+    async def _enqueue_kwargs(daiv_user):
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", AsyncMock(return_value=daiv_user)),
+            patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as task_mock,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", AsyncMock(return_value=None)),
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run", AsyncMock()),
+        ):
+            task_mock.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            await callback.process_callback()
+        return task_mock.aenqueue.call_args.kwargs
+
+    @staticmethod
+    async def _run_kwargs(daiv_user):
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", AsyncMock(return_value=daiv_user)),
+            patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as task_mock,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", AsyncMock(return_value=None)),
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run", AsyncMock()) as create_run,
+        ):
+            task_mock.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            await callback.process_callback()
+        return create_run.call_args.kwargs
+
+    async def test_the_session_records_the_uid_so_a_fix_run_can_prove_it(self, monkeypatch_dependencies):
+        """A pipeline-watch fix run reads its identity off the Session, not off the webhook, so
+        the uid has to be persisted there or the second hop spends a username match's credential.
+        """
+        kwargs = await self._run_kwargs(Mock(pk=42))
+
+        assert kwargs["acting_platform_uid"] == "10"
+
+    async def test_a_mapped_triggering_user_is_forwarded(self, monkeypatch_dependencies):
+        kwargs = await self._enqueue_kwargs(Mock(pk=42))
+
+        assert kwargs["acting_user_id"] == 42
+        # The uid the credential lookup must match — the DAIV account may have been resolved by
+        # username or email, which proves nothing about this platform identity.
+        assert kwargs["acting_platform_uid"] == "10"
+
+    async def test_an_unmapped_triggering_user_still_starts_the_run(self, monkeypatch_dependencies):
+        kwargs = await self._enqueue_kwargs(None)
+
+        assert kwargs["acting_user_id"] is None
+        assert kwargs["acting_platform_uid"] == "10"
+        # The attached project is unaffected: the run is enqueued either way.
+        assert kwargs["repo_id"] == "group/repo"

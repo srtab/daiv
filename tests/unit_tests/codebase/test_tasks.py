@@ -408,3 +408,81 @@ class TestRecordMergeMetricsTask:
         assert await MergeMetric.objects.acount() == 1
         metric = await MergeMetric.objects.aget(repo_id="owner/repo", merge_request_iid=42)
         assert metric.lines_added == 200
+
+
+class TestActingIdentityReachesTheRun:
+    """T055 / FR-014 — the webhook already resolves the triggering platform user to a DAIV
+    account; the run has to receive it, or a labelled issue can never reach a second project."""
+
+    @staticmethod
+    async def _run_issue_task(**task_kwargs) -> dict:
+        from codebase.tasks import address_issue_task
+
+        client = MagicMock()
+        client.get_issue.return_value = MagicMock()
+        entered = MagicMock()
+        entered.__aenter__ = AsyncMock(return_value=MagicMock())
+        entered.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("codebase.tasks.RepoClient.create_instance", return_value=client),
+            patch("codebase.tasks.set_runtime_ctx", return_value=entered) as set_ctx,
+            patch("sessions.services.aget_session_ref", AsyncMock(return_value="")),
+            patch(
+                "codebase.managers.issue_addressor.IssueAddressorManager.address_issue",
+                AsyncMock(return_value={"response": "", "code_changes": False}),
+            ),
+        ):
+            await address_issue_task.func(repo_id="group/repo", issue_iid=10, **task_kwargs)
+        return set_ctx.call_args.kwargs
+
+    @staticmethod
+    async def _run_mr_task(**task_kwargs) -> dict:
+        from codebase.tasks import address_mr_comments_task
+
+        client = MagicMock()
+        merge_request = MagicMock()
+        merge_request.merged = False
+        merge_request.source_branch = "feat"
+        client.get_merge_request.return_value = merge_request
+        entered = MagicMock()
+        entered.__aenter__ = AsyncMock(return_value=MagicMock())
+        entered.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("codebase.tasks.RepoClient.create_instance", return_value=client),
+            patch("codebase.tasks.set_runtime_ctx", return_value=entered) as set_ctx,
+            patch(
+                "codebase.managers.review_addressor.CommentsAddressorManager.address_comments",
+                AsyncMock(return_value={"response": "", "code_changes": False}),
+            ),
+        ):
+            await address_mr_comments_task.func(
+                repo_id="group/repo", merge_request_id=3, mention_comment_id="d1", **task_kwargs
+            )
+        return set_ctx.call_args.kwargs
+
+    async def test_a_mapped_triggering_user_reaches_the_run(self):
+        kwargs = await self._run_issue_task(acting_user_id=42, acting_platform_uid="4242")
+
+        assert kwargs["acting_user_id"] == 42
+        assert kwargs["acting_platform_uid"] == "4242"
+
+    async def test_an_unmapped_triggering_user_leaves_the_run_without_an_identity(self):
+        """The run still happens — it just cannot reach beyond the attached project."""
+        kwargs = await self._run_issue_task(acting_user_id=None, acting_platform_uid="4242")
+
+        assert kwargs["acting_user_id"] is None
+        assert kwargs["acting_platform_uid"] == "4242"
+
+    async def test_the_mr_comment_path_forwards_the_same_identity(self):
+        kwargs = await self._run_mr_task(acting_user_id=42, acting_platform_uid="4242")
+
+        assert kwargs["acting_user_id"] == 42
+        assert kwargs["acting_platform_uid"] == "4242"
+
+    async def test_a_run_with_no_identity_arguments_is_unchanged(self):
+        kwargs = await self._run_issue_task()
+
+        assert kwargs["acting_user_id"] is None
+        assert kwargs["acting_platform_uid"] is None

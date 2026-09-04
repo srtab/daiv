@@ -4,6 +4,7 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialApp
 
+from accounts.socialaccount import TOKEN_RESPONSE_ATTR
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from core.site_settings import site_settings
@@ -83,6 +84,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             SocialApp(
                 provider=platform.value,
                 name=f"{platform.value.capitalize()} (SiteConfiguration)",
+                # FR-007: the consent screen the platform shows is built from the requested
+                # scopes, so widening them is itself how the person is told what DAIV may do.
+                # The sign-in page says it in prose; see accounts/templates/account/login.html.
                 client_id=client_id_value,
                 secret=secret_value,
                 settings=app_settings,
@@ -114,3 +118,50 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             return True
         logger.info("Social signup denied for unregistered email %s via %s", email, provider)
         return False
+
+    def capture_platform_credential(self, sociallogin) -> None:
+        """Store the person's OAuth grant so the agent can act as them beyond the attached project.
+
+        Called from ``accounts.signals`` on every successful social login — allauth has no adapter
+        hook that fires for both a new signup and a returning user. Best effort: a failure here
+        must not break sign-in, it only leaves cross-project access unauthorised.
+
+        ``SOCIALACCOUNT_STORE_TOKENS`` stays at its ``False`` default: allauth's own ``SocialToken``
+        is plaintext at rest, has no revocation state, and is recreated on re-login.
+        """
+        from accounts import credentials
+
+        token = getattr(sociallogin, "token", None)
+        account = getattr(sociallogin, "account", None)
+        user = getattr(sociallogin, "user", None)
+        if token is None or account is None or user is None or not user.pk:
+            return
+
+        try:
+            provider = GitPlatform(account.provider)
+        except ValueError:
+            return
+        if provider not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+            return
+
+        # Absent when allauth round-tripped the login through the session (the signup detour):
+        # ``SocialLogin.serialize`` keeps only model fields, so the raw response does not survive.
+        # An empty scope list then means "the platform did not tell us", which
+        # ``credentials.scopes_permit_cross_project`` treats as "attempt it and let the platform
+        # decide" — do NOT substitute the *requested* scopes here, which is a different claim.
+        response = getattr(token, TOKEN_RESPONSE_ATTR, None) or {}
+        try:
+            credentials.store(
+                user_id=user.pk,
+                provider=provider,
+                host=credentials.platform_host(provider),
+                platform_uid=account.uid,
+                access_token=token.token,
+                refresh_token=token.token_secret or None,
+                expires_at=token.expires_at,
+                # What was granted, which a GitHub App or a narrowed GitLab consent may cut down
+                # from what was requested.
+                scopes=response.get("scope", "").split() if isinstance(response.get("scope"), str) else [],
+            )
+        except Exception:
+            logger.exception("Failed to store the %s platform credential for user pk=%s", provider.value, user.pk)

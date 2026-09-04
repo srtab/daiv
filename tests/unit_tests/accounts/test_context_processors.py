@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import Error as DatabaseError
@@ -10,6 +11,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.context_processors import _resolve_active_section, nav, running_jobs_count
 from accounts.models import User
+from codebase.base import GitPlatform
 
 
 @pytest.fixture
@@ -162,3 +164,30 @@ class TestResolveActiveSection:
         request = RequestFactory().get("/dashboard/mcp-servers/1/edit/")
         request.nav_section_override = "mcp_servers_global"
         assert _resolve_active_section(request) == "mcp_servers_global"
+
+
+class TestSocialConsentTracksTheGrantNotTheCapability:
+    """The wider OAuth scope is requested and the token stored on every sign-in, regardless of
+    whether cross-project access is switched on. The disclosure has to follow the grant, or the
+    one deployment that collects a token it will never use is the one that says nothing."""
+
+    @pytest.mark.parametrize("capability_on", [True, False])
+    def test_the_disclosure_is_shown_either_way(self, rf, capability_on):
+        from accounts.context_processors import social_consent
+
+        with (
+            patch("codebase.conf.settings") as codebase_mock,
+            patch("core.site_settings.site_settings") as settings_mock,
+        ):
+            codebase_mock.CLIENT = GitPlatform.GITLAB
+            settings_mock.cross_project_access_enabled = capability_on
+            context = social_consent(rf.get("/accounts/login/"))
+
+        assert context["socialaccount_platform"] == "Gitlab"
+
+    def test_a_platform_without_oauth_says_nothing(self, rf):
+        from accounts.context_processors import social_consent
+
+        with patch("codebase.conf.settings") as codebase_mock:
+            codebase_mock.CLIENT = GitPlatform.SWE
+            assert social_consent(rf.get("/accounts/login/")) == {}

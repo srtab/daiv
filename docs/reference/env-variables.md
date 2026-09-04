@@ -132,6 +132,12 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `EMAIL_USE_TLS` | Use TLS for SMTP connection | `False` | `True` |
 | `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
 
+!!! warning "Must name the same GitLab as `CODEBASE_GITLAB_URL`"
+    The per-user token for [cross-project access](../features/cross-project-access.md) is minted
+    against `ALLAUTH_GITLAB_URL` and spent against `CODEBASE_GITLAB_URL`. If they name different
+    hosts, DAIV refuses to store the credential and logs an error rather than sending one
+    instance's token to another.
+
 !!! info "Setting up social providers"
     **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
 
@@ -157,12 +163,15 @@ When enabled, Rocket Chat becomes available as a notification channel that users
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://app:8000` | `https://daiv.example.com` |
 | `DAIV_ENCRYPTION_KEY` :material-lock: | Fernet encryption key for secrets stored in the database. If not set, a key is derived from `DJANGO_SECRET_KEY` via HKDF. | *(derived)* | |
+| `DAIV_GITLAB_OAUTH_SCOPE` | Space-separated OAuth scopes requested at GitLab sign-in. Narrow to `read_user read_api` for read-only [cross-project access](../features/cross-project-access.md). Inert for GitHub, whose App ignores the scope parameter. | `read_user api` | `read_user read_api` |
 
 !!! note
     The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.
 
 !!! note
     `DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
+
+    It also protects the per-user git platform authorisations behind [cross-project access](../features/cross-project-access.md). Rotating the key invalidates every one of them: each user must sign in again to re-authorise, on top of re-entering the configuration secrets.
 
 ---
 
@@ -176,6 +185,7 @@ When enabled, Rocket Chat becomes available as a notification channel that users
 | `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_SYNC_CRON` | Cron expression for the periodic repository access sync | `*/15 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24` | `12` |
+| `CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS` | Days a cross-project access record is kept before the access sync prunes it; `0` keeps them forever | `90` | `30` |
 
 !!! note
     Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.

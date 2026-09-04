@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-09-04 09:42+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -20,19 +20,30 @@ msgstr ""
 msgid "Accounts"
 msgstr "Contas"
 
+msgid "Dashboard"
+msgstr "Painel"
+
+msgid "Sessions"
+msgstr "Sessões"
+
+msgid "Schedules"
+msgstr "Agendamentos"
+
+msgid "Memory"
+msgstr "Memória"
+
 msgid "You cannot deactivate your own account."
 msgstr "Não pode desativar a sua própria conta."
 
-msgid ""
-"You are the last admin. Promote another user before changing your role."
+msgid "You are the last admin. Promote another user before changing your role."
 msgstr ""
 "É o último administrador. Promova outro utilizador antes de alterar o seu "
 "papel."
 
 msgid "This is the last admin. Promote another user before demoting this one."
 msgstr ""
-"Este é o último administrador. Promova outro utilizador antes de despromover"
-" este."
+"Este é o último administrador. Promova outro utilizador antes de despromover "
+"este."
 
 msgid "Admin"
 msgstr "Administrador"
@@ -49,14 +60,6 @@ msgstr "nome"
 msgid "role"
 msgstr "papel"
 
-msgid "notify on jobs"
-msgstr "notificar em tarefas"
-
-msgid "When to receive notifications for agent runs you start (UI/API/MCP)."
-msgstr ""
-"Quando receber notificações para execuções do agente que iniciar "
-"(interface/API/MCP)."
-
 msgid "prefix"
 msgstr "prefixo"
 
@@ -71,6 +74,58 @@ msgstr "revogada"
 
 msgid "API Keys"
 msgstr "Chaves API"
+
+msgid "GitLab"
+msgstr ""
+
+msgid "GitHub"
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Expired"
+msgstr ""
+
+#, fuzzy
+#| msgid "revoked"
+msgid "Revoked"
+msgstr "revogada"
+
+msgid "provider"
+msgstr ""
+
+msgid "host"
+msgstr ""
+
+msgid "platform user ID"
+msgstr ""
+
+msgid "access token"
+msgstr ""
+
+msgid "refresh token"
+msgstr ""
+
+msgid "granted scopes"
+msgstr ""
+
+msgid "state"
+msgstr ""
+
+msgid "Platform Credential"
+msgstr ""
+
+msgid "Platform Credentials"
+msgstr ""
+
+msgid ""
+"An expiring credential must carry a refresh token, or it can never be "
+"renewed."
+msgstr ""
+
+msgid "A connected credential must carry an access token."
+msgstr ""
 
 msgid "Sign-In Code"
 msgstr "Código de Autenticação"
@@ -97,24 +152,22 @@ msgstr ""
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
-msgid "Dashboard"
-msgstr "Painel"
+#, python-format
+msgid ""
+"\n"
+"                Signing in also authorises DAIV to act as you on %(platform)s — it never sees more\n"
+"                than you can, and you can review or withdraw this any time in your account settings.\n"
+"                "
+msgstr ""
 
-msgid "Sessions"
-msgstr "Sessões"
-
-#, python-brace-format
-msgid "{count} running"
-msgstr "{count} em execução"
-
-msgid "Schedules"
-msgstr "Agendamentos"
+msgid "New"
+msgstr ""
 
 msgid "Sandbox environments"
 msgstr "Ambientes sandbox"
 
-msgid "Memory"
-msgstr "Memória"
+msgid "MCP servers"
+msgstr "Servidores MCP"
 
 msgid "Account"
 msgstr "Conta"
@@ -125,20 +178,27 @@ msgstr "Canais de notificação"
 msgid "API keys"
 msgstr "Chaves API"
 
+msgid "Git authorisation"
+msgstr ""
+
 msgid "Users"
 msgstr "Utilizadores"
 
 msgid "Configuration"
 msgstr "Configuração"
 
-#| msgid "Schedules"
+msgid "Cross-project access"
+msgstr ""
+
 msgid "Schedule templates"
 msgstr "Modelos de agendamento"
 
 msgid "Skills"
 msgstr "Competências"
 
-msgid "MCP servers"
+#, fuzzy
+#| msgid "MCP servers"
+msgid "Global MCP servers"
 msgstr "Servidores MCP"
 
 msgid "API documentation"
@@ -199,6 +259,80 @@ msgstr ""
 "Pode autenticar-se com um código único enviado para o seu email, ou usar a "
 "sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
 
+msgid ""
+"What DAIV is allowed to do on the git platform as you, when a run you "
+"started needs to reach a project other than the one it is working on."
+msgstr ""
+
+msgid ""
+"This deployment is not configured for a git platform that issues personal "
+"authorisations."
+msgstr ""
+
+#, fuzzy
+#| msgid "Authorize"
+msgid "Not authorised"
+msgstr "Autorizar"
+
+msgid "Renews automatically; current token expires"
+msgstr ""
+
+msgid "Does not expire"
+msgstr ""
+
+msgid "Granted:"
+msgstr ""
+
+msgid ""
+"This authorisation is narrower than DAIV needs to reach other projects. Re-"
+"authorise to widen it — work on the project a run is attached to is "
+"unaffected either way."
+msgstr ""
+
+#, fuzzy
+#| msgid "Authorize"
+msgid "Re-authorise"
+msgstr "Autorizar"
+
+#, fuzzy
+#| msgid "Authorize"
+msgid "Authorise"
+msgstr "Autorizar"
+
+msgid "Disconnect this authorisation? DAIV will stop acting as you. The authorisation stays on the git platform until you remove it there, and signing in to DAIV again restores it."
+msgstr ""
+
+msgid "Disconnect"
+msgstr ""
+
+msgid "What this allows"
+msgstr ""
+
+msgid "A run you start can read issues, merge requests and pipelines in other projects — and comment on them — but only where you can already do so yourself."
+msgstr ""
+
+msgid ""
+"Work on the project a run is attached to always uses DAIV's own identity, "
+"whether or not you authorise this."
+msgstr ""
+
+msgid ""
+"DAIV never shows you anything the platform would refuse you. A project you "
+"cannot reach is refused, not silently empty."
+msgstr ""
+
+msgid "Disconnecting takes effect immediately and clears the secrets DAIV stored. It does not withdraw the authorisation on the git platform, so signing in again restores it."
+msgstr ""
+
+msgid ""
+"Cross-project access is currently switched off for this deployment, so an "
+"authorisation here has no effect yet."
+msgstr ""
+
+#, python-brace-format
+msgid "{count} running"
+msgstr "{count} em execução"
+
 msgid "Open navigation"
 msgstr "Abrir navegação"
 
@@ -225,6 +359,14 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+#~ msgid "notify on jobs"
+#~ msgstr "notificar em tarefas"
+
+#~ msgid "When to receive notifications for agent runs you start (UI/API/MCP)."
+#~ msgstr ""
+#~ "Quando receber notificações para execuções do agente que iniciar "
+#~ "(interface/API/MCP)."
 
 #~ msgid "Activity"
 #~ msgstr "Atividade"

@@ -2,6 +2,8 @@
 # django-allauth
 # ---------------------------------------------------------------------------
 
+from decouple import Csv, config
+
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
@@ -28,6 +30,10 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
 LOGIN_URL = "/accounts/login/"
 
+# Narrow to `read_user read_api` for read-only cross-project context. GitHub's list is inert: a
+# GitHub App ignores the OAuth `scope` parameter and derives reach from its installed permissions.
+GITLAB_OAUTH_SCOPE = config("DAIV_GITLAB_OAUTH_SCOPE", default="read_user api", cast=Csv(delimiter=" "))
+
 # Provider scopes are always registered; whether a provider is actually usable
 # (credentials, URLs) is determined at runtime by SocialAccountAdapter.list_apps().
-SOCIALACCOUNT_PROVIDERS = {"github": {"SCOPE": ["user:email"]}, "gitlab": {"SCOPE": ["read_user"]}}
+SOCIALACCOUNT_PROVIDERS = {"github": {"SCOPE": ["user:email"]}, "gitlab": {"SCOPE": GITLAB_OAUTH_SCOPE}}

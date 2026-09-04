@@ -43,6 +43,7 @@ class Issue(BaseModel):
     id: int
     number: int
     title: str
+    body: str | None = None
     state: Literal["open", "closed"]
     labels: list[Label] = Field(default_factory=list)
     pull_request: dict | None = None

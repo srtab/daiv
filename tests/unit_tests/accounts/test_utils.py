@@ -172,3 +172,47 @@ async def test_get_platform_identity_orders_the_link_lookup():
         await aget_platform_identity(user_id=1, provider=GitPlatform.GITLAB)
 
     queryset.order_by.assert_called_once_with("pk")
+
+
+class TestProvenActingUserId:
+    """``resolve_user`` matches platform username and email before social uid, so the DAIV account
+    it returns may never have linked that platform identity. That is fine for choosing an MR
+    assignee and not fine for anything that spends the account's own credentials — which now
+    includes the personal MCP servers a run loads."""
+
+    pytestmark = pytest.mark.django_db(transaction=True)
+
+    async def test_an_authenticated_run_needs_no_platform_proof(self, user):
+        """Chat and job runs carry no platform uid: the DAIV session already proved who they are."""
+        from accounts.utils import aproven_acting_user_id
+
+        assert await aproven_acting_user_id(user.pk, None, GitPlatform.GITLAB) == user.pk
+
+    async def test_a_run_with_no_acting_user_stays_anonymous(self):
+        from accounts.utils import aproven_acting_user_id
+
+        assert await aproven_acting_user_id(None, "77", GitPlatform.GITLAB) is None
+
+    async def test_a_webhook_uid_matching_a_linked_account_is_proven(self, user):
+        from allauth.socialaccount.models import SocialAccount
+
+        from accounts.utils import aproven_acting_user_id
+
+        await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="77")
+        assert await aproven_acting_user_id(user.pk, "77", GitPlatform.GITLAB) == user.pk
+
+    async def test_a_username_collision_is_not_an_identity(self, user):
+        """The platform user resolved to this DAIV account by username or email alone. Nothing
+        links them, so the run must not act as them."""
+        from accounts.utils import aproven_acting_user_id
+
+        assert await aproven_acting_user_id(user.pk, "77", GitPlatform.GITLAB) is None
+
+    async def test_a_uid_linked_to_someone_else_is_not_an_identity(self, user, db):
+        from allauth.socialaccount.models import SocialAccount
+
+        from accounts.utils import aproven_acting_user_id
+
+        other = await User.objects.acreate_user(username="mallory", email="m@test.com", password="pw")  # noqa: S106
+        await SocialAccount.objects.acreate(user=other, provider="gitlab", uid="77")
+        assert await aproven_acting_user_id(user.pk, "77", GitPlatform.GITLAB) is None

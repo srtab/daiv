@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 13:14+0000\n"
+"POT-Creation-Date: 2026-09-04 09:42+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -149,11 +149,54 @@ msgstr "tópicos"
 msgid "Repository Catalog"
 msgstr "Catálogo de Repositórios"
 
-msgid "Repository"
-msgstr "Repositório"
+msgid "Requesting user"
+msgstr ""
 
-msgid "Branch"
-msgstr "Ramo"
+msgid "Service identity"
+msgstr ""
+
+msgid "Allowed"
+msgstr ""
+
+msgid "Denied — no access"
+msgstr ""
+
+msgid "Denied — no usable credential"
+msgstr ""
+
+msgid "Denied — capability disabled"
+msgstr ""
+
+msgid "Denied — not permitted cross-project"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+#, fuzzy
+#| msgid "merged at"
+msgid "occurred at"
+msgstr "fundido em"
+
+msgid "thread ID"
+msgstr ""
+
+msgid "identity kind"
+msgstr ""
+
+#, fuzzy
+#| msgid "repository ID"
+msgid "target repository ID"
+msgstr "ID do repositório"
+
+msgid "outcome"
+msgstr ""
+
+msgid "Cross-Project Access Record"
+msgstr ""
+
+msgid "Cross-Project Access Records"
+msgstr ""
 
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
@@ -182,8 +225,49 @@ msgstr "Selecionar um repositório"
 msgid "Add repository"
 msgstr "Adicionar repositório"
 
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "Branch"
+msgstr "Ramo"
+
 msgid "No repositories found."
 msgstr "Nenhum repositório encontrado."
+
+msgid "Cross-project access"
+msgstr ""
+
+msgid ""
+"Every attempt to reach a project other than the one a run was started on, "
+"and whose identity it used."
+msgstr ""
+
+msgid "Filter by target project…"
+msgstr ""
+
+msgid "Thread ID"
+msgstr ""
+
+msgid "All outcomes"
+msgstr ""
+
+msgid "Filter"
+msgstr ""
+
+msgid "DAIV service identity"
+msgstr ""
+
+msgid "unknown user"
+msgstr ""
+
+msgid "ago"
+msgstr ""
+
+msgid "No access records match your filter."
+msgstr ""
+
+msgid "No cross-project access has been attempted yet."
+msgstr ""
 
 #~ msgid "Could not load repositories."
 #~ msgstr "Não foi possível carregar os repositórios."

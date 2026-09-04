@@ -59,6 +59,12 @@ OAuth is configured by an admin in **Site Configuration** under the **Authentica
 !!! tip
     OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](../reference/env-variables.md#authentication) and [Deployment](deployment.md).
 
+!!! info "Cross-project access changes what sign-in requests"
+    When [cross-project access](../features/cross-project-access.md) is configured, signing in also
+    authorises DAIV to reach *other* projects as you, so a run you start can read what you can read.
+    Existing users must sign in again for that wider authorisation; until they do, everything they
+    could already do keeps working. Review or disconnect it under **Account → Git authorisation**.
+
 ### Email login-by-code
 
 Users can also sign in **without a password** using a one-time code emailed to them:

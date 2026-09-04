@@ -146,3 +146,25 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
     # The orphan row is reachable by neither arm of sync_stuck_runs, so it must not be left READY.
     run = await Run.objects.aget(session_id=session.thread_id)
     assert run.status == RunStatus.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_fix_run_carries_the_identity_proof_off_the_session(stub_enqueue, create_db_task_result):
+    """``Session.user`` may be a username or email match — enough to assign an MR, not enough to
+    spend that account's credentials. Without the uid this second hop resolves the token anyway,
+    because a missing uid means "already authenticated" rather than "unproven".
+    """
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    session = await amake_watched_session(
+        thread_id=compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=MR_IID),
+        merge_request_iid=MR_IID,
+        watch_state=WatchState.FIXING,
+        acting_platform_uid="10",
+    )
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    assert calls[0]["acting_platform_uid"] == "10"

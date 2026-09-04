@@ -25,6 +25,7 @@ urlpatterns = [
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
     path("accounts/channels/", include("accounts.urls.channels")),
+    path("accounts/git-authorisation/", include("accounts.urls.credentials")),
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("accounts.urls.dashboard")),
     path("dashboard/configuration/", include("core.urls.configuration")),

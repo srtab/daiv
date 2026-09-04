@@ -14,6 +14,7 @@ from langchain.agents.middleware import (
     dynamic_prompt,
 )
 
+from accounts.utils import aproven_acting_user_id
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import (
     AGENTS_MEMORY_PATH,
@@ -225,6 +226,7 @@ async def create_daiv_agent(
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
+    _cross_project_enabled = bool(site_settings.cross_project_access_enabled)
 
     # Unified workspace namespace: the agent addresses /workspace/repo, /workspace/skills and
     # /workspace/tmp regardless of sandbox mode. Only the backend behind /workspace differs.
@@ -260,7 +262,10 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await MCPToolkit.get_tools(user_id=ctx.acting_user_id, overrides=ctx.mcp_overrides)
+    # Personal MCP servers carry that person's own decrypted auth headers, so the identity has to
+    # be proven rather than merely resolved — a webhook's username/email match is not proof.
+    mcp_user_id = await aproven_acting_user_id(ctx.acting_user_id, ctx.acting_platform_uid, ctx.git_platform)
+    mcp_tools = await MCPToolkit.get_tools(user_id=mcp_user_id, overrides=ctx.mcp_overrides)
 
     subagents = [
         create_general_purpose_subagent(
@@ -271,6 +276,7 @@ async def create_daiv_agent(
             sandbox_enabled=_sandbox_enabled,
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
+            cross_project_enabled=_cross_project_enabled,
             fallback_models=fallback_models,
             client=run_client,
             sandbox_backend=sandbox_backend,
@@ -289,6 +295,7 @@ async def create_daiv_agent(
         sandbox_enabled=_sandbox_enabled,
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
+        cross_project_enabled=_cross_project_enabled,
         fallback_models=fallback_models,
         client=run_client,
         sandbox_backend=sandbox_backend,
@@ -343,7 +350,9 @@ async def create_daiv_agent(
         GitMiddleware(
             auto_commit_changes=auto_commit_changes, capture_patch=capture_patch, sandbox_backend=sandbox_backend
         ),
-        GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
+        GitPlatformMiddleware(
+            git_platform=ctx.git_platform, backend=backend, cross_project_enabled=_cross_project_enabled
+        ),
         dynamic_daiv_system_prompt,
         RepositoryMemoryMiddleware(),
         *(middleware or []),

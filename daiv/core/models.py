@@ -424,6 +424,16 @@ class SiteConfiguration(models.Model):
         help_text=_("Maximum page content size (in characters) to analyze in one pass."),
     )
 
+    # -- Cross-project access --
+    cross_project_access_enabled = models.BooleanField(
+        _("cross-project access enabled"),
+        null=True,
+        help_text=_(
+            "Allow the git platform tools to target projects other than the attached one, acting as"
+            " the person who requested the run. Off by default: enabling it widens what the agent can reach."
+        ),
+    )
+
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
         _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
@@ -594,6 +604,14 @@ class SiteConfiguration(models.Model):
             match=("web_fetch_*",),
             icon="web-fetch",
             toggle_field="web_fetch_enabled",
+            category="Agent tools",
+        ),
+        FieldGroup(
+            key="cross_project",
+            title=_("Cross-project access"),
+            match=("cross_project_*",),
+            icon="lock-closed",
+            toggle_field="cross_project_access_enabled",
             category="Agent tools",
         ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox", category="Runtime"),
