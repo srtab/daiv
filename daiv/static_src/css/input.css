@@ -1646,7 +1646,9 @@ html {
     margin: 0;
     padding: 0 0 8px;
     background: var(--color-ground);
-    z-index: 10;
+    /* Above the mobile tab bar (z-30), below the nav drawer (z-40): the dock is a
+       stacking context, so its sheets' own z-60 is capped by this value. */
+    z-index: 35;
   }
 
   /* Soft fade above the dock so transcript content fades into the mask
