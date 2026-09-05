@@ -25,7 +25,7 @@ Two access tiers are checked, matched to the platform's own roles:
 
 | Tier      | Required platform role                                           | Gates                                                                                                                                                                                   |
 | --------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Read**  | GitLab Reporter or above, GitHub read (or higher) collaborator   | Repository/branch pickers, repository search, the memory dashboard, and the MCP `list_repositories` tool.                                                                               |
+| **Read**  | GitLab Reporter or above, GitHub read (or higher) collaborator   | Repository/branch pickers, the memory dashboard, and the MCP `list_repositories` tool.                                                                                                  |
 | **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) — from the dashboard, the Jobs API, or MCP. |
 
 A repository the user can't read never appears in a listing; one they can read but not write to appears but rejects run/chat/schedule attempts with a friendly "not accessible" message rather than a stack trace.
