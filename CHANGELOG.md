@@ -120,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The unused `GET /api/codebase/repositories/search` endpoint, along with the `repoSearch` Alpine component it fed. Both were superseded by the HTMX repository picker and had no remaining callers.
 - **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
 - Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.
 - Removed the deployment-level `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`, and `DAIV_SANDBOX_MEMORY` settings — manage runtime values through the Sandbox Environments UI (`DAIV_SANDBOX_TIMEOUT` and `DAIV_SANDBOX_API_KEY` remain).
