@@ -49,7 +49,7 @@ class TestRepoPickerView:
         resp = logged_in_client.get(reverse("codebase:picker-repositories"))
 
         assert resp.status_code == 200
-        mock_search.assert_called_once_with(ANY, search=None, limit=10)
+        mock_search.assert_called_once_with(ANY, search=None, limit=11, after_slug=None)
         assert b"acme/api" in resp.content
         assert b"acme/web" in resp.content
 
@@ -60,7 +60,7 @@ class TestRepoPickerView:
 
         logged_in_client.get(reverse("codebase:picker-repositories") + "?q=foo")
 
-        mock_search.assert_called_once_with(ANY, search="foo", limit=10)
+        mock_search.assert_called_once_with(ANY, search="foo", limit=11, after_slug=None)
 
     @patch("codebase.views.search_viewable_repositories")
     def test_renders_rows_in_returned_order(self, mock_search, logged_in_client):
@@ -80,6 +80,51 @@ class TestRepoPickerView:
 
         assert resp.status_code == 200
         assert b"No repositories found" in resp.content
+
+    @patch("codebase.views.search_viewable_repositories")
+    def test_no_sentinel_when_page_is_not_full(self, mock_search, logged_in_client):
+        mock_search.return_value = [_cat("acme/api")]
+
+        resp = logged_in_client.get(reverse("codebase:picker-repositories"))
+
+        assert b"intersect once" not in resp.content
+
+    @patch("codebase.views.search_viewable_repositories")
+    def test_overflow_renders_sentinel_anchored_on_last_shown_slug(self, mock_search, logged_in_client):
+        """A full page + 1 renders 10 rows and a sentinel requesting `after=<10th slug>`."""
+        mock_search.return_value = [_cat(f"acme/r{i:02d}") for i in range(11)]
+
+        resp = logged_in_client.get(reverse("codebase:picker-repositories") + "?q=acme")
+
+        body = resp.content.decode()
+        assert body.count("<li") == 11  # 10 rows + sentinel
+        assert "acme/r10" not in body  # the probe row is not rendered
+        assert 'hx-trigger="intersect once root:#repo-picker-list"' in body
+        assert "after=acme%2Fr09" in body
+        assert "q=acme" in body
+
+    @patch("codebase.views.search_viewable_repositories")
+    def test_after_forwards_keyset_and_renders_rows_without_wrapper(self, mock_search, logged_in_client):
+        """The next-page fragment must be bare <li> rows: it replaces a sentinel inside the <ul>."""
+        mock_search.return_value = [_cat("acme/web")]
+
+        resp = logged_in_client.get(reverse("codebase:picker-repositories") + "?q=acme&after=acme/r09")
+
+        mock_search.assert_called_once_with(ANY, search="acme", limit=11, after_slug="acme/r09")
+        body = resp.content.decode()
+        assert "<ul>" not in body
+        assert "acme/web" in body
+
+    @patch("codebase.views.search_viewable_repositories")
+    def test_exhausted_next_page_renders_nothing(self, mock_search, logged_in_client):
+        """No rows left after the cursor → empty fragment, not the first page's empty state
+        (which would replace the sentinel with "No repositories found" under a full list)."""
+        mock_search.return_value = []
+
+        resp = logged_in_client.get(reverse("codebase:picker-repositories") + "?after=acme/zzz")
+
+        assert resp.status_code == 200
+        assert resp.content.strip() == b""
 
 
 class TestBranchPickerView:

@@ -1,0 +1,28 @@
+{% for repo in repos %}
+  <li>
+    <button type="button"
+            class="combobox-option block w-full rounded-lg px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06]"
+            @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
+      <span class="block text-white">{{ repo.slug }}</span>
+      {% if repo.name and repo.name != repo.slug %}
+      <span class="block text-[13px] text-gray-400">{{ repo.name }}</span>
+      {% endif %}
+    </button>
+  </li>
+{% endfor %}
+{% if next_url %}
+{% comment %}
+Infinite-scroll sentinel: replaces itself with the next page (rows + the following sentinel).
+`root:#repo-picker-list` scopes the observer to the scroll container, so it still fires when the
+popover itself is clipped by the viewport. Its skeleton row is the loading state — the search
+input's `repoLoading` skeleton is not reused here (that one hides the whole list mid-scroll).
+{% endcomment %}
+  <li hx-get="{{ next_url }}"
+      hx-trigger="intersect once root:#repo-picker-list"
+      hx-swap="outerHTML"
+      aria-hidden="true"
+      class="animate-pulse px-3 py-2 space-y-1.5">
+    <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
+    <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+  </li>
+{% endif %}
