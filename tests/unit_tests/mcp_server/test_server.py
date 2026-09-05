@@ -4,7 +4,14 @@ from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import MAX_REPOSITORIES, get_job_status, list_repositories, submit_job
+from mcp_server.server import (
+    DEFAULT_LIST_LIMIT,
+    _decode_repo_cursor,
+    _encode_cursor,
+    get_job_status,
+    list_repositories,
+    submit_job,
+)
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 
@@ -625,9 +632,8 @@ async def test_list_repositories_default():
     assert data["repositories"][0]["topics"] == ["python", "backend"]
     assert data["repositories"][0]["default_branch"] == "main"
     assert data["repositories"][0]["html_url"] == "https://example.com/group/alpha"
-    assert "warning" not in data
     assert data["next_cursor"] is None
-    mock_search.assert_awaited_once_with(ANY, search=None, topics=None, limit=MAX_REPOSITORIES + 1)
+    mock_search.assert_awaited_once_with(ANY, search=None, topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None)
 
 
 async def test_list_repositories_with_search():
@@ -637,7 +643,9 @@ async def test_list_repositories_with_search():
         data = await list_repositories(search="alpha")
 
     assert [r["slug"] for r in data["repositories"]] == ["group/alpha"]
-    mock_search.assert_awaited_once_with(ANY, search="alpha", topics=None, limit=MAX_REPOSITORIES + 1)
+    mock_search.assert_awaited_once_with(
+        ANY, search="alpha", topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+    )
 
 
 async def test_list_repositories_with_topics():
@@ -647,32 +655,58 @@ async def test_list_repositories_with_topics():
         data = await list_repositories(topics=["python"])
 
     assert len(data["repositories"]) == 2
-    mock_search.assert_awaited_once_with(ANY, search=None, topics=["python"], limit=MAX_REPOSITORIES + 1)
+    mock_search.assert_awaited_once_with(
+        ANY, search=None, topics=["python"], limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+    )
 
 
-async def test_list_repositories_truncated_with_warning():
-    """More than MAX_REPOSITORIES accessible → truncated to MAX with an exact overflow warning."""
-    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES + 1)]
+async def test_list_repositories_overflow_returns_cursor():
+    """More matches than the window → truncated page plus a next_cursor anchored on its last slug."""
+    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(6)]
 
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
-        data = await list_repositories()
+        data = await list_repositories(limit=5)
 
-    assert len(data["repositories"]) == MAX_REPOSITORIES
-    assert "warning" in data
-    assert "Not all accessible repositories" in data["warning"]
+    assert [r["slug"] for r in data["repositories"]] == [f"group/repo-{i}" for i in range(5)]
+    assert data["next_cursor"] is not None
+    assert _decode_repo_cursor(data["next_cursor"]) == "group/repo-4"
+
+
+async def test_list_repositories_exactly_at_limit_has_no_cursor():
+    """Exactly ``limit`` matches → full window, no next_cursor (negative boundary)."""
+    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(5)]
+
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
+        data = await list_repositories(limit=5)
+
+    assert len(data["repositories"]) == 5
     assert data["next_cursor"] is None
 
 
-async def test_list_repositories_at_limit_no_warning():
-    """Exactly MAX_REPOSITORIES accessible → full window, no overflow warning (negative boundary)."""
-    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES)]
+async def test_list_repositories_cursor_is_forwarded_as_after_slug():
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
+        await list_repositories(search="api", cursor=_encode_cursor({"slug": "group/repo-4"}))
 
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
-        data = await list_repositories()
+    mock_search.assert_awaited_once_with(
+        ANY, search="api", topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug="group/repo-4"
+    )
 
-    assert len(data["repositories"]) == MAX_REPOSITORIES
-    assert "warning" not in data
-    assert data["next_cursor"] is None
+
+async def test_list_repositories_invalid_cursor_returns_error():
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
+        data = await list_repositories(cursor="garbage")
+
+    assert data["error"] == "Invalid cursor."
+    mock_search.assert_not_awaited()
+
+
+async def test_list_repositories_non_string_slug_cursor_returns_invalid_not_crash():
+    """A well-formed base64(JSON) cursor whose ``slug`` is a non-string must be reported as an
+    invalid cursor, not reach the ORM as a wrong-typed ``slug__gt`` lookup."""
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])):
+        data = await list_repositories(cursor=_encode_cursor({"slug": 123}))
+
+    assert data["error"] == "Invalid cursor."
 
 
 async def test_list_repositories_error_handling():

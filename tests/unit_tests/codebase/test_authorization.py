@@ -279,6 +279,37 @@ class TestSearchViewableRepositories:
 
         assert [r.slug for r in result] == ["a/r0", "a/r1", "a/r2"]
 
+    def test_after_slug_resumes_strictly_after_that_slug(self, admin_user, fresh_sync):
+        for i in range(5):
+            _catalog(f"a/r{i}")
+
+        result = search_viewable_repositories(admin_user, limit=2, after_slug="a/r1")
+
+        assert [r.slug for r in result] == ["a/r2", "a/r3"]
+
+    def test_after_slug_applies_to_the_topics_branch(self, admin_user, fresh_sync):
+        for i in range(4):
+            _catalog(f"a/r{i}", topics=["python"])
+
+        result = search_viewable_repositories(admin_user, topics=["python"], limit=2, after_slug="a/r0")
+
+        assert [r.slug for r in result] == ["a/r1", "a/r2"]
+
+    def test_paging_by_after_slug_covers_every_repo_once(self, admin_user, fresh_sync):
+        for i in range(5):
+            _catalog(f"a/r{i}")
+
+        seen: list[str] = []
+        after = None
+        for _ in range(10):
+            page = search_viewable_repositories(admin_user, limit=2, after_slug=after)
+            if not page:
+                break
+            seen.extend(r.slug for r in page)
+            after = page[-1].slug
+
+        assert seen == [f"a/r{i}" for i in range(5)]
+
 
 class TestViewableRepoIdsSubquery:
     def test_returns_fresh_read_and_write_repos(self, linked_member, fresh_sync):

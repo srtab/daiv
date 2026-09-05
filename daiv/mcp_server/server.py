@@ -607,9 +607,17 @@ async def list_jobs(
     return {"jobs": [_serialize_job_summary(a) for a in page], "next_cursor": next_cursor}
 
 
-MAX_REPOSITORIES = 40
-# Served from the local RepositoryCatalog mirror (a DB join), so there is no platform fetch to
-# bound and the overflow warning below is exact: we fetch one extra row and warn iff it exists.
+def _encode_repo_cursor(repo: RepositoryCatalog) -> str:
+    """Cursor for the slug-ordered repository listing."""
+    return _encode_cursor({"slug": repo.slug})
+
+
+def _decode_repo_cursor(raw: str) -> str:
+    """Decode a slug cursor; raises on malformed input (see ``_decode_env_cursor``)."""
+    payload = _decode_cursor(raw)
+    if not isinstance(payload["slug"], str):
+        raise TypeError("cursor slug must be a string")
+    return payload["slug"]
 
 
 def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
@@ -624,37 +632,47 @@ def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
 async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+    limit: LimitParam = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page;"
+                " reuse the SAME search/topics filters across pages."
+            )
+        ),
+    ] = None,
 ) -> dict:
     """List repositories the calling user can view, served from the local RepositoryCatalog mirror.
 
     Members see only repositories for which they have at least read access; admins see the full
-    catalog. Results are returned as ``{"repositories": [...], "next_cursor": None}`` — this tool
-    does NOT support cursor pagination and ``next_cursor`` is always ``None``. To reach repositories
-    not shown, narrow the result set with ``search`` or ``topics``. A ``warning`` key is included
-    when strictly more accessible repositories exist than the cap allows to show — this is an exact
-    signal (one extra row is fetched; the warning fires only when that extra row is present).
+    catalog. Returns ``{"repositories": [...], "next_cursor": str | None}`` ordered by slug — pass
+    ``next_cursor`` back to fetch the next page; ``None`` means no more rows. Narrowing with
+    ``search`` or ``topics`` is cheaper than paging through the whole catalog, but a search that
+    still matches more repositories than ``limit`` is fully reachable by paging.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
         return auth_error
 
+    capped = _cap_limit(limit)
+    after_slug = None
+    if cursor:
+        try:
+            after_slug = _decode_repo_cursor(cursor)
+        except _CURSOR_ERRORS:
+            return {"error": "Invalid cursor."}
     try:
-        repos = await asearch_viewable_repositories(mcp_user, search=search, topics=topics, limit=MAX_REPOSITORIES + 1)
+        repos = await asearch_viewable_repositories(
+            mcp_user, search=search, topics=topics, limit=capped + 1, after_slug=after_slug
+        )
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
 
-    # One extra row was requested, so a full+1 result means more accessible repos exist than the
-    # window shows — an exact signal (no fetch-cap heuristic). next_cursor stays None per the tool
-    # contract; narrowing with search/topics is the only way to reach the rest.
-    over_limit = len(repos) > MAX_REPOSITORIES
-    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
-    if over_limit:
-        result["warning"] = (
-            "Not all accessible repositories may be shown. "
-            "Ask the user to provide a search term or topic to narrow down the results."
-        )
-    return result
+    page = repos[:capped]
+    next_cursor = _encode_repo_cursor(page[-1]) if len(repos) > capped else None
+    return {"repositories": _serialize_repositories(page), "next_cursor": next_cursor}
 
 
 def _serialize_environment_summary(env: SandboxEnvironment) -> dict:

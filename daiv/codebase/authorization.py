@@ -189,12 +189,14 @@ def can_run(user: User, repo_id: str) -> bool:
 
 
 def search_viewable_repositories(
-    user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int
+    user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int, after_slug: str | None = None
 ) -> list[RepositoryCatalog]:
     """Repositories the user may view (READ+), served from the local ``RepositoryCatalog`` mirror.
 
     Members are restricted to repos with a fresh ``RepositoryAccess`` row for their platform uid;
     admins see the whole fresh catalog. Results are ordered by ``slug`` and capped at ``limit``.
+    ``after_slug`` resumes strictly after that slug (keyset pagination); ``slug`` is unique per
+    provider, so the window never repeats or skips a row.
     ``topics`` is AND-matched in Python because the SQLite test backend does not support the
     ``JSONField __contains`` lookup used on Postgres. The match streams slug-ordered rows and stops
     once ``limit`` are found, so it never materializes more of the catalog than the window needs —
@@ -202,6 +204,8 @@ def search_viewable_repositories(
     """
     _maybe_enqueue_backstop()
     rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
+    if after_slug:
+        rows = rows.filter(slug__gt=after_slug)
     if not user.is_admin:
         uid = _identity(user)
         if uid is None:
