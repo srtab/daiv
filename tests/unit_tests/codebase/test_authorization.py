@@ -279,6 +279,68 @@ class TestSearchViewableRepositories:
 
         assert [r.slug for r in result] == ["a/r0", "a/r1", "a/r2"]
 
+    def test_after_slug_resumes_strictly_after_that_slug(self, admin_user, fresh_sync):
+        for i in range(5):
+            _catalog(f"a/r{i}")
+
+        result = search_viewable_repositories(admin_user, limit=2, after_slug="a/r1")
+
+        assert [r.slug for r in result] == ["a/r2", "a/r3"]
+
+    def test_after_slug_skips_non_matching_rows_while_filling_the_topics_window(self, admin_user, fresh_sync):
+        # Interleaved matches: the stream must skip the rust rows *after* the cursor without
+        # letting them consume window slots or anchor the next page.
+        for i in range(5):
+            _catalog(f"a/r{i}", topics=["python"] if i % 2 == 0 else ["rust"])
+
+        result = search_viewable_repositories(admin_user, topics=["python"], limit=2, after_slug="a/r0")
+
+        assert [r.slug for r in result] == ["a/r2", "a/r4"]
+
+    def test_member_paging_keeps_the_keyset_within_granted_repos(self, linked_member, fresh_sync):
+        for i in range(5):
+            _catalog(f"a/r{i}")
+        for i in (0, 2, 4):
+            _grant("101", f"a/r{i}", RepoAccessLevel.READ)
+
+        # The cursor names a repo the member cannot see; it must still only advance the window.
+        first = search_viewable_repositories(linked_member, limit=2)
+        second = search_viewable_repositories(linked_member, limit=2, after_slug="a/r1")
+
+        assert [r.slug for r in first] == ["a/r0", "a/r2"]
+        assert [r.slug for r in second] == ["a/r2", "a/r4"]
+
+    def test_after_slug_combines_with_a_name_match(self, admin_user, fresh_sync):
+        # The search can match on ``name`` while the cursor is a ``slug`` — ordering is by slug,
+        # so the two must not disagree.
+        _catalog("a/r0", name="alpha")
+        _catalog("a/r1", name="beta")
+        _catalog("a/r2", name="beta-two")
+
+        result = search_viewable_repositories(admin_user, search="beta", limit=10, after_slug="a/r1")
+
+        assert [r.slug for r in result] == ["a/r2"]
+
+    @pytest.mark.parametrize(
+        ("topics", "expected"),
+        [(None, [f"a/r{i}" for i in range(7)]), (["python"], ["a/r0", "a/r2", "a/r4", "a/r6"])],
+        ids=["no-filter", "topics-branch"],
+    )
+    def test_paging_by_after_slug_covers_every_match_once(self, admin_user, fresh_sync, topics, expected):
+        for i in range(7):
+            _catalog(f"a/r{i}", topics=["python"] if i % 2 == 0 else ["rust"])
+
+        seen: list[str] = []
+        after = None
+        for _ in range(10):
+            page = search_viewable_repositories(admin_user, topics=topics, limit=2, after_slug=after)
+            if not page:
+                break
+            seen.extend(r.slug for r in page)
+            after = page[-1].slug
+
+        assert seen == expected
+
 
 class TestViewableRepoIdsSubquery:
     def test_returns_fresh_read_and_write_repos(self, linked_member, fresh_sync):

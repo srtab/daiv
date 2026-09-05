@@ -43,10 +43,22 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoPickerList) this.repoLoading = false;
                 if (e.target === this.$refs.branchPickerList) this.branchLoading = false;
             });
-            this.$el.addEventListener("htmx:sendError", (e) => {
-                if (e.target === this.$refs.repoSearch) this.repoLoading = false;
-                if (e.target === this.$refs.branchSearch) this.branchLoading = false;
-            });
+            for (const event of ["htmx:sendError", "htmx:responseError"]) {
+                this.$el.addEventListener(event, (e) => this._requestFailed(e.target));
+            }
+        },
+
+        _requestFailed(target) {
+            if (target === this.$refs.repoSearch) {
+                this.repoLoading = false;
+                pickerError.showIn(this.$refs.repoPickerList);
+            } else if (target === this.$refs.branchSearch) {
+                this.branchLoading = false;
+                pickerError.showIn(this.$refs.branchPickerList);
+            } else if (target?.matches?.("[data-picker-sentinel]")) {
+                // `intersect once` is already spent, so reopening the popover is the only retry.
+                target.replaceWith(pickerError.row(target));
+            }
         },
 
         _emitChange() {

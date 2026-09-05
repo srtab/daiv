@@ -367,22 +367,26 @@ Alpine.js is used for lightweight interactivity — **not** as a full applicatio
 - Register reusable components via `Alpine.data()` in dedicated JS files
 - Use `x-cloak` on elements that should be hidden until Alpine initializes
 - Use `x-show` / `x-model` for conditional rendering and two-way binding
-- Load the Alpine UI plugin for advanced components (combobox, etc.)
+- Prefer an HTMX-backed popover over the Alpine UI plugin for pickers — no template still uses `x-combobox`
 
 ### Existing Reusable Components
 
-**`repoSearch(initial)`** — Async repository search combobox (`codebase/static/codebase/js/repo-search.js`):
+**Repository + branch picker** — include `codebase/_repo_picker.html` (documented parameters in
+its own `{% comment %}` block); the Alpine state lives in `sessions/static/sessions/js/prompt-box.js`
+as `promptBox(...)`:
 
-```html
-<div x-data="repoSearch('owner/repo')">
-    <div x-combobox x-model="selected" nullable>
-        <input type="text" x-combobox:input @input="search($event.target.value)" ...>
-        <!-- options from `results` array, each with .slug and .name -->
-    </div>
-</div>
+```django
+{% include "codebase/_repo_picker.html" with variant="context" max_repos=1 field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 ```
 
-Features: 300ms debounced search, abort controller, loading state.
+Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
+the repository list pages in on scroll via an `intersect`-triggered sentinel row. A failed fragment
+request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
+(HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
+
+**Picker error row** — `window.pickerError` (`core/js/picker-error.js`, loaded in `base.html`) renders
+the failure row for every HTMX picker popover, reading its message from the nearest
+`data-error-message` so the string stays translatable in the template.
 
 ## Template Architecture
 
@@ -470,4 +474,4 @@ sidebar's tier and that switch moves with it.
 | Icon template           | `daiv/core/templates/core/icons/_icon.html`   |
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |
 | Icon template tag       | `daiv/core/templatetags/icon_tags.py`         |
-| Repo search component   | `daiv/codebase/static/codebase/js/repo-search.js` |
+| Repo + branch picker    | `daiv/codebase/templates/codebase/_repo_picker.html` |
