@@ -44,8 +44,9 @@ def picker_repositories_view(request: HttpRequest) -> HttpResponse:
     call to fail here — a DB error is a real 500, not a "could not load" row.
 
     ``?after=<slug>`` requests the page after that slug and renders the rows *without* the ``<ul>``
-    wrapper, so the popover's infinite-scroll sentinel can replace itself with them (see
-    ``_repo_picker_options.html``). One extra row is fetched to decide whether another page exists.
+    wrapper, so the popover's infinite-scroll sentinel can replace itself with them — plus the
+    next sentinel, which is what keeps paging going past page 2 (see ``_repo_picker_options.html``).
+    One extra row is fetched to decide whether another page exists.
     """
     query = request.GET.get("q", "").strip()
     after = request.GET.get("after", "").strip()

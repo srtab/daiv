@@ -196,7 +196,9 @@ def search_viewable_repositories(
     Members are restricted to repos with a fresh ``RepositoryAccess`` row for their platform uid;
     admins see the whole fresh catalog. Results are ordered by ``slug`` and capped at ``limit``.
     ``after_slug`` resumes strictly after that slug (keyset pagination); ``slug`` is unique per
-    provider, so the window never repeats or skips a row.
+    provider, so a page boundary cannot repeat or skip a row the way an ``OFFSET`` can. Rows
+    synced in or aged past the freshness TTL between pages are still missed — ``fresh()`` is
+    re-evaluated per call, so a walk is not a snapshot.
     ``topics`` is AND-matched in Python because the SQLite test backend does not support the
     ``JSONField __contains`` lookup used on Postgres. The match streams slug-ordered rows and stops
     once ``limit`` are found, so it never materializes more of the catalog than the window needs —
@@ -217,7 +219,9 @@ def search_viewable_repositories(
     if topics:
         wanted = set(topics)
         matched: list[RepositoryCatalog] = []
-        for row in rows.iterator():
+        # Django's default chunk_size is 2000; paging a topics-filtered catalog would re-pay that
+        # full fetch per page even though the loop stops at ``limit``.
+        for row in rows.iterator(chunk_size=max(limit * 4, 50)):
             if wanted.issubset(set(row.topics)):
                 matched.append(row)
                 if len(matched) >= limit:

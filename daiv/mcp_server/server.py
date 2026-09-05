@@ -613,10 +613,15 @@ def _encode_repo_cursor(repo: RepositoryCatalog) -> str:
 
 
 def _decode_repo_cursor(raw: str) -> str:
-    """Decode a slug cursor; raises on malformed input (see ``_decode_env_cursor``)."""
+    """Decode a slug cursor; raises on malformed input.
+
+    The slug goes straight into a ``slug__gt`` lookup, so a non-string must be rejected here
+    rather than reaching the ORM. An empty slug is rejected too: it is falsy downstream, so it
+    would silently re-serve page 1 forever instead of failing the paging loop.
+    """
     payload = _decode_cursor(raw)
-    if not isinstance(payload["slug"], str):
-        raise TypeError("cursor slug must be a string")
+    if not isinstance(payload["slug"], str) or not payload["slug"]:
+        raise TypeError("cursor slug must be a non-empty string")
     return payload["slug"]
 
 
@@ -648,8 +653,8 @@ async def list_repositories(
     Members see only repositories for which they have at least read access; admins see the full
     catalog. Returns ``{"repositories": [...], "next_cursor": str | None}`` ordered by slug — pass
     ``next_cursor`` back to fetch the next page; ``None`` means no more rows. Narrowing with
-    ``search`` or ``topics`` is cheaper than paging through the whole catalog, but a search that
-    still matches more repositories than ``limit`` is fully reachable by paging.
+    ``search`` is cheaper than paging the whole catalog (``topics`` is matched server-side row by
+    row, so it is not); either way a filter matching more than ``limit`` is reachable by paging.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:

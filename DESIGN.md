@@ -367,7 +367,7 @@ Alpine.js is used for lightweight interactivity — **not** as a full applicatio
 - Register reusable components via `Alpine.data()` in dedicated JS files
 - Use `x-cloak` on elements that should be hidden until Alpine initializes
 - Use `x-show` / `x-model` for conditional rendering and two-way binding
-- Load the Alpine UI plugin for advanced components (combobox, etc.)
+- Prefer an HTMX-backed popover over the Alpine UI plugin for pickers — no template still uses `x-combobox`
 
 ### Existing Reusable Components
 
@@ -376,11 +376,17 @@ its own `{% comment %}` block); the Alpine state lives in `sessions/static/sessi
 as `promptBox(...)`:
 
 ```django
-{% include "codebase/_repo_picker.html" with max_repos=1 field_name="repos" %}
+{% include "codebase/_repo_picker.html" with variant="context" max_repos=1 field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 ```
 
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
-the repository list pages in on scroll via an `intersect`-triggered sentinel row.
+the repository list pages in on scroll via an `intersect`-triggered sentinel row. A failed fragment
+request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
+(HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
+
+**Picker error row** — `window.pickerError` (`core/js/picker-error.js`, loaded in `base.html`) renders
+the failure row for every HTMX picker popover, reading its message from the nearest
+`data-error-message` so the string stays translatable in the template.
 
 ## Template Architecture
 

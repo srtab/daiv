@@ -616,22 +616,6 @@ html {
   }
 }
 
-/* -- Combobox size variant ------------------------------------------------ */
-
-@layer components {
-  .combobox-sm input[type="text"] {
-    @apply rounded-lg px-3 py-1.5 pr-8 text-sm;
-  }
-
-  .combobox-sm .combobox-icon {
-    @apply h-3.5 w-3.5;
-  }
-
-  .combobox-sm .combobox-option {
-    @apply px-3 py-2 text-sm;
-  }
-}
-
 /* -- Chat UI ------------------------------------------------------------- */
 
 @layer components {
@@ -2837,6 +2821,19 @@ html {
     @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
   }
   .picker-popover__list { @apply mt-1 max-h-60 overflow-auto; }
+  .picker-popover__error { @apply px-3 py-2 text-[15px] text-red-400; }
+  /* The user picker renders its rows one step down; keep its injected error row in step. */
+  .picker-popover__list--sm .picker-popover__error { @apply text-[14px]; }
+  .picker-popover__empty { @apply px-3 py-2 text-[15px] text-gray-400; }
+  /* Layout (`block` vs `flex`) stays inline — it is the one thing the pickers disagree on. */
+  .picker-popover__option {
+    @apply w-full rounded-lg px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06];
+  }
+
+  /* Skeleton bar widths stay inline so each placeholder row can vary. */
+  .picker-popover__skeleton-row { @apply px-3 py-2 space-y-1.5; }
+  .picker-popover__skeleton-line { @apply h-3.5 rounded bg-white/[0.07]; }
+  .picker-popover__skeleton-line--sub { @apply h-3 rounded bg-white/[0.04]; }
 
   .env-popover__row {
     @apply flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left;

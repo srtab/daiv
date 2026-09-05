@@ -692,21 +692,23 @@ async def test_list_repositories_cursor_is_forwarded_as_after_slug():
     )
 
 
-async def test_list_repositories_invalid_cursor_returns_error():
+@pytest.mark.parametrize(
+    "cursor",
+    ["garbage", _encode_cursor({"slug": ""}), _encode_cursor({"slug": 123})],
+    ids=[
+        "unparseable",
+        # An empty slug is falsy downstream, so accepting it would silently re-serve page 1 forever.
+        "empty-slug-would-re-serve-page-one",
+        # A non-string slug must not reach the ORM as a wrong-typed ``slug__gt`` lookup.
+        "non-string-slug-would-reach-the-orm",
+    ],
+)
+async def test_list_repositories_invalid_cursor_returns_error(cursor):
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
-        data = await list_repositories(cursor="garbage")
+        data = await list_repositories(cursor=cursor)
 
     assert data["error"] == "Invalid cursor."
     mock_search.assert_not_awaited()
-
-
-async def test_list_repositories_non_string_slug_cursor_returns_invalid_not_crash():
-    """A well-formed base64(JSON) cursor whose ``slug`` is a non-string must be reported as an
-    invalid cursor, not reach the ORM as a wrong-typed ``slug__gt`` lookup."""
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])):
-        data = await list_repositories(cursor=_encode_cursor({"slug": 123}))
-
-    assert data["error"] == "Invalid cursor."
 
 
 async def test_list_repositories_error_handling():
