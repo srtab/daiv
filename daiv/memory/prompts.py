@@ -36,7 +36,7 @@ Run finished with status: {{status}}
 
 Run transcript (roles, text, tool calls; long outputs truncated):
 ~~~
-{{transcript}}
+{{{transcript}}}
 ~~~
 
 Extract the observations worth remembering for future runs on this repository.
@@ -88,14 +88,14 @@ consolidation_human = HumanMessagePromptTemplate.from_template(
 
 {{#entries}}
 Current memory entries (id | category | last confirmed | content):
-{{entries}}
+{{{entries}}}
 {{/entries}}
 {{^entries}}
 This repository has no memory entries yet; everything worth keeping is an ADD.
 {{/entries}}
 
 New observations, oldest first (id | category | date | content):
-{{observations}}
+{{{observations}}}
 
 Return the operations to apply.""",
     "mustache",
