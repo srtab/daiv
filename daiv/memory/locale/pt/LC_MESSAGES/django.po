@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -69,8 +69,35 @@ msgstr "Observação de memória"
 msgid "Memory observations"
 msgstr "Observações de memória"
 
+msgid "Active"
+msgstr "Ativa"
+
+msgid "Superseded"
+msgstr "Substituída"
+
+msgid "superseded by"
+msgstr "substituída por"
+
+msgid "source run"
+msgstr "execução de origem"
+
+msgid "observations"
+msgstr "observações"
+
+msgid "last confirmed at"
+msgstr "última confirmação em"
+
+msgid "Memory entry"
+msgstr "Entrada de memória"
+
+msgid "Memory entries"
+msgstr "Entradas de memória"
+
 msgid "last consolidated at"
 msgstr "última consolidação em"
+
+msgid "last attempted at"
+msgstr "última tentativa em"
 
 msgid "updated at"
 msgstr "atualizado em"
@@ -84,14 +111,40 @@ msgstr "Memórias do repositório"
 msgid "All"
 msgstr "Todas"
 
+msgid "Document"
+msgstr "Documento"
+
+msgid "No document"
+msgstr "Sem documento"
+
+msgid "Never consolidated"
+msgstr "Nunca consolidada"
+
+#, python-format
+msgid "%(n)s pending"
+msgstr "%(n)s pendente(s)"
+
+#, python-format
+msgid "%(n)s observation"
+msgid_plural "%(n)s observations"
+msgstr[0] "%(n)s observação"
+msgstr[1] "%(n)s observações"
+
+msgid "No repositories match your search."
+msgstr "Nenhum repositório corresponde à sua pesquisa."
+
+msgid ""
+"No repository memory yet. Memory is captured automatically as agent runs "
+"finish."
+msgstr ""
+"Ainda sem memória do repositório. A memória é capturada automaticamente à "
+"medida que as execuções do agente terminam."
+
 msgid "Last consolidated"
 msgstr "Última consolidação"
 
 msgid "lines"
 msgstr "linhas"
-
-msgid "Never consolidated"
-msgstr "Nunca consolidada"
 
 msgid "Consolidate now"
 msgstr "Consolidar agora"
@@ -132,28 +185,8 @@ msgstr ""
 "A captura de memória está atualmente desativada em todo o site. Os dados "
 "existentes são apresentados abaixo."
 
-msgid "Document"
-msgstr "Documento"
-
-msgid "No document"
-msgstr "Sem documento"
-
-#, python-format
-msgid "%(n)s pending"
-msgstr "%(n)s pendente(s)"
-
-#, python-format
-msgid "%(n)s observation"
-msgid_plural "%(n)s observations"
-msgstr[0] "%(n)s observação"
-msgstr[1] "%(n)s observações"
-
-msgid ""
-"No repository memory yet. Memory is captured automatically as agent runs "
-"finish."
-msgstr ""
-"Ainda sem memória do repositório. A memória é capturada automaticamente à "
-"medida que as execuções do agente terminam."
+msgid "Search by repository"
+msgstr "Pesquisar por repositório"
 
 msgid "Memory capture is disabled site-wide; consolidation was not queued."
 msgstr ""
@@ -165,11 +198,6 @@ msgid "Nothing to consolidate for %(repo)s — no pending observations."
 msgstr "Nada para consolidar em %(repo)s — sem observações pendentes."
 
 #, python-format
-msgid "Consolidation queued for %(repo)s (%(count)d pending observation(s))."
-msgstr ""
-"Consolidação em fila para %(repo)s (%(count)d observação(ões) pendente(s))."
-
-#, python-format
 msgid ""
 "%(repo)s has a memory document but no entries, so consolidating would "
 "discard it. An administrator must run `backfill_memory_entries --repo-id "
@@ -178,3 +206,8 @@ msgstr ""
 "%(repo)s tem um documento de memória mas nenhuma entrada, pelo que "
 "consolidar iria descartá-lo. Um administrador tem de executar "
 "`backfill_memory_entries --repo-id %(repo)s` no servidor primeiro."
+
+#, python-format
+msgid "Consolidation queued for %(repo)s (%(count)d pending observation(s))."
+msgstr ""
+"Consolidação em fila para %(repo)s (%(count)d observação(ões) pendente(s))."

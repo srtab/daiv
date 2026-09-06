@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 14:58+0000\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,15 +18,6 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-msgid "MR"
-msgstr "MR"
-
-msgid "draft"
-msgstr "rascunho"
-
-msgid "Jump to latest"
-msgstr "Ir para o mais recente"
-
 msgid "Commands and skills"
 msgstr "Comandos e competências"
 
@@ -35,6 +26,15 @@ msgstr "comando"
 
 msgid "skill"
 msgstr "competência"
+
+msgid "MR"
+msgstr "MR"
+
+msgid "draft"
+msgstr "rascunho"
+
+msgid "Jump to latest"
+msgstr "Ir para o mais recente"
 
 msgid "Message DAIV"
 msgstr "Enviar mensagem ao DAIV"
@@ -51,6 +51,18 @@ msgstr "Enviar"
 msgid "DAIV can make mistakes. Verify important information."
 msgstr "O DAIV pode cometer erros. Verifique informações importantes."
 
+msgid "Session usage"
+msgstr "Utilização da sessão"
+
+msgid "Usage"
+msgstr "Utilização"
+
+msgid "Context"
+msgstr "Contexto"
+
+msgid "Spend"
+msgstr "Custo"
+
 msgid "Session options"
 msgstr "Opções da sessão"
 
@@ -59,9 +71,6 @@ msgstr "A seleção de servidores MCP difere da predefinição"
 
 msgid "Options"
 msgstr "Opções"
-
-msgid "Close"
-msgstr "Fechar"
 
 msgid "Environment"
 msgstr "Ambiente"
@@ -123,8 +132,10 @@ msgstr "Ainda não foi alterado nenhum ficheiro."
 msgid "Show all"
 msgstr "Mostrar tudo"
 
+#~ msgid "Close"
+#~ msgstr "Fechar"
+
 #, fuzzy
-#~| msgid "Session context"
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 

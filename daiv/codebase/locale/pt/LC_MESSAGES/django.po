@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-04 09:42+0100\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -31,6 +31,24 @@ msgstr "Leitura"
 
 msgid "Write"
 msgstr "Escrita"
+
+msgid "Allowed"
+msgstr "Permitido"
+
+msgid "Denied — no access"
+msgstr "Recusado — sem acesso"
+
+msgid "Denied — no usable credential"
+msgstr "Recusado — sem credencial utilizável"
+
+msgid "Denied — capability disabled"
+msgstr "Recusado — funcionalidade desativada"
+
+msgid "Denied — not permitted cross-project"
+msgstr "Recusado — não permitido entre projetos"
+
+msgid "Error"
+msgstr "Erro"
 
 msgid "repository ID"
 msgstr "ID do repositório"
@@ -149,54 +167,26 @@ msgstr "tópicos"
 msgid "Repository Catalog"
 msgstr "Catálogo de Repositórios"
 
-msgid "Requesting user"
-msgstr ""
-
-msgid "Service identity"
-msgstr ""
-
-msgid "Allowed"
-msgstr ""
-
-msgid "Denied — no access"
-msgstr ""
-
-msgid "Denied — no usable credential"
-msgstr ""
-
-msgid "Denied — capability disabled"
-msgstr ""
-
-msgid "Denied — not permitted cross-project"
-msgstr ""
-
-msgid "Error"
-msgstr ""
-
-#, fuzzy
-#| msgid "merged at"
 msgid "occurred at"
-msgstr "fundido em"
+msgstr "ocorrido em"
 
 msgid "thread ID"
-msgstr ""
+msgstr "ID da thread"
 
-msgid "identity kind"
-msgstr ""
+msgid "acting user"
+msgstr "utilizador representado"
 
-#, fuzzy
-#| msgid "repository ID"
 msgid "target repository ID"
-msgstr "ID do repositório"
+msgstr "ID do repositório de destino"
 
 msgid "outcome"
-msgstr ""
+msgstr "resultado"
 
 msgid "Cross-Project Access Record"
-msgstr ""
+msgstr "Registo de acesso entre projetos"
 
 msgid "Cross-Project Access Records"
-msgstr ""
+msgstr "Registos de acesso entre projetos"
 
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
@@ -235,39 +225,38 @@ msgid "No repositories found."
 msgstr "Nenhum repositório encontrado."
 
 msgid "Cross-project access"
-msgstr ""
+msgstr "Acesso entre projetos"
 
 msgid ""
 "Every attempt to reach a project other than the one a run was started on, "
 "and whose identity it used."
 msgstr ""
+"Todas as tentativas de aceder a um projeto diferente daquele em que a "
+"execução foi iniciada, e a identidade usada em cada uma."
 
 msgid "Filter by target project…"
-msgstr ""
+msgstr "Filtrar por projeto de destino…"
 
 msgid "Thread ID"
-msgstr ""
+msgstr "ID da thread"
 
 msgid "All outcomes"
-msgstr ""
+msgstr "Todos os resultados"
 
 msgid "Filter"
-msgstr ""
-
-msgid "DAIV service identity"
-msgstr ""
+msgstr "Filtrar"
 
 msgid "unknown user"
-msgstr ""
+msgstr "utilizador desconhecido"
 
 msgid "ago"
-msgstr ""
+msgstr "atrás"
 
 msgid "No access records match your filter."
-msgstr ""
+msgstr "Nenhum registo de acesso corresponde ao seu filtro."
 
 msgid "No cross-project access has been attempted yet."
-msgstr ""
+msgstr "Ainda não houve nenhuma tentativa de acesso entre projetos."
 
 #~ msgid "Could not load repositories."
 #~ msgstr "Não foi possível carregar os repositórios."

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-04 09:42+0100\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -35,15 +35,16 @@ msgstr "Memória"
 msgid "You cannot deactivate your own account."
 msgstr "Não pode desativar a sua própria conta."
 
-msgid "You are the last admin. Promote another user before changing your role."
+msgid ""
+"You are the last admin. Promote another user before changing your role."
 msgstr ""
 "É o último administrador. Promova outro utilizador antes de alterar o seu "
 "papel."
 
 msgid "This is the last admin. Promote another user before demoting this one."
 msgstr ""
-"Este é o último administrador. Promova outro utilizador antes de despromover "
-"este."
+"Este é o último administrador. Promova outro utilizador antes de despromover"
+" este."
 
 msgid "Admin"
 msgstr "Administrador"
@@ -76,56 +77,56 @@ msgid "API Keys"
 msgstr "Chaves API"
 
 msgid "GitLab"
-msgstr ""
+msgstr "GitLab"
 
 msgid "GitHub"
-msgstr ""
+msgstr "GitHub"
 
 msgid "Connected"
-msgstr ""
+msgstr "Ligada"
 
 msgid "Expired"
-msgstr ""
+msgstr "Expirada"
 
-#, fuzzy
-#| msgid "revoked"
 msgid "Revoked"
-msgstr "revogada"
+msgstr "Revogada"
 
 msgid "provider"
-msgstr ""
+msgstr "fornecedor"
 
 msgid "host"
-msgstr ""
+msgstr "host"
 
 msgid "platform user ID"
-msgstr ""
+msgstr "ID do utilizador na plataforma"
 
 msgid "access token"
-msgstr ""
+msgstr "token de acesso"
 
 msgid "refresh token"
-msgstr ""
+msgstr "token de renovação"
 
 msgid "granted scopes"
-msgstr ""
+msgstr "âmbitos concedidos"
 
 msgid "state"
-msgstr ""
+msgstr "estado"
 
 msgid "Platform Credential"
-msgstr ""
+msgstr "Credencial de plataforma"
 
 msgid "Platform Credentials"
-msgstr ""
+msgstr "Credenciais de plataforma"
 
 msgid ""
 "An expiring credential must carry a refresh token, or it can never be "
 "renewed."
 msgstr ""
+"Uma credencial com expiração tem de incluir um token de renovação, caso "
+"contrário nunca poderá ser renovada."
 
 msgid "A connected credential must carry an access token."
-msgstr ""
+msgstr "Uma credencial ligada tem de incluir um token de acesso."
 
 msgid "Sign-In Code"
 msgstr "Código de Autenticação"
@@ -159,9 +160,13 @@ msgid ""
 "                than you can, and you can review or withdraw this any time in your account settings.\n"
 "                "
 msgstr ""
+"\n"
+"                Ao autenticar-se, autoriza também o DAIV a agir em seu nome no %(platform)s — nunca vê mais\n"
+"                do que o utilizador vê, e pode rever ou retirar esta autorização a qualquer momento nas definições da conta.\n"
+"                "
 
 msgid "New"
-msgstr ""
+msgstr "Novo"
 
 msgid "Sandbox environments"
 msgstr "Ambientes sandbox"
@@ -179,7 +184,7 @@ msgid "API keys"
 msgstr "Chaves API"
 
 msgid "Git authorisation"
-msgstr ""
+msgstr "Autorização git"
 
 msgid "Users"
 msgstr "Utilizadores"
@@ -188,7 +193,7 @@ msgid "Configuration"
 msgstr "Configuração"
 
 msgid "Cross-project access"
-msgstr ""
+msgstr "Acesso entre projetos"
 
 msgid "Schedule templates"
 msgstr "Modelos de agendamento"
@@ -196,10 +201,8 @@ msgstr "Modelos de agendamento"
 msgid "Skills"
 msgstr "Competências"
 
-#, fuzzy
-#| msgid "MCP servers"
 msgid "Global MCP servers"
-msgstr "Servidores MCP"
+msgstr "Servidores MCP globais"
 
 msgid "API documentation"
 msgstr "Documentação da API"
@@ -263,71 +266,98 @@ msgid ""
 "What DAIV is allowed to do on the git platform as you, when a run you "
 "started needs to reach a project other than the one it is working on."
 msgstr ""
+"O que o DAIV pode fazer na plataforma git em seu nome, quando uma execução "
+"que iniciou precisa de aceder a um projeto diferente daquele em que está a "
+"trabalhar."
 
 msgid ""
 "This deployment is not configured for a git platform that issues personal "
 "authorisations."
 msgstr ""
+"Esta instalação não está configurada para uma plataforma git que emita "
+"autorizações pessoais."
 
-#, fuzzy
-#| msgid "Authorize"
 msgid "Not authorised"
-msgstr "Autorizar"
+msgstr "Sem autorização"
 
 msgid "Renews automatically; current token expires"
-msgstr ""
+msgstr "Renova automaticamente; o token atual expira"
 
 msgid "Does not expire"
-msgstr ""
+msgstr "Não expira"
 
 msgid "Granted:"
-msgstr ""
+msgstr "Concedido:"
 
 msgid ""
 "This authorisation is narrower than DAIV needs to reach other projects. Re-"
 "authorise to widen it — work on the project a run is attached to is "
 "unaffected either way."
 msgstr ""
+"Esta autorização é mais restrita do que o DAIV precisa para aceder a outros "
+"projetos. Volte a autorizar para a alargar — o trabalho no projeto a que uma"
+" execução está associada não é afetado em qualquer dos casos."
 
-#, fuzzy
-#| msgid "Authorize"
-msgid "Re-authorise"
-msgstr "Autorizar"
-
-#, fuzzy
-#| msgid "Authorize"
 msgid "Authorise"
 msgstr "Autorizar"
 
-msgid "Disconnect this authorisation? DAIV will stop acting as you. The authorisation stays on the git platform until you remove it there, and signing in to DAIV again restores it."
+msgid "Re-authorise"
+msgstr "Voltar a autorizar"
+
+msgid ""
+"Disconnect this authorisation? DAIV will stop acting as you, and signing in "
+"again will not restore it. The authorisation stays on the git platform until"
+" you remove it there."
 msgstr ""
+"Desligar esta autorização? O DAIV deixará de agir em seu nome, e voltar a "
+"autenticar-se não a restaura. A autorização permanece na plataforma git até "
+"que a remova aí."
 
 msgid "Disconnect"
-msgstr ""
+msgstr "Desligar"
 
 msgid "What this allows"
-msgstr ""
+msgstr "O que isto permite"
 
-msgid "A run you start can read issues, merge requests and pipelines in other projects — and comment on them — but only where you can already do so yourself."
+msgid ""
+"A run you start can read issues, merge requests and pipelines in other "
+"projects — and comment on them — but only where you can already do so "
+"yourself."
 msgstr ""
+"Uma execução que inicie pode ler issues, merge requests e pipelines noutros "
+"projetos — e comentá-los — mas apenas onde já o possa fazer por si próprio."
 
 msgid ""
 "Work on the project a run is attached to always uses DAIV's own identity, "
 "whether or not you authorise this."
 msgstr ""
+"O trabalho no projeto a que uma execução está associada usa sempre a "
+"identidade do próprio DAIV, autorize isto ou não."
 
 msgid ""
 "DAIV never shows you anything the platform would refuse you. A project you "
 "cannot reach is refused, not silently empty."
 msgstr ""
+"O DAIV nunca lhe mostra nada que a plataforma lhe recusasse. Um projeto a "
+"que não consegue aceder é recusado, não aparece silenciosamente vazio."
 
-msgid "Disconnecting takes effect immediately and clears the secrets DAIV stored. It does not withdraw the authorisation on the git platform, so signing in again restores it."
+msgid ""
+"Disconnecting takes effect immediately, clears the secrets DAIV stored, and "
+"stays in effect when you sign in again — only the Authorise button here "
+"restores it. It does not withdraw the authorisation on the git platform; "
+"remove DAIV there to do that."
 msgstr ""
+"Desligar tem efeito imediato, apaga os segredos que o DAIV guardou e mantém-"
+"se em vigor quando voltar a autenticar-se — só o botão Autorizar aqui a "
+"restaura. Não retira a autorização na plataforma git; para isso, remova o "
+"DAIV aí."
 
 msgid ""
 "Cross-project access is currently switched off for this deployment, so an "
 "authorisation here has no effect yet."
 msgstr ""
+"O acesso entre projetos está atualmente desativado nesta instalação, pelo "
+"que uma autorização aqui ainda não tem efeito."
 
 #, python-brace-format
 msgid "{count} running"
@@ -359,6 +389,22 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+msgid "This deployment has no git platform authorisation to disconnect."
+msgstr ""
+"Esta instalação não tem nenhuma autorização de plataforma git para desligar."
+
+#, python-format
+msgid "Disconnected your %(provider)s authorisation."
+msgstr "A sua autorização %(provider)s foi desligada."
+
+#, python-format
+msgid "There was no %(provider)s authorisation to disconnect."
+msgstr "Não havia nenhuma autorização %(provider)s para desligar."
+
+msgid "This deployment has no git platform authorisation to grant."
+msgstr ""
+"Esta instalação não tem nenhuma autorização de plataforma git para conceder."
 
 #~ msgid "notify on jobs"
 #~ msgstr "notificar em tarefas"

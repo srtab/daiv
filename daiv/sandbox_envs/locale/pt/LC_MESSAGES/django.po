@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 15:12+0000\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -283,6 +283,9 @@ msgstr "Nenhum ambiente corresponde"
 msgid "New environment"
 msgstr "Novo ambiente"
 
+msgid "Environment"
+msgstr "Ambiente"
+
 msgid "Auto resolution order: 1) your env whose repo list matches; 2) a shared env whose repo list matches; 3) the shared default."
 msgstr "Ordem de resolução automática: 1) o seu ambiente cuja lista de repositórios corresponde; 2) um ambiente partilhado cuja lista de repositórios corresponde; 3) a predefinição partilhada."
 
@@ -315,9 +318,6 @@ msgstr "Nome inválido"
 
 msgid "Duplicate name"
 msgstr "Nome duplicado"
-
-msgid "Environment"
-msgstr "Ambiente"
 
 msgid "Environment variables"
 msgstr "Variáveis de ambiente"

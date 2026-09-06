@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 22:29+0000\n"
+"POT-Creation-Date: 2026-09-06 23:15+0100\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -46,9 +46,6 @@ msgstr "Substituir o modelo configurado para esta execução."
 
 msgid "Thinking effort"
 msgstr "Esforço de raciocínio"
-
-msgid "Notify me"
-msgstr "Notificar-me"
 
 msgid "(global default)"
 msgstr "(predefinição global)"
@@ -92,6 +89,27 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
+msgid "Pipeline Webhook"
+msgstr "Webhook de pipeline"
+
+msgid "Not watching"
+msgstr "Sem vigilância"
+
+msgid "Waiting for CI"
+msgstr "À espera do CI"
+
+msgid "Fixing"
+msgstr "A corrigir"
+
+msgid "Green"
+msgstr "Verde"
+
+msgid "Attempts exhausted"
+msgstr "Tentativas esgotadas"
+
+msgid "CI unreadable"
+msgstr "CI ilegível"
+
 msgid "All clear"
 msgstr "Tudo em ordem"
 
@@ -122,6 +140,9 @@ msgstr "utilizador"
 msgid "external username"
 msgstr "nome de utilizador externo"
 
+msgid "acting platform user ID"
+msgstr "ID do utilizador representado na plataforma"
+
 msgid "repository"
 msgstr "repositório"
 
@@ -151,6 +172,21 @@ msgstr "IID da issue"
 
 msgid "merge request IID"
 msgstr "IID do merge request"
+
+msgid "external references"
+msgstr "referências externas"
+
+msgid "watch state"
+msgstr "estado da vigilância"
+
+msgid "watch attempts"
+msgstr "tentativas de vigilância"
+
+msgid "last watched pipeline"
+msgstr "último pipeline vigiado"
+
+msgid "watch armed at"
+msgstr "vigilância ativada em"
 
 msgid "created at"
 msgstr "criado em"
@@ -185,8 +221,8 @@ msgstr "prompt"
 msgid "message ID"
 msgstr "ID da mensagem"
 
-msgid "notify on"
-msgstr "notificar em"
+msgid "muted"
+msgstr "silenciada"
 
 msgid "mention comment ID"
 msgstr "ID do comentário de menção"
@@ -224,6 +260,9 @@ msgstr "iniciado em"
 msgid "finished at"
 msgstr "terminado em"
 
+msgid "classify eligible"
+msgstr "elegível para classificação"
+
 msgid "Run"
 msgstr "Execução"
 
@@ -247,6 +286,43 @@ msgstr "Envelope de execução"
 
 msgid "Run Envelopes"
 msgstr "Envelopes de execução"
+
+#, python-brace-format
+msgid ""
+"I stopped watching CI on this merge request: no result I could act on "
+"arrived within {hours} hours. Mention me if you want another look."
+msgstr ""
+"Deixei de vigiar o CI neste merge request: não chegou nenhum resultado sobre"
+" o qual pudesse agir dentro de {hours} horas. Mencione-me se quiser que "
+"volte a analisar."
+
+#, python-brace-format
+msgid "I stopped watching CI on this merge request: {reason}."
+msgstr "Deixei de vigiar o CI neste merge request: {reason}."
+
+msgid "I could not find a change that would fix it"
+msgstr "não consegui encontrar uma alteração que o corrigisse"
+
+#, python-brace-format
+msgid ""
+"I stopped watching CI on this branch: the pipeline did not finish in a way I"
+" can act on (status `{status}`). Re-run it or mention me if you want another"
+" look."
+msgstr ""
+"Deixei de vigiar o CI neste ramo: o pipeline não terminou de uma forma sobre"
+" a qual possa agir (estado `{status}`). Execute-o novamente ou mencione-me "
+"se quiser que volte a analisar."
+
+#, python-brace-format
+msgid ""
+"I stopped after {attempts} attempts and CI is still failing: {names}. "
+"Pipeline: {url}"
+msgstr ""
+"Parei após {attempts} tentativas e o CI continua a falhar: {names}. "
+"Pipeline: {url}"
+
+msgid "the pipeline"
+msgstr "o pipeline"
 
 msgid "Run failed."
 msgstr "A execução falhou."
@@ -295,6 +371,13 @@ msgid "Clear repository filter"
 msgstr "Limpar filtro de repositório"
 
 #, python-format
+msgid "Merge request !%(iid)s"
+msgstr "Merge request !%(iid)s"
+
+msgid "Clear merge request filter"
+msgstr "Limpar filtro de merge request"
+
+#, python-format
 msgid "Schedule: %(name)s"
 msgstr "Agendamento: %(name)s"
 
@@ -317,7 +400,8 @@ msgstr "Nenhuma sessão corresponde a estes filtros."
 msgid "Start your first run"
 msgstr "Inicie a sua primeira execução"
 
-msgid "Kick off an agent on one of your repositories and it will show up here."
+msgid ""
+"Kick off an agent on one of your repositories and it will show up here."
 msgstr "Inicie um agente num dos seus repositórios e aparecerá aqui."
 
 msgid "New"
@@ -362,6 +446,40 @@ msgstr "ainda não sincronizado"
 msgid "MCP servers"
 msgstr "servidores MCP"
 
+#, python-brace-format
+msgid "Context: {percent} of {window} used"
+msgstr "Contexto: {percent} de {window} utilizado"
+
+#, python-brace-format
+msgid "Context: {count} tokens used"
+msgstr "Contexto: {count} tokens utilizados"
+
+msgid "Plenty of room"
+msgstr "Espaço de sobra"
+
+msgid "Getting full — consider a new session"
+msgstr "A encher — considere uma nova sessão"
+
+msgid "Nearly full — start a new session"
+msgstr "Quase cheio — inicie uma nova sessão"
+
+msgid "Over the window — the next request may be rejected"
+msgstr "Acima da janela — o próximo pedido pode ser rejeitado"
+
+#, python-brace-format
+msgid "{count} turns"
+msgstr "{count} turnos"
+
+#, python-brace-format
+msgid "{count} turns with unrecorded usage"
+msgstr "{count} turnos com utilização não registada"
+
+msgid "cached"
+msgstr "em cache"
+
+msgid "output"
+msgstr "saída"
+
 msgid "This session's state has expired. Start a new session to continue."
 msgstr "O estado desta sessão expirou. Inicie uma nova sessão para continuar."
 
@@ -375,7 +493,8 @@ msgid "Pick a repository to get started."
 msgstr "Selecione um repositório para começar."
 
 msgid "Ready when you are — describe the change, the bug, or what to explore."
-msgstr "Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
+msgstr ""
+"Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
 
 msgid "Job is queued"
 msgstr "Tarefa em fila"
@@ -408,7 +527,8 @@ msgid "Agent sessions"
 msgstr "Sessões do agente"
 
 msgid "Every agent thread across jobs, schedules, webhooks, and chat."
-msgstr "Todos os processos do agente em tarefas, agendamentos, webhooks e chat."
+msgstr ""
+"Todos os processos do agente em tarefas, agendamentos, webhooks e chat."
 
 msgid "Start something new"
 msgstr "Começar algo novo"
@@ -419,8 +539,12 @@ msgstr "Duas formas de pôr o agente a trabalhar — escolha a que se adequa."
 msgid "Work with the agent"
 msgstr "Trabalhar com o agente"
 
-msgid "Collaborate live and iterate turn by turn, steering as it goes. Best for exploring or shaping a change in a single repository."
-msgstr "Colabore em tempo real e itere turno a turno, guiando à medida que avança. Ideal para explorar ou moldar uma alteração num único repositório."
+msgid ""
+"Collaborate live and iterate turn by turn, steering as it goes. Best for "
+"exploring or shaping a change in a single repository."
+msgstr ""
+"Colabore em tempo real e itere turno a turno, guiando à medida que avança. "
+"Ideal para explorar ou moldar uma alteração num único repositório."
 
 msgid "Start a chat"
 msgstr "Iniciar conversa"
@@ -428,8 +552,14 @@ msgstr "Iniciar conversa"
 msgid "Hand off a task"
 msgstr "Delegar uma tarefa"
 
-msgid "Describe a well-specified task and let it run in the background — get notified when it's done. Works across one or many repositories, or on a schedule."
-msgstr "Descreva uma tarefa bem especificada e deixe-a correr em segundo plano — seja notificado quando terminar. Funciona com um ou vários repositórios, ou de acordo com um agendamento."
+msgid ""
+"Describe a well-specified task and let it run in the background — get "
+"notified when it's done. Works across one or many repositories, or on a "
+"schedule."
+msgstr ""
+"Descreva uma tarefa bem especificada e deixe-a correr em segundo plano — "
+"seja notificado quando terminar. Funciona com um ou vários repositórios, ou "
+"de acordo com um agendamento."
 
 msgid "Start a run"
 msgstr "Iniciar execução"
@@ -453,6 +583,12 @@ msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
 msgid "Some repositories failed to submit: %(ids)s"
 msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
+#~ msgid "Notify me"
+#~ msgstr "Notificar-me"
+
+#~ msgid "notify on"
+#~ msgstr "notificar em"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 
@@ -469,7 +605,8 @@ msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 #~ msgstr "Markdown"
 
 #~ msgid "No recorded runs — this conversation predates run tracking."
-#~ msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
+#~ msgstr ""
+#~ "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
 
 #, python-format
 #~ msgid "%(n)s run"
