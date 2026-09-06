@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.utils import timezone
 
@@ -34,7 +34,7 @@ async def _run_round(llm, config=None, **settings):
         patch("memory.consolidation.build_structured_llm", return_value=llm),
         patch("memory.consolidation.site_settings", _site_settings(**settings)),
     ):
-        return await run_consolidation_round("group/project", config or _enabled_config(), observations)
+        return await run_consolidation_round("group/project", observations, config=config or _enabled_config())
 
 
 @pytest.mark.django_db(transaction=True)
@@ -219,6 +219,53 @@ class TestOperations:
         await obs.arefresh_from_db()
         assert obs.status == ObservationStatus.DISCARDED
         assert not await MemoryEntry.objects.aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestModelResolution:
+    async def test_model_names_bypass_config_entirely(self):
+        obs = await _observation(category=ObservationCategory.BUILD_TEST, content="`make test` needs -n auto")
+        llm = _structured_llm_returning(
+            MemoryOperation(
+                op="ADD",
+                observation_ids=[str(obs.pk)],
+                category="build_test",
+                content="`make test` runs the suite with -n auto",
+            )
+        )
+        exploding_config = MagicMock()
+        type(exploding_config).models = PropertyMock(side_effect=AssertionError("config must not be read"))
+
+        with (
+            patch("memory.consolidation.build_structured_llm", return_value=llm) as build,
+            patch("memory.consolidation.site_settings", _site_settings()),
+        ):
+            outcome = await run_consolidation_round(
+                "group/project", [obs], config=exploding_config, model_names=["some:model"]
+            )
+
+        assert outcome is not None
+        assert outcome.applied == 1
+        assert build.call_args.args[1] == ["some:model"]
+
+    async def test_config_resolves_the_pair_when_model_names_is_absent(self):
+        obs = await _observation()
+        llm = _structured_llm_returning(
+            MemoryOperation(op="DISCARD", observation_ids=[str(obs.pk)], reason="ephemeral")
+        )
+
+        with (
+            patch("memory.consolidation.build_structured_llm", return_value=llm) as build,
+            patch("memory.consolidation.site_settings", _site_settings()),
+        ):
+            await run_consolidation_round("group/project", [obs], config=_enabled_config())
+
+        assert build.call_args.args[1] == ("openrouter:anthropic/claude-sonnet-4.6", "openrouter:openai/gpt-5.3-codex")
+
+    async def test_raises_when_neither_config_nor_model_names_is_given(self):
+        obs = await _observation()
+        with pytest.raises(ValueError, match="config or model_names"):
+            await run_consolidation_round("group/project", [obs])
 
 
 @pytest.mark.django_db(transaction=True)

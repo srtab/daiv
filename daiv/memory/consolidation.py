@@ -276,24 +276,32 @@ def _source_run_id(observations: list[MemoryObservation]) -> str | None:
 
 
 async def run_consolidation_round(
-    repo_id: str, config, observations: Sequence[MemoryObservation]
+    repo_id: str, observations: Sequence[MemoryObservation], *, config=None, model_names: Sequence[str] | None = None
 ) -> RoundOutcome | None:
     """Decide and apply one round of operations for ``observations``.
 
-    Shared by the scheduled task and the backfill command: the caller owns which observations the
-    round sees and whether the repository is in a fit state to consolidate, this owns the LLM call
-    and the apply. Returns ``None`` when nothing was applied.
+    Shared by the scheduled task, the backfill command and the quality eval: the caller owns which
+    observations the round sees and whether the repository is in a fit state to consolidate, this
+    owns the LLM call and the apply. Returns ``None`` when nothing was applied.
+
+    ``config`` is read for one thing only — resolving the model pair — so a caller that supplies
+    ``model_names`` may omit it. That keeps the eval off ``RepositoryConfig.get_config``, which
+    hits the platform client on a cache miss.
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from memory.prompts import consolidation_human, consolidation_system
 
-    # Empty override → reuse the repo's agent model.
-    consolidation_model = site_settings.memory_consolidation_model_name or config.models.agent.model
-    try:
-        structured_llm = build_structured_llm(
-            MemoryOperations, (consolidation_model, config.models.agent.fallback_model)
+    if model_names is None:
+        if config is None:
+            raise ValueError("run_consolidation_round needs config or model_names to resolve the model")
+        # Empty override → reuse the repo's agent model.
+        model_names = (
+            site_settings.memory_consolidation_model_name or config.models.agent.model,
+            config.models.agent.fallback_model,
         )
+    try:
+        structured_llm = build_structured_llm(MemoryOperations, model_names)
     except RuntimeError, ValueError:
         # RuntimeError: provider disabled / no API key / unknown provider_type.
         # ValueError: empty or unparseable model spec / no matching provider row.
@@ -332,7 +340,7 @@ async def run_consolidation_round(
             "consolidation: structured output returned nothing for repo %s (model %s) — schema binding or "
             "parse failure; leaving %d observation(s) pending",
             repo_id,
-            consolidation_model,
+            model_names[0],
             len(observations),
         )
         return None

@@ -118,7 +118,7 @@ class TestBackfillMemoryEntriesCommand:
         ):
             call_command("backfill_memory_entries", "--repo-id", "group/project", "--batch-size", "2")
 
-        batches = [call.args[2] for call in round_mock.call_args_list]
+        batches = [call.args[1] for call in round_mock.call_args_list]
         assert [len(batch) for batch in batches] == [2, 2, 1]
         assert [obs.pk for batch in batches for obs in batch] == [obs.pk for obs in observations]
 
@@ -135,7 +135,7 @@ class TestBackfillMemoryEntriesCommand:
         ):
             call_command("backfill_memory_entries", "--repo-id", "group/project")
 
-        assert [obs.pk for obs in round_mock.call_args.args[2]] == [unreplayed.pk]
+        assert [obs.pk for obs in round_mock.call_args.args[1]] == [unreplayed.pk]
 
     def test_ignores_pending_observations(self):
         # Pending observations belong to the live consolidation path, not the backfill.
