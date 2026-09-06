@@ -106,7 +106,7 @@ async def extract_from_transcript(
     result = cast(
         "ExtractedObservations",
         await structured_llm.with_config(
-            run_name="MemoryExtraction", tags=["MemoryExtraction"], metadata={"repo_id": repo_id}
+            run_name="MemoryExtraction", tags=["MemoryExtraction"], metadata={"repo_id": repo_id, "run_ref": run_ref}
         ).ainvoke([
             SystemMessage(content=cast("str", extraction_system.format().content)),
             HumanMessage(

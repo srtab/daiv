@@ -276,6 +276,35 @@ class TestExtractFromTranscript:
 
         assert len(result) == 1
 
+    async def test_trace_metadata_carries_both_repo_id_and_run_ref(self):
+        llm = _structured_llm_returning([])
+        with (
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            await extract_from_transcript(
+                "[ai] x", repo_id="eval/x", status="SUCCESSFUL", model_names=["some:model"], run_ref="case-7"
+            )
+
+        assert llm.with_config.call_args.kwargs["metadata"] == {"repo_id": "eval/x", "run_ref": "case-7"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extract_observations_labels_the_trace_with_the_runs_pk():
+    # Regression guard: extract_from_transcript's metadata dict must still carry a run-identifying
+    # dimension, or LangSmith traces lose it (it previously read run_id=str(run.pk)).
+    run = await _create_run()
+    llm = _structured_llm_returning([])
+
+    with (
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.extraction.build_structured_llm", return_value=llm),
+        patch("memory.extraction.site_settings", _site_settings()),
+    ):
+        await extract_observations(run)
+
+    assert llm.with_config.call_args.kwargs["metadata"] == {"repo_id": run.repo_id, "run_ref": str(run.pk)}
+
 
 def test_usable_labels_its_logs_with_the_supplied_run_ref(caplog):
     from memory.extraction import _usable
