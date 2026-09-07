@@ -14,8 +14,7 @@ make lint-typing    # ty, daiv/ only
 uv run pytest tests/unit_tests/accounts/test_views.py
 uv run pytest tests/unit_tests/ -k "test_notes"
 
-# Integration tests (real LLM calls; need docker/local/app/config.secrets.env: LLM key + GitLab creds)
-make integration-tests
+make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
 # Translations
 make makemessages && make compilemessages

@@ -86,9 +86,27 @@ _MISSING_KEY_REASON = (
     "(loaded by the --envfile flag in `make integration-tests`)."
 )
 
+_EMPTY_SELECTION_REASON = (
+    "A -m expression deselected every integration test. pytest does not validate -m names against "
+    "registered markers, so a typo silently passes with exit 0 — this suite refuses to be that. "
+    "Valid markers for this suite: diff_to_metadata, memory."
+)
+
+
+def _collected_integration_paths(config: pytest.Config) -> bool:
+    """Whether this invocation was pointed at the integration suite at all.
+
+    ``items`` at ``trylast`` has already lost the deselected items, so it cannot distinguish a run
+    that asked for no integration tests from one whose ``-m`` deselected them all.
+    """
+    return any(
+        Path(arg.split("::")[0]).resolve() == _HERE or _HERE in Path(arg.split("::")[0]).resolve().parents
+        for arg in config.args
+    )
+
 
 @pytest.hookimpl(trylast=True)
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Mark every integration test as needing DB access, and refuse to run this suite blind.
 
     Required so pytest-django's ``django_db_setup`` actually creates the test
@@ -106,6 +124,11 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     ours = [item for item in items if _HERE in item.path.parents]
     for item in ours:
         item.add_marker(pytest.mark.django_db)
+
+    # A -m that deselected everything: pytest reports "no tests collected" and exits 0, so a typo
+    # in the Makefile's marker expression would look like a clean run.
+    if not ours and config.option.markexpr and _collected_integration_paths(config):
+        raise pytest.UsageError(_EMPTY_SELECTION_REASON)
 
     if ours and not os.environ.get("OPENROUTER_API_KEY"):
         if len(ours) == len(items):
