@@ -253,7 +253,9 @@ async def _attempt_multi_round(case: dict, model_name: str, repetition: int) -> 
         # Deterministic and free first: an exact repeat needs no model call.
         if repeats := duplicate_bullets(document):
             problems.append(f"the document repeats bullet(s) verbatim: {repeats}")
-        else:
+        elif document.strip():
+            # An empty document has no two bullets to compare — skip a call whose answer is
+            # already known, rather than asking the judge to grade nothing.
             duplicated, explanation = await judge_duplicate_facts(document)
             if duplicated:
                 problems.append(f"two bullets state the same fact: {explanation}")
