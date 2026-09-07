@@ -24,6 +24,7 @@ from memory.consolidation import run_consolidation_round
 from memory.models import EntryStatus, MemoryEntry, MemoryObservation, ObservationStatus
 
 from .memory_grading import (
+    assert_no_few_shot_leak,
     decision_violations,
     duplicate_bullets,
     judge_claims,
@@ -43,6 +44,10 @@ def load_cases(*, multi_round: bool):
             continue
         case = json.loads(line)
         validate_consolidation_case(case)
+        batches = case.get("batches") or [case.get("observations", [])]
+        assert_no_few_shot_leak([
+            row["content"] for row in [*case.get("entries", []), *(row for batch in batches for row in batch)]
+        ])
         if ("batches" in case) is multi_round:
             yield pytest.param(case, id=case["id"])
 

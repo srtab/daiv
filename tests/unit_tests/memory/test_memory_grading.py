@@ -419,6 +419,25 @@ class TestLoadMessages:
             load_messages([{"type": "system", "content": "x"}])
 
 
+class TestSharedSpan:
+    def test_finds_an_eight_word_overlap_regardless_of_case_and_spacing(self):
+        from tests.integration_tests.memory_grading import shared_span
+
+        a = "The  end-to-end suite needs a running message broker or every test fails."
+        b = "we learned the End-to-end suite needs a running message broker or every test fails at setup"
+        assert shared_span(a, b) == "end-to-end suite needs a running message broker or"
+
+    def test_seven_shared_words_is_not_an_overlap(self):
+        from tests.integration_tests.memory_grading import shared_span
+
+        assert shared_span("one two three four five six seven", "one two three four five six seven") is None
+
+    def test_unrelated_text_has_no_overlap(self):
+        from tests.integration_tests.memory_grading import shared_span
+
+        assert shared_span("the build needs a pinned node version", "reviewers reject raw sql in views") is None
+
+
 class TestStaticMirrorsStayInSync:
     def test_terminal_statuses_match_run_status(self):
         from sessions.models import RunStatus

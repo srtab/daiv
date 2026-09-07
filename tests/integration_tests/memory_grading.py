@@ -349,6 +349,38 @@ class DuplicateVerdict(BaseModel):
     explanation: str = Field(description="If true, name the two bullets. If false, one short sentence.")
 
 
+_LEAK_SPAN_WORDS = 8
+
+
+def shared_span(left: str, right: str, *, words: int = _LEAK_SPAN_WORDS) -> str | None:
+    """The first normalised ``words``-word span both texts contain, or ``None``.
+
+    A weak proxy for "this few-shot leaks a case's answer" — deliberately weak, because the strong
+    version is a judgement call and this only has to catch copy-paste.
+    """
+
+    def spans(text: str) -> set[str]:
+        tokens = " ".join(text.split()).casefold().split()
+        return {" ".join(tokens[index : index + words]) for index in range(len(tokens) - words + 1)}
+
+    for span in sorted(spans(left) & spans(right)):
+        return span
+    return None
+
+
+def assert_no_few_shot_leak(graded_texts: Sequence[str]) -> None:
+    """Fail at collection when a prompt few-shot shares an 8-word span with graded case text."""
+    from memory.prompts import FEW_SHOT_TEXTS
+
+    for name, few_shot in FEW_SHOT_TEXTS.items():
+        for graded in graded_texts:
+            if span := shared_span(few_shot, graded):
+                raise ValueError(
+                    f"few-shot {name} shares the span {span!r} with a graded case field; "
+                    "a shared fact makes the fix look like it worked when it only leaked the answer"
+                )
+
+
 @cache
 def _judge():
     from automation.agent.base import BaseAgent, ThinkingLevel

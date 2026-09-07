@@ -39,11 +39,16 @@ def test_extraction_omits_the_memory_block_when_there_is_no_memory():
     assert "RE-VERIFIED" not in rendered
 
 
-def test_extraction_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory():
+def test_extraction_human_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory():
     """Pins the property Fix 1's measurement depends on: a repo with no memory yet must see
-    exactly the prompt the locked baseline measured, not that prompt plus a stray blank line
-    left over from the removed ``{{^memory}}`` fallback — otherwise cases 001-009 (none of
-    which carry a ``memory`` field) would be running against an unmeasured prompt."""
+    exactly the human message the locked baseline measured, not that message plus a stray blank
+    line left over from the removed ``{{^memory}}`` fallback — otherwise cases 001-009 (none of
+    which carry a ``memory`` field) would be running against an unmeasured human message.
+
+    Scoped to the human message deliberately: Fix 2 adds few-shots to ``extraction_system``, so
+    the FULL prompt sent to the model is no longer byte-identical to what the baseline measured
+    for any case — only this human half still is.
+    """
     rendered = extraction_human.format(
         repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=""
     ).content

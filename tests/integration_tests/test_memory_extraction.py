@@ -17,7 +17,14 @@ from langsmith import testing as t
 from memory.extraction import extract_from_transcript
 from memory.transcript import serialize_transcript
 
-from .memory_grading import extraction_violations, judge_claims, load_messages, record_votes, validate_extraction_case
+from .memory_grading import (
+    assert_no_few_shot_leak,
+    extraction_violations,
+    judge_claims,
+    load_messages,
+    record_votes,
+    validate_extraction_case,
+)
 from .utils import EVAL_REPEATS, MEMORY_EXTRACTION_MODELS, require_provider_for_model
 
 DATA_DIR = Path(__file__).parent / "data" / "memory" / "extraction"
@@ -30,6 +37,8 @@ def load_cases():
             continue
         case = json.loads(line)
         validate_extraction_case(case)
+        expect = case.get("expect", {})
+        assert_no_few_shot_leak([*expect.get("must_capture", []), *expect.get("must_not_capture", [])])
         case["messages"] = json.loads((DATA_DIR / case.pop("messages_path")).read_text())
         yield pytest.param(case, id=case["id"])
 
