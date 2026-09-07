@@ -103,19 +103,45 @@ def _restore_providers(_provider_snapshot, django_db_blocker) -> None:
 
     Runs before every test in this directory (every item here already carries a ``django_db``
     marker via ``pytest_collection_modifyitems`` below), so a missing row is recreated before the
-    test body can observe an empty table — whether or not that test itself uses
-    ``transaction=True``. ``bulk_create`` bypasses ``Provider.save()``'s ``on_commit`` cache
-    invalidation, so the cache is cleared explicitly; leaving a stale empty-list cache entry from a
-    prior flush is exactly how this bug hides for up to ``PROVIDERS_CACHE_TIMEOUT`` (5 minutes).
+    test body can observe an empty table.
+
+    The read-and-write both happen on a *separate connection*, in a worker thread, not on the
+    caller's own connection: a plain (non-``transaction=True``) test wraps its whole body — and
+    every fixture that runs inside it — in one open transaction on the main connection, so an
+    INSERT there would never commit. It is not enough to move only the write: a bare SELECT on
+    the main connection already takes a lock inside that open transaction, and a second
+    connection's INSERT then hits ``sqlite3.OperationalError: database table is locked`` anyway —
+    so the existence check has to happen on the same worker-thread connection too. A brand new
+    thread gets Django's default per-thread connection, which is a fresh, unwrapped, autocommit
+    connection, so whatever it writes commits immediately regardless of the caller's own
+    transaction state — exactly the same "separate connection from a worker thread" shape
+    ``Provider._executor`` already uses for the identical reason (``daiv/core/models.py``).
+    ``bulk_create`` bypasses ``Provider.save()``'s ``on_commit`` cache invalidation, so the cache
+    is invalidated explicitly, but only when a row was actually recreated — an unconditional
+    invalidate would otherwise evict a perfectly good warm cache on every single test.
     """
+    import concurrent.futures
+
     from core.models import Provider
 
-    with django_db_blocker.unblock():
-        existing = set(Provider.objects.values_list("slug", flat=True))
-        missing = [row for row in _provider_snapshot if row["slug"] not in existing]
-        if missing:
-            Provider.objects.bulk_create(Provider(**row) for row in missing)
-            Provider.invalidate_cache()
+    def _restore() -> bool:
+        from django.db import close_old_connections
+
+        close_old_connections()
+        try:
+            existing = set(Provider.objects.values_list("slug", flat=True))
+            missing = [row for row in _provider_snapshot if row["slug"] not in existing]
+            if missing:
+                Provider.objects.bulk_create(Provider(**row) for row in missing)
+            return bool(missing)
+        finally:
+            close_old_connections()
+
+    with django_db_blocker.unblock(), concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        created = executor.submit(_restore).result()
+
+    if created:
+        Provider.invalidate_cache()
 
 
 _MISSING_KEY_REASON = (
