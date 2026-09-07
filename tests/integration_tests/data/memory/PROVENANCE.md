@@ -71,23 +71,37 @@ fifth of the sample) is not sensitive to that.
    `sentry_search_issues` with and without `environment:production` returned identical results, so
    there is no environment-tagging gap." Two other observations agree with `E041` instead —
    `O111` (2026-08-10) and `O235` (2026-08-28, worded almost identically to `E041` and the more
-   plausible source of its most recent reconfirmation). The chronology inverts a first-glance
-   assumption: `O200`'s contradicting finding *predates* `E041`'s `last_confirmed_at` of
-   2026-08-31 by ten days, not the other way around — the entry was reconfirmed (apparently via
-   the agreeing `O235`, three days earlier) with no visible reconciliation against the
-   contradicting evidence that had already been sitting in the sample for a week and a half. That
-   reads as a slightly *stronger* illustration of a potential blind spot than a same-day
-   coincidence would be: reconfirmation, at least as observable from this export, does not appear
-   to cross-check against contradicting recent observations, only restate whichever one happened
-   to feed it. It still reads as flaky/time-varying Sentry-side tagging behavior rather than a
-   fact contradicted by the repository itself, and neither `E041` nor `O235` is *wrong* in any
-   verifiable sense, so this stays `ephemeral`/`good` rather than `wrong_or_stale` — but it's the
-   closest near-miss in the sample and worth a second look if a stronger `wrong_or_stale` example
-   is ever needed. One later observation, `O263` (2026-09-07), also restates `O200`'s
-   "identical results" finding as a secondary clause, but its primary content and its
-   `duplicate_or_fragment` mode are about an unrelated fact (`sentry_search_events` omitting stack
-   traces) that instead matches `E042`, reconfirmed the same day — so `O263` is not cited as
-   primary evidence for the tension above, only noted here for completeness.
+   plausible source of its content). `E041`'s `created_at` and `last_confirmed_at` are identical
+   to the microsecond (2026-08-31 09:00:38.261117) — this is a **creation** event, not a
+   reconfirmation; `E041` has never been reconfirmed since (see the measured note below). So the
+   accurate framing is about creation-time reconciliation, not reconfirmation behavior: at the
+   moment `E041` was created, the agreeing `O235` was three days old and the contradicting `O200`
+   was already ten days old, and nothing in the sample shows the contradiction being reconciled
+   either then or since. The contradiction also isn't confined to before creation — `O263`
+   (2026-09-07) echoes `O200`'s "identical results" finding again about a week *after* `E041`'s
+   creation, so contradicting evidence brackets `E041`'s one timestamp on both sides, not just
+   the historical one. `O263`'s primary content and its `duplicate_or_fragment` mode are about an
+   unrelated fact (`sentry_search_events` omitting stack traces) that instead matches `E042`,
+   whose `last_confirmed_at` (a genuine reconfirmation — `E042` is one of the 5 in the measured
+   note below) is the same day — so `O263` is not primary evidence for the tension above, only
+   a later echo of it noted for completeness. None of this crosses into `wrong_or_stale`: it
+   still reads as flaky/time-varying Sentry-side tagging behavior rather than a fact contradicted
+   by the repository, and neither `E041` nor `O235` is *wrong* in any verifiable sense — but it's
+   the closest near-miss in the sample and worth a second look if a stronger `wrong_or_stale`
+   example is ever needed.
+
+   **Measured, for Task 11's author:** `last_confirmed_at` is the sort key `_eviction_order`
+   (`daiv/memory/render.py:52-53`) uses to pick which entry a full render budget evicts first —
+   `prune_to_budget` takes the *smallest* `(last_confirmed_at, created_at, pk)` in the largest
+   category, i.e. the least-recently-confirmed entry — and it only moves when
+   `MemoryEntry.confirm()` runs (`daiv/memory/models.py:136`), which only `run_consolidation_round`
+   calls (`daiv/memory/consolidation.py:230`). In this sample, only **5 of the 57** active entries
+   (8.8%) have ever had `last_confirmed_at` move past `created_at` — `E013`, `E019`, `E024`,
+   `E035`, and `E042`. The other **52 (91.2%)** are frozen at their creation timestamp, `E041`
+   among them. That means the eviction key is, for the large majority of this sample, already
+   behaving exactly like FIFO-by-creation-date today, independent of any extraction-prompt
+   change. This is a measured baseline only — what (if anything) to do about it is Task 11's
+   call, not this record's.
 
 Reuse for Task 8/9 case authoring: the sample already contains two real examples of **unmerged
 duplicate `MemoryEntry` rows** — `E013`/`E014`/`E015` (three active `srtab/daiv` entries that
