@@ -1,13 +1,20 @@
 import pytest
 
 from tests.integration_tests.memory_grading import (
+    _CATEGORIES,
+    _OPS,
+    _TERMINAL_STATUSES,
+    _VOTES,
+    ClaimVerdict,
     decision_violations,
     duplicate_bullets,
     extraction_violations,
     load_messages,
     match_claims,
+    record_votes,
     validate_consolidation_case,
     validate_extraction_case,
+    votes_report,
 )
 
 
@@ -47,6 +54,45 @@ class TestValidateExtractionCase:
             "memory": "## Build & test\n- something",
             "expect": {"must_capture": ["a fact"], "must_not_capture": [], "max_observations": 2},
         })
+
+    def test_rejects_a_case_with_no_expect_block(self):
+        with pytest.raises(ValueError, match="expect"):
+            validate_extraction_case({"id": "x", "messages_path": "m.json", "status": "SUCCESSFUL"})
+
+    def test_rejects_expect_given_as_a_list(self):
+        case = {"id": "x", "messages_path": "m.json", "status": "SUCCESSFUL", "expect": ["must_capture"]}
+        with pytest.raises(ValueError, match="expect must be a dict"):
+            validate_extraction_case(case)
+
+    def test_rejects_must_capture_with_a_zero_cap(self):
+        case = {
+            "id": "x",
+            "messages_path": "m.json",
+            "status": "SUCCESSFUL",
+            "expect": {"must_capture": ["a fact"], "max_observations": 0},
+        }
+        with pytest.raises(ValueError, match="can never pass"):
+            validate_extraction_case(case)
+
+    def test_rejects_duplicate_must_not_capture_entries(self):
+        case = {
+            "id": "x",
+            "messages_path": "m.json",
+            "status": "SUCCESSFUL",
+            "expect": {"must_capture": [], "must_not_capture": ["a fact", "a fact"]},
+        }
+        with pytest.raises(ValueError, match="duplicate"):
+            validate_extraction_case(case)
+
+    def test_rejects_near_duplicate_must_capture_entries(self):
+        case = {
+            "id": "x",
+            "messages_path": "m.json",
+            "status": "SUCCESSFUL",
+            "expect": {"must_capture": ["A fact.", "a fact"]},
+        }
+        with pytest.raises(ValueError, match="duplicate"):
+            validate_extraction_case(case)
 
 
 class TestValidateConsolidationCase:
@@ -88,6 +134,69 @@ class TestValidateConsolidationCase:
             "expect": {"decisions": {"o1": {"op": ["UPDATE", "MERGE"], "entries": ["e1"]}}},
         })
 
+    def test_rejects_neither_observations_nor_batches(self):
+        case = {"id": "y", "entries": [], "expect": {}}
+        with pytest.raises(ValueError, match="exactly one of"):
+            validate_consolidation_case(case)
+
+    def test_rejects_both_observations_and_batches(self):
+        row = {"id": "o1", "category": "build_test", "content": "c"}
+        case = {"id": "y", "entries": [], "observations": [row], "batches": [[row]], "expect": {"final": {}}}
+        with pytest.raises(ValueError, match="exactly one of"):
+            validate_consolidation_case(case)
+
+    def test_rejects_an_empty_observations_list(self):
+        case = {"id": "y", "entries": [], "observations": [], "expect": {}}
+        with pytest.raises(ValueError, match="observations must be non-empty"):
+            validate_consolidation_case(case)
+
+    def test_rejects_an_empty_batch(self):
+        row = {"id": "o1", "category": "build_test", "content": "c"}
+        case = {"id": "y", "entries": [], "batches": [[row], []], "expect": {"final": {"max_entries": 1}}}
+        with pytest.raises(ValueError, match="batches must be non-empty"):
+            validate_consolidation_case(case)
+
+    def test_rejects_a_row_missing_an_id(self):
+        case = {"id": "y", "entries": [], "observations": [{"category": "build_test", "content": "c"}], "expect": {}}
+        with pytest.raises(ValueError, match="needs a non-empty string id"):
+            validate_consolidation_case(case)
+
+    def test_rejects_duplicate_entry_ids(self):
+        case = {
+            "id": "y",
+            "entries": [
+                {"id": "e1", "category": "build_test", "content": "c"},
+                {"id": "e1", "category": "build_test", "content": "c2"},
+            ],
+            "observations": [{"id": "o1", "category": "build_test", "content": "c"}],
+            "expect": {},
+        }
+        with pytest.raises(ValueError, match="entries has duplicate"):
+            validate_consolidation_case(case)
+
+    def test_rejects_duplicate_observation_ids_across_batches(self):
+        row_a = {"id": "o1", "category": "build_test", "content": "c"}
+        row_b = {"id": "o1", "category": "build_test", "content": "c2"}
+        case = {"id": "y", "entries": [], "batches": [[row_a], [row_b]], "expect": {"final": {"max_entries": 1}}}
+        with pytest.raises(ValueError, match="observations has duplicate"):
+            validate_consolidation_case(case)
+
+    def test_rejects_a_decision_missing_an_op(self):
+        case = {
+            "id": "y",
+            "entries": [],
+            "observations": [{"id": "o1", "category": "build_test", "content": "c"}],
+            "expect": {"decisions": {"o1": {"entries": []}}},
+        }
+        with pytest.raises(ValueError, match="needs an op"):
+            validate_consolidation_case(case)
+
+    def test_rejects_a_multi_round_case_without_a_final_assertion(self):
+        row = {"id": "o1", "category": "build_test", "content": "c"}
+        case = {"id": "y", "entries": [], "batches": [[row]], "expect": {}}
+        with pytest.raises(ValueError, match="expect.final"):
+            validate_consolidation_case(case)
+
 
 class TestExtractionViolations:
     def test_empty_must_capture_demands_an_empty_emission(self):
@@ -107,6 +216,10 @@ class TestExtractionViolations:
         assert (
             extraction_violations([_Obs("a fact worth keeping")], {"must_capture": ["x"], "max_observations": 2}) == []
         )
+
+    def test_an_empty_emission_against_a_non_empty_must_capture_is_a_violation(self):
+        violations = extraction_violations([], {"must_capture": ["a plant"], "max_observations": 2})
+        assert violations and "emitted nothing" in violations[0]
 
 
 def _applied(op, entries=(), key="op-1"):
@@ -147,6 +260,15 @@ class TestDecisionViolations:
         applied = {"o1": _applied("ADD", key="entry-a"), "o2": _applied("ADD", key="entry-a")}
         assert decision_violations(applied, {"one_operation_for": [["o1", "o2"]]}) == []
 
+    def test_all_unclaimed_in_a_group_is_a_violation(self):
+        violations = decision_violations({}, {"one_operation_for": [["o1", "o2"]]})
+        assert violations and "unclaimed" in violations[0]
+
+    def test_decision_missing_op_raises(self):
+        applied = {"o1": _applied("ADD")}
+        with pytest.raises(ValueError, match="needs an op"):
+            decision_violations(applied, {"decisions": {"o1": {"entries": ["e1"]}}})
+
 
 class TestDuplicateBullets:
     def test_finds_an_exact_repeat_across_sections(self):
@@ -173,6 +295,48 @@ class TestMatchClaims:
         _verdicts, errors = match_claims(["a"], rows)
         assert errors and "a" in errors[0]
 
+    def test_an_invented_verdict_is_an_error(self):
+        rows = [{"claim": "a", "present": True}, {"claim": "z", "present": True}]
+        verdicts, errors = match_claims(["a"], rows)
+        assert verdicts == {"a": True}
+        assert errors and "z" in errors[0]
+
+    def test_matches_despite_whitespace_case_and_punctuation_drift(self):
+        rows = [{"claim": " A fact. ", "present": True}]
+        verdicts, errors = match_claims(["a fact"], rows)
+        assert verdicts == {"a fact": True}
+        assert errors == []
+
+    def test_accepts_pydantic_rows_not_only_dicts(self):
+        rows = [ClaimVerdict(claim="a", present=True)]
+        verdicts, errors = match_claims(["a"], rows)
+        assert verdicts == {"a": True}
+        assert errors == []
+
+
+class TestVotesReport:
+    def setup_method(self):
+        _VOTES.clear()
+
+    def teardown_method(self):
+        _VOTES.clear()
+
+    def test_no_votes_produces_an_empty_report(self):
+        assert votes_report() == []
+
+    def test_majority_rule_and_the_even_count_tie_direction(self):
+        record_votes("suite", "two-of-three", [True, True, False])
+        record_votes("suite", "one-of-three", [True, False, False])
+        record_votes("suite", "tie-of-two", [True, False])
+        record_votes("suite", "tie-of-four", [True, True, False, False])
+        record_votes("suite", "one-of-one", [True])
+        report = "\n".join(votes_report())
+        assert "PASS  2/3  suite::two-of-three" in report
+        assert "FAIL  1/3  suite::one-of-three" in report
+        assert "FAIL  1/2  suite::tie-of-two" in report
+        assert "FAIL  2/4  suite::tie-of-four" in report
+        assert "PASS  1/1  suite::one-of-one" in report
+
 
 class TestLoadMessages:
     def test_builds_the_three_message_types_serialize_transcript_reads(self):
@@ -188,3 +352,26 @@ class TestLoadMessages:
         assert "[human] fix the flake" in transcript
         assert "[ai:tool_call] bash(" in transcript
         assert "[tool:bash] 1 failed" in transcript
+
+    def test_rejects_an_unknown_message_type(self):
+        with pytest.raises(ValueError, match="unknown message type"):
+            load_messages([{"type": "system", "content": "x"}])
+
+
+class TestStaticMirrorsStayInSync:
+    def test_terminal_statuses_match_run_status(self):
+        from sessions.models import RunStatus
+
+        assert set(RunStatus.terminal()) == _TERMINAL_STATUSES
+
+    def test_categories_match_observation_category(self):
+        from memory.models import ObservationCategory
+
+        assert set(ObservationCategory.values) == _CATEGORIES
+
+    def test_ops_match_memory_operation_literal(self):
+        from typing import get_args
+
+        from memory.schemas import MemoryOperationLiteral
+
+        assert set(get_args(MemoryOperationLiteral)) == _OPS

@@ -12,6 +12,7 @@ a session fixture that runs after collection.
 from __future__ import annotations
 
 import re
+from functools import cache
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -40,8 +41,14 @@ def validate_extraction_case(case: dict) -> None:
         raise ValueError(f"{case['id']}: status must be one of {sorted(_TERMINAL_STATUSES)}, got {status!r}")
     if "memory" in case and not isinstance(case["memory"], str):
         raise ValueError(f"{case['id']}: memory must be a string")
+    # Omitting expect entirely defaults to "must emit nothing" below — the same false-pass a bare
+    # {} risks, but from a typo instead of an intentional nothing-learned case, so it is refused.
+    if "expect" not in case:
+        raise ValueError(f"{case['id']}: needs an expect block")
 
-    expect = case.get("expect", {})
+    expect = case["expect"]
+    if not isinstance(expect, dict):
+        raise ValueError(f"{case['id']}: expect must be a dict, got {type(expect).__name__}")
     if unknown := set(expect) - _EXTRACTION_EXPECT_KEYS:
         raise ValueError(f"{case['id']}: unknown expect key(s) {sorted(unknown)}")
     plants = expect.get("must_capture", [])
@@ -49,13 +56,16 @@ def validate_extraction_case(case: dict) -> None:
     for name, values in (("must_capture", plants), ("must_not_capture", decoys)):
         if not isinstance(values, list) or any(not isinstance(v, str) or not v.strip() for v in values):
             raise ValueError(f"{case['id']}: {name} must be a list of non-empty strings")
-    if overlap := set(plants) & set(decoys):
+        normalised = [normalise_bullet(v) for v in values]
+        if len(set(normalised)) != len(normalised):
+            raise ValueError(f"{case['id']}: {name} has duplicate (or near-duplicate) entries")
+    if overlap := {normalise_bullet(v) for v in plants} & {normalise_bullet(v) for v in decoys}:
         raise ValueError(f"{case['id']}: {sorted(overlap)} is both a plant and a decoy")
-    if len(set(plants)) != len(plants):
-        raise ValueError(f"{case['id']}: must_capture has duplicate entries; the judge matches rows by text")
     cap = expect.get("max_observations")
     if cap is not None and (isinstance(cap, bool) or not isinstance(cap, int) or cap < 0):
         raise ValueError(f"{case['id']}: max_observations must be a non-negative int")
+    if plants and cap == 0:
+        raise ValueError(f"{case['id']}: must_capture is non-empty but max_observations is 0; can never pass")
 
 
 def validate_consolidation_case(case: dict) -> None:
@@ -67,10 +77,29 @@ def validate_consolidation_case(case: dict) -> None:
     if ("observations" in case) == ("batches" in case):
         raise ValueError(f"{case['id']}: give exactly one of observations (single-round) or batches (multi-round)")
 
-    entry_ids = {row["id"] for row in _rows(case, "entries")}
-    batches = case.get("batches") or [case.get("observations", [])]
-    observation_ids = {row["id"] for batch in batches for row in batch}
-    for row in [*_rows(case, "entries"), *(r for batch in batches for r in batch)]:
+    if "batches" in case:
+        batches = case["batches"]
+        if not batches or any(not batch for batch in batches):
+            raise ValueError(f"{case['id']}: batches must be non-empty and contain no empty batch")
+    else:
+        if not case.get("observations"):
+            raise ValueError(f"{case['id']}: observations must be non-empty")
+        batches = [case["observations"]]
+
+    entry_rows = _rows(case, "entries")
+    observation_rows = [row for batch in batches for row in batch]
+    # Sets alone would let a repeated id vanish silently; Task 8 keys a symbol -> pk dict off
+    # these, so a dropped row there computes the wrong consolidation op for the survivor.
+    for label, rows in (("entries", entry_rows), ("observations", observation_rows)):
+        ids = [row.get("id") for row in rows]
+        if any(not isinstance(row_id, str) or not row_id for row_id in ids):
+            raise ValueError(f"{case['id']}: every {label} row needs a non-empty string id")
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"{case['id']}: {label} has duplicate id(s)")
+
+    entry_ids = {row["id"] for row in entry_rows}
+    observation_ids = {row["id"] for row in observation_rows}
+    for row in [*entry_rows, *observation_rows]:
         if row.get("category") not in _CATEGORIES:
             raise ValueError(f"{case['id']}: bad category {row.get('category')!r} on {row.get('id')}")
         if not str(row.get("content", "")).strip():
@@ -83,6 +112,8 @@ def validate_consolidation_case(case: dict) -> None:
     for observation_id, decision in expect.get("decisions", {}).items():
         if observation_id not in observation_ids:
             raise ValueError(f"{case['id']}: decision names unknown observation {observation_id}")
+        if "op" not in decision:
+            raise ValueError(f"{case['id']}: decision for {observation_id} needs an op")
         ops = decision["op"] if isinstance(decision["op"], list) else [decision["op"]]
         if bad := [op for op in ops if op not in _OPS]:
             raise ValueError(f"{case['id']}: unknown operation(s) {bad}")
@@ -143,7 +174,12 @@ def load_messages(payload: Sequence[dict]) -> list[Any]:
 def extraction_violations(observations: Sequence[Any], expect: dict) -> list[str]:
     """Every deterministic way this emission breaks ``expect``, so one run reports all of them."""
     violations: list[str] = []
-    if not expect.get("must_capture"):
+    plants = expect.get("must_capture") or []
+    if not observations and plants:
+        # Every other check here is an upper bound; without this one, emitting nothing always
+        # scores a clean pass, silently, on every plant-bearing case.
+        violations.append(f"emitted nothing, but must_capture expects {len(plants)} plant(s)")
+    if not plants:
         if observations:
             violations.append(f"expected no observations (must_capture is empty), got {len(observations)}")
         return violations
@@ -168,7 +204,9 @@ def decision_violations(applied: dict[str, dict], expect: dict) -> list[str]:
     violations: list[str] = []
     for group in expect.get("one_operation_for", []):
         keys = {applied[oid]["operation_key"] for oid in group if oid in applied}
-        if len(keys) > 1:
+        if not keys:
+            violations.append(f"observations {sorted(group)} were all left unclaimed by every operation")
+        elif len(keys) > 1:
             violations.append(
                 f"observations {sorted(group)} were covered by {len(keys)} separate operations; "
                 "one operation should name all of them"
@@ -178,6 +216,8 @@ def decision_violations(applied: dict[str, dict], expect: dict) -> list[str]:
         if actual is None:
             violations.append(f"observation {observation_id} was left unclaimed by every operation")
             continue
+        if "op" not in decision:
+            raise ValueError(f"decision for {observation_id} needs an op")
         allowed = decision["op"] if isinstance(decision["op"], list) else [decision["op"]]
         if actual["op"] not in allowed:
             violations.append(f"observation {observation_id}: got {actual['op']}, expected one of {allowed}")
@@ -197,7 +237,11 @@ def normalise_bullet(text: str) -> str:
 
 
 def duplicate_bullets(document: str) -> list[str]:
-    """Bullets that repeat verbatim once normalised — the free half of duplicate detection."""
+    """Bullets that repeat verbatim once normalised — the free half of duplicate detection.
+
+    Misses markup differences (`` `make test` `` vs ``make test``) and internal-punctuation or
+    wording drift; that gap is intentionally left to ``judge_duplicate_facts``.
+    """
     seen: set[str] = set()
     repeats: list[str] = []
     for match in _BULLET.finditer(document):
@@ -209,12 +253,15 @@ def duplicate_bullets(document: str) -> list[str]:
 
 
 def match_claims(expected: Sequence[str], rows: Sequence[Any]) -> tuple[dict[str, bool], list[str]]:
-    """Map judge rows back to the claims they grade, by text.
+    """Map judge rows back to the claims they grade, by normalised text.
 
     Index-aligned ``list[bool]`` is not used: models drop and reorder list items, and a silently
-    short list would grade the wrong plant. A missing or duplicated row is an error, reported
-    post-parse rather than as a pydantic length constraint — a field constraint fails the whole
-    structured-output payload, and gateways ignore ``minItems`` anyway.
+    short list would grade the wrong plant. Matching is on ``normalise_bullet`` rather than a byte-
+    exact echo: a judge that returns a claim with different case or trailing punctuation is still
+    the same claim, and votes feed a majority across repeats — one drifting echo must not turn an
+    otherwise-stable case unstable. A missing or duplicated row is an error, reported post-parse
+    rather than as a pydantic length constraint — a field constraint fails the whole structured-
+    output payload, and gateways ignore ``minItems`` anyway.
     """
     verdicts: dict[str, bool] = {}
     errors: list[str] = []
@@ -222,17 +269,20 @@ def match_claims(expected: Sequence[str], rows: Sequence[Any]) -> tuple[dict[str
     for row in rows:
         claim = row["claim"] if isinstance(row, dict) else row.claim
         present = row["present"] if isinstance(row, dict) else row.present
-        by_claim.setdefault(claim, []).append(present)
+        by_claim.setdefault(normalise_bullet(claim), []).append(present)
 
+    seen_keys: set[str] = set()
     for claim in expected:
-        graded = by_claim.get(claim)
+        key = normalise_bullet(claim)
+        seen_keys.add(key)
+        graded = by_claim.get(key)
         if graded is None:
             errors.append(f"the judge returned no verdict for: {claim!r}")
         elif len(graded) > 1:
             errors.append(f"the judge returned {len(graded)} verdicts for: {claim!r}")
         else:
             verdicts[claim] = graded[0]
-    if extra := set(by_claim) - set(expected):
+    if extra := set(by_claim) - seen_keys:
         errors.append(f"the judge invented verdict(s) for: {sorted(extra)}")
     return verdicts, errors
 
@@ -246,7 +296,12 @@ def record_votes(suite: str, label: str, results: list[bool]) -> None:
 
 
 def votes_report() -> list[str]:
-    """The per-case-per-model majority and raw vote split, for the PR body."""
+    """The per-case-per-model majority and raw vote split, for the PR body.
+
+    ``_VOTES`` is a plain module-level list, per-process: running the memory suite under
+    ``-n``/xdist would scatter votes across workers and this report would print nothing (or a
+    partial split) in the controller process. Run it single-process.
+    """
     if not _VOTES:
         return []
     lines = ["", "memory eval — majority outcome and raw vote split (per case per model):"]
@@ -280,6 +335,7 @@ class DuplicateVerdict(BaseModel):
     explanation: str = Field(description="If true, name the two bullets. If false, one short sentence.")
 
 
+@cache
 def _judge():
     from automation.agent.base import BaseAgent, ThinkingLevel
 
