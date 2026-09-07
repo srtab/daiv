@@ -1,0 +1,61 @@
+[
+  {
+    "type": "human",
+    "content": "Set up the build environment on this fresh machine and run a build."
+  },
+  {
+    "type": "ai",
+    "content": "Running the build first to see what's needed.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "make build"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "protoc: command not found\nmake: *** [proto] Error 127"
+  },
+  {
+    "type": "ai",
+    "content": "Missing the protobuf compiler. Installing it.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "apt-get install -y protobuf-compiler"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "Setting up protobuf-compiler (3.21.12-3) ...\nDone."
+  },
+  {
+    "type": "ai",
+    "content": "Retrying the build.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "make build"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "Build succeeded."
+  },
+  {
+    "type": "ai",
+    "content": "Build succeeded once protoc was installed."
+  }
+]

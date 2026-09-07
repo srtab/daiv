@@ -1,0 +1,63 @@
+[
+  {
+    "type": "human",
+    "content": "Update the changelog wording for the last release entry from 'Add' to 'Added'."
+  },
+  {
+    "type": "ai",
+    "content": "Reading the changelog.",
+    "tool_calls": [
+      {
+        "name": "read_file",
+        "args": {
+          "path": "CHANGELOG.md"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "read_file",
+    "content": "## 2.4.0\n- Add support for CSV export\n- Fix flaky retry timer\n"
+  },
+  {
+    "type": "ai",
+    "content": "Updating the entry.",
+    "tool_calls": [
+      {
+        "name": "edit_file",
+        "args": {
+          "path": "CHANGELOG.md",
+          "old": "Add support for CSV export",
+          "new": "Added support for CSV export"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "edit_file",
+    "content": "1 replacement made in CHANGELOG.md"
+  },
+  {
+    "type": "ai",
+    "content": "Running the test suite to confirm nothing broke.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "make test"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "128 passed in 34.02s"
+  },
+  {
+    "type": "ai",
+    "content": "Done. The changelog entry now reads 'Added support for CSV export' and the test suite is green."
+  }
+]
