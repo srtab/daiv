@@ -80,9 +80,18 @@ observations against the cap of 2 every time:
   migrate-before-seed, a `make migrate-status` restatement, and the duplicate-key-after-partial-
   seed fact.
 
-Neither model leaked the `must_not_capture` decoy (the "twelve errors" count). The failure
-mode here is exclusively over-emission against the cap, on a case that has more real signal in
-it than `max_observations` allows for a careful model — a review flag, confirmed by the run.
+The decoy (`must_not_capture`: "that the run ended with twelve errors") was **never graded on
+this case**: `_attempt` returns as soon as `extraction_violations` reports the cap breach
+(`tests/integration_tests/test_memory_extraction.py:45-46`), before `judge_claims` is ever
+reached, and all six attempts (both models × 3 repetitions) tripped the cap, so the
+decoy-grading judge call ran zero times for `003`. Read from the raw emission only — this is
+an ungraded observation, not a graded leak verdict — gpt-5.4-mini's attempt 3 (log line 163)
+nonetheless restates the decoy fact in numeral form: "...can still fail with `duplicate key
+value violates unique constraint \"product_sku_key\"` and finish with **12 errors**, indicating
+leftover partial demo rows need cleanup before reseeding." The graded, log-supported finding on
+`003` is the cap violation; whether the case is actually clean on decoy suppression is untested
+by this run, not established by it — a reader should not treat this cell as evidence either
+way on that question.
 
 **`005-plant-inside-long-tool-output` fails 0/3 on gpt-5.4-mini only, and by a different
 mechanism: decoy leakage, not over-emission.** Each of gpt's 3 attempts emitted only 2
@@ -171,9 +180,12 @@ should not by itself be read as strong evidence of discrimination quality.
   (1/3) — some signal, but noisy. `002-nothing-learned` on gpt-5.4-mini is majority-PASS but
   UNSTABLE (2/3) — also noisy, on the PASS side. `011`, `012`, `016`, and `021` are all already
   at ceiling (PASS 3/3 on both models) with no room to demonstrate improvement.
-- Independent of either fix's named targets, `003-migration-before-seed` (both models) and
-  `005-plant-inside-long-tool-output` (gpt-5.4-mini only) are clean, stable majority-FAILs
-  outside the two fixes' scope, for the reasons detailed above (over-emission against a cap
-  that's tight for the case's real fact count, and decoy leakage, respectively) — neither is
-  expected to move from Fix 1 or Fix 2 and a mover here should be treated as a surprise worth
+- Independent of either fix's named targets, three cases fail outside the two fixes' scope.
+  `003-migration-before-seed` (both models, clean FAIL 0/3) and `009-reexported-public-api`
+  (gpt-5.4-mini only, FAIL 1/3 UNSTABLE) both fail by over-emission against a `max_observations`
+  cap that's tight for the case's real fact count — `009`'s gpt attempts show the same shape as
+  `003`'s: 3 observations emitted against a cap of 2 (log lines 446-448). `005-plant-inside-
+  long-tool-output` (gpt-5.4-mini only, clean FAIL 0/3) fails instead by decoy leakage, a
+  different mechanism (see detail above). None of the three is expected to move from Fix 1 or
+  Fix 2 by design, so a mover on any of them should be treated as a surprise worth
   investigating, not credited to either fix by default.
