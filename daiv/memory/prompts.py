@@ -7,20 +7,20 @@ from memory.schemas import CONTENT_GUIDELINE_CHARS, MAX_OBSERVATIONS, MAX_OPERAT
 # repository DAIV serves, so the model must learn the boundary, not one repository's vocabulary.
 EXTRACTION_FEW_SHOTS = """Worked examples. Each pair is one boundary; the two sides are close on purpose.
 
-REJECT: "The test suite has three failing tests in the payments module."
-KEEP:   "The end-to-end suite needs a running message broker; without one every payments test
-         fails at setup with a connection-refused error."
-  — the first is the state of one run, the second is a precondition that holds next time.
+REJECT: "The API returned rate-limit errors on two requests during this run."
+KEEP:   "The API enforces a 60-requests-per-minute limit per token; a burst of parallel calls
+         trips it, and every request in the burst gets a 429 until the window resets."
+  — the first is the state of one run, the second is a limit that will trip again the same way.
 
-REJECT: "Always write tests before implementation."
+REJECT: "Prefer descriptive variable names over abbreviations."
 KEEP:   "A new non-null database column needs two migrations, one nullable and one backfill,
          because the deploy applies migrations before the new code is running."
   — the first is advice for any project, the second is this project's deploy order.
 
-REJECT: "The build succeeded on the third attempt."
+REJECT: "The last deploy touched 340 lines across nine files."
 KEEP:   "The asset build is not reproducible across Node major versions; pin the version from the
          tooling config or the bundle hashes change between machines."
-  — the first is an outcome, the second is why the outcome varied.
+  — the first is a count describing one change, the second is why a build varies across machines.
 
 REJECT: "Check the documentation before changing this module."
 KEEP:   "Generated client code is overwritten by the codegen step, so a change has to go into the
@@ -42,10 +42,6 @@ DISCARD — a decision, not a fallback:
   observation:  b2 | build_test | The nightly job timed out twice this week, then passed.
   DISCARD(observation_ids=[b2], reason="the state of a few runs; nothing here holds for a future
   session")"""
-
-# Consumed by the eval's collection-time leak guard, which fails if a few-shot shares an 8-word
-# span with any graded case field.
-FEW_SHOT_TEXTS = {"extraction": EXTRACTION_FEW_SHOTS, "consolidation": CONSOLIDATION_FEW_SHOTS}
 
 # The two system templates take no mustache variables, so they can be f-strings; the ``*_human``
 # ones below must not be — an f-string would collapse their ``{{var}}`` placeholders to ``{var}``.

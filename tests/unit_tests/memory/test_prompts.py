@@ -6,7 +6,14 @@ text are triple-braced; this test stops them being "tidied" back.
 """
 
 import pytest
-from memory.prompts import consolidation_human, extraction_human
+from memory.prompts import (
+    CONSOLIDATION_FEW_SHOTS,
+    EXTRACTION_FEW_SHOTS,
+    consolidation_human,
+    consolidation_system,
+    extraction_human,
+    extraction_system,
+)
 
 # Contains every character in chevron's escape set: & < > "
 DIRTY = 'run 2>&1 | grep "x" <y> && echo done'
@@ -81,3 +88,13 @@ def test_consolidation_content_is_not_html_escaped(variable):
     values[variable] = DIRTY
     rendered = consolidation_human.format(**values).content
     assert DIRTY in rendered, rendered
+
+
+def test_extraction_system_includes_the_few_shot_examples():
+    """The eval's leak guard reads ``extraction_system``'s own rendered text, not a separate
+    registry — so nothing else pins that the few-shots are actually part of what a run is sent."""
+    assert EXTRACTION_FEW_SHOTS in extraction_system.format().content
+
+
+def test_consolidation_system_includes_the_few_shot_examples():
+    assert CONSOLIDATION_FEW_SHOTS in consolidation_system.format().content

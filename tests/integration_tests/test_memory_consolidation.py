@@ -45,8 +45,13 @@ def load_cases(*, multi_round: bool):
         case = json.loads(line)
         validate_consolidation_case(case)
         batches = case.get("batches") or [case.get("observations", [])]
+        expect = case.get("expect", {})
+        # content_must_state and final.must_state are consolidation's real graded assertions
+        # (e.g. 021's must_state) — entries/observations alone miss them.
         assert_no_few_shot_leak([
-            row["content"] for row in [*case.get("entries", []), *(row for batch in batches for row in batch)]
+            *(row["content"] for row in [*case.get("entries", []), *(row for batch in batches for row in batch)]),
+            *expect.get("content_must_state", {}).values(),
+            *expect.get("final", {}).get("must_state", []),
         ])
         if ("batches" in case) is multi_round:
             yield pytest.param(case, id=case["id"])

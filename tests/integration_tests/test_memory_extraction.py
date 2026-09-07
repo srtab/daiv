@@ -37,9 +37,18 @@ def load_cases():
             continue
         case = json.loads(line)
         validate_extraction_case(case)
+        messages = json.loads((DATA_DIR / case.pop("messages_path")).read_text())
         expect = case.get("expect", {})
-        assert_no_few_shot_leak([*expect.get("must_capture", []), *expect.get("must_not_capture", [])])
-        case["messages"] = json.loads((DATA_DIR / case.pop("messages_path")).read_text())
+        # A suppression case (must_capture/must_not_capture both empty, e.g. 006, 008, 010) has no
+        # plant or decoy text at all — the graded fact lives only in the transcript and, for a
+        # memory-aware case, in ``memory`` — so both must be covered too, not just expect.
+        assert_no_few_shot_leak([
+            *expect.get("must_capture", []),
+            *expect.get("must_not_capture", []),
+            case.get("memory", ""),
+            *(str(row.get("content", "")) for row in messages),
+        ])
+        case["messages"] = messages
         yield pytest.param(case, id=case["id"])
 
 

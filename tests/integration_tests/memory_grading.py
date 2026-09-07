@@ -352,15 +352,23 @@ class DuplicateVerdict(BaseModel):
 _LEAK_SPAN_WORDS = 8
 
 
+_QUOTE_CHARS = "\"'“”‘’"
+
+
 def shared_span(left: str, right: str, *, words: int = _LEAK_SPAN_WORDS) -> str | None:
     """The first normalised ``words``-word span both texts contain, or ``None``.
 
     A weak proxy for "this few-shot leaks a case's answer" — deliberately weak, because the strong
-    version is a judgement call and this only has to catch copy-paste.
+    version is a judgement call and this only has to catch copy-paste. Quote characters are
+    stripped per token (not just whitespace-normalised): the few-shots are quoted inline
+    (``REJECT: "..."``), so a short quoted sentence's boundary words would otherwise carry a
+    literal quote mark the same fact stated unquoted in a case field never has, hiding the overlap.
     """
 
     def spans(text: str) -> set[str]:
-        tokens = " ".join(text.split()).casefold().split()
+        tokens = [
+            stripped for token in " ".join(text.split()).casefold().split() if (stripped := token.strip(_QUOTE_CHARS))
+        ]
         return {" ".join(tokens[index : index + words]) for index in range(len(tokens) - words + 1)}
 
     for span in sorted(spans(left) & spans(right)):
@@ -369,14 +377,22 @@ def shared_span(left: str, right: str, *, words: int = _LEAK_SPAN_WORDS) -> str 
 
 
 def assert_no_few_shot_leak(graded_texts: Sequence[str]) -> None:
-    """Fail at collection when a prompt few-shot shares an 8-word span with graded case text."""
-    from memory.prompts import FEW_SHOT_TEXTS
+    """Fail at collection when a rendered system prompt shares an 8-word span with graded case text.
 
-    for name, few_shot in FEW_SHOT_TEXTS.items():
+    Reads ``extraction_system``/``consolidation_system`` themselves rather than a separately
+    maintained registry of few-shot text, so the check cannot drift from what a run is actually
+    sent — a registry could go stale (edited independently of the template, or left behind after
+    the interpolation that used it was removed) and still report a clean pass.
+    """
+    from memory.prompts import consolidation_system, extraction_system
+
+    rendered_prompts = {"extraction_system": extraction_system, "consolidation_system": consolidation_system}
+    for name, prompt in rendered_prompts.items():
+        rendered = prompt.format().content
         for graded in graded_texts:
-            if span := shared_span(few_shot, graded):
+            if span := shared_span(rendered, graded):
                 raise ValueError(
-                    f"few-shot {name} shares the span {span!r} with a graded case field; "
+                    f"{name} shares the span {span!r} with a graded case field; "
                     "a shared fact makes the fix look like it worked when it only leaked the answer"
                 )
 

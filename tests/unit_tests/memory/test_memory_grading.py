@@ -437,6 +437,79 @@ class TestSharedSpan:
 
         assert shared_span("the build needs a pinned node version", "reviewers reject raw sql in views") is None
 
+    def test_a_quoted_sentence_still_overlaps_an_unquoted_one(self):
+        # The few-shots quote REJECT/KEEP inline (``REJECT: "..."``): a short quoted sentence's
+        # first and last words would otherwise carry a literal quote mark the same fact stated
+        # unquoted in a case field never has, hiding an otherwise real 8-word match. Without the
+        # quote-stripping fix this returns None even though both sentences are identical.
+        from tests.integration_tests.memory_grading import shared_span
+
+        quoted = 'REJECT: "Passed cleanly on the second try with nothing changed."'
+        unquoted = "Passed cleanly on the second try with nothing changed."
+        span = shared_span(quoted, unquoted)
+        assert span is not None
+        assert '"' not in span
+
+
+class TestAssertNoFewShotLeak:
+    """Exercises the real function, not just the manual planted-violation proof in the report."""
+
+    @staticmethod
+    def _stub_prompt(content: str):
+        from types import SimpleNamespace
+
+        class _Stub:
+            def format(self):
+                return SimpleNamespace(content=content)
+
+        return _Stub()
+
+    def test_raises_when_a_graded_text_shares_a_span_with_the_rendered_extraction_system(self, monkeypatch):
+        import memory.prompts as prompts
+
+        from tests.integration_tests.memory_grading import assert_no_few_shot_leak
+
+        monkeypatch.setattr(
+            prompts, "extraction_system", self._stub_prompt("alpha bravo charlie delta echo foxtrot golf hotel india")
+        )
+        monkeypatch.setattr(
+            prompts, "consolidation_system", self._stub_prompt("unrelated stub content for the other prompt entirely")
+        )
+
+        with pytest.raises(ValueError, match="extraction_system"):
+            assert_no_few_shot_leak(["alpha bravo charlie delta echo foxtrot golf hotel india"])
+
+    def test_raises_when_a_graded_text_shares_a_span_with_the_rendered_consolidation_system(self, monkeypatch):
+        import memory.prompts as prompts
+
+        from tests.integration_tests.memory_grading import assert_no_few_shot_leak
+
+        monkeypatch.setattr(
+            prompts, "extraction_system", self._stub_prompt("unrelated stub content for the other prompt entirely")
+        )
+        monkeypatch.setattr(
+            prompts,
+            "consolidation_system",
+            self._stub_prompt("alpha bravo charlie delta echo foxtrot golf hotel india"),
+        )
+
+        with pytest.raises(ValueError, match="consolidation_system"):
+            assert_no_few_shot_leak(["alpha bravo charlie delta echo foxtrot golf hotel india"])
+
+    def test_passes_when_no_graded_text_shares_a_span_with_either_rendered_prompt(self, monkeypatch):
+        import memory.prompts as prompts
+
+        from tests.integration_tests.memory_grading import assert_no_few_shot_leak
+
+        monkeypatch.setattr(
+            prompts, "extraction_system", self._stub_prompt("alpha bravo charlie delta echo foxtrot golf hotel india")
+        )
+        monkeypatch.setattr(
+            prompts, "consolidation_system", self._stub_prompt("unrelated stub content for the other prompt entirely")
+        )
+
+        assert assert_no_few_shot_leak(["nothing about this graded text resembles either stub whatsoever"]) is None
+
 
 class TestStaticMirrorsStayInSync:
     def test_terminal_statuses_match_run_status(self):
