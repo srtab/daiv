@@ -66,7 +66,13 @@ def _usable(observations: Sequence[ExtractedObservation], *, run_ref: str) -> li
 
 
 async def extract_from_transcript(
-    transcript: str, *, repo_id: str, status: str, model_names: Sequence[str] | None = None, run_ref: str | None = None
+    transcript: str,
+    *,
+    repo_id: str,
+    status: str,
+    memory: str = "",
+    model_names: Sequence[str] | None = None,
+    run_ref: str | None = None,
 ) -> list[ExtractedObservation]:
     """Run the extraction model over an already-serialized transcript.
 
@@ -74,7 +80,9 @@ async def extract_from_transcript(
     usable observations. Callers own transcript sourcing. ``model_names`` defaults to the
     site-settings pair; an empty resolution is the documented precondition-failure skip, not a
     crash on ``model_names[0]``. ``run_ref`` labels the drop logs — the run's pk from the task
-    path, the case id from the eval.
+    path, the case id from the eval. ``memory`` is the repository's current memory document,
+    shown to the model so it can tell a read-only restatement from a contradiction or
+    re-verification (see the prompt's three-way rule).
     """
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -111,7 +119,10 @@ async def extract_from_transcript(
             SystemMessage(content=cast("str", extraction_system.format().content)),
             HumanMessage(
                 content=cast(
-                    "str", extraction_human.format(repo_id=repo_id, status=status, transcript=transcript).content
+                    "str",
+                    extraction_human.format(
+                        repo_id=repo_id, status=status, memory=memory, transcript=transcript
+                    ).content,
                 )
             ),
         ]),
@@ -135,9 +146,12 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
     observations are not a schema mismatch and never reach that path — see ``_usable``.
 
     Model resolution and the LLM call now live in ``extract_from_transcript``; this half only
-    loads the transcript out of the checkpoint.
+    loads the transcript out of the checkpoint. It also loads the repository's current memory
+    document and passes it along, so a fact the run merely read is not re-emitted, while a
+    contradiction or a re-verification still is.
     """
     from core.checkpointer import aresolve_thread_messages, open_checkpointer
+    from memory.models import RepositoryMemory
     from memory.transcript import serialize_transcript
 
     thread_config = {"configurable": {"thread_id": str(run.session_id)}}
@@ -180,4 +194,16 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
 
     transcript = serialize_transcript(messages)
 
-    return await extract_from_transcript(transcript, repo_id=run.repo_id, status=run.status, run_ref=str(run.pk))
+    try:
+        memory = (
+            await RepositoryMemory.objects.filter(repo_id=run.repo_id).values_list("content", flat=True).afirst()
+        ) or ""
+    except Exception:
+        # Falls open to "" on any lookup failure: an extraction that runs blind is worse than
+        # none, but not by much, and must never block the run.
+        logger.exception("extract_observations: could not load memory for repo %s, continuing without it", run.repo_id)
+        memory = ""
+
+    return await extract_from_transcript(
+        transcript, repo_id=run.repo_id, status=run.status, memory=memory, run_ref=str(run.pk)
+    )

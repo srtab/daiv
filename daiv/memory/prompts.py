@@ -34,6 +34,23 @@ extraction_human = HumanMessagePromptTemplate.from_template(
     """Repository: {{repo_id}}
 Run finished with status: {{status}}
 
+{{#memory}}
+What this repository's memory already records:
+~~~
+{{{memory}}}
+~~~
+
+A fact above is NOT automatically off-limits. Decide per fact:
+- the run merely READ it or relied on it → emit nothing about it;
+- the run CONTRADICTS it → emit the NEW fact, this is how a stale entry gets corrected;
+- the run RE-VERIFIED it by actually running the command or hitting the pitfall again → emit it,
+  this is how a fact stays confirmed.
+Lazy restatement of something above, with nothing in the run that tested it, is not an observation.
+{{/memory}}
+{{^memory}}
+This repository has no memory yet.
+{{/memory}}
+
 Run transcript (roles, text, tool calls; long outputs truncated):
 ~~~
 {{{transcript}}}

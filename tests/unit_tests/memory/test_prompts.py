@@ -1,8 +1,8 @@
 """Pins the mustache escaping contract of the memory prompts.
 
-``{{var}}`` is HTML-escaped by chevron (``& < > "``), which mangles transcripts, entry
-content and observation content. The three variables that carry that kind of text are
-triple-braced; this test stops them being "tidied" back.
+``{{var}}`` is HTML-escaped by chevron (``& < > "``), which mangles transcripts, memory
+documents, entry content and observation content. The variables that carry that kind of
+text are triple-braced; this test stops them being "tidied" back.
 """
 
 import pytest
@@ -13,8 +13,35 @@ DIRTY = 'run 2>&1 | grep "x" <y> && echo done'
 
 
 def test_extraction_transcript_is_not_html_escaped():
-    rendered = extraction_human.format(repo_id="group/project", status="SUCCESSFUL", transcript=DIRTY).content
+    rendered = extraction_human.format(
+        repo_id="group/project", status="SUCCESSFUL", transcript=DIRTY, memory=""
+    ).content
     assert DIRTY in rendered, rendered
+
+
+def test_extraction_renders_the_memory_block_when_there_is_memory():
+    rendered = extraction_human.format(
+        repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory="## Build & test\n- a fact"
+    ).content
+
+    assert "- a fact" in rendered
+    assert "no memory yet" not in rendered
+
+
+def test_extraction_says_so_when_there_is_no_memory():
+    rendered = extraction_human.format(
+        repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=""
+    ).content
+
+    assert "no memory yet" in rendered
+
+
+def test_extraction_memory_is_not_html_escaped():
+    rendered = extraction_human.format(
+        repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=DIRTY
+    ).content
+
+    assert DIRTY in rendered
 
 
 @pytest.mark.parametrize("variable", ["entries", "observations"])

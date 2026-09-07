@@ -314,3 +314,39 @@ def test_usable_labels_its_logs_with_the_supplied_run_ref(caplog):
 
     assert kept == []
     assert "case-042" in caplog.text
+
+
+class TestExtractionSeesMemory:
+    @pytest.mark.django_db(transaction=True)
+    async def test_the_stored_document_reaches_the_prompt(self):
+        from memory.models import RepositoryMemory
+
+        run = await _create_run()
+        await RepositoryMemory.objects.acreate(repo_id=run.repo_id, content="## Build & test\n- a known fact")
+        llm = _structured_llm_returning([])
+
+        with (
+            patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            await extract_observations(run)
+
+        human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
+        assert "- a known fact" in human.content
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lookup_failure_falls_open_to_no_memory(self):
+        run = await _create_run()
+        llm = _structured_llm_returning([])
+
+        with (
+            patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+            patch("memory.models.RepositoryMemory.objects.filter", side_effect=RuntimeError("db down")),
+        ):
+            assert await extract_observations(run) == []
+
+        human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
+        assert "no memory yet" in human.content

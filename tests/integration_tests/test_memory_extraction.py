@@ -37,7 +37,12 @@ def load_cases():
 async def _attempt(case: dict, model_name: str, transcript: str) -> tuple[bool, str, list[str]]:
     """One graded extraction. Returns (passed, why-not, what-was-emitted)."""
     observations = await extract_from_transcript(
-        transcript, repo_id=f"eval/{case['id']}", status=case["status"], model_names=[model_name], run_ref=case["id"]
+        transcript,
+        repo_id=f"eval/{case['id']}",
+        status=case["status"],
+        memory=case.get("memory", ""),
+        model_names=[model_name],
+        run_ref=case["id"],
     )
     emitted = [observation.content for observation in observations]
     expect = case.get("expect", {})
@@ -75,9 +80,7 @@ async def test_memory_extraction(case, model_name):
         "case": case["id"],
         "status": case["status"],
         "transcript": transcript,
-        # Present in the corpus from the start; forwarded to the prompt only once Fix 1 lands, so
-        # cases 010-012 have a real baseline to move from.
-        "memory_not_yet_forwarded": case.get("memory", ""),
+        "memory": case.get("memory", ""),
     })
 
     results: list[bool] = []
