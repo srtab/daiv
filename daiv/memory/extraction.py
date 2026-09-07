@@ -149,6 +149,10 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
     loads the transcript out of the checkpoint. It also loads the repository's current memory
     document and passes it along, so a fact the run merely read is not re-emitted, while a
     contradiction or a re-verification still is.
+
+    That document is re-read here, at extraction time, while the run itself saw whatever
+    ``RepositoryMemoryMiddleware`` snapshotted at its own start — a consolidation round in
+    between can make the two differ. Accepted skew, not fixed here.
     """
     from core.checkpointer import aresolve_thread_messages, open_checkpointer
     from memory.models import RepositoryMemory
@@ -196,8 +200,8 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
 
     try:
         memory = (
-            await RepositoryMemory.objects.filter(repo_id=run.repo_id).values_list("content", flat=True).afirst()
-        ) or ""
+            await RepositoryMemory.objects.filter(repo_id=run.repo_id).values_list("content", flat=True).afirst() or ""
+        ).strip()
     except Exception:
         # Falls open to "" on any lookup failure: an extraction that runs blind is worse than
         # none, but not by much, and must never block the run.

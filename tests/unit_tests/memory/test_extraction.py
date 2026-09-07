@@ -345,8 +345,13 @@ class TestExtractionSeesMemory:
             patch("memory.extraction.build_structured_llm", return_value=llm),
             patch("memory.extraction.site_settings", _site_settings()),
             patch("memory.models.RepositoryMemory.objects.filter", side_effect=RuntimeError("db down")),
+            # side_effect delegates to the real function so the LLM call below still happens;
+            # this only lets us assert the exact "" the signature promises, not just its rendering.
+            patch("memory.extraction.extract_from_transcript", side_effect=extract_from_transcript) as delegate,
         ):
             assert await extract_observations(run) == []
+
+        assert delegate.call_args.kwargs["memory"] == ""
 
         human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
         assert "no memory yet" in human.content

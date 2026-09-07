@@ -40,12 +40,17 @@ What this repository's memory already records:
 {{{memory}}}
 ~~~
 
-A fact above is NOT automatically off-limits. Decide per fact:
-- the run merely READ it or relied on it → emit nothing about it;
-- the run CONTRADICTS it → emit the NEW fact, this is how a stale entry gets corrected;
-- the run RE-VERIFIED it by actually running the command or hitting the pitfall again → emit it,
-  this is how a fact stays confirmed.
-Lazy restatement of something above, with nothing in the run that tested it, is not an observation.
+A fact above is NOT automatically off-limits. Decide per fact based on what the run itself did
+with it:
+- the run CONTRADICTS it → emit the NEW fact; this is how a stale entry gets corrected.
+- the run RE-VERIFIED it — by running a command, hitting a pitfall again, or reading the code,
+  config, or convention that states it and finding it still holds → emit it; this is how a fact
+  stays confirmed. Seeing the fact in this block does not make it "trivially rediscoverable" —
+  the run's own act of exercising it is what earns the confirmation.
+- the run merely read the fact above and did neither of the above → emit nothing about it.
+When you cannot tell which applies, emit it: a redundant confirmation costs little, a missed one
+freezes the fact's confirmation date. None of this licenses lazy restatement — a fact above with
+nothing in the run that tested it is still not an observation.
 {{/memory}}
 {{^memory}}
 This repository has no memory yet.

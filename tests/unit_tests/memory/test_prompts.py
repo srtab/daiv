@@ -34,6 +34,7 @@ def test_extraction_says_so_when_there_is_no_memory():
     ).content
 
     assert "no memory yet" in rendered
+    assert "already records" not in rendered
 
 
 def test_extraction_memory_is_not_html_escaped():
