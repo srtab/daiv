@@ -88,7 +88,8 @@ _MISSING_KEY_REASON = (
 
 _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
-    "registered markers, so a typo silently passes with exit 0 — this suite refuses to be that. "
+    "registered markers, so a typo deselects everything and exits 5 (NO_TESTS_COLLECTED) with no "
+    "indication the marker name was wrong — this suite names the cause instead. "
     "Valid markers for this suite: diff_to_metadata, memory, sandbox, skills, deferred_frozen."
 )
 
