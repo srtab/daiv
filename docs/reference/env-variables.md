@@ -141,7 +141,7 @@ OAuth credentials can be configured via environment variables (shown below) or t
 !!! info "Setting up social providers"
     **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
 
-    **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
+    **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` and tick both the `read_user` and `api` scopes — `api` is what lets the agent reach another project as the person who asked (see [cross-project access](../features/cross-project-access.md)). Narrow it to `read_user` plus `read_api` if you want read-only cross-project context, and set `DAIV_GITLAB_OAUTH_SCOPE` to match; the requested scopes must be a subset of what the Application grants, or GitLab rejects sign-in with *"The requested scope is invalid, unknown, or malformed."*
 
 !!! note
     OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).

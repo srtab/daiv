@@ -909,7 +909,10 @@ class TestIdentitySelection:
             await _run_gl("project-issue list", runtime, project=OTHER, cross_project_enabled=True)
         args = mocks.create_proc.call_args.args
         envs = mocks.create_proc.call_args.kwargs["env"]
-        assert envs["GITLAB_PRIVATE_TOKEN"] == "person-token"  # noqa: S105
+        # A person's grant is an OAuth token: GitLab resolves PRIVATE-TOKEN against personal
+        # access tokens only and 401s anything else, so it has to travel as a bearer.
+        assert envs["GITLAB_OAUTH_TOKEN"] == "person-token"  # noqa: S105
+        assert "GITLAB_PRIVATE_TOKEN" not in envs
         assert args[-2:] == ("--project-id", OTHER)
         mocks.record.assert_awaited()
 

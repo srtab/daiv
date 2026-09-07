@@ -1216,11 +1216,16 @@ async def _run_gitlab_subcommand(
     # Not an FR-006 fallback: ``_TargetDecision`` refuses to exist with a target and no token.
     acting_token = decision.token or settings.GITLAB_AUTH_TOKEN.get_secret_value()
 
+    # The two identities need different headers. GitLab resolves PRIVATE-TOKEN against personal
+    # access tokens alone and raises 401 for anything else, so a person's OAuth grant has to go
+    # out as a bearer; python-gitlab refuses both token kinds at once.
+    token_env = "GITLAB_OAUTH_TOKEN" if decision.is_cross_project else "GITLAB_PRIVATE_TOKEN"  # noqa: S105
+
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", "/tmp"),  # noqa: S108
         "GITLAB_TIMEOUT": str(GITLAB_REQUESTS_TIMEOUT),
-        "GITLAB_PRIVATE_TOKEN": acting_token,
+        token_env: acting_token,
         "GITLAB_URL": settings.GITLAB_URL.encoded_string(),
         "GITLAB_PER_PAGE": GITLAB_PER_PAGE,
         "GITLAB_USER_AGENT": USER_AGENT,

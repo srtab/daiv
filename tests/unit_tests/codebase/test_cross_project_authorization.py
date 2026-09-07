@@ -157,7 +157,8 @@ class TestNoFallbackToTheServiceIdentity:
         # Exactly one attempt, and it carried the person's token — never a second under the
         # deployment's own.
         assert create_proc.call_count == 1
-        assert create_proc.call_args.kwargs["env"]["GITLAB_PRIVATE_TOKEN"] == "person-token"  # noqa: S105
+        assert create_proc.call_args.kwargs["env"]["GITLAB_OAUTH_TOKEN"] == "person-token"  # noqa: S105
+        assert "GITLAB_PRIVATE_TOKEN" not in create_proc.call_args.kwargs["env"]
 
         outcomes = [r.outcome async for r in CrossProjectAccessRecord.objects.filter(target_repo_id=DENIED)]
         assert outcomes == [CrossProjectAccessRecord.Outcome.DENIED_NO_ACCESS]

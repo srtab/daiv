@@ -266,3 +266,31 @@ class TestFieldGroupsCategories:
         # No category appears more than once → all groups in the same category
         # are contiguous.
         assert len(seen) == len(set(seen)), f"Non-contiguous categories: {seen}"
+
+
+class TestFieldGroupsAreEditable:
+    def test_every_grouped_field_is_bound_to_the_form(self, db):
+        """A field in a group but absent from the form renders as a dead section.
+
+        The group template reads both its body rows and its header toggle off the
+        form, so a field that never reaches ``Meta.fields`` silently disappears
+        from the dashboard instead of failing.
+        """
+        from core.forms import SiteConfigurationForm
+
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        missing = {
+            name for group in SiteConfiguration.get_field_groups() for name in group.fields if name not in form.fields
+        }
+        assert not missing, f"Grouped fields missing from SiteConfigurationForm: {sorted(missing)}"
+
+    def test_every_group_toggle_is_bound_to_the_form(self, db):
+        from core.forms import SiteConfigurationForm
+
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        missing = {
+            group.toggle_field
+            for group in SiteConfiguration.get_field_groups()
+            if group.toggle_field and group.toggle_field not in form.fields
+        }
+        assert not missing, f"Group toggles missing from SiteConfigurationForm: {sorted(missing)}"

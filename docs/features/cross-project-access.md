@@ -73,6 +73,14 @@ DAIV_GITLAB_OAUTH_SCOPE="read_user read_api"
 
 Update the redirect URI list on your GitLab application if it is not already correct for dashboard login — it is unchanged by this feature.
 
+!!! warning "Upgrading an existing deployment"
+    An Application already registered for dashboard sign-in almost certainly grants `read_user`
+    alone. GitLab refuses any authorisation asking for more than the Application grants, so the
+    first sign-in after upgrading fails with *"The requested scope is invalid, unknown, or
+    malformed."* Tick `api` (or `read_api`) on the existing Application under **Admin Area →
+    Applications** — or set `DAIV_GITLAB_OAUTH_SCOPE` back to what it already grants — before
+    rolling this out.
+
 !!! note "Short-lived tokens, with rotation"
     GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within a five-minute margin of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired; a timeout, a 5xx or an unreadable answer leaves it in place and fails just that call, so a momentary outage does not cost the person a re-authorisation.
 

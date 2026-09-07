@@ -227,6 +227,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_fetch_cache_ttl_seconds",
             "web_fetch_timeout_seconds",
             "web_fetch_max_content_chars",
+            "cross_project_access_enabled",
             "sandbox_timeout",
             "suggest_context_file_enabled",
             "session_link_enabled",
