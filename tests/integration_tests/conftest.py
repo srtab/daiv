@@ -94,7 +94,15 @@ def _provider_snapshot(_provision_providers, django_db_blocker) -> list[dict]:
     from core.models import Provider
 
     with django_db_blocker.unblock():
-        return list(Provider.objects.values())
+        rows = list(Provider.objects.values())
+
+    # _restore_providers keys off "which snapshot rows are missing" -- an empty snapshot would
+    # make that check permanently vacuous and every test pass on a silently empty provider table.
+    assert rows, (
+        "Provider table is empty at session start; the seed migration "
+        "(daiv/core/migrations/0008_provider.py) did not run."
+    )
+    return rows
 
 
 @pytest.fixture(autouse=True)
