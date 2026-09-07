@@ -205,3 +205,74 @@ class TestIsUnreachableChatError:
     )
     def test_does_not_match_failures_the_chat_can_recover_from(self, description):
         assert is_unreachable_chat_error(description) is False
+
+
+class TestRetryAfter:
+    def test_a_429_carries_telegrams_own_retry_delay(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests: retry after 37",
+                "parameters": {"retry_after": 37},
+            },
+            status_code=429,
+        )
+        with pytest.raises(TelegramTransientError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.retry_after == 37
+
+    def test_a_429_inside_a_2xx_envelope_carries_it_too(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests: retry after 12",
+                "parameters": {"retry_after": 12},
+            },
+            status_code=200,
+        )
+        with pytest.raises(TelegramTransientError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.retry_after == 12
+
+    def test_a_transient_failure_without_parameters_names_no_delay(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST", url=SEND_URL, json={"ok": False, "error_code": 503, "description": "busy"}, status_code=503
+        )
+        with pytest.raises(TelegramTransientError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.retry_after is None
+
+    @pytest.mark.parametrize("value", ["37", -5, 0, True, None, {"seconds": 37}])
+    def test_an_unusable_retry_after_is_ignored(self, httpx_mock, value):
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={"ok": False, "error_code": 429, "description": "slow down", "parameters": {"retry_after": value}},
+            status_code=429,
+        )
+        with pytest.raises(TelegramTransientError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.retry_after is None
+
+    def test_a_permanent_failure_names_no_delay(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={"ok": False, "error_code": 400, "description": "Bad Request: chat not found"},
+            status_code=400,
+        )
+        with pytest.raises(TelegramPermanentError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert getattr(exc.value, "retry_after", None) is None
+
+    def test_a_transport_failure_names_no_delay(self, httpx_mock):
+        httpx_mock.add_exception(httpx.ConnectError("no route"))
+        with pytest.raises(TelegramTransportError) as exc:
+            CLIENT.call("sendMessage", {"chat_id": "1", "text": "hi"})
+        assert exc.value.retry_after is None

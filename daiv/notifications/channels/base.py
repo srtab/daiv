@@ -51,4 +51,8 @@ class NotificationChannel(ABC):
     @abstractmethod
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
         """Deliver. Raise UnrecoverableDeliveryError for permanent failures; any other exception
-        is treated as transient and retried."""
+        is treated as transient and retried.
+
+        A transient exception may carry a ``retry_after`` attribute (seconds) when the provider
+        named its own wait; the delivery ladder honours it as a floor instead of its own backoff.
+        """

@@ -34,7 +34,13 @@ class TelegramTransientError(TelegramError):
     """Raised for 429, 5xx, or a 2xx body that is not a Bot API envelope.
 
     Never *under* ``TelegramPermanentError``: the caller's retry ladder has to keep engaging.
+    ``retry_after`` carries Telegram's own flood wait in seconds when it named one, which the
+    delivery ladder honours as a floor.
     """
+
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class TelegramTransportError(TelegramTransientError):
@@ -95,19 +101,18 @@ class TGClient:
         """
         response = self.post(method, payload)
         status = response.status_code
+        body = _envelope(response)
         if status >= 400:
-            error = _extract_tg_error(response)
+            error = _extract_tg_error(body, status)
             if _is_transient_code(status):
                 logger.warning("Telegram %s returned HTTP %s (retryable): %s", method, status, error)
-                raise TelegramTransientError(f"Telegram {method} failed with HTTP {status}: {error}")
+                raise TelegramTransientError(
+                    f"Telegram {method} failed with HTTP {status}: {error}", _extract_retry_after(body)
+                )
             logger.warning("Telegram %s returned HTTP %s: %s", method, status, error)
             raise TelegramPermanentError(error)
 
-        try:
-            body = response.json()
-        except ValueError:
-            body = None
-        if not isinstance(body, dict):
+        if body is None:
             # A 2xx that is not a Bot API envelope means something interposed (a proxy, a captive
             # portal); the next attempt may well reach Telegram, so this is transient, not permanent.
             # Valid JSON that is not an object counts — a portal answering ``[]`` is still a portal.
@@ -121,7 +126,9 @@ class TGClient:
         error = str(body.get("description") or f"error_code={error_code!r}")
         if _is_transient_code(error_code):
             logger.warning("Telegram %s 2xx envelope error %s (retryable): %s", method, error_code, error)
-            raise TelegramTransientError(f"Telegram {method} failed with error_code={error_code!r}: {error}")
+            raise TelegramTransientError(
+                f"Telegram {method} failed with error_code={error_code!r}: {error}", _extract_retry_after(body)
+            )
         logger.warning("Telegram %s 2xx envelope error %s: %s", method, error_code, error)
         raise TelegramPermanentError(error)
 
@@ -141,14 +148,31 @@ class TGClient:
         return self.call("getWebhookInfo", {})
 
 
-def _extract_tg_error(response: httpx.Response) -> str:
-    """Best-effort error string from a Bot API body, falling back to the HTTP status."""
+def _envelope(response: httpx.Response) -> dict | None:
+    """The body as a Bot API envelope, or ``None`` when it is not a JSON object."""
     try:
         body = response.json()
     except ValueError:
-        body = None
-    description = body.get("description") if isinstance(body, dict) else None
-    return description or f"HTTP {response.status_code}"
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _extract_tg_error(body: dict | None, status: int) -> str:
+    """Best-effort error string from a Bot API body, falling back to the HTTP status."""
+    description = body.get("description") if body is not None else None
+    return description or f"HTTP {status}"
+
+
+def _extract_retry_after(body: dict | None) -> int | None:
+    """Telegram's own flood wait in seconds, when it named a usable one."""
+    parameters = body.get("parameters") if body is not None else None
+    if not isinstance(parameters, dict):
+        return None
+    value = parameters.get("retry_after")
+    # bool is an int subclass, so a ``true`` here would otherwise read as a one-second wait.
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
 
 
 def _is_transient_code(code: object) -> bool:

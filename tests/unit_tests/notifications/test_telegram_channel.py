@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -8,9 +9,10 @@ import httpx
 import pytest
 from notifications.channels.registry import enabled_channels, get_channel
 from notifications.channels.telegram import TelegramChannel
-from notifications.choices import ChannelType, EventType
+from notifications.choices import ChannelType, DeliveryStatus, EventType
 from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
+from notifications.tasks import _deliver_notification
 from notifications.telegram.client import TelegramTransientError, TelegramTransportError
 
 SEND_URL = "https://api.telegram.org/bot123:ABC/sendMessage"
@@ -263,3 +265,32 @@ class TestBlockedBotUnverifies:
         rows = UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.TELEGRAM)
         assert rows.get(address="555").is_verified is False
         assert rows.get(address="999").is_verified is True
+
+
+@pytest.mark.django_db
+class TestFloodWaitReachesTheRetryLadder:
+    def test_a_flood_wait_schedules_the_retry_at_telegrams_own_delay(
+        self, httpx_mock, notification_with_delivery, telegram_configured
+    ):
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.TELEGRAM
+        d.address = "555"
+        d.save()
+        httpx_mock.add_response(
+            method="POST",
+            url=SEND_URL,
+            json={
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests: retry after 420",
+                "parameters": {"retry_after": 420},
+            },
+            status_code=429,
+        )
+        with patch("notifications.tasks.deliver_notification_task") as mock_task:
+            _deliver_notification(d.id)
+
+        d.refresh_from_db()
+        assert d.status == DeliveryStatus.PENDING
+        run_after = mock_task.using.call_args.kwargs["run_after"]
+        assert (run_after - timezone.now()).total_seconds() == pytest.approx(420, abs=5)

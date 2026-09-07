@@ -129,7 +129,7 @@ To stop delivery, either select **Disconnect** on your channels page, send `/sto
 When a run finishes with a notify-worthy classification, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:
 
 - A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
-- Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried.
+- Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.
 - Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads **Not configured**. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to **unverified**: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped**, and the row shows **Unverified** alongside a **Connect** control until you redo the handshake.
 - The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)
 

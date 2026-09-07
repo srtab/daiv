@@ -23,6 +23,21 @@ logger = logging.getLogger("daiv.notifications")
 
 MAX_DELIVERY_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = [60, 300]  # wait before attempt 2, before attempt 3
+MAX_RETRY_AFTER_SECONDS = 3600
+
+
+def _retry_delay(exc: Exception, attempts: int) -> int:
+    """Seconds to wait before the next attempt.
+
+    The ladder is the floor; a channel whose provider named its own wait (Telegram's flood
+    control) pushes the retry out to it, capped so one bad value cannot park a delivery for days.
+    """
+    backoff = RETRY_BACKOFF_SECONDS[min(attempts - 1, len(RETRY_BACKOFF_SECONDS) - 1)]
+    retry_after = getattr(exc, "retry_after", None)
+    # bool is an int subclass, and the value reaches us from a remote response body.
+    if isinstance(retry_after, bool) or not isinstance(retry_after, int | float) or retry_after <= 0:
+        return backoff
+    return max(backoff, min(int(retry_after), MAX_RETRY_AFTER_SECONDS))
 
 
 def _deliver_notification(delivery_id: UUID) -> None:
@@ -67,8 +82,7 @@ def _deliver_notification(delivery_id: UUID) -> None:
         # Stay PENDING; re-enqueue with backoff
         delivery.error_message = str(exc)
         delivery.save(update_fields=["error_message", "modified"])
-        backoff = RETRY_BACKOFF_SECONDS[min(delivery.attempts - 1, len(RETRY_BACKOFF_SECONDS) - 1)]
-        run_after = timezone.now() + timedelta(seconds=backoff)
+        run_after = timezone.now() + timedelta(seconds=_retry_delay(exc, delivery.attempts))
         try:
             deliver_notification_task.using(run_after=run_after).enqueue(str(delivery.id))
         except Exception:
