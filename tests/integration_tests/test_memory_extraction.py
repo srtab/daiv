@@ -39,9 +39,8 @@ def load_cases():
         validate_extraction_case(case)
         messages = json.loads((DATA_DIR / case.pop("messages_path")).read_text())
         expect = case.get("expect", {})
-        # A suppression case (must_capture/must_not_capture both empty, e.g. 006, 008, 010) has no
-        # plant or decoy text at all — the graded fact lives only in the transcript and, for a
-        # memory-aware case, in ``memory`` — so both must be covered too, not just expect.
+        # A suppression case (e.g. 006, 008, 010) has no plant or decoy text at all — the
+        # graded fact lives only in the transcript and ``memory``, so cover both too.
         assert_no_few_shot_leak([
             *expect.get("must_capture", []),
             *expect.get("must_not_capture", []),

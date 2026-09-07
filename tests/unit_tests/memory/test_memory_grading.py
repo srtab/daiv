@@ -438,10 +438,8 @@ class TestSharedSpan:
         assert shared_span("the build needs a pinned node version", "reviewers reject raw sql in views") is None
 
     def test_a_quoted_sentence_still_overlaps_an_unquoted_one(self):
-        # The few-shots quote REJECT/KEEP inline (``REJECT: "..."``): a short quoted sentence's
-        # first and last words would otherwise carry a literal quote mark the same fact stated
-        # unquoted in a case field never has, hiding an otherwise real 8-word match. Without the
-        # quote-stripping fix this returns None even though both sentences are identical.
+        # The few-shots quote REJECT/KEEP inline (``REJECT: "..."``), so a short quoted sentence's
+        # edge words would otherwise carry a literal quote mark an unquoted case field never has.
         from tests.integration_tests.memory_grading import shared_span
 
         quoted = 'REJECT: "Passed cleanly on the second try with nothing changed."'
