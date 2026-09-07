@@ -197,6 +197,58 @@ class TestValidateConsolidationCase:
         with pytest.raises(ValueError, match="expect.final"):
             validate_consolidation_case(case)
 
+    def test_rejects_near_duplicate_final_must_state_entries(self):
+        row = {"id": "o1", "category": "build_test", "content": "c"}
+        case = {
+            "id": "y",
+            "entries": [],
+            "batches": [[row]],
+            "expect": {"final": {"must_state": ["a fact", "A fact."]}},
+        }
+        with pytest.raises(ValueError, match="duplicate"):
+            validate_consolidation_case(case)
+
+    def test_rejects_final_must_state_given_as_a_bare_string(self):
+        row = {"id": "o1", "category": "build_test", "content": "c"}
+        case = {"id": "y", "entries": [], "batches": [[row]], "expect": {"final": {"must_state": "a bare string"}}}
+        with pytest.raises(ValueError, match="must be a list of non-empty strings"):
+            validate_consolidation_case(case)
+
+    def test_rejects_content_must_state_value_given_as_a_non_string(self):
+        case = {
+            "id": "y",
+            "entries": [],
+            "observations": [{"id": "o1", "category": "build_test", "content": "c"}],
+            "expect": {"content_must_state": {"o1": ["not", "a", "string"]}},
+        }
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            validate_consolidation_case(case)
+
+    def test_rejects_content_must_state_given_as_a_non_dict(self):
+        case = {
+            "id": "y",
+            "entries": [],
+            "observations": [{"id": "o1", "category": "build_test", "content": "c"}],
+            "expect": {"content_must_state": ["o1"]},
+        }
+        with pytest.raises(ValueError, match="content_must_state must be a dict"):
+            validate_consolidation_case(case)
+
+    def test_rejects_entries_given_as_a_non_list(self):
+        case = {
+            "id": "y",
+            "entries": {"oops": 1},
+            "observations": [{"id": "o1", "category": "build_test", "content": "c"}],
+            "expect": {},
+        }
+        with pytest.raises(ValueError, match="entries must be a list of dicts"):
+            validate_consolidation_case(case)
+
+    def test_rejects_observations_containing_non_dict_rows(self):
+        case = {"id": "y", "entries": [], "observations": ["o1"], "expect": {}}
+        with pytest.raises(ValueError, match="observations must be a list of dicts"):
+            validate_consolidation_case(case)
+
 
 class TestExtractionViolations:
     def test_empty_must_capture_demands_an_empty_emission(self):
@@ -336,6 +388,15 @@ class TestVotesReport:
         assert "FAIL  1/2  suite::tie-of-two" in report
         assert "FAIL  2/4  suite::tie-of-four" in report
         assert "PASS  1/1  suite::one-of-one" in report
+
+    def test_unstable_marker_matches_the_split_vote_condition(self):
+        record_votes("suite", "unanimous", [True, True, True])
+        record_votes("suite", "split-vote", [True, False, True])
+        lines = votes_report()
+        unanimous_line = next(line for line in lines if "suite::unanimous" in line)
+        split_line = next(line for line in lines if "suite::split-vote" in line)
+        assert "UNSTABLE" not in unanimous_line
+        assert "UNSTABLE" in split_line
 
 
 class TestLoadMessages:

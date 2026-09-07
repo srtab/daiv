@@ -91,6 +91,8 @@ def validate_consolidation_case(case: dict) -> None:
     # Sets alone would let a repeated id vanish silently; Task 8 keys a symbol -> pk dict off
     # these, so a dropped row there computes the wrong consolidation op for the survivor.
     for label, rows in (("entries", entry_rows), ("observations", observation_rows)):
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError(f"{case['id']}: {label} must be a list of dicts")
         ids = [row.get("id") for row in rows]
         if any(not isinstance(row_id, str) or not row_id for row_id in ids):
             raise ValueError(f"{case['id']}: every {label} row needs a non-empty string id")
@@ -124,13 +126,25 @@ def validate_consolidation_case(case: dict) -> None:
             raise ValueError(f"{case['id']}: a one_operation_for group needs at least two observation ids")
         if unknown := set(group) - observation_ids:
             raise ValueError(f"{case['id']}: one_operation_for names unknown observation(s) {sorted(unknown)}")
-    for observation_id in expect.get("content_must_state", {}):
+    content_must_state = expect.get("content_must_state", {})
+    if not isinstance(content_must_state, dict):
+        raise ValueError(f"{case['id']}: content_must_state must be a dict of observation id -> statement")
+    for observation_id, statement in content_must_state.items():
         if observation_id not in observation_ids:
             raise ValueError(f"{case['id']}: content_must_state names unknown observation {observation_id}")
+        if not isinstance(statement, str) or not statement.strip():
+            raise ValueError(f"{case['id']}: content_must_state[{observation_id}] must be a non-empty string")
 
     final = expect.get("final", {})
     if unknown := set(final) - _FINAL_KEYS:
         raise ValueError(f"{case['id']}: unknown final key(s) {sorted(unknown)}")
+    if "must_state" in final:
+        claims = final["must_state"]
+        if not isinstance(claims, list) or any(not isinstance(c, str) or not c.strip() for c in claims):
+            raise ValueError(f"{case['id']}: final.must_state must be a list of non-empty strings")
+        normalised = [normalise_bullet(c) for c in claims]
+        if len(set(normalised)) != len(normalised):
+            raise ValueError(f"{case['id']}: final.must_state has duplicate (or near-duplicate) entries")
     if "batches" in case and not final:
         raise ValueError(f"{case['id']}: a multi-round case must assert on expect.final")
 
