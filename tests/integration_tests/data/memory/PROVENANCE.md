@@ -49,9 +49,9 @@ fifth of the sample) is not sensitive to that.
    command in one of the two repositories. This is plausibly because the sample comes from a
    single experienced operator's own agent runs on their own well-documented repos, not because
    the failure mode can't occur. Per the brief's fallback: the `generic_advice` case in the eval
-   corpus must be built from a paraphrase of the nearest real row (e.g. `E012`/`O012`'s "reuse
-   existing shared classifiers" trimmed of its concrete anchor) and marked **synthetic** — it is a
-   valid regression guard, not evidence the failure happens in this production sample.
+   corpus must be built from a paraphrase of the nearest real row (e.g. `E012`'s "reuse existing
+   shared classifiers" trimmed of its concrete anchor) and marked **synthetic** — it is a valid
+   regression guard, not evidence the failure happens in this production sample.
 
 2. **`wrong_or_stale` was not zero.** One row, a `MemoryObservation` on `srtab/daiv-sandbox`
    (`O218`, `status=discarded`, created 2026-08-25), asserts the Sentry org slug for that project
@@ -66,15 +66,28 @@ fifth of the sample) is not sensitive to that.
    which is the specific risk the plan's scope decision is about.
 
    A related, softer tension worth recording for whoever authors the corpus cases: active entry
-   `E041` (environment-tag filtering on the `daiv` Sentry project being unreliable, last
-   reconfirmed 2026-08-31) and two observations from the same sample (`O200`, `O263`) state the
-   opposite finding — that filtered and unfiltered queries return identical results, so the check
-   can be skipped. The most recent of those two, `O263`, is dated 2026-09-07, about a week after
-   `E041`'s last reconfirmation, not the same day. This reads as genuinely flaky/time-varying
-   Sentry-side tagging behavior rather than a fact contradicted by the repository, so `O200` and
-   `O263` were classified `ephemeral` (point-in-time query results) rather than `wrong_or_stale`
-   — but it's the closest near-miss in the sample and worth a second look if a stronger
-   `wrong_or_stale` example is ever needed.
+   `E041` (environment-tag filtering on the `daiv` Sentry project being unreliable) disagrees with
+   one observation in the same sample, `O200` (created 2026-08-21, mode `ephemeral`): "running
+   `sentry_search_issues` with and without `environment:production` returned identical results, so
+   there is no environment-tagging gap." Two other observations agree with `E041` instead —
+   `O111` (2026-08-10) and `O235` (2026-08-28, worded almost identically to `E041` and the more
+   plausible source of its most recent reconfirmation). The chronology inverts a first-glance
+   assumption: `O200`'s contradicting finding *predates* `E041`'s `last_confirmed_at` of
+   2026-08-31 by ten days, not the other way around — the entry was reconfirmed (apparently via
+   the agreeing `O235`, three days earlier) with no visible reconciliation against the
+   contradicting evidence that had already been sitting in the sample for a week and a half. That
+   reads as a slightly *stronger* illustration of a potential blind spot than a same-day
+   coincidence would be: reconfirmation, at least as observable from this export, does not appear
+   to cross-check against contradicting recent observations, only restate whichever one happened
+   to feed it. It still reads as flaky/time-varying Sentry-side tagging behavior rather than a
+   fact contradicted by the repository itself, and neither `E041` nor `O235` is *wrong* in any
+   verifiable sense, so this stays `ephemeral`/`good` rather than `wrong_or_stale` — but it's the
+   closest near-miss in the sample and worth a second look if a stronger `wrong_or_stale` example
+   is ever needed. One later observation, `O263` (2026-09-07), also restates `O200`'s
+   "identical results" finding as a secondary clause, but its primary content and its
+   `duplicate_or_fragment` mode are about an unrelated fact (`sentry_search_events` omitting stack
+   traces) that instead matches `E042`, reconfirmed the same day — so `O263` is not cited as
+   primary evidence for the tension above, only noted here for completeness.
 
 Reuse for Task 8/9 case authoring: the sample already contains two real examples of **unmerged
 duplicate `MemoryEntry` rows** — `E013`/`E014`/`E015` (three active `srtab/daiv` entries that
