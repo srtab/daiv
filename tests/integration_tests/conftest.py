@@ -81,6 +81,43 @@ def _provision_providers(django_db_setup, django_db_blocker):
         Provider.invalidate_cache()
 
 
+@pytest.fixture(scope="session")
+def _provider_snapshot(_provision_providers, django_db_blocker) -> list[dict]:
+    """Snapshot every ``Provider`` row (with its real keys) once ``_provision_providers`` has run.
+
+    ``django_db(transaction=True)`` teardown runs Django's ``flush``, which truncates
+    ``core_provider`` — the four built-in rows come from a data migration that ``flush`` does not
+    re-run, and this fixture (session-scoped) never runs a second time to reseed them. Captured as
+    plain dicts (via ``.values()``, including ``_api_key_encrypted`` ciphertext and ``id``) so
+    ``_restore_providers`` can recreate exactly what was there without re-deriving keys.
+    """
+    from core.models import Provider
+
+    with django_db_blocker.unblock():
+        return list(Provider.objects.values())
+
+
+@pytest.fixture(autouse=True)
+def _restore_providers(_provider_snapshot, django_db_blocker) -> None:
+    """Reseed any ``Provider`` row a prior ``transaction=True`` test's flush removed.
+
+    Runs before every test in this directory (every item here already carries a ``django_db``
+    marker via ``pytest_collection_modifyitems`` below), so a missing row is recreated before the
+    test body can observe an empty table — whether or not that test itself uses
+    ``transaction=True``. ``bulk_create`` bypasses ``Provider.save()``'s ``on_commit`` cache
+    invalidation, so the cache is cleared explicitly; leaving a stale empty-list cache entry from a
+    prior flush is exactly how this bug hides for up to ``PROVIDERS_CACHE_TIMEOUT`` (5 minutes).
+    """
+    from core.models import Provider
+
+    with django_db_blocker.unblock():
+        existing = set(Provider.objects.values_list("slug", flat=True))
+        missing = [row for row in _provider_snapshot if row["slug"] not in existing]
+        if missing:
+            Provider.objects.bulk_create(Provider(**row) for row in missing)
+            Provider.invalidate_cache()
+
+
 _MISSING_KEY_REASON = (
     "OPENROUTER_API_KEY is not set. Export it, or add it to docker/local/app/config.secrets.env "
     "(loaded by the --envfile flag in `make integration-tests`)."

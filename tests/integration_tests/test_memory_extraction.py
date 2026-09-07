@@ -83,14 +83,20 @@ async def test_memory_extraction(case, model_name):
     results: list[bool] = []
     details: list[str] = []
     emissions: list[list[str]] = []
-    for _ in range(EVAL_REPEATS):
-        passed, detail, emitted = await _attempt(case, model_name, transcript)
-        results.append(passed)
-        details.append(detail)
-        emissions.append(emitted)
-
-    record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
-    t.log_outputs({"votes": results, "emissions": emissions})
+    try:
+        for repetition in range(EVAL_REPEATS):
+            try:
+                passed, detail, emitted = await _attempt(case, model_name, transcript)
+            except Exception as exc:  # noqa: BLE001 — a crashed attempt must still vote FAIL, not vanish
+                passed, detail, emitted = False, f"attempt {repetition} raised {exc!r}", []
+            results.append(passed)
+            details.append(detail)
+            emissions.append(emitted)
+    finally:
+        # In a finally so a cell that never finishes still leaves a FAIL row in votes_report
+        # instead of silently vanishing from Task 10's only source for BASELINE.md.
+        record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
+        t.log_outputs({"votes": results, "emissions": emissions})
 
     report = "\n".join(
         f"  attempt {index}: {detail or 'ok'} | emitted={emitted}"

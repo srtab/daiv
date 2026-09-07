@@ -79,9 +79,11 @@ def seed_observations(repo_id: str, rows: list[dict]) -> tuple[dict[str, str], l
         observation = MemoryObservation.objects.create(
             repo_id=repo_id, category=row["category"], content=row["content"]
         )
-        MemoryObservation.objects.filter(pk=observation.pk).update(
+        updated = MemoryObservation.objects.filter(pk=observation.pk).update(
             created_at=now - timedelta(days=row.get("created_days_ago", 0))
         )
+        # A silent 0 here would flatten this row's chronology to "now" without failing anything.
+        assert updated == 1, f"backdating {row['id']} touched {updated} row(s), expected 1"
         mapping[row["id"]] = str(observation.pk)
     observations = list(MemoryObservation.objects.filter(repo_id=repo_id).pending().order_by("created_at"))
     return mapping, observations
@@ -182,14 +184,21 @@ async def test_memory_consolidation(case, model_name):
     results: list[bool] = []
     details: list[str] = []
     evidence: list[dict] = []
-    for repetition in range(EVAL_REPEATS):
-        passed, detail, what_happened = await _attempt(case, model_name, repetition)
-        results.append(passed)
-        details.append(detail)
-        evidence.append(what_happened)
-
-    record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
-    t.log_outputs({"votes": results, "evidence": evidence})
+    try:
+        for repetition in range(EVAL_REPEATS):
+            try:
+                passed, detail, what_happened = await _attempt(case, model_name, repetition)
+            except Exception as exc:  # noqa: BLE001 — a crashed attempt must still vote FAIL, not vanish
+                passed, detail = False, f"attempt {repetition} raised {exc!r}"
+                what_happened = {"outcome": None, "decisions": {}, "contents": {}}
+            results.append(passed)
+            details.append(detail)
+            evidence.append(what_happened)
+    finally:
+        # In a finally so a cell that never finishes still leaves a FAIL row in votes_report
+        # instead of silently vanishing from Task 10's only source for BASELINE.md.
+        record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
+        t.log_outputs({"votes": results, "evidence": evidence})
 
     report = "\n".join(
         f"  attempt {index}: {detail or 'ok'} | {what_happened['decisions']}"
