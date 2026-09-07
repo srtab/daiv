@@ -33,8 +33,8 @@ Hard rules:
 extraction_human = HumanMessagePromptTemplate.from_template(
     """Repository: {{repo_id}}
 Run finished with status: {{status}}
-
 {{#memory}}
+
 What this repository's memory already records:
 ~~~
 {{{memory}}}

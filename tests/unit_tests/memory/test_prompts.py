@@ -39,6 +39,29 @@ def test_extraction_omits_the_memory_block_when_there_is_no_memory():
     assert "RE-VERIFIED" not in rendered
 
 
+def test_extraction_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory():
+    """Pins the property Fix 1's measurement depends on: a repo with no memory yet must see
+    exactly the prompt the locked baseline measured, not that prompt plus a stray blank line
+    left over from the removed ``{{^memory}}`` fallback — otherwise cases 001-009 (none of
+    which carry a ``memory`` field) would be running against an unmeasured prompt."""
+    rendered = extraction_human.format(
+        repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=""
+    ).content
+
+    assert rendered == (
+        "Repository: group/project\n"
+        "Run finished with status: SUCCESSFUL\n"
+        "\n"
+        "Run transcript (roles, text, tool calls; long outputs truncated):\n"
+        "~~~\n"
+        "[ai] x\n"
+        "~~~\n"
+        "\n"
+        "Extract the observations worth remembering for future runs on this repository.\n"
+        "Return an empty list if there are none."
+    )
+
+
 def test_extraction_memory_is_not_html_escaped():
     rendered = extraction_human.format(
         repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=DIRTY
