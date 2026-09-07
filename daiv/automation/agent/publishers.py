@@ -13,13 +13,14 @@ from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 
+from accounts.utils import PlatformIdentity, aget_platform_identity
 from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import render_agent_context, render_commit_trailers, render_references_block
-from codebase.utils import diff_line_stats, redact_diff_content
+from codebase.utils import diff_line_stats, get_repo_branch, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
 from core.utils import build_absolute_url
@@ -89,6 +90,16 @@ def effective_merge_request(
     if state_mr is not None and state_mr.source_branch == current_ref:
         return state_mr
     return None
+
+
+def run_base_branch(ctx: RuntimeCtx) -> str:
+    """The branch the run's work is based on, for a publish that has no MR to read a target off.
+
+    Read from the clone's HEAD rather than ``ctx.repo.ref``, which records the same ref but can
+    hold a tag — and a tag detaches HEAD, naming no branch. The default branch stands in there,
+    since the hexsha ``get_repo_ref`` would return is an unusable diff base and MR target.
+    """
+    return get_repo_branch(ctx.gitrepo) or cast("str", ctx.config.default_branch)
 
 
 def append_trailer(commit_message: str, trailer: str) -> str:
@@ -174,11 +185,12 @@ class GitChangePublisher(ChangePublisher):
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
-        # The diff base is the MR's real target — for a branch stacked off a release branch that is
-        # the release branch, not the default. status_snapshot then diffs against the merge-base of
-        # this branch and HEAD. Falls back to the default branch when there is no MR (or a blank target).
+        # The MR's real target, so a branch stacked off a release branch diffs against the release
+        # branch. With no MR, the branch the run started from — which is what the fresh MR targets.
         base_branch = (
-            merge_request.target_branch if merge_request is not None and merge_request.target_branch else default_branch
+            merge_request.target_branch
+            if merge_request is not None and merge_request.target_branch
+            else run_base_branch(self.ctx)
         )
 
         # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
@@ -285,6 +297,7 @@ class GitChangePublisher(ChangePublisher):
                     branch_name,
                     changes_metadata["pr_metadata"].title,
                     changes_metadata["pr_metadata"].description,
+                    target_branch=self._live_target_branch(base_branch, snapshot.remote_branches, default_branch),
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
                 )
@@ -337,6 +350,31 @@ class GitChangePublisher(ChangePublisher):
             protected_branch_fallback_source=protected_branch_fallback_source,
             diff_stats=diff_stats,
         )
+
+    @staticmethod
+    def _live_target_branch(base_branch: str, remote_branches: list[str], default_branch: str) -> str:
+        """``base_branch`` if it is still a live remote head, else ``default_branch``.
+
+        A run can outlive its base branch (merged and auto-deleted while the agent works). Creating
+        the MR against a branch the platform no longer has answers 400/422, which ``publish`` does
+        not catch — and the source branch is already pushed by then, so it would orphan the branch
+        and discard the turn's reply. ``remote_branches`` is the publish's own ``ls-remote``, read
+        before the metadata call and push, so this narrows the window rather than closing it.
+
+        Only the target degrades: the diff stays on ``base_branch``, which is where the work forked
+        and whose ``origin/`` tracking ref still resolves. Re-diffing against the default branch
+        would sweep an abandoned base's whole delta into the diff the LLM narrates.
+        """
+        if base_branch in remote_branches:
+            return base_branch
+        logger.error(
+            "Base branch '%s' is no longer a remote head; targeting the default branch '%s' instead. "
+            "The merge request diff is still taken against '%s'.",
+            base_branch,
+            default_branch,
+            base_branch,
+        )
+        return default_branch
 
     async def _refresh_sandbox_egress(self) -> None:
         """Re-mint the git-platform token and deliver it onto the live sandbox session, so the
@@ -506,6 +544,8 @@ class GitChangePublisher(ChangePublisher):
         branch_name: str,
         title: str,
         description: str,
+        *,
+        target_branch: str,
         as_draft: bool = False,
         fallback_from_mr: MergeRequest | None = None,
     ) -> MergeRequest:
@@ -516,24 +556,16 @@ class GitChangePublisher(ChangePublisher):
             branch_name: The branch name.
             title: The title of the merge request.
             description: The description of the merge request.
+            target_branch: The branch to merge into, resolved by ``publish`` from the same base it
+                took the diff against so the two cannot disagree.
             as_draft: Whether to create the merge request as a draft.
-            fallback_from_mr: The original MR whose protected source branch forced this
-                fresh MR. When provided, the description back-links to it so reviewers
-                can trace the relationship.
+            fallback_from_mr: The original MR whose protected source branch forced this fresh MR;
+                the description back-links to it so reviewers can trace the relationship.
 
         Returns:
             The merge request.
         """
-        assignee_id = None
-        if self.ctx.issue:
-            assignee = self.ctx.issue.assignee or self.ctx.issue.author
-            assignee_id = assignee.id if self.ctx.git_platform == GitPlatform.GITLAB else assignee.username
-
-        target_branch = (
-            fallback_from_mr.target_branch
-            if fallback_from_mr is not None
-            else cast("str", self.ctx.config.default_branch)
-        )
+        assignee_id = await self._resolve_assignee_id()
 
         return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
@@ -558,6 +590,44 @@ class GitChangePublisher(ChangePublisher):
                 },
             ),
         )
+
+    async def _resolve_assignee_id(self) -> str | int | None:
+        """The new merge request's assignee, in the shape its platform wants.
+
+        An issue-scoped run names the issue's assignee (else its author); any other run names the
+        DAIV user who triggered it, through their OAuth link. GitLab assigns by numeric user id and
+        GitHub by login, so an identity missing the half its platform wants is dropped rather than
+        sent as a bad assignee — logged at ERROR, since the OAuth payloads always carry both. An
+        unlinked user, and the webhooks that carry neither, leave the MR unassigned as before.
+        """
+        if self.ctx.issue:
+            assignee = self.ctx.issue.assignee or self.ctx.issue.author
+            identity = PlatformIdentity(uid=assignee.id, username=assignee.username)
+        elif self.ctx.acting_user_id is None:
+            return None
+        else:
+            identity = await aget_platform_identity(user_id=self.ctx.acting_user_id, provider=self.ctx.git_platform)
+            if identity is None:
+                # Neutral: aget_platform_identity returns None for an unlinked user and for a
+                # failed read alike, and logs the latter itself.
+                logger.info(
+                    "No %s assignee resolved for the acting user (id=%s); leaving the merge request unassigned.",
+                    self.ctx.git_platform.value,
+                    self.ctx.acting_user_id,
+                )
+                return None
+
+        is_gitlab = self.ctx.git_platform == GitPlatform.GITLAB
+        assignee_id = identity.uid if is_gitlab else identity.username
+        if assignee_id is None:
+            logger.error(
+                "The %s identity %r for user id=%s has no %s to assign by; leaving the merge request unassigned.",
+                self.ctx.git_platform.value,
+                identity,
+                self.ctx.acting_user_id,
+                "numeric user id" if is_gitlab else "login",
+            )
+        return assignee_id
 
     async def _session_link(self, route: str) -> str | None:
         """Absolute URL of ``route`` for the producing session, or None when unavailable.

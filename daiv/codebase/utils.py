@@ -48,6 +48,22 @@ def resolve_thread_id(thread_id: str | None, *, repo_slug: str, scope: Scope, en
     return thread_id
 
 
+def get_repo_branch(repo: Repo) -> str | None:
+    """
+    Get the branch HEAD is attached to, or None when HEAD is detached.
+
+    Args:
+        repo: The Git repository object.
+
+    Returns:
+        The branch name, or None when HEAD is detached (e.g. a tag or an explicit commit checkout).
+    """
+    try:
+        return repo.active_branch.name
+    except TypeError:
+        return None
+
+
 def get_repo_ref(repo: Repo) -> str:
     """
     Get the current reference (branch name or commit SHA) from a repository.
@@ -61,11 +77,7 @@ def get_repo_ref(repo: Repo) -> str:
     Returns:
         The branch name if HEAD is attached, or the commit SHA if HEAD is detached.
     """
-    try:
-        return repo.active_branch.name
-    except TypeError:
-        # HEAD is detached, return the commit SHA
-        return repo.head.commit.hexsha
+    return get_repo_branch(repo) or repo.head.commit.hexsha
 
 
 def note_mentions_daiv(note_body: str, current_user: User) -> bool:

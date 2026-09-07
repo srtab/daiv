@@ -79,7 +79,7 @@ The agent's tools are injected via middlewares. Each middleware provides one or 
 
 | Tool | Description |
 |------|-------------|
-| `gitlab` / `gh` | Inspect issues, merge requests, pipeline status, and job logs (the GitHub tool exposes the `gh` CLI) |
+| `gitlab` / `gh` | Inspect and update issues, merge/pull requests, pipelines, job logs, and releases (the GitHub tool exposes the `gh` CLI) |
 
 ### Sandbox
 

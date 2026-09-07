@@ -64,11 +64,12 @@ If the user already knows the `repo_id`, skip discovery and call `submit_job` di
 Write specific prompts describing the intended change: include file paths, function names, \
 or error messages. Vague requests produce poor results.
 
-`ref` is the STARTING POINT the agent reads from (base branch or commit SHA), not a target \
-branch name. Omit it to start from the repository default branch. If `ref` is a branch \
-that already has an open MR/PR, DAIV pushes the new commit onto that same branch and \
-updates the existing MR/PR — useful for fixing CI or in-review branch. \
-Otherwise DAIV creates a new branch and opens a new MR/PR.
+`ref` is the STARTING POINT the agent reads from, and must be a BRANCH that exists on the \
+remote — a commit SHA is rejected at clone time and fails the job. Omit it to start from the \
+repository default branch. If `ref` is a branch that already has an open MR/PR, DAIV pushes the \
+new commit onto that same branch and updates the existing MR/PR — useful for fixing CI or an \
+in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new MR/PR targeting \
+`ref` itself.
 
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
@@ -103,7 +104,7 @@ MAX_POLL_DURATION = 600.0  # 10 minutes
 class RepoSubmitSpec(BaseModel):
     repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
     ref: str | None = Field(
-        default=None, description="Git reference (branch name or commit SHA). None / empty string = default branch."
+        default=None, description="Branch name to start from. None / empty string = default branch."
     )
 
 
@@ -606,9 +607,22 @@ async def list_jobs(
     return {"jobs": [_serialize_job_summary(a) for a in page], "next_cursor": next_cursor}
 
 
-MAX_REPOSITORIES = 40
-# Served from the local RepositoryCatalog mirror (a DB join), so there is no platform fetch to
-# bound and the overflow warning below is exact: we fetch one extra row and warn iff it exists.
+def _encode_repo_cursor(repo: RepositoryCatalog) -> str:
+    """Cursor for the slug-ordered repository listing."""
+    return _encode_cursor({"slug": repo.slug})
+
+
+def _decode_repo_cursor(raw: str) -> str:
+    """Decode a slug cursor; raises on malformed input.
+
+    The slug goes straight into a ``slug__gt`` lookup, so a non-string must be rejected here
+    rather than reaching the ORM. An empty slug is rejected too: it is falsy downstream, so it
+    would silently re-serve page 1 forever instead of failing the paging loop.
+    """
+    payload = _decode_cursor(raw)
+    if not isinstance(payload["slug"], str) or not payload["slug"]:
+        raise TypeError("cursor slug must be a non-empty string")
+    return payload["slug"]
 
 
 def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
@@ -623,37 +637,47 @@ def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
 async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+    limit: LimitParam = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page;"
+                " reuse the SAME search/topics filters across pages."
+            )
+        ),
+    ] = None,
 ) -> dict:
     """List repositories the calling user can view, served from the local RepositoryCatalog mirror.
 
     Members see only repositories for which they have at least read access; admins see the full
-    catalog. Results are returned as ``{"repositories": [...], "next_cursor": None}`` — this tool
-    does NOT support cursor pagination and ``next_cursor`` is always ``None``. To reach repositories
-    not shown, narrow the result set with ``search`` or ``topics``. A ``warning`` key is included
-    when strictly more accessible repositories exist than the cap allows to show — this is an exact
-    signal (one extra row is fetched; the warning fires only when that extra row is present).
+    catalog. Returns ``{"repositories": [...], "next_cursor": str | None}`` ordered by slug — pass
+    ``next_cursor`` back to fetch the next page; ``None`` means no more rows. Narrowing with
+    ``search`` is cheaper than paging the whole catalog (``topics`` is matched server-side row by
+    row, so it is not); either way a filter matching more than ``limit`` is reachable by paging.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
         return auth_error
 
+    capped = _cap_limit(limit)
+    after_slug = None
+    if cursor:
+        try:
+            after_slug = _decode_repo_cursor(cursor)
+        except _CURSOR_ERRORS:
+            return {"error": "Invalid cursor."}
     try:
-        repos = await asearch_viewable_repositories(mcp_user, search=search, topics=topics, limit=MAX_REPOSITORIES + 1)
+        repos = await asearch_viewable_repositories(
+            mcp_user, search=search, topics=topics, limit=capped + 1, after_slug=after_slug
+        )
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
 
-    # One extra row was requested, so a full+1 result means more accessible repos exist than the
-    # window shows — an exact signal (no fetch-cap heuristic). next_cursor stays None per the tool
-    # contract; narrowing with search/topics is the only way to reach the rest.
-    over_limit = len(repos) > MAX_REPOSITORIES
-    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
-    if over_limit:
-        result["warning"] = (
-            "Not all accessible repositories may be shown. "
-            "Ask the user to provide a search term or topic to narrow down the results."
-        )
-    return result
+    page = repos[:capped]
+    next_cursor = _encode_repo_cursor(page[-1]) if len(repos) > capped else None
+    return {"repositories": _serialize_repositories(page), "next_cursor": next_cursor}
 
 
 def _serialize_environment_summary(env: SandboxEnvironment) -> dict:

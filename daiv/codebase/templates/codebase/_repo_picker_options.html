@@ -1,0 +1,30 @@
+{% load i18n %}
+{% for repo in repos %}
+  <li>
+    <button type="button"
+            class="picker-popover__option block"
+            @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
+      <span class="block text-white">{{ repo.slug }}</span>
+      {% if repo.name and repo.name != repo.slug %}
+      <span class="block text-[13px] text-gray-400">{{ repo.name }}</span>
+      {% endif %}
+    </button>
+  </li>
+{% endfor %}
+{% if next_url %}
+{% comment %}
+`root:#repo-picker-list` scopes the observer to the scroll container, so it still fires when the
+popover itself is clipped by the viewport. The skeleton row is this request's loading state — the
+search input's `repoLoading` one is not reused (that hides the whole list mid-scroll).
+{% endcomment %}
+  <li data-picker-sentinel
+      data-error-message="{% translate 'Could not load more repositories.' %}"
+      hx-get="{{ next_url }}"
+      hx-trigger="intersect once root:#repo-picker-list"
+      hx-swap="outerHTML"
+      aria-hidden="true"
+      class="picker-popover__skeleton-row animate-pulse">
+    <div class="picker-popover__skeleton-line w-3/4"></div>
+    <div class="picker-popover__skeleton-line--sub w-1/2"></div>
+  </li>
+{% endif %}

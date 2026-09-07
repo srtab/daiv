@@ -121,27 +121,29 @@ Parameters:
                hx-target="#repo-picker-list"
                class="picker-popover__search">
         <div x-show="repoLoading" class="animate-pulse py-1">
-            <div class="px-3 py-2 space-y-1.5">
-                <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
-                <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+            <div class="picker-popover__skeleton-row">
+                <div class="picker-popover__skeleton-line w-3/4"></div>
+                <div class="picker-popover__skeleton-line--sub w-1/2"></div>
             </div>
-            <div class="px-3 py-2 space-y-1.5">
-                <div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div>
-                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            <div class="picker-popover__skeleton-row">
+                <div class="picker-popover__skeleton-line w-2/3"></div>
+                <div class="picker-popover__skeleton-line--sub w-2/5"></div>
             </div>
-            <div class="px-3 py-2 space-y-1.5">
-                <div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div>
-                <div class="h-3 rounded bg-white/[0.04] w-3/5"></div>
+            <div class="picker-popover__skeleton-row">
+                <div class="picker-popover__skeleton-line w-4/5"></div>
+                <div class="picker-popover__skeleton-line--sub w-3/5"></div>
             </div>
-            <div class="px-3 py-2">
-                <div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div>
+            <div class="picker-popover__skeleton-row">
+                <div class="picker-popover__skeleton-line w-1/2"></div>
             </div>
-            <div class="px-3 py-2 space-y-1.5">
-                <div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div>
-                <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+            <div class="picker-popover__skeleton-row">
+                <div class="picker-popover__skeleton-line w-3/5"></div>
+                <div class="picker-popover__skeleton-line--sub w-2/5"></div>
             </div>
         </div>
-        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="picker-popover__list scrollbar-thin"></div>
+        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading"
+             data-error-message="{% translate 'Could not load repositories.' %}"
+             class="picker-popover__list scrollbar-thin"></div>
     </div>
 
     {% include "core/_sheet_backdrop.html" with show_expr="popover === 'branch'" %}
@@ -159,14 +161,16 @@ Parameters:
                hx-target="#branch-picker-list"
                class="picker-popover__search">
         <div x-show="branchLoading" class="animate-pulse py-1">
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div></div>
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div></div>
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div></div>
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/5"></div></div>
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div></div>
-            <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-2/3"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-1/2"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-3/4"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-2/5"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-4/5"></div></div>
+            <div class="picker-popover__skeleton-row"><div class="picker-popover__skeleton-line w-3/5"></div></div>
         </div>
-        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="picker-popover__list scrollbar-thin"></div>
+        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading"
+             data-error-message="{% translate 'Could not load branches.' %}"
+             class="picker-popover__list scrollbar-thin"></div>
     </div>
 
     {% if field_name|default:"repos" %}

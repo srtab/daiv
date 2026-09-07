@@ -185,5 +185,8 @@ msgstr "Adicionar repositório"
 msgid "No repositories found."
 msgstr "Nenhum repositório encontrado."
 
-#~ msgid "Could not load repositories."
-#~ msgstr "Não foi possível carregar os repositórios."
+msgid "Could not load repositories."
+msgstr "Não foi possível carregar os repositórios."
+
+msgid "Could not load more repositories."
+msgstr "Não foi possível carregar mais repositórios."

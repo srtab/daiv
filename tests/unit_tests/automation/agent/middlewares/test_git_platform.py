@@ -9,10 +9,12 @@ from langgraph.types import Command
 
 from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
 from automation.agent.middlewares.git_platform import (
+    GITHUB_CLI_ALLOW_COMMANDS,
     GITHUB_TOOL_DESCRIPTION,
     GITLAB_TOOL_DESCRIPTION,
     GitPlatformMiddleware,
     _file_write_confirmation,
+    _is_allowed_cli_command,
     _large_tool_results_prefix,
     _run_github_subcommand,
     _run_gitlab_subcommand,
@@ -722,3 +724,32 @@ class TestGitPlatformMiddlewareWiring:
         assert path == "/workspace/large_tool_results/test_call_gitlab"
         assert content == '[{"iid": 1}]'
         assert result.startswith("Wrote ")
+
+
+class TestGitHubReleasePolicy:
+    @pytest.mark.parametrize(("action", "expected"), [("create", True), ("delete", False)])
+    def test_release_actions_follow_policy(self, action, expected):
+        allowed, _ = _is_allowed_cli_command("release", action, GITHUB_CLI_ALLOW_COMMANDS)
+        assert allowed is expected
+
+    async def test_release_create_reaches_the_cli(self):
+        context = Mock(git_platform=GitPlatform.GITHUB)
+        context.repository.slug = "owner/repo"
+        runtime = ToolRuntime(
+            state={"github_token": "tok", "github_token_expires_at": 9999999999.0},
+            context=context,
+            config={"configurable": {"thread_id": "t-gh-release"}},
+            stream_writer=Mock(),
+            tool_call_id="c-release",
+            store=None,
+        )
+
+        with patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc:
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            await _run_gh('release create v1.0.0 --title "v1.0.0" --notes "notes"', runtime)
+
+        assert create_proc.call_args.args[:3] == ("gh", "release", "create")

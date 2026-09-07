@@ -65,22 +65,22 @@
                    hx-target="#user-picker-list"
                    class="picker-popover__search">
             <div x-show="loading" class="animate-pulse py-1">
-                <div class="px-3 py-2 space-y-1.5">
-                    <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
-                    <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+                <div class="picker-popover__skeleton-row">
+                    <div class="picker-popover__skeleton-line w-3/4"></div>
+                    <div class="picker-popover__skeleton-line--sub w-1/2"></div>
                 </div>
-                <div class="px-3 py-2 space-y-1.5">
-                    <div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div>
-                    <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+                <div class="picker-popover__skeleton-row">
+                    <div class="picker-popover__skeleton-line w-2/3"></div>
+                    <div class="picker-popover__skeleton-line--sub w-2/5"></div>
                 </div>
-                <div class="px-3 py-2 space-y-1.5">
-                    <div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div>
-                    <div class="h-3 rounded bg-white/[0.04] w-3/5"></div>
+                <div class="picker-popover__skeleton-row">
+                    <div class="picker-popover__skeleton-line w-4/5"></div>
+                    <div class="picker-popover__skeleton-line--sub w-3/5"></div>
                 </div>
             </div>
             <div id="user-picker-list" x-ref="userPickerList"
                  data-error-message="{% translate 'Could not load users.' %}"
-                 x-show="!loading" class="picker-popover__list scrollbar-thin"></div>
+                 x-show="!loading" class="picker-popover__list picker-popover__list--sm scrollbar-thin"></div>
         </div>
     </div>
 

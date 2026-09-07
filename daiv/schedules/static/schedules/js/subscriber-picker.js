@@ -22,23 +22,13 @@ document.addEventListener("alpine:init", () => {
             this.$el.addEventListener("htmx:afterSwap", (e) => {
                 if (e.target === this.$refs.userPickerList) this.loading = false;
             });
-            // Network failure: no response body to swap in.
-            this.$el.addEventListener("htmx:sendError", (e) => {
-                if (e.target === this.$refs.userSearch) this._showError();
-            });
-            // 4xx/5xx: HTMX skips the swap by default, so the popover stays blank without this.
-            this.$el.addEventListener("htmx:responseError", (e) => {
-                if (e.target === this.$refs.userSearch) this._showError();
-            });
-        },
-
-        _showError() {
-            this.loading = false;
-            const list = this.$refs.userPickerList;
-            if (!list) return;
-            const msg = list.dataset.errorMessage || "Could not load users.";
-            list.innerHTML = `<ul><li class="px-3 py-2 text-[14px] text-red-400"></li></ul>`;
-            list.querySelector("li").textContent = msg;
+            for (const event of ["htmx:sendError", "htmx:responseError"]) {
+                this.$el.addEventListener(event, (e) => {
+                    if (e.target !== this.$refs.userSearch) return;
+                    this.loading = false;
+                    pickerError.showIn(this.$refs.userPickerList);
+                });
+            }
         },
 
         get excludeCsv() {

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from django.db import Error as DatabaseError
+from django.utils.functional import SimpleLazyObject
 
 from notifications.models import Notification
 
@@ -22,16 +24,22 @@ def query_unread_count(user) -> int:
     return Notification.objects.filter(recipient=user, read_at__isnull=True).count()
 
 
-def unread_notification_count(request) -> dict[str, int]:
+def unread_notification_count(request) -> dict[str, Any]:
     """Expose the authenticated user's unread notification count to all templates.
 
     Provides ``unread_count`` so server-rendered templates (e.g. the notification
-    bell badge) display the correct value on initial page load.
+    bell badge) display the correct value on initial page load. Wrapped in
+    ``SimpleLazyObject`` so the COUNT runs only if the template actually references it —
+    non-HTML responses (redirects, HTMX fragments, SSE) skip the query entirely.
     """
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {}
-    try:
-        return {"unread_count": query_unread_count(request.user)}
-    except DatabaseError:
-        logger.exception("Failed to fetch unread notification count for user %s", request.user.pk)
-        return {"unread_count": 0}
+
+    def _count() -> int:
+        try:
+            return query_unread_count(request.user)
+        except DatabaseError:
+            logger.exception("Failed to fetch unread notification count for user %s", request.user.pk)
+            return 0
+
+    return {"unread_count": SimpleLazyObject(_count)}
