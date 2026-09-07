@@ -14,6 +14,12 @@ production provenance and are not covered by this record.
 The sample spans two repositories, both owned by the deployment's operator (not client work):
 `srtab/daiv` and `srtab/daiv-sandbox`.
 
+Row labels in this record (`E000`–`E056`, `O000`–`O266`) are zero-based indices into the export's
+`entries` and `observations` arrays respectively — `E013` is `entries[13]`, `O218` is
+`observations[218]`. Each row in the export also carries a `mode` field (one of the five modes
+below) set to match this record, so the counts here are auditable directly from the export rather
+than only from this document.
+
 ## Observed failure modes in the sample
 
 Every entry and observation (324 rows total) was read and classified into exactly one mode.
@@ -23,9 +29,9 @@ Percentages are of the 324-row total.
 |---|---|---|
 | generic advice, not hard-won | 0 | 0.0% |
 | ephemeral / run-specific | 12 | 3.7% |
-| duplicates and fragments | 68 | 21.0% |
+| duplicates and fragments | 67 | 20.7% |
 | wrong or stale facts | 1 | 0.3% |
-| good | 243 | 75.0% |
+| good | 244 | 75.3% |
 
 Method: each row was read individually; rows restating a fact already present elsewhere in the
 sample were grouped into topic clusters (confirmed with an automated within-repo near-duplicate
@@ -48,9 +54,9 @@ fifth of the sample) is not sensitive to that.
    valid regression guard, not evidence the failure happens in this production sample.
 
 2. **`wrong_or_stale` was not zero.** One row, a `MemoryObservation` on `srtab/daiv-sandbox`
-   (`status=discarded`, created 2026-08-25), asserts the Sentry org slug for that project is
-   `daiv`; a later, consolidated observation in the same sample (and the active `MemoryEntry` it
-   fed) both correctly state `srtab`. Two things keep this from actually reopening the "no
+   (`O218`, `status=discarded`, created 2026-08-25), asserts the Sentry org slug for that project
+   is `daiv`; a later, consolidated observation in the same sample (and the active `MemoryEntry`
+   it fed) both correctly state `srtab`. Two things keep this from actually reopening the "no
    decay" scope decision in the plan: the row is a raw `MemoryObservation`, not an active
    `MemoryEntry` — it never reached the rendered document — and its `status` is already
    `discarded`, i.e. the existing extraction/consolidation pipeline caught and dropped it on its
@@ -59,14 +65,16 @@ fifth of the sample) is not sensitive to that.
    is non-zero and is reported honestly, but it does not demonstrate that active memory decays,
    which is the specific risk the plan's scope decision is about.
 
-   A related, softer tension worth recording for whoever authors the corpus cases: one active
-   entry (environment-tag filtering on the `daiv` Sentry project being unreliable) and two
-   observations from the same sample state the opposite finding on different days, most recently
-   the same day the entry was last reconfirmed. This reads as genuinely flaky/time-varying
-   Sentry-side tagging behavior rather than a fact contradicted by the repository, so it was
-   classified `ephemeral` (a point-in-time query result) rather than `wrong_or_stale` — but it's
-   the closest near-miss in the sample and worth a second look if a stronger `wrong_or_stale`
-   example is ever needed.
+   A related, softer tension worth recording for whoever authors the corpus cases: active entry
+   `E041` (environment-tag filtering on the `daiv` Sentry project being unreliable, last
+   reconfirmed 2026-08-31) and two observations from the same sample (`O200`, `O263`) state the
+   opposite finding — that filtered and unfiltered queries return identical results, so the check
+   can be skipped. The most recent of those two, `O263`, is dated 2026-09-07, about a week after
+   `E041`'s last reconfirmation, not the same day. This reads as genuinely flaky/time-varying
+   Sentry-side tagging behavior rather than a fact contradicted by the repository, so `O200` and
+   `O263` were classified `ephemeral` (point-in-time query results) rather than `wrong_or_stale`
+   — but it's the closest near-miss in the sample and worth a second look if a stronger
+   `wrong_or_stale` example is ever needed.
 
 Reuse for Task 8/9 case authoring: the sample already contains two real examples of **unmerged
 duplicate `MemoryEntry` rows** — `E013`/`E014`/`E015` (three active `srtab/daiv` entries that
@@ -81,20 +89,32 @@ query results) supply material for an ephemeral-filtering case.
 ## Scrubbing
 
 This repository is public. The sample is drawn from the personal `daivagent` deployment rather
-than the corporate one, so no client repository data is involved. The export (at a stable path
-outside the repo — see the task report for its location) had the following scrubbed in place,
-in every `content` value:
+than the corporate one, so no client repository data is involved. The export had the following
+scrubbed in place, in every `content` value. The raw export is not distributed with this
+repository — it is not committed, and it exists only as a working file on the maintainer's own
+machine for authoring the corpus in `consolidation/cases.jsonl`; nobody reading this repository on
+GitHub can reach it.
 
-- **Internal company domain (1 instance):** one observation referenced `eurotux.pt` as a
-  fallback URL pattern mentioned by a skill; replaced with `example.internal`. (`daiv.sentry.io`
-  and other `*.sentry.io` URLs were left as-is — they are the project's own public Sentry org for
-  this public repository, not an internal company domain.)
+- **Sentry org dashboard URLs and numeric project IDs (10 instances):** seven occurrences of
+  Sentry org dashboard/issue links (Sentry requires an authenticated, org-member session to view
+  these — they are not public) and three occurrences of numeric Sentry project IDs were removed.
+  No case needs a dashboard link or a numeric resource id; every fact those rows state stands on
+  its own once the link/id is dropped.
+- **Sentry issue short-ids (51 instances, 19 distinct ids across 32 rows):** bare Sentry short-ids
+  (e.g. the `DAIV-` prefix followed by a number or letter code) were replaced with a
+  non-identifying description of the same issue (e.g. "a recurring Sentry issue", "a Sentry issue
+  about X"), or with a placeholder like `<short-id>` where the id was itself the example of a
+  query syntax. Every row states its underlying fact independently of the specific id, so the
+  substitution is lossless. `DAIVRedisSerializer` and the bare project name `DAIV` (e.g. in a
+  Sentry culprit string like `invoke_agent DAIV Agent`) are not ids and were left untouched.
+- **Internal company domain (1 instance):** one observation quoted a company-internal domain as a
+  fallback URL pattern suggested by a skill; replaced with `example.internal`.
 - **Ticket/PR references (4 instances):** four observations cited GitHub PR numbers
-  (`#1344`, `#1477`, `#1461`, and an upstream `langchain-mcp-adapters#578`) as the source of a
-  fix; the numeric references were dropped and the surrounding fact kept (e.g. "removed in a
-  later fix" instead of "removed in the fix for PR #1344"). Git commit SHAs mentioned elsewhere
-  (e.g. `d801a44b`, `aca9850a`) were left as-is — they are not ticket references and, unlike a
-  ticket ID, carry no separate attribution.
+  (this repository's own, each verified to resolve to a real squash-merge commit in its public
+  history) as the source of a fix; the numeric references were dropped and the surrounding fact
+  kept (e.g. "removed in a later fix" instead of "removed in the fix for PR #1344"). Git commit
+  SHAs mentioned elsewhere (e.g. `d801a44b`, `aca9850a`) were left as-is — they are not ticket
+  references and, unlike a ticket ID, carry no separate attribution.
 - **Person names, usernames (0 instances):** none were found in `content`. The sample never
   mentions an individual by name; it is a single operator's own technical notes to themselves.
 - **Client repository paths (0 instances):** the only repositories represented are the
@@ -107,9 +127,7 @@ in every `content` value:
   login-form CSS pattern, a CHANGELOG consolidation rule) with no person or team named — none
   read as attributable, so none needed paraphrasing beyond the above.
 
-One additional data-quality artifact found during scrubbing: one observation's `content` is
-genuinely truncated mid-sentence in production (`"The project's \`requires-python = "`, nothing
-further) — not an export bug, verified against the raw JSON. It was left as-is (there is nothing
-to scrub) and classified as a fragment.
-
-The raw export is deliberately **not** checked in.
+One additional data-quality artifact found during scrubbing: `O021`'s `content` is genuinely
+truncated mid-sentence in production (a bare `pyproject.toml` field name followed by `= `,
+nothing further) — not an export bug, verified against the raw JSON. It was left as-is (there is
+nothing to scrub) and classified as a fragment.
