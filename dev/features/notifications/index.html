@@ -829,6 +829,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Telegram
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -850,6 +861,17 @@
     <span class="md-ellipsis">
       
         Connecting Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Telegram
       
     </span>
   </a>
@@ -1529,6 +1551,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Telegram
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1550,6 +1583,17 @@
     <span class="md-ellipsis">
       
         Connecting Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Telegram
       
     </span>
   </a>
@@ -1652,7 +1696,7 @@
 
 
 <h1 id="notifications">Notifications</h1>
-<p>DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email and Rocket Chat. Clean runs stay silent and appear only in the Feed.</p>
+<p>DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email, Rocket Chat, and Telegram. Clean runs stay silent and appear only in the Feed.</p>
 <p>Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.</p>
 <h2 id="what-produces-a-notification">What produces a notification</h2>
 <p>DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are <strong>found-issues</strong>, <strong>needs-attention</strong>, and <strong>failed</strong>. Runs classified <strong>all-clear</strong> are silent — they live in the Feed but generate no notification.</p>
@@ -1692,7 +1736,7 @@
 <p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.</p>
 </div>
 <h2 id="channels">Channels</h2>
-<p>DAIV reaches you through channels. The in-app bell is always available; email and Rocket Chat are external delivery channels.</p>
+<p>DAIV reaches you through channels. The in-app bell is always available; email, Rocket Chat, and Telegram are external delivery channels.</p>
 <div class="grid cards">
 <ul>
 <li>
@@ -1707,6 +1751,10 @@
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22.909 8.381c-.651-1.01-1.564-1.905-2.71-2.66-2.215-1.457-5.127-2.259-8.197-2.259-1.027 0-2.038.09-3.018.266a10 10 0 0 0-2.075-1.53C4.11.803 1.646 1.323.4 1.77a.598.598 0 0 0-.233.977c.879.907 2.332 2.698 1.974 4.327C.753 8.493 0 10.203 0 11.982c0 1.815.752 3.524 2.142 4.942.357 1.63-1.096 3.421-1.975 4.328a.597.597 0 0 0 .233.977c1.245.448 3.71.968 6.508-.427a10 10 0 0 0 2.075-1.53 17 17 0 0 0 3.018.265c3.071 0 5.983-.801 8.197-2.257 1.147-.755 2.06-1.65 2.71-2.661C23.633 14.493 24 13.28 24 12.017c.001-1.297-.366-2.508-1.091-3.636M11.875 18.437c-1.328 0-2.594-.171-3.748-.48l-.844.81a7.7 7.7 0 0 1-1.556 1.154 6.1 6.1 0 0 1-2.2.621q.061-.111.119-.224 1.267-2.33.683-4.186c-1.382-1.086-2.212-2.476-2.212-3.99 0-3.476 4.369-6.294 9.757-6.294s9.757 2.818 9.757 6.294c.001 3.477-4.367 6.295-9.756 6.295m-3.229-6.315c0 .788-.644 1.427-1.438 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426m4.627 0c0 .788-.644 1.427-1.438 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426m4.63 0c0 .788-.645 1.427-1.439 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426z"/></svg></span> <strong>Rocket Chat</strong></p>
 <p>A direct message from the DAIV bot, when your administrator has enabled Rocket Chat and you have bound your <code>@username</code>.</p>
 </li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm4.962 7.224c.1-.002.321.023.465.14a.5.5 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024q-.159.037-5.061 3.345-.72.495-1.302.48c-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789q.04-.324.893-.663 5.247-2.286 6.998-3.014c3.332-1.386 4.025-1.627 4.476-1.635"/></svg></span> <strong>Telegram</strong></p>
+<p>A direct message from the DAIV bot, when your administrator has enabled Telegram and you have linked your chat.</p>
+</li>
 </ul>
 </div>
 <h3 id="the-in-app-bell-and-list">The in-app bell and list</h3>
@@ -1720,6 +1768,9 @@
 <p>Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email is delivered for any notify-worthy, un-muted run.</p>
 <h3 id="rocket-chat">Rocket Chat</h3>
 <p>Rocket Chat is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Rocket Chat handle so DAIV can DM you.</p>
+<h3 id="telegram">Telegram</h3>
+<p>Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.</p>
+<p>Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.</p>
 <h2 id="muting">Muting</h2>
 <p>Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is <strong>Mute</strong>.</p>
 <p><strong>Per-schedule mute</strong> — each schedule has a <strong>Mute</strong> checkbox (default off). When enabled, it silences <em>all</em> notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via <code>Run.muted</code> (the same field the <code>muted</code> flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.</p>
@@ -1741,11 +1792,45 @@
 <p class="admonition-title">Enabling Rocket Chat is an administrator task</p>
 <p>The Rocket Chat instance URL, bot user ID, and auth token are configured under <strong>Dashboard &gt; Configuration &gt; Rocket Chat</strong> (<code>/dashboard/configuration/rocketchat/</code>), which requires the <strong>admin</strong> role. Until an admin enables it there, the channel does not appear on your channels page.</p>
 </div>
+<h2 id="connecting-telegram">Connecting Telegram</h2>
+<p>If your administrator has enabled Telegram for the instance, link your chat so DAIV can message you:</p>
+<ol>
+<li>Open <strong><code>/accounts/channels/</code></strong>.</li>
+<li>In the <strong>Telegram</strong> row, select <strong>Connect</strong>. DAIV hands you off to Telegram with a single-use link.</li>
+<li>Telegram opens a chat with the DAIV bot and sends <code>/start</code> for you. The bot replies to confirm, and the row on your channels page shows a <strong>Verified</strong> badge with your Telegram handle.</li>
+</ol>
+<p>Verification is inherent to this flow — you demonstrably messaged the bot — so there is nothing else to confirm.</p>
+<p>To stop delivery, either select <strong>Disconnect</strong> on your channels page, send <code>/stop</code> to the bot, or block the bot in Telegram. All three unlink the chat, and the row goes back to <strong>Not configured</strong> — select <strong>Connect</strong> again whenever you want it back.</p>
+<div class="admonition note">
+<p class="admonition-title">If the row reads Unverified</p>
+<p>Blocking the bot normally removes the link outright, but if DAIV could not be told at the time (its webhook was unreachable, or Telegram was refusing the chat for another reason), the link stays on the row marked <strong>Unverified</strong>. It delivers nothing in that state. Select <strong>Connect</strong> on the row to redo the handshake; if that does not clear it, <strong>Disconnect</strong> first and then <strong>Connect</strong>.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">The link expires in 10 minutes</p>
+<p>The <strong>Connect</strong> link is valid for 10 minutes and stops working as soon as any chat is linked to your account. If it expires, the bot tells you so — start again from your channels page. Do not forward the link to anyone: whoever opens it first links <em>their</em> chat to <em>your</em> account.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">One chat, one account</p>
+<p>DAIV keeps at most one Telegram chat per account and one account per chat. Connecting from a different Telegram account replaces the previous link rather than adding a second one, and <code>/start</code> from a chat already linked elsewhere re-points it to you.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Group chats are refused</p>
+<p>DAIV notifications are per-account, so the bot only links one-to-one chats. Adding it to a group and sending <code>/start</code> there gets a "message me directly" reply and links nothing.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Enabling Telegram is an administrator task</p>
+<p>The bot token is configured under <strong>Dashboard &gt; Configuration &gt; Telegram</strong> (<code>/dashboard/configuration/telegram/</code>), which requires the <strong>admin</strong> role. Until an admin enables it there, the channel does not appear on your channels page. Sending notifications only needs outbound internet access, but the connect handshake needs DAIV to be reachable from the internet over HTTPS — on an instance without public ingress, Telegram delivery works for chats already linked, but new links cannot be made.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">One bot token serves exactly one instance</p>
+<p>Telegram allows a single webhook per bot, so a second environment configured with the same token steals the handshake from the first. DAIV's reconcile job surfaces that in the logs — naming the URL it found — but it cannot prevent it. Give staging its own bot.</p>
+</div>
 <h2 id="how-delivery-works">How delivery works</h2>
 <p>When a run finishes with a notify-worthy classification, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:</p>
 <ul>
-<li>A channel with no usable binding (for example Rocket Chat before you connect, or an unknown channel) is recorded as <strong>skipped</strong> rather than attempted.</li>
-<li>Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked <strong>failed</strong> and not retried.</li>
+<li>A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as <strong>skipped</strong> rather than attempted.</li>
+<li>Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked <strong>failed</strong> and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.</li>
+<li>Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads <strong>Not configured</strong>. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to <strong>unverified</strong>: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as <strong>skipped</strong>, and the row shows <strong>Unverified</strong> alongside a <strong>Connect</strong> control until you redo the handshake.</li>
 <li>The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)</li>
 </ul>
 <h2 id="related-pages">Related pages</h2>
@@ -1791,7 +1876,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 5, 2026 18:06:05 UTC">September 5, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2026 23:14:14 UTC">September 7, 2026</span>
   </span>
 
     
@@ -1801,7 +1886,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 5, 2026 18:06:05 UTC">September 5, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2026 23:14:14 UTC">September 7, 2026</span>
   </span>
 
     
