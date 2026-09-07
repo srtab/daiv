@@ -189,3 +189,148 @@ should not by itself be read as strong evidence of discrimination quality.
   different mechanism (see detail above). None of the three is expected to move from Fix 1 or
   Fix 2 by design, so a mover on any of them should be treated as a surprise worth
   investigating, not credited to either fix by default.
+
+## Fix 1
+
+Measured against Fix 1's final state (commit `722d230c`, "fix(memory): close the stray blank
+line left by the fallback-line removal"). This is the third and last paid run for Fix 1, per a
+stopping rule pre-registered before it ran: re-measure once more, and report whatever comes back
+— improvement, regression, or null — rather than tune the prompt further against one
+acknowledged-weak case. Command and repetition count are the same as the baseline run above.
+
+Two earlier Fix 1 runs preceded this one and are not the basis for this table, but are cited
+below where they isolate a cause: `memory-fix1.txt` (round-2 prompt text — the re-verification
+predicate said a fact was re-verified by reading "the code, config, or convention that *states*
+it", and the `{{^memory}}` "no memory yet" fallback line was still present) and
+`memory-fix1-v2.txt` (this run's log, round-2's predicate tightened to *defines*, and the
+fallback line removed). `memory-baseline-run2.txt` is the log behind the baseline table already
+recorded above.
+
+50/50 expected case-model pairs, matching the run's own tally (39 passed, 11 failed, 8 unstable;
+862.70s). Exit code 1 is expected, as with the baseline run.
+
+### Fix 1's own targets: a clean null
+
+| Case | gpt-5.4-mini | claude-haiku-4.5 | vs. baseline |
+|---|---|---|---|
+| 010-memory-read-only | FAIL 0/3 | FAIL 0/3 | unchanged |
+| 011-memory-reverified | PASS 3/3 | PASS 3/3 | unchanged |
+| 012-memory-contradicted | PASS 3/3 | PASS 3/3 | unchanged |
+
+**`010-memory-read-only` did not move: FAIL 0/3 on both models, exactly as at baseline.** This
+is Fix 1's only case with real room (per the baseline's own note, `012` was already at ceiling
+and `011` is a no-regression guard, not a target). It did not move across any of Fix 1's three
+measured states — the original carve-out, the widened re-verification predicate, or this run's
+`defines`-tightened, fallback-free final text. **The result on Fix 1's declared targets is a
+clean null: no improvement, and the plan's threshold — at least two named target cases flipping
+from majority-fail to majority-pass, with no case regressing — was not met.** `011` and `012`
+held their baseline verdicts exactly, so the module's guard cases show no regression either.
+
+### Fix 1 is regression-free
+
+No case that was a **stable** majority-PASS at baseline became a stable majority-FAIL in this
+run, or vice versa. One cell, `022-fragments-collapse` on `claude-sonnet-4.6`, did move from a
+stable `PASS 3/3` at baseline to an unstable `FAIL 1/3` here — a literal majority flip — but it
+is flagged UNSTABLE under the baseline's own exclusion rule and is discussed under the noise
+floor below, not counted as a regression: `022` is a **consolidation** case, and Fix 1 touches
+only `extraction_human` and `extraction.py` — nothing under `daiv/memory/consolidation*` or the
+consolidation prompts changed in any of Fix 1's three rounds, so this case had zero code-level
+exposure to Fix 1 at all. Its movement is measured proof of run-to-run model nondeterminism, not
+evidence of anything Fix 1 did.
+
+### `007-ci-branch-prefix`: the fallback-line regression, confirmed fixed
+
+| Run | gpt-5.4-mini | claude-haiku-4.5 |
+|---|---|---|
+| Baseline (no memory feature at all) | PASS 3/3 | PASS 3/3 |
+| First Fix 1 run (`{{^memory}}` fallback line present) | PASS 2/3 UNSTABLE | PASS 2/3 UNSTABLE |
+| This run (fallback line removed) | PASS 3/3 | PASS 3/3 |
+
+`007` carries no `memory` field, so across all three runs the only prompt-level difference it
+was ever exposed to was the presence or absence of the `{{^memory}}` "This repository has no
+memory yet." line (the `states`→`defines` re-verification wording never applies to a
+memory-less prompt in any version). The regression appeared on **both** models exactly when
+that line was introduced, and disappeared on **both** models exactly when it was removed — a
+clean before/during/after causal chain, not vote-only suspicion. This is the one unambiguous
+causal finding in this whole exercise: the fallback line caused the `007` regression, and
+removing it fixed it.
+
+### The noise floor: 7 of 50 cells moved on unchanged input
+
+Because an empty-memory prompt is now byte-identical to what the baseline measured (guaranteed
+by `test_extraction_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory` in
+`tests/unit_tests/memory/test_prompts.py`), extraction cases 001-009 — none of which carry a
+`memory` field — received the literal same model input (system prompt, human prompt, transcript)
+in the baseline run and in this run. Consolidation cases 010-022 received the same input too,
+since Fix 1 never touched the consolidation prompts or code at all. So every cell below moved
+with **zero** code-level or prompt-level change behind it — the only variable was the model
+itself, called twice, months apart:
+
+| Cell | Baseline | This run |
+|---|---|---|
+| `002-nothing-learned` / gpt-5.4-mini | PASS 2/3 UNSTABLE | FAIL 1/3 UNSTABLE |
+| `004-reviewer-rejects-inline-sql` / gpt-5.4-mini | PASS 3/3 | PASS 2/3 UNSTABLE |
+| `009-reexported-public-api` / gpt-5.4-mini | FAIL 1/3 UNSTABLE | FAIL 0/3 |
+| `020-converges-over-three-rounds` / claude-sonnet-4.6 (consolidation) | PASS 2/3 UNSTABLE | PASS 3/3 |
+| `020-converges-over-three-rounds` / gpt-5.3-codex (consolidation) | PASS 3/3 | PASS 2/3 UNSTABLE |
+| `022-fragments-collapse` / claude-sonnet-4.6 (consolidation) | PASS 3/3 | FAIL 1/3 UNSTABLE |
+| `022-fragments-collapse` / gpt-5.3-codex (consolidation) | PASS 2/3 UNSTABLE | PASS 3/3 |
+
+7 of 50 cells (14%) moved between the two runs on identical input. **Two of those seven —
+`004-reviewer-rejects-inline-sql`/gpt-5.4-mini and `022-fragments-collapse`/claude-sonnet-4.6 —
+departed a previously *stable*, unanimous `3/3` verdict.** A unanimous 3-repetition result is
+therefore not proof against future instability on the same input; it is itself a sample that can
+land unanimous by chance and not repeat.
+
+### Consequence for reading a future delta out of this harness
+
+At `EVAL_REPEATS=3`, roughly one cell in seven moves between two runs with no change behind
+them at all, and that rate is high enough to have flipped two previously unanimous cells. A
+single-cell delta on a single model — one case's majority flipping from FAIL to PASS on only
+one of its two models — sits inside this measured noise band and cannot, by itself, be
+distinguished from it. This vindicates the UNSTABLE-exclusion rule the baseline already applies
+(it was previously a design choice; it is now an empirically measured necessity) and extends its
+lesson to *stable* cells too: a future fix's delta claim needs either materially more
+repetitions than 3, or a case moving in the same direction on **both** models at once, before it
+can be read as a real effect rather than this noise floor.
+
+### Known limitations carried forward
+
+Two limitations recorded in Task 11's implementation report remain open and are not addressed by
+this run:
+
+- **`010`'s residual predicate risk.** `010`'s emission cited both `docs/setup.md` (removed as a
+  qualifying re-verification source by the `defines` tightening) and "`make build` succeeds" (a
+  plain command-succeeded outcome, unchanged by any Fix 1 round) as justification. Whether the
+  model still emits by leaning on the unchanged "ran it and it worked" path alone — as opposed to
+  "ran it in a way that actually tested the failure/success boundary the fact describes" — was
+  never tested; `010`'s unchanged FAIL 0/3 in this run is consistent with either that residual
+  risk having materialized or with the model correctly suppressing for an unrelated reason. This
+  run does not distinguish between them, and per the pre-registered stopping rule, no further
+  tightening was attempted to find out.
+- **The `workflow`-category gap.** A workflow fact backed by nothing but prose convention (no
+  CI/hook/config artifact that actually enforces it) has no qualifying "defines" source under the
+  tightened predicate, the same way `010`'s doc-only fact does not. This is a pre-existing gap,
+  not introduced by any Fix 1 round, and is not addressed here.
+
+## Summary (Fix 1)
+
+- **Null result on Fix 1's own targets.** `010-memory-read-only` did not move (FAIL 0/3, both
+  models, unchanged from baseline across all three measured Fix 1 states); `011` and `012` held
+  their baseline verdicts. The plan's landing threshold was not met.
+- **No regression.** No stable cell flipped from majority-PASS to majority-FAIL because of Fix
+  1; the one literal majority flip (`022`/sonnet) is a consolidation case Fix 1 never touches,
+  and is folded into the noise-floor finding below rather than counted separately.
+- **One clean causal finding:** the `{{^memory}}` fallback line caused `007-ci-branch-prefix`'s
+  regression (PASS 3/3 → PASS 2/3 UNSTABLE on both models when introduced) and removing it fixed
+  it (back to PASS 3/3 on both models), confirmed by a clean three-point before/during/after
+  chain on a case with no `memory` field at all.
+- **A measured noise floor:** 7 of 50 cells (14%) moved between the baseline and this run on
+  literally unchanged input, including two departures from a previously unanimous `3/3`. Any
+  future single-cell, single-model delta claim out of this harness must be read against that
+  floor — it needs more repetitions or agreement across both models to be distinguishable from
+  chance.
+- Fix 1's actual deliverable — extraction can see the current memory document, with a rule that
+  preserves both contradiction-driven correction and re-verification-driven confirmation rather
+  than suppressing them — is implemented, reviewed, and unit-tested regardless of this null; see
+  the Task 11 implementation report for the design rationale.
