@@ -89,7 +89,7 @@ _MISSING_KEY_REASON = (
 _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
     "registered markers, so a typo silently passes with exit 0 — this suite refuses to be that. "
-    "Valid markers for this suite: diff_to_metadata, memory."
+    "Valid markers for this suite: diff_to_metadata, memory, sandbox, skills, deferred_frozen."
 )
 
 
@@ -125,8 +125,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in ours:
         item.add_marker(pytest.mark.django_db)
 
-    # A -m that deselected everything: pytest reports "no tests collected" and exits 0, so a typo
-    # in the Makefile's marker expression would look like a clean run.
+    # A -m that deselected everything: pytest exits 5 (NO_TESTS_COLLECTED) with no explanation, so
+    # a typo in the Makefile's marker expression would fail opaquely instead of naming the cause.
     if not ours and config.option.markexpr and _collected_integration_paths(config):
         raise pytest.UsageError(_EMPTY_SELECTION_REASON)
 
