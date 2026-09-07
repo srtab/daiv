@@ -25,16 +25,18 @@ def test_extraction_renders_the_memory_block_when_there_is_memory():
     ).content
 
     assert "- a fact" in rendered
-    assert "no memory yet" not in rendered
+    assert "already records" in rendered
 
 
-def test_extraction_says_so_when_there_is_no_memory():
+def test_extraction_omits_the_memory_block_when_there_is_no_memory():
+    """No fallback line either: an empty memory renders the prompt with nothing added, so a
+    cold-start run reads exactly as it did before this feature existed."""
     rendered = extraction_human.format(
         repo_id="group/project", status="SUCCESSFUL", transcript="[ai] x", memory=""
     ).content
 
-    assert "no memory yet" in rendered
     assert "already records" not in rendered
+    assert "RE-VERIFIED" not in rendered
 
 
 def test_extraction_memory_is_not_html_escaped():

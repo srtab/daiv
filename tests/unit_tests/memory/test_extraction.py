@@ -354,4 +354,4 @@ class TestExtractionSeesMemory:
         assert delegate.call_args.kwargs["memory"] == ""
 
         human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
-        assert "no memory yet" in human.content
+        assert "already records" not in human.content
