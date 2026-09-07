@@ -18,11 +18,11 @@
   {
     "type": "tool",
     "name": "bash",
-    "content": "FAILED tests/test_uploads.py::test_upload_large_file - TimeoutError: operation timed out after 5s"
+    "content": "Killed"
   },
   {
     "type": "ai",
-    "content": "Running it again without changing anything.",
+    "content": "The process was killed before pytest could report anything \u2014 no assertion, error, or traceback, just \"Killed\". Running it again without changing anything.",
     "tool_calls": [
       {
         "name": "bash",
@@ -39,6 +39,6 @@
   },
   {
     "type": "ai",
-    "content": "Passed on the second try with no code changes \u2014 looks like a timing flake in CI, not a real failure."
+    "content": "Passed cleanly on the second try with nothing changed. There's no error, traceback, or pattern to point to, so whatever killed the process the first time was external to this run. Nothing here is worth remembering."
   }
 ]

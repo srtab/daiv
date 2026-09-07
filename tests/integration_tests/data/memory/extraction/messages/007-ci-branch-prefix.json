@@ -56,7 +56,7 @@
   {
     "type": "tool",
     "name": "bash",
-    "content": "[rename/docs-cleanup 7b2e4d1] ci: trigger\n 0 files changed\nTo origin\n   3f9a1c2..7b2e4d1  rename/docs-cleanup -> rename/docs-cleanup"
+    "content": "[rename/docs-cleanup 7b2e4d1] ci: trigger\nTo https://git.example.com/team/project.git\n   3f9a1c2..7b2e4d1  rename/docs-cleanup -> rename/docs-cleanup"
   },
   {
     "type": "ai",
