@@ -1,6 +1,7 @@
 from jobs.api.views import jobs_router
 from mcp_server.api.views import oauth_router
 from ninja import NinjaAPI
+from notifications.api.views import router as notifications_router
 from sessions.api.views import sessions_router
 
 from accounts.api.views import nav_router
@@ -16,5 +17,6 @@ api.add_router("/codebase", codebase_router)
 api.add_router("/chat", chat_router)
 api.add_router("/jobs", jobs_router)
 api.add_router("/nav", nav_router)
+api.add_router("/notifications", notifications_router)
 api.add_router("/oauth", oauth_router)
 api.add_router("/sessions", sessions_router)

@@ -9,9 +9,10 @@ from django.utils.translation import gettext_lazy as _
 import httpx
 
 from core.site_settings import site_settings
-from core.utils import build_absolute_url, build_uri
+from core.utils import build_uri
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.channels.renderers.base import compose_plain_text
 from notifications.channels.rocketchat_renderers.registry import get_renderer
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
@@ -153,13 +154,6 @@ def verify_username(username: str) -> tuple[str | None, str | None]:
     return None, str(_MSG_USER_NOT_FOUND)
 
 
-def _compose_text(notification: Notification) -> str:
-    parts = [notification.subject, "", notification.body]
-    if notification.link_url:
-        parts.extend(["", build_absolute_url(notification.link_url)])
-    return "\n".join(parts)
-
-
 def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
     """Build the ``chat.postMessage`` body for ``notification``.
 
@@ -171,7 +165,7 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
     if renderer is None:
         # Log so a missing renderer doesn't silently degrade to plain text forever.
         logger.warning("Rocket Chat: no renderer for event_type=%r; sending plain text", notification.event_type)
-        return {"channel": channel, "text": _compose_text(notification)}
+        return {"channel": channel, "text": compose_plain_text(notification)}
     text, attachments = renderer.render(notification)
     return {"channel": channel, "text": text, "attachments": attachments}
 

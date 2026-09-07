@@ -64,6 +64,9 @@
             {% if active_group.key == "providers" %}
                 {% include "core/_providers_section.html" %}
             {% endif %}
+            {% if active_group.key == "telegram" %}
+                {% include "core/_telegram_bot_username.html" %}
+            {% endif %}
         </div>
     </section>
     {% endwith %}

@@ -1,0 +1,31 @@
+{% load i18n %}
+{% comment %}
+  The connect control for one channel row. Rendered both when there is no binding at all and
+  when a binding exists but is unverified — that state is only reachable by reconnecting, so
+  the control has to stay available beside Disconnect.
+{% endcomment %}
+{% if row.connect_style == "link" %}
+  {% comment %}
+    A link-style channel hands the user off to an external handshake, so the row is a
+    single button. It is suppressed entirely until the deep link has somewhere to point.
+  {% endcomment %}
+  {% if row.connect_ready %}
+    <form method="post" action="{{ row.connect_url }}">
+      {% csrf_token %}
+      <button type="submit" class="btn-channel-action">
+        {% translate "Connect" %}
+      </button>
+    </form>
+  {% else %}
+    <span class="text-xs text-gray-500">{{ row.connect_blocked_reason }}</span>
+  {% endif %}
+{% elif row.connect_url %}
+  <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
+    {% csrf_token %}
+    <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
+           class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
+    <button type="submit" class="btn-channel-action">
+      {% translate "Connect" %}
+    </button>
+  </form>
+{% endif %}

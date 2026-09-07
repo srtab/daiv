@@ -511,17 +511,33 @@ class SiteConfiguration(models.Model):
         help_text=_("The bot user's _id, sent as the X-User-Id header."),
     )
 
+    # -- Telegram --
+    telegram_enabled = models.BooleanField(
+        _("enable Telegram"), null=True, help_text=_("Offer Telegram as a notification channel for users.")
+    )
+    telegram_bot_username = models.CharField(
+        _("Telegram bot username"),
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text=_("Derived from the bot token via getMe; not editable here."),
+    )
+
     # -- API Keys / Secrets (encrypted at rest) --
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
     _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _telegram_bot_token_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _telegram_webhook_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
     auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
     rocketchat_auth_token = EncryptedFieldDescriptor("rocketchat_auth_token")
+    telegram_bot_token = EncryptedFieldDescriptor("telegram_bot_token")
+    telegram_webhook_secret = EncryptedFieldDescriptor("telegram_webhook_secret")
 
     MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
         "agent_model_name",
@@ -546,6 +562,8 @@ class SiteConfiguration(models.Model):
         "sandbox_api_key",
         "auth_client_secret",
         "rocketchat_auth_token",
+        "telegram_bot_token",
+        "telegram_webhook_secret",
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
@@ -611,6 +629,14 @@ class SiteConfiguration(models.Model):
             match=("rocketchat_*",),
             icon="rocketchat",
             toggle_field="rocketchat_enabled",
+            category="Integrations",
+        ),
+        FieldGroup(
+            key="telegram",
+            title=_("Telegram"),
+            match=("telegram_*",),
+            icon="telegram",
+            toggle_field="telegram_enabled",
             category="Integrations",
         ),
         FieldGroup(

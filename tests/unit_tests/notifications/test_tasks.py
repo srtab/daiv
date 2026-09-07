@@ -8,7 +8,7 @@ import pytest
 from notifications.choices import DeliveryStatus, EventType
 from notifications.exceptions import UnknownChannelError, UnrecoverableDeliveryError
 from notifications.models import Notification
-from notifications.tasks import _deliver_notification, redrive_missing_notifications_cron_task
+from notifications.tasks import MAX_RETRY_AFTER_SECONDS, _deliver_notification, redrive_missing_notifications_cron_task
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -83,6 +83,41 @@ class TestDeliverNotification:
         d.refresh_from_db()
         assert d.status == DeliveryStatus.SKIPPED
         assert "sms" in d.error_message
+
+    def _retry_run_after(self, delivery, exc) -> float:
+        """Seconds from now until the retry the ladder scheduled for ``exc``."""
+        with (
+            patch("notifications.channels.email.EmailChannel.send", side_effect=exc),
+            patch("notifications.tasks.deliver_notification_task") as mock_task,
+        ):
+            _deliver_notification(delivery.id)
+        run_after = mock_task.using.call_args.kwargs["run_after"]
+        return (run_after - timezone.now()).total_seconds()
+
+    def test_a_retry_after_longer_than_the_ladder_delays_the_retry(self, notification_with_delivery):
+        _n, d = notification_with_delivery
+        exc = ConnectionError("flood wait")
+        exc.retry_after = 300
+        assert self._retry_run_after(d, exc) == pytest.approx(300, abs=5)
+
+    def test_a_retry_after_shorter_than_the_ladder_keeps_the_ladder(self, notification_with_delivery):
+        _n, d = notification_with_delivery
+        exc = ConnectionError("flood wait")
+        exc.retry_after = 10
+        assert self._retry_run_after(d, exc) == pytest.approx(60, abs=5)
+
+    def test_an_absurd_retry_after_is_capped(self, notification_with_delivery):
+        _n, d = notification_with_delivery
+        exc = ConnectionError("flood wait")
+        exc.retry_after = 99_999
+        assert self._retry_run_after(d, exc) == pytest.approx(MAX_RETRY_AFTER_SECONDS, abs=5)
+
+    @pytest.mark.parametrize("value", ["300", -5, 0, True, None])
+    def test_an_unusable_retry_after_keeps_the_ladder(self, notification_with_delivery, value):
+        _n, d = notification_with_delivery
+        exc = ConnectionError("flood wait")
+        exc.retry_after = value
+        assert self._retry_run_after(d, exc) == pytest.approx(60, abs=5)
 
     def test_reenqueue_failure_marks_failed(self, notification_with_delivery):
         _n, d = notification_with_delivery

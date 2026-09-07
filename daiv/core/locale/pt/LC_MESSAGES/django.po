@@ -703,3 +703,40 @@ msgstr "Classificador de execuções"
 
 msgid "Close"
 msgstr "Fechar"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "enable Telegram"
+msgstr "ativar o Telegram"
+
+msgid "Offer Telegram as a notification channel for users."
+msgstr "Disponibilizar o Telegram como canal de notificação para os utilizadores."
+
+msgid "Telegram bot username"
+msgstr "Nome de utilizador do bot do Telegram"
+
+msgid "Derived from the bot token via getMe; not editable here."
+msgstr "Obtido a partir do token do bot via getMe; não editável aqui."
+
+msgid "Bot token issued by @BotFather, in the form 123456:ABC-DEF."
+msgstr "Token do bot emitido pelo @BotFather, no formato 123456:ABC-DEF."
+
+msgid "Not derived yet — save this group with a valid bot token, or wait for the next reconcile."
+msgstr "Ainda não obtido — guarde este grupo com um token de bot válido, ou aguarde a próxima sincronização."
+
+msgid "Read from Telegram with getMe, not typed. The connect link on the notification channels page needs it."
+msgstr "Lido do Telegram com getMe, não escrito à mão. O link de ligação na página de canais de notificação precisa dele."
+
+#, python-format
+msgid "Telegram rejected this bot token: %(err)s"
+msgstr "O Telegram rejeitou este token de bot: %(err)s"
+
+msgid "Could not reach Telegram to verify the bot token; it was saved unverified."
+msgstr "Não foi possível contactar o Telegram para verificar o token do bot; foi guardado sem verificação."
+
+msgid "Could not verify the bot token; it was saved unverified. Check the server logs."
+msgstr "Não foi possível verificar o token do bot; foi guardado sem verificação. Consulte os registos do servidor."
+
+msgid "Telegram synchronisation failed; check the server logs."
+msgstr "A sincronização com o Telegram falhou; consulte os registos do servidor."

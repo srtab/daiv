@@ -151,6 +151,22 @@ When enabled, Rocket Chat becomes available as a notification channel that users
 | `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
 | `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
+### Telegram
+
+When enabled, Telegram becomes available as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret automatically.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_TELEGRAM_ENABLED` | Offer Telegram as a notification channel for users | `false` | `true` |
+| `DAIV_TELEGRAM_BOT_TOKEN` :material-lock: | Bot token issued by @BotFather, in the form `123456:ABC-DEF` | *(none)* | |
+
+Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lockable, but normally should be left unset — setting either one pins the value and defeats the derivation that keeps it correct:
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_TELEGRAM_BOT_USERNAME` | Pins the bot username instead of reading it from `getMe`. A value that disagrees with the token breaks the connect link and nothing will correct it. | *(derived)* | `daiv_bot` |
+| `DAIV_TELEGRAM_WEBHOOK_SECRET` :material-lock: | Pins the webhook secret instead of generating one. Must be non-empty: the webhook route is fail-closed, so a blank value rejects every update. | *(generated)* | |
+
 ### Other
 
 | Variable                | Description                        | Default        | Example         |

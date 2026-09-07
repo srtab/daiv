@@ -9,10 +9,10 @@ from django.utils import timezone
 import httpx
 import pytest
 from notifications.channels.registry import get_channel
+from notifications.channels.renderers.base import compose_plain_text
 from notifications.channels.rocketchat import (
     RocketChatChannel,
     RocketChatPermanentError,
-    _compose_text,
     _extract_rc_error,
     _rc_post,
     _RCClient,
@@ -318,12 +318,12 @@ class TestComposeText:
         return SimpleNamespace(subject=subject, body=body, link_url=link_url)
 
     def test_without_link_url(self):
-        result = _compose_text(self._notif("Subject", "Body"))
+        result = compose_plain_text(self._notif("Subject", "Body"))
         assert result == "Subject\n\nBody"
 
     def test_with_link_url_appends_absolute_url(self):
-        with patch("notifications.channels.rocketchat.build_absolute_url", return_value="https://daiv.test/x/"):
-            result = _compose_text(self._notif("Subject", "Body", "/x/"))
+        with patch("notifications.channels.renderers.base.build_absolute_url", return_value="https://daiv.test/x/"):
+            result = compose_plain_text(self._notif("Subject", "Body", "/x/"))
         assert result == "Subject\n\nBody\n\nhttps://daiv.test/x/"
 
 

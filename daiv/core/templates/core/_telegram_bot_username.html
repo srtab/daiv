@@ -1,0 +1,16 @@
+{% load i18n %}
+<div>
+  <span class="flex items-center gap-1 text-[15px] font-medium text-gray-400">{% translate "Telegram bot username" %}</span>
+  <div class="mt-2">
+    {% if telegram_bot_username %}
+      <p class="text-[15px] text-white">@{{ telegram_bot_username }}</p>
+    {% else %}
+      <p class="text-[15px] text-amber-400">
+        {% translate "Not derived yet — save this group with a valid bot token, or wait for the next reconcile." %}
+      </p>
+    {% endif %}
+  </div>
+  <p class="mt-1.5 text-sm text-gray-400">
+    {% translate "Read from Telegram with getMe, not typed. The connect link on the notification channels page needs it." %}
+  </p>
+</div>

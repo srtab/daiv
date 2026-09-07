@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from notifications.channels.renderers.base import TOTAL_COST_LABEL
 from notifications.channels.rocketchat_renderers.base import RocketChatRenderer
 from notifications.channels.rocketchat_renderers.registry import register_renderer
 from notifications.choices import EventType
 
 if TYPE_CHECKING:
     from notifications.models import Notification
-
-
-_REPO_BREAKDOWN_LIMIT = 8
 
 
 @register_renderer
@@ -37,20 +35,9 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
             fields.append({"title": "Owner", "value": owner, "short": True})
         if (usage := self._usage_field(ctx)) is not None:
             fields.append(usage)
-        if (cost := self._cost_field(ctx)) is not None:
-            fields.append({"title": "Total cost", "value": cost["value"], "short": True})
+        if (cost := self._cost_field(ctx, label=TOTAL_COST_LABEL)) is not None:
+            fields.append(cost)
         if repo_ids := ctx.get("repo_ids"):
             fields.append({"title": "Repositories", "value": self._repo_list(repo_ids), "short": False})
 
         return self._message(notification, color, emoji, fields)
-
-    @staticmethod
-    def _repo_list(repo_ids: list[str]) -> str:
-        if not repo_ids:
-            return ""
-        head = repo_ids[:_REPO_BREAKDOWN_LIMIT]
-        overflow = len(repo_ids) - len(head)
-        parts = list(head)
-        if overflow > 0:
-            parts.append(f"… and {overflow} more")
-        return " · ".join(parts)
