@@ -18,7 +18,7 @@
   {
     "type": "tool",
     "name": "bash",
-    "content": "myapp/_internal/backoff.py:42:def retry_with_backoff(max_attempts, base_delay):\nmyapp/_internal/backoff.py:58:    return retry_with_backoff(max_attempts - 1, base_delay * 2)\nmyapp/tests/test_backoff.py:10:from myapp._internal.backoff import retry_with_backoff\ndocs/retries.md:3:See retry_with_backoff for the backoff policy.\nCHANGELOG.md:14:- Tune retry_with_backoff defaults\n47 matches found across the search."
+    "content": "myapp/_internal/backoff.py:42:def retry_with_backoff(max_attempts, base_delay):\nmyapp/_internal/backoff.py:58:    return retry_with_backoff(max_attempts - 1, base_delay * 2)\nmyapp/tests/test_backoff.py:10:from myapp._internal.backoff import retry_with_backoff\ndocs/retries.md:3:See retry_with_backoff for the backoff policy.\nCHANGELOG.md:14:- Tune retry_with_backoff defaults\n... (5 shown, 47 matches total across the codebase)"
   },
   {
     "type": "ai",
@@ -36,6 +36,23 @@
     "type": "tool",
     "name": "read_file",
     "content": "from ._api import *\n"
+  },
+  {
+    "type": "ai",
+    "content": "Following the re-export to see where it actually comes from.",
+    "tool_calls": [
+      {
+        "name": "read_file",
+        "args": {
+          "path": "myapp/_api.py"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "read_file",
+    "content": "from ._internal.backoff import retry_with_backoff\nfrom ._internal.cache import cached\n"
   },
   {
     "type": "ai",

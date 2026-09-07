@@ -1,9 +1,9 @@
 """Scored quality eval for repository-memory extraction.
 
 Cases hold a JSON *message list*, not transcript text, and the harness runs it through
-``serialize_transcript`` — otherwise the 1,000-char tool-output cap, the 200-char arg cap and the
-60k head/tail elision would go entirely unexercised, and in production the hard-won fact usually
-*is* a truncated tool error.
+``serialize_transcript`` — otherwise the 1,000-char tool-output cap (cases 001, 005) and the
+200-char arg cap (case 004) would go entirely unexercised, and in production the hard-won fact
+usually *is* a truncated tool error.
 
 Grading is cheapest-first: the deterministic checks never call a model, and an empty-set case
 (the expected outcome for most real runs) is graded for free.

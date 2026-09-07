@@ -35,7 +35,7 @@
   {
     "type": "tool",
     "name": "bash",
-    "content": "3 failed, 0 passed in 0.44s"
+    "content": "3 errors in 0.44s"
   },
   {
     "type": "ai",
