@@ -23,7 +23,14 @@ from langsmith import testing as t
 from memory.consolidation import run_consolidation_round
 from memory.models import EntryStatus, MemoryEntry, MemoryObservation, ObservationStatus
 
-from .memory_grading import decision_violations, judge_claims, record_votes, validate_consolidation_case
+from .memory_grading import (
+    decision_violations,
+    duplicate_bullets,
+    judge_claims,
+    judge_duplicate_facts,
+    record_votes,
+    validate_consolidation_case,
+)
 from .utils import EVAL_REPEATS, MEMORY_CONSOLIDATION_MODELS, require_provider_for_model
 
 DATA_DIR = Path(__file__).parent / "data" / "memory" / "consolidation"
@@ -142,6 +149,14 @@ def active_entries(repo_id: str) -> list[str]:
     ]
 
 
+@sync_to_async
+def rendered_document(repo_id: str) -> str:
+    """The stored render — what an agent run would actually be shown."""
+    from memory.models import RepositoryMemory
+
+    return RepositoryMemory.objects.filter(repo_id=repo_id).values_list("content", flat=True).first() or ""
+
+
 async def _attempt(case: dict, model_name: str, repetition: int) -> tuple[bool, str, dict]:
     """One graded consolidation round. Returns (passed, why-not, what-happened)."""
     repo_id = repo_id_for(case["id"], model_name, repetition)
@@ -202,6 +217,87 @@ async def test_memory_consolidation(case, model_name):
 
     report = "\n".join(
         f"  attempt {index}: {detail or 'ok'} | {what_happened['decisions']}"
+        for index, (detail, what_happened) in enumerate(zip(details, evidence, strict=True), start=1)
+    )
+    assert sum(results) * 2 > EVAL_REPEATS, (
+        f"{case['id']} @ {model_name}: {sum(results)}/{EVAL_REPEATS} attempts passed\n{report}"
+    )
+
+
+async def _attempt_multi_round(case: dict, model_name: str, repetition: int) -> tuple[bool, str, dict]:
+    """Run every batch against accumulated state, then grade the final entry set.
+
+    Each batch is a separate round. ``seed_observations`` re-reads what is pending, so an
+    observation an earlier round left unclaimed is re-fed to the next one — which is exactly what
+    production does.
+    """
+    repo_id = repo_id_for(case["id"], model_name, repetition)
+    await seed_entries(repo_id, case.get("entries", []))
+
+    rounds: list[str] = []
+    for number, batch in enumerate(case["batches"], start=1):
+        _mapping, observations = await seed_observations(repo_id, batch)
+        outcome = await run_consolidation_round(repo_id, observations, model_names=[model_name])
+        rounds.append(f"round {number}: {'nothing applied' if outcome is None else vars(outcome)}")
+
+    document = await rendered_document(repo_id)
+    contents = await active_entries(repo_id)
+    evidence = {"rounds": rounds, "entries": contents, "document": document}
+    final = case["expect"]["final"]
+    problems: list[str] = []
+
+    if (cap := final.get("max_entries")) is not None and len(contents) > cap:
+        problems.append(f"ended with {len(contents)} entries, over the cap of {cap}")
+
+    if final.get("no_duplicate_facts"):
+        # Deterministic and free first: an exact repeat needs no model call.
+        if repeats := duplicate_bullets(document):
+            problems.append(f"the document repeats bullet(s) verbatim: {repeats}")
+        else:
+            duplicated, explanation = await judge_duplicate_facts(document)
+            if duplicated:
+                problems.append(f"two bullets state the same fact: {explanation}")
+
+    if claims := final.get("must_state", []):
+        verdicts, errors = await judge_claims(contents, claims, what="the entries a repository's memory ended up with")
+        if errors:
+            problems.extend(errors)
+        else:
+            problems.extend(f"the final entries do not state: {claim!r}" for claim in claims if not verdicts[claim])
+
+    return not problems, "; ".join(problems), evidence
+
+
+@pytest.mark.memory
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
+@pytest.mark.parametrize("model_name", MEMORY_CONSOLIDATION_MODELS)
+@pytest.mark.parametrize("case", load_cases(multi_round=True))
+async def test_memory_consolidation_converges(case, model_name):
+    require_provider_for_model(model_name)
+    t.log_inputs({"case": case["id"], "batches": case["batches"]})
+
+    results: list[bool] = []
+    details: list[str] = []
+    evidence: list[dict] = []
+    try:
+        for repetition in range(EVAL_REPEATS):
+            try:
+                passed, detail, what_happened = await _attempt_multi_round(case, model_name, repetition)
+            except Exception as exc:  # noqa: BLE001 — a crashed attempt must still vote FAIL, not vanish
+                passed, detail = False, f"attempt {repetition} raised {exc!r}"
+                what_happened = {"rounds": [], "entries": [], "document": ""}
+            results.append(passed)
+            details.append(detail)
+            evidence.append(what_happened)
+    finally:
+        # In a finally so a cell that never finishes still leaves a FAIL row in votes_report
+        # instead of silently vanishing from Task 10's only source for BASELINE.md.
+        record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
+        t.log_outputs({"votes": results, "evidence": evidence})
+
+    report = "\n".join(
+        f"  attempt {index}: {detail or 'ok'}\n    document:\n{what_happened['document']}"
         for index, (detail, what_happened) in enumerate(zip(details, evidence, strict=True), start=1)
     )
     assert sum(results) * 2 > EVAL_REPEATS, (
