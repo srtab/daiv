@@ -142,3 +142,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 async def runtime_ctx():
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         yield ctx
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    """Print the per-case-per-model vote split the memory suites recorded.
+
+    The whole design rests on a later "it moved" claim being checkable, which needs the raw split
+    and not just pass/fail.
+    """
+    from .memory_grading import votes_report
+
+    for line in votes_report():
+        terminalreporter.write_line(line)
