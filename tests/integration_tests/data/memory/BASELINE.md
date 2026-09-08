@@ -373,9 +373,9 @@ above (`DAIV_EVAL_REPEATS` unset, `EVAL_REPEATS=3`). Log: `memory-fix2.txt`. The
 above (`memory-fix1-v2.txt`) is the state this run moves from, per the plan — Fix 1 had already
 landed on `main` when Fix 2 was built.
 
-50/50 expected case-model pairs, matching the run's own tally (43 passed, 7 failed, 736.29s) —
-the best raw pass count of the three runs (baseline 41/9, Fix 1 39/11). Exit code 1 is expected,
-as with the earlier runs.
+50/50 expected case-model pairs, matching the run's own tally (43 passed, 7 failed, 7 unstable;
+736.29s) — the best raw pass count of the three runs (baseline 41/9, Fix 1 39/11). Exit code 1 is
+expected, as with the earlier runs.
 
 **Headline: no cell moved in the same direction on both of its models. Every one of this run's
 10 moved cells is a single-model move. Fix 2's effect is NOT established by this run.**
@@ -413,6 +413,39 @@ as with the earlier runs.
 | 021-repeated-fact-does-not-duplicate | PASS 3/3 | PASS 3/3 |
 | 022-fragments-collapse | PASS 3/3 | PASS 3/3 |
 
+### The pre-registration, quoted verbatim
+
+The interpretation below was written into planning notes (`.superpowers/sdd/2026-09-06-memory-
+quality/progress.md`, gitignored — never shipped in the repository) **before** this run's data was
+seen. It is quoted verbatim here so the record is self-contained: a reader can check the
+predictions against the results below without having to trust a file that never ships.
+
+```
+=== PRE-REGISTERED INTERPRETATION FOR THE FIX 2 MEASUREMENT (recorded BEFORE the run) ===
+1. NO CONTROL CELLS EXIST THIS TIME. Fix 2 changes both SYSTEM prompts, so all 50 cells receive
+   changed input — unlike the Fix 1 run, where 44 cells had byte-identical input and let me measure
+   the ~16% noise floor. That floor cannot be re-measured from this run, so BASELINE.md's rule is
+   now BINDING, not advisory: a single-cell change is NOT evidence. Only same-direction movement on
+   BOTH models, or movement of a previously-stable cell, counts.
+2. 008-ephemeral-flake: a NULL is the EXPECTED outcome, not a failure of the fix. Removing the
+   retry-shaped REJECT was required to stop it paraphrasing 008's graded conclusion, and that was
+   008's most direct teaching example. I am recording this before seeing the result so it cannot
+   become a post-hoc excuse — but equally, if 008 DOES move, that is a stronger result than it looks,
+   because it moved on general boundary teaching alone.
+3. 005-plant-inside-long-tool-output: BASELINE.md's standing instruction says a mover on 003/005/009
+   is "a surprise... not credited to either fix". That instruction is now WRONG for 005 and I am
+   revising it in advance: 005/gpt's clean FAIL 0/3 mechanism is decoy leakage of a one-run number,
+   and the rewritten pair 3 ("The last deploy touched 340 lines across nine files") teaches exactly
+   against one-run numbers. A 005 mover IS a plausible Fix 2 effect. 003 and 009 remain surprises.
+4. Consolidation 011/012/013 are at ceiling (PASS 3/3 both models) — no room, so no credit either
+   way. 019-mixed-batch is not a Fix 2 target, but the consolidation MERGE few-shot is a structural
+   twin of its failure shape, so if 019 moves, that few-shot is the likelier cause than noise.
+```
+
+Two items scored below (`006`, and the bolded framing originally given to `019`) were **not**
+part of this pre-registration and were mislabeled as such in an earlier draft of this section;
+that mislabeling is corrected below rather than carried forward.
+
 ### Movement vs. Fix 1: 10 of 50 cells (20%), and this run has no control cells to check it against
 
 Unlike the Fix 1 run, which left extraction cases 001-009 and every consolidation case on a
@@ -443,81 +476,109 @@ models move, whether in the same direction or opposite directions. `004`'s and `
 models (`claude-haiku-4.5` and `gpt-5.3-codex` respectively) held their Fix 1 verdicts exactly;
 so did every other moved cell's partner. That is the concrete basis for the headline.
 
+**Four of these 10 have a Fix 1 anchor this document itself already lists as unchanged-input
+noise** (the 7-cell table under "The noise floor" in the Fix 1 section above): `002`/gpt-5.4-mini
+and `004`/gpt-5.4-mini moved from baseline to Fix 1 on identical input before Fix 2 touched
+anything; `009`/gpt-5.4-mini and `022`/claude-sonnet-4.6 (consolidation) did too. The caveat
+applies whether the cell reads as an improvement or a regression this run — `002`/gpt and
+`022`/sonnet (both improvements here) get it exactly as `004`/gpt (a regression) does: none of
+the four can be cleanly separated from run-to-run noise using only this document's own prior
+measurements, independent of anything Fix 2 changed.
+
+### Movement vs. the original baseline: 12 of 50 (24%)
+
+Comparing this run directly against the original baseline (skipping over Fix 1's intermediate
+state) moves 12 of 50 cells, not 10 — three cells that stayed flat from Fix 1 to Fix 2 had already
+moved from baseline to Fix 1 as unchanged-input noise (all three are in the Fix 1 section's own
+7-cell noise-floor table) and simply held their noisy Fix 1 value through Fix 2: `020-converges-
+over-three-rounds`/claude-sonnet-4.6 and `020-converges-over-three-rounds`/gpt-5.3-codex
+(consolidation), and `022-fragments-collapse`/gpt-5.3-codex (consolidation). Conversely,
+`022-fragments-collapse`/claude-sonnet-4.6 — one of the 10 cells in the Fix-1-vs-Fix-2 table above
+— round-trips back to its original baseline value (`PASS 3/3` at baseline, `FAIL 1/3 UNSTABLE` at
+Fix 1, `PASS 3/3` again at Fix 2) and so does **not** appear in a baseline-vs-Fix-2 comparison at
+all, despite moving at both individual steps. 10 (Fix 1 → Fix 2) − 1 (`022`/sonnet round-trips
+out) + 3 (the three that moved earlier and held) = 12. This is offered as a second, equally valid
+way to read the same underlying noise, not as a stronger claim than the 10/50 figure above — both
+readings agree that no cell moves in the same direction on both models.
+
 ### The pre-registered predictions, scored
 
-These were recorded before this run's data was seen, per the process this document has followed
-since Fix 1's stopping rule. Scoring them as pre-registered (rather than reading the table fresh)
-is what stops a real fix's evaluation from becoming a post-hoc story:
+Scored against the verbatim block above, in its own numbering, so the scoring cannot drift from
+what was actually recorded before the run:
 
-- **`008-ephemeral-flake`/claude-haiku-4.5: predicted FAIL 0/3 → FAIL 0/3 (null). Hit.** The
-  prediction's reasoning: removing the retry-shaped REJECT (Critical 2 of the review round) was
-  required to stop it paraphrasing `008`'s own graded conclusion, and that REJECT was pair 3's
-  most direct teaching example for exactly this case's failure mode — so no improvement was
-  expected from the rewrite that made the fix safe to ship. It stayed FAIL 0/3, exactly as
-  predicted. (`008`/gpt-5.4-mini did move, PASS 2/3 UNSTABLE → PASS 3/3, but that is the one
-  model this prediction was not about, and a stability-only change on the model already passing.)
-- **`005-plant-inside-long-tool-output`/gpt-5.4-mini: predicted FAIL 0/3 → PASS (directional,
-  not a delta claim). Directionally consistent, explicitly not evidence.** The standing baseline
-  instruction that a `005` mover is "a surprise worth investigating, not credited to either fix"
-  was revised in advance for this one case: `005`/gpt fails at baseline by leaking a one-run
-  number (`must_not_capture`: "that the build took four minutes and twelve seconds"), and the
-  rewritten pair 3 (Critical 2's fix) teaches directly against stating a one-run number as if it
-  mattered. It moved, in the predicted direction, by the named mechanism — but landed at PASS 2/3,
-  which is UNSTABLE, so per this document's own exclusion rule it is **excluded from any delta**.
-  Record it as directionally consistent with a named mechanism, not as evidence that mechanism
-  worked.
-- **`019-mixed-batch`: predicted unchanged on both models (confound-clearing). Hit.** The review
-  flagged the consolidation MERGE few-shot as a candidate to worry about here; it produced no
-  movement at all — `claude-sonnet-4.6` stayed FAIL 0/3, `gpt-5.3-codex` stayed PASS 2/3 UNSTABLE,
-  byte-identical verdicts to Fix 1 on both models. The confound the review raised did not
-  materialize.
-- **`006-generic-advice-only`/gpt-5.4-mini: a named Fix 2 target with real room. Predicted no
-  guaranteed movement; observed none.** FAIL 1/3 UNSTABLE → FAIL 1/3 UNSTABLE, identical split.
-  `claude-haiku-4.5`'s `006` also held (PASS 3/3 → PASS 3/3). No movement on either model.
-- **`003-migration-before-seed`/claude-haiku-4.5: FAIL 0/3 → PASS 3/3, unanimous at both ends —
-  and, by this document's own pre-registration, explicitly NOT credited to Fix 2.** The baseline
-  table's standing instruction calls a `003` or `009` mover "a surprise worth investigating, not
-  credited to either fix by default," and the `005` revision above was deliberately scoped to
-  `005` alone, leaving `003` and `009` as surprises. However tempting a clean, unanimous 0/3 → 3/3
-  flip is to read as evidence, the pre-registered rule says otherwise, and this document holds to
-  it: **not credited.** (`009`/gpt-5.4-mini also moved this run, FAIL 0/3 → PASS 2/3 UNSTABLE —
-  the same "surprise, not credited" instruction covers it, and it is additionally excluded as
-  unstable.)
+- **(1) NO CONTROL CELLS. Confirmed as stated.** All 50 cells had changed system-prompt input this
+  run (see "Movement vs. Fix 1" above); the ~16% floor could not be re-measured, and this
+  document's single-cell/single-model exclusion rule is treated as binding rather than advisory
+  throughout this section, exactly as pre-registered.
+- **(2) `008-ephemeral-flake`/claude-haiku-4.5: predicted a null. Hit.** It stayed `FAIL 0/3` at
+  Fix 1 and `FAIL 0/3` here — unchanged, exactly as predicted after removing the retry-shaped
+  REJECT that had been paraphrasing this case's own graded conclusion. (`008`/gpt-5.4-mini did
+  move, `PASS 2/3 UNSTABLE` → `PASS 3/3`, but that model is not what item 2 predicted, and it is a
+  stability-only change on a cell that was already majority-PASS.)
+- **(3) `005-plant-inside-long-tool-output`/gpt-5.4-mini: the standing "003/005/009 is a surprise"
+  instruction was revised in advance for 005 alone. Directionally consistent; explicitly not
+  evidence.** It moved `FAIL 0/3` → `PASS 2/3 UNSTABLE` — the predicted direction, by the named
+  mechanism (decoy leakage of a one-run number; the rewritten pair 3 teaches directly against
+  that). `PASS 2/3` is UNSTABLE, so per the now-binding rule it is **excluded from any delta**.
+  Record it as directionally consistent with a mechanism named beforehand, not as evidence that
+  mechanism worked.
+- **(4) `019-mixed-batch`: this was a CONDITIONAL ATTRIBUTION, not a null prediction — "if 019
+  moves, that [MERGE] few-shot is the likelier cause than noise" (019 is not itself a Fix 2
+  target, but its failure shape is a structural twin of the case in the new MERGE few-shot). The
+  condition never triggered, so there is nothing to attribute.** `claude-sonnet-4.6` stayed
+  `FAIL 0/3`, `gpt-5.3-codex` stayed `PASS 2/3 UNSTABLE` — byte-identical verdicts to Fix 1 on both
+  models. This is correctly read as "the condition for attribution did not fire," not as a hit on
+  a predicted null; an earlier draft of this section scored it as the latter, which overstated
+  what was actually registered.
 
-### The predicted regression that materialized
+**Not part of the pre-registration above, corrected here rather than carried forward:**
+`006-generic-advice-only`/gpt-5.4-mini — a named Fix 2 target with real room (`FAIL 1/3 UNSTABLE`
+at both baseline and Fix 1) — was listed as a scored, pre-registered prediction in an earlier
+draft of this section. It was not: it appears only in post-run notes, not in the verbatim block
+above. Reported here as a plain observation instead: `FAIL 1/3 UNSTABLE` at Fix 1, `FAIL 1/3
+UNSTABLE` again here — no movement at all. `claude-haiku-4.5`'s `006` also held (`PASS 3/3` →
+`PASS 3/3`). Worth recording either way — a named target with room that did not move — but not as
+a scored prediction.
 
-Two named Fix 2 targets **regressed** relative to Fix 1, and one of them was anticipated in
-review before this run:
+### The regressions: one foreseen in direction only, one newly found by reading the evidence
 
-- **`004-reviewer-rejects-inline-sql`/gpt-5.4-mini.** Stable `PASS 3/3` at the original baseline,
-  already knocked to `PASS 2/3 UNSTABLE` by Fix 1 (a pre-existing, code-unrelated noise-floor
-  move — Fix 1 never touched extraction's few-shots, since none existed yet), and now `FAIL 1/3
-  UNSTABLE` here. The review that accepted Fix 2's rewritten pair 2 (`REJECT: "Prefer descriptive
-  variable names over abbreviations."`) flagged it as category-adjacent to `004`'s own decoy
-  ("that code should follow the project's style guide") and judged the risk acceptable *because*
-  `004` was at ceiling at baseline, so exposure "can only show a regression, never a manufactured
-  delta." That is precisely what happened: a stable-at-ceiling cell moved toward FAIL after the
-  few-shot landed. `claude-haiku-4.5`'s `004` did not move (PASS 3/3 → PASS 3/3), so this is
-  single-model, and the new split is UNSTABLE, so it does not meet this document's bar for a
-  confirmed regression either — but it is the one place this run's data lines up exactly with a
-  cost the review foresaw and accepted, and that is worth recording as such rather than as an
-  unexplained wobble.
-- **`016-in-batch-dedup`/claude-sonnet-4.6.** Stable `PASS 3/3` at both the original baseline and
-  Fix 1, now `FAIL 1/3 UNSTABLE`. This is notable beyond being a regression: `016` is one of Fix
-  2's own named consolidation targets, and the baseline table already recorded it at ceiling
-  (PASS 3/3, both models) before either fix landed — meaning it had **no room to improve**, only
-  to hold or regress, and the model most exposed to Fix 2's new in-batch-dedup rule and
-  MERGE/DISCARD few-shots (`claude-sonnet-4.6`) is exactly the one that regressed on it.
-  `gpt-5.3-codex`'s `016` held (PASS 3/3 → PASS 3/3), so this is single-model too, and UNSTABLE
-  (1/3), so it is not a confirmed regression under this document's exclusion rule — but paired
-  with `004`, it means both of this run's clearest adverse moves land on cells the review either
-  predicted (`004`) or built new prompt material directly targeting (`016`).
+Two named Fix 2 targets **regressed** relative to Fix 1. Neither is a confirmed regression under
+this document's UNSTABLE-exclusion rule, and that rule cuts both ways: it also means neither can
+be read as proof Fix 2 made things worse. Both are recorded with the prominence a foreseen-or-
+found cost deserves, not filed as unexplained noise:
 
-Neither regression is "confirmed" by the UNSTABLE-exclusion rule this document applies
-everywhere else, and that rule cuts both ways here: it also means neither can be read as proof
-Fix 2 made things worse. Recorded as what the pre-registered review discussion said to watch for,
-observed happening, at exactly the instability threshold that keeps it from being conclusive
-either way.
+- **`004-reviewer-rejects-inline-sql`/gpt-5.4-mini: the direction was foreseen; the mechanism was
+  not.** Stable `PASS 3/3` at the original baseline, already knocked to `PASS 2/3 UNSTABLE` by Fix
+  1 (one of the four cells with a pre-existing, code-unrelated noise-floor anchor — see above),
+  and now `FAIL 1/3 UNSTABLE` here. The review that accepted Fix 2's rewritten pair 2
+  (`REJECT: "Prefer descriptive variable names over abbreviations."`) flagged it as
+  category-adjacent to `004`'s own decoy ("that code should follow the project's style guide") and
+  judged the risk acceptable *because* `004` was at ceiling at baseline, so exposure "can only
+  show a regression, never a manufactured delta." A ceiling cell did regress, as foreseen — but by
+  a different mechanism than the one the review named: both failing attempts' own log lines read
+  `emitted 3, over the max_observations cap of 2`, plain over-emission, and neither attempt's
+  three emitted observations state the style-guide decoy anywhere
+  (`memory-fix2.txt`, `test_memory_extraction[004-reviewer-rejects-inline-sql-openrouter:openai/
+  gpt-5.4-mini]`). The direction matched a foreseen risk; the cause did not. `claude-haiku-4.5`'s
+  `004` did not move (`PASS 3/3` → `PASS 3/3`), so this is single-model, and the new split is
+  UNSTABLE.
+- **`016-in-batch-dedup`/claude-sonnet-4.6: not foreseen, found by reading the evidence dict this
+  document's own consolidation notes instruct for this exact case.** Stable `PASS 3/3` at both the
+  original baseline and Fix 1, now `FAIL 1/3 UNSTABLE` — `016` is one of Fix 2's own named
+  consolidation targets, already at ceiling before either fix landed (no room to improve, only to
+  hold or regress). `memory-fix2.txt`'s evidence dict for this cell: attempts 1 and 2 both read
+  `the round applied nothing | {}`, and the captured log names why —
+  `consolidation.py:115: consolidation: rejected MERGE operation ... — MERGE must target at least
+  two entries, got 0` — `claude-sonnet-4.6` emitted a `MERGE` with `entry_ids: []` on `016`'s
+  cold-start case (`entries: []` in the case itself, so there was nothing to merge into), and the
+  validator rejected it both times; attempt 3 correctly emitted `ADD`/`ADD` under one operation and
+  passed. Fix 2 added consolidation's only worked `MERGE` example. `gpt-5.3-codex`'s `016` held
+  (`PASS 3/3` → `PASS 3/3`) on byte-identical prompt text — `daiv/memory/prompts.py` has no
+  per-model branching — so this run's data supports only that a spurious-MERGE-on-cold-start
+  failure mode is new on this cell and did not exist at baseline or Fix 1; it does not support any
+  claim about `claude-sonnet-4.6` being more "exposed" to the new material than `gpt-5.3-codex`,
+  since both received the identical text. This is a concrete, log-visible, adverse mechanism —
+  not a coincidence of direction like `004` above — and it lands on Fix 2's own named target.
 
 ### The largest single moves, excluded by design
 
@@ -526,8 +587,9 @@ stable, unanimous `FAIL 0/3` (at both the original baseline and Fix 1) to a stab
 `PASS 3/3` here — the largest possible single-cell swing the harness can register. Both are
 single-model (`gpt-5.4-mini`'s `003` and `010` held their Fix 1 `FAIL 0/3` verdicts exactly), so
 neither meets the both-models bar. `003` is additionally excluded by this document's own
-pre-registration (see above); `010` carries no such standing instruction, but is still only one
-model of a two-model case and cannot alone establish a cross-model effect.
+pre-registration (item 3 above scopes the revised instruction to `005` alone, leaving `003` a
+surprise); `010` carries no such standing instruction, but is still only one model of a two-model
+case and cannot alone establish a cross-model effect.
 
 ### Fix 2's own named targets, side by side
 
@@ -554,43 +616,57 @@ stable majority-FAIL.
 Of the ten cells with no room, nine stayed exactly where they were and one — `016`/sonnet — moved,
 and the only direction available to a ceiling cell is down. Of the four cells with real room:
 `002`/gpt and `008`/gpt each moved to a stable PASS (single-model improvements, no cross-model
-confirmation); `006`/gpt showed no movement at all; `008`/haiku showed no movement at all — the
-predicted null, hit exactly. No named target flipped from majority-fail to majority-pass on both
-of its models; the plan's landing threshold needed at least two such cases.
+confirmation, and `002`/gpt carries the same Fix-1 noise anchor noted above); `006`/gpt showed no
+movement at all; `008`/haiku showed no movement at all — the predicted null, hit exactly. No
+named target flipped from majority-fail to majority-pass on both of its models; the plan's landing
+threshold needed at least two such cases.
 
 ## Summary (Fix 2)
 
 - **The plan's threshold — at least two named target cases flipping from majority-fail to
   majority-pass, with no case regressing from majority-pass to majority-fail — was not met**, by
-  the same standard applied to Fix 1. `002`/gpt-5.4-mini is the only named target that flipped
-  fail-to-pass, and it did so on one model only, landing stable while its case partner
-  (`claude-haiku-4.5`) was already passing before either fix existed. No named target flipped on
-  both of its models.
+  the same standard applied to Fix 1. `002`/gpt-5.4-mini moved from majority-FAIL (`FAIL 1/3
+  UNSTABLE`, Fix 1) to majority-PASS (`PASS 3/3`, this run) — but that move is measured against
+  Fix 1's own noisy value, not against the original baseline: against the ORIGINAL baseline,
+  `002`/gpt was already majority-PASS (`PASS 2/3 UNSTABLE`) and never flipped from fail to pass at
+  all. It also moved on one model only. No named target flipped from majority-fail to
+  majority-pass on both of its models by any reading.
 - **No cell moved in the same direction on both models, on any case, named target or not.** Every
-  one of the 10 moved cells (out of 50) is a single-model move; the partner model held its Fix 1
-  verdict exactly in every one of those 10 cases. This is the reason Fix 2's effect is not
-  established by this run, independent of any individual cell's direction.
-- **Two regressions, both foreseeable, neither confirmed.** `004`/gpt-5.4-mini (a risk the review
-  explicitly named and accepted, at ceiling before Fix 2) and `016`/claude-sonnet-4.6 (a
-  regression on Fix 2's own named consolidation target) both moved from stable PASS 3/3 toward
-  FAIL. Both landed UNSTABLE (1/3), so neither meets this document's bar for a confirmed
-  regression — but both are recorded with the prominence a foreseen cost that came due deserves,
-  not filed as unexplained noise.
-- **Movement (10/50, 20%) sits just above the previously measured 16% unchanged-input noise
-  floor, but this run has no control cells left to re-measure that floor against** — Fix 2 changed
-  both system prompts for every one of the 50 cases, so unlike the Fix 1 run there is no subset of
-  cells that saw byte-identical input across runs. The comparison is suggestive, not dispositive:
-  total movement is not clearly distinguishable from what pure model/judge nondeterminism already
-  produces at this repetition count.
+  one of the 10 moved cells (out of 50, vs. Fix 1; 12 of 50 vs. the original baseline) is a
+  single-model move; the partner model held its Fix 1 verdict exactly in every one of the 10 Fix
+  1-vs-Fix-2 cases. This is the reason Fix 2's effect is not established by this run, independent
+  of any individual cell's direction.
+- **Two regressions, one a foreseen direction with the wrong mechanism, one a newly-found
+  log-grounded mechanism, neither confirmed.** `004`/gpt-5.4-mini regressed as a ceiling cell was
+  foreseen to be able to (direction matched a named risk) but by plain over-emission, not the
+  decoy-adjacency the review named (mechanism did not match). `016`/claude-sonnet-4.6 — Fix 2's
+  own named consolidation target, also at ceiling with no room to improve — regressed via a
+  concrete, log-visible mechanism new on this cell: a spurious `MERGE` on a cold-start case with no
+  entries to merge, rejected by the validator, on the same prompt text `gpt-5.3-codex` received
+  without regressing. Both landed UNSTABLE (1/3), so neither meets this document's bar for a
+  confirmed regression — but both are recorded with the mechanism the logs actually show, not the
+  mechanism that would have been more convenient to report.
+- **Movement sits just above the previously measured 16% unchanged-input noise floor by either
+  reading (10/50 = 20% vs. Fix 1, or 12/50 = 24% vs. the original baseline), but this run has no
+  control cells left to re-measure that floor against** — Fix 2 changed both system prompts for
+  every one of the 50 cases, so unlike the Fix 1 run there is no subset of cells that saw
+  byte-identical input across runs. Four of the ten Fix-1-vs-Fix-2 movers (`002`/gpt, `004`/gpt,
+  `009`/gpt, `022`/sonnet) additionally carry a pre-existing Fix-1 noise anchor this document
+  already recorded, applied here to improvements and the regression alike. The comparison is
+  suggestive, not dispositive: total movement is not clearly distinguishable from what pure
+  model/judge nondeterminism already produces at this repetition count.
 - **Three paid runs (baseline, Fix 1, Fix 2) have now been measured on this corpus at
   `EVAL_REPEATS=3`, and neither fix's effect has been established by any of them.** Fix 1 landed a
   clean null on its own targets with no regression. Fix 2 landed a raw pass-count improvement
   (43/50 vs. 39/50) but no cell moved on both of a case's models in either direction, two named-
-  target-adjacent cells show foreseeable (if unconfirmed) regressions, and total movement does not
-  clearly clear the measured noise floor. That is not a verdict that either fix does nothing — the
-  mechanisms both fixes add (memory-aware extraction; discriminative few-shots with a leak guard)
-  stand on their own design merits, documented in the Task 11 and Task 12 implementation reports —
-  but it is the honest limit of what this harness, at this corpus size and this repetition count,
-  can resolve. A future measurement wanting to move past this limit needs materially more
-  repetitions per cell (the plan's own guidance: `DAIV_EVAL_REPEATS=7` on a specific contested
-  case) or a larger corpus with more cases per failure mode, not a third run at the same settings.
+  target-adjacent cells regressed (one by a foreseen direction with the wrong mechanism, one by a
+  newly-found and log-grounded mechanism traceable to Fix 2's own added material), and total
+  movement does not clearly clear the measured noise floor by either reading. That is not a
+  verdict that either fix does nothing — the mechanisms both fixes add (memory-aware extraction;
+  discriminative few-shots with a leak guard) stand on their own design merits, documented in the
+  Task 11 and Task 12 implementation reports — but it is the honest limit of what this harness, at
+  this corpus size and this repetition count, can resolve. A future measurement wanting to move
+  past this limit needs materially more repetitions per cell (the plan's own guidance:
+  `DAIV_EVAL_REPEATS=7` on a specific contested case) or a larger corpus with more cases per
+  failure mode, not a fourth run at the same settings — four paid runs have already been spent on
+  this corpus.
