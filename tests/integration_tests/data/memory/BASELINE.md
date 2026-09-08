@@ -193,18 +193,18 @@ should not by itself be read as strong evidence of discrimination quality.
 ## Fix 1
 
 Measured against Fix 1's final state (commit `722d230c`, "fix(memory): close the stray blank
-line left by the fallback-line removal"). This is the third and last paid run for Fix 1, per a
-stopping rule pre-registered before it ran: re-measure once more, and report whatever comes back
-— improvement, regression, or null — rather than tune the prompt further against one
-acknowledged-weak case. Command and repetition count are the same as the baseline run above.
+line left by the fallback-line removal"). This is the second and last paid run for Fix 1 (the
+third paid run overall, after the baseline), per a stopping rule pre-registered before it ran:
+re-measure once more, and report whatever comes back — improvement, regression, or null — rather
+than tune the prompt further against one acknowledged-weak case. Command and repetition count are
+the same as the baseline run above.
 
-Two earlier Fix 1 runs preceded this one and are not the basis for this table, but are cited
-below where they isolate a cause: `memory-fix1.txt` (round-2 prompt text — the re-verification
-predicate said a fact was re-verified by reading "the code, config, or convention that *states*
-it", and the `{{^memory}}` "no memory yet" fallback line was still present) and
-`memory-fix1-v2.txt` (this run's log, round-2's predicate tightened to *defines*, and the
-fallback line removed). `memory-baseline-run2.txt` is the log behind the baseline table already
-recorded above.
+One earlier Fix 1 run preceded this one and is not the basis for this table, but is cited below
+where it isolates a cause: `memory-fix1.txt` (round-2 prompt text — the re-verification predicate
+said a fact was re-verified by reading "the code, config, or convention that *states* it", and
+the `{{^memory}}` "no memory yet" fallback line was still present). `memory-fix1-v2.txt` is this
+run's own log, round-2's predicate tightened to *defines*, and the fallback line removed.
+`memory-baseline-run2.txt` is the log behind the baseline table already recorded above.
 
 50/50 expected case-model pairs, matching the run's own tally (39 passed, 11 failed, 8 unstable;
 862.70s). Exit code 1 is expected, as with the baseline run.

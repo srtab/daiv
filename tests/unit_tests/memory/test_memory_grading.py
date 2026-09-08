@@ -465,8 +465,8 @@ class TestSharedSpan:
         assert '"' not in span
 
     def test_finds_an_eight_word_overlap_ending_at_sentence_punctuation(self):
-        # Both sides are exactly 8 words, so the only candidate window differs solely by the
-        # trailing period — previously invisible because periods were never stripped for matching.
+        # `left` is exactly 8 words, so its sole window's trailing period is the only difference
+        # from `right`'s matching window — previously invisible because periods went unstripped.
         from tests.integration_tests.memory_grading import shared_span
 
         left = "one two three four five six seven eight."
