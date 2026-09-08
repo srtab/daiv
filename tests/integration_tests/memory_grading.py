@@ -301,12 +301,17 @@ def match_claims(expected: Sequence[str], rows: Sequence[Any]) -> tuple[dict[str
     return verdicts, errors
 
 
-_VOTES: list[tuple[str, str, list[bool]]] = []
+_VOTES: list[tuple[str, str, list[bool], int]] = []
 
 
-def record_votes(suite: str, label: str, results: list[bool]) -> None:
-    """Record one case-model's per-repetition outcomes for the end-of-run report."""
-    _VOTES.append((suite, label, results))
+def record_votes(suite: str, label: str, results: list[bool], expected: int) -> None:
+    """Record one case-model's per-repetition outcomes for the end-of-run report.
+
+    ``expected`` is the repetition count the cell was supposed to run: a ``results`` shorter than
+    that (a ``finally`` block firing on an interrupted run) is flagged INCOMPLETE rather than
+    printed as an indistinguishable, genuinely-unanimous short vote.
+    """
+    _VOTES.append((suite, label, results, expected))
 
 
 def votes_report() -> list[str]:
@@ -320,16 +325,23 @@ def votes_report() -> list[str]:
         return []
     lines = ["", "memory eval — majority outcome and raw vote split (per case per model):"]
     unstable = 0
-    for suite, label, results in sorted(_VOTES):
+    incomplete = 0
+    for suite, label, results, expected in sorted(_VOTES):
         passes = sum(results)
         total = len(results)
         majority = "PASS" if passes * 2 > total else "FAIL"
         stability = ""
-        if 0 < passes < total:
+        if total < expected:
+            stability = f"  INCOMPLETE ({total}/{expected} attempts — run interrupted, not a real vote)"
+            incomplete += 1
+        elif 0 < passes < total:
             stability = "  UNSTABLE (excluded from any delta)"
             unstable += 1
         lines.append(f"  {majority}  {passes}/{total}  {suite}::{label}{stability}")
-    lines.append(f"  {len(_VOTES)} case-model pair(s), {unstable} unstable.")
+    summary = f"  {len(_VOTES)} case-model pair(s), {unstable} unstable."
+    if incomplete:
+        summary += f" {incomplete} incomplete."
+    lines.append(summary)
     return lines
 
 
@@ -353,6 +365,7 @@ _LEAK_SPAN_WORDS = 8
 
 
 _QUOTE_CHARS = "\"'“”‘’"
+_SENTENCE_PUNCT = ".!?"
 
 
 def shared_span(left: str, right: str, *, words: int = _LEAK_SPAN_WORDS) -> str | None:
@@ -365,13 +378,21 @@ def shared_span(left: str, right: str, *, words: int = _LEAK_SPAN_WORDS) -> str 
     literal quote mark the same fact stated unquoted in a case field never has, hiding the overlap.
     """
 
-    def spans(text: str) -> set[str]:
-        tokens = [
-            stripped for token in " ".join(text.split()).casefold().split() if (stripped := token.strip(_QUOTE_CHARS))
-        ]
+    def spans(text: str, *, strip_sentence_punct: bool = False) -> set[str]:
+        tokens = []
+        for token in " ".join(text.split()).casefold().split():
+            token = token.strip(_QUOTE_CHARS)
+            if strip_sentence_punct:
+                token = token.rstrip(_SENTENCE_PUNCT)
+            if token:
+                tokens.append(token)
         return {" ".join(tokens[index : index + words]) for index in range(len(tokens) - words + 1)}
 
     for span in sorted(spans(left) & spans(right)):
+        return span
+    # Retried with trailing sentence punctuation stripped: a span ending a quoted few-shot sentence
+    # on one side only (its unquoted case-field twin has no period) would otherwise hide behind it.
+    for span in sorted(spans(left, strip_sentence_punct=True) & spans(right, strip_sentence_punct=True)):
         return span
     return None
 

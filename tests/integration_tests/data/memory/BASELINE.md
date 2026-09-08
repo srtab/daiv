@@ -82,7 +82,7 @@ observations against the cap of 2 every time:
 
 The decoy (`must_not_capture`: "that the run ended with twelve errors") was **never graded on
 this case**: `_attempt` returns as soon as `extraction_violations` reports the cap breach
-(`tests/integration_tests/test_memory_extraction.py:45-46`), before `judge_claims` is ever
+(`tests/integration_tests/test_memory_extraction.py:67-68`), before `judge_claims` is ever
 reached, and all six attempts (both models × 3 repetitions) tripped the cap, so the
 decoy-grading judge call ran zero times for `003`. Read from the raw emission only — this is
 an ungraded observation, not a graded leak verdict — gpt-5.4-mini's attempt 3 (log line 163)
@@ -263,8 +263,8 @@ sample rather than repeated runs.
 ### The noise floor: 7 of 44 cells moved on unchanged input
 
 Because an empty-memory prompt is now byte-identical to what the baseline measured (guaranteed
-by `test_extraction_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory` in
-`tests/unit_tests/memory/test_prompts.py`), extraction cases 001-009 — none of which carry a
+by `test_extraction_human_prompt_is_byte_identical_to_pre_memory_baseline_when_there_is_no_memory`
+in `tests/unit_tests/memory/test_prompts.py`), extraction cases 001-009 — none of which carry a
 `memory` field — received the literal same model input (system prompt, human prompt, transcript)
 in the baseline run and in this run. Consolidation cases 010-022 received the same input too,
 since Fix 1 never touched the consolidation prompts or code at all. That covers 44 of the 50
@@ -313,7 +313,7 @@ can be read as a real effect rather than this noise floor.
 ### Known limitations carried forward
 
 Two limitations recorded in Task 11's implementation report remain open and are not addressed by
-this run:
+this run; a third, sharper reading of the same cell is added below:
 
 - **`010` fails by both named mechanisms, and the `defines` tightening did not take on one
   model.** `010`'s `expect` is `must_capture: []` with `max_observations: 0`, so correct
@@ -333,6 +333,22 @@ this run:
   this is the most decision-relevant fact in this run for whether the `defines` approach is worth
   iterating further, and per the pre-registered stopping rule no further tightening was attempted
   to act on it.
+- **`010`'s claude-haiku-4.5 path is better read as a case↔prompt conflict than as a prompt
+  weakness — the case cannot measure Fix 1 while the tie-break stands.** `010`'s transcript reads
+  `docs/setup.md` (an assertion, not a `defines` source), installs `protobuf-compiler`, and runs
+  `make build` successfully; it never runs the build *without* the package, so nothing in the
+  transcript re-verifies the memory fact ("the build fails without it") in either direction under
+  the `defines` predicate. That is exactly the rule's own "cannot tell which applies" case, and
+  the rule resolves it toward emission by design: "When you cannot tell which applies, emit it"
+  (`daiv/memory/prompts.py:94`). The haiku emission at `memory-fix1-v2.txt:658-660` above is
+  precisely that shape — a command run, seen to succeed, restated as a fact. So on this model
+  `010` is not evidence that Fix 1's rule under-performs; it is a case whose only available
+  transcript shape (run the command, see it work) is the rule's own designated tie-break-to-emit
+  branch, so a majority-pass here was never reachable while both the rule's tie-break and the
+  case's transcript stay as they are. This is the difference between "Fix 1 did not work" and
+  "Fix 1 was never measurable on `010`" — a future engineer tightening the `defines` predicate
+  again without first revisiting the tie-break or the case would be spending paid runs against a
+  cell the rule itself makes structurally unwinnable.
 - **The `workflow`-category gap.** A workflow fact backed by nothing but prose convention (no
   CI/hook/config artifact that actually enforces it) has no qualifying "defines" source under the
   tightened predicate, the same way `010`'s doc-only fact does not. This is a pre-existing gap,
@@ -656,7 +672,12 @@ threshold needed at least two such cases.
   suggestive, not dispositive: total movement is not clearly distinguishable from what pure
   model/judge nondeterminism already produces at this repetition count.
 - **Three paid runs (baseline, Fix 1, Fix 2) have now been measured on this corpus at
-  `EVAL_REPEATS=3`, and neither fix's effect has been established by any of them.** Fix 1 landed a
+  `EVAL_REPEATS=3`, and neither fix's effect has been established by any of them.** "Three paid
+  runs" counts measurement *stages*, not processes started: Fix 1 alone spans two completed runs
+  (the first, widened-predicate run and the `defines`-tightened re-measurement), so the corpus has
+  actually seen **four completed runs** — baseline, Fix 1's first run, Fix 1's re-measurement, and
+  Fix 2 — plus a **fifth that was orphaned after 8 of 50 cells and produced no summary**, whose
+  partial data was discarded and is not reported anywhere in this document. Fix 1 landed a
   clean null on its own targets with no regression. Fix 2 landed a raw pass-count improvement
   (43/50 vs. 39/50) but no cell moved on both of a case's models in either direction, two named-
   target-adjacent cells regressed (one by a foreseen direction with the wrong mechanism, one by a

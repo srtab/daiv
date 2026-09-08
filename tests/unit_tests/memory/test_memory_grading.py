@@ -377,11 +377,11 @@ class TestVotesReport:
         assert votes_report() == []
 
     def test_majority_rule_and_the_even_count_tie_direction(self):
-        record_votes("suite", "two-of-three", [True, True, False])
-        record_votes("suite", "one-of-three", [True, False, False])
-        record_votes("suite", "tie-of-two", [True, False])
-        record_votes("suite", "tie-of-four", [True, True, False, False])
-        record_votes("suite", "one-of-one", [True])
+        record_votes("suite", "two-of-three", [True, True, False], 3)
+        record_votes("suite", "one-of-three", [True, False, False], 3)
+        record_votes("suite", "tie-of-two", [True, False], 2)
+        record_votes("suite", "tie-of-four", [True, True, False, False], 4)
+        record_votes("suite", "one-of-one", [True], 1)
         report = "\n".join(votes_report())
         assert "PASS  2/3  suite::two-of-three" in report
         assert "FAIL  1/3  suite::one-of-three" in report
@@ -390,13 +390,29 @@ class TestVotesReport:
         assert "PASS  1/1  suite::one-of-one" in report
 
     def test_unstable_marker_matches_the_split_vote_condition(self):
-        record_votes("suite", "unanimous", [True, True, True])
-        record_votes("suite", "split-vote", [True, False, True])
+        record_votes("suite", "unanimous", [True, True, True], 3)
+        record_votes("suite", "split-vote", [True, False, True], 3)
         lines = votes_report()
         unanimous_line = next(line for line in lines if "suite::unanimous" in line)
         split_line = next(line for line in lines if "suite::split-vote" in line)
         assert "UNSTABLE" not in unanimous_line
         assert "UNSTABLE" in split_line
+
+    def test_complete_rows_keep_the_pre_incomplete_marker_output_format(self):
+        record_votes("suite", "complete", [True, True, True], 3)
+        report = "\n".join(votes_report())
+        assert "PASS  3/3  suite::complete" in report
+        assert "INCOMPLETE" not in report
+        assert report.endswith("1 case-model pair(s), 0 unstable.")
+
+    def test_a_run_truncated_by_interruption_is_flagged_incomplete_not_unanimous(self):
+        record_votes("suite", "cut-short", [True], 3)
+        lines = votes_report()
+        line = next(line for line in lines if "suite::cut-short" in line)
+        assert "PASS  1/1" in line
+        assert "INCOMPLETE" in line
+        assert "UNSTABLE" not in line
+        assert lines[-1].endswith("1 case-model pair(s), 0 unstable. 1 incomplete.")
 
 
 class TestLoadMessages:
@@ -447,6 +463,15 @@ class TestSharedSpan:
         span = shared_span(quoted, unquoted)
         assert span is not None
         assert '"' not in span
+
+    def test_finds_an_eight_word_overlap_ending_at_sentence_punctuation(self):
+        # Both sides are exactly 8 words, so the only candidate window differs solely by the
+        # trailing period — previously invisible because periods were never stripped for matching.
+        from tests.integration_tests.memory_grading import shared_span
+
+        left = "one two three four five six seven eight."
+        right = "zero one two three four five six seven eight"
+        assert shared_span(left, right) == "one two three four five six seven eight"
 
 
 class TestAssertNoFewShotLeak:

@@ -115,7 +115,7 @@ async def test_memory_extraction(case, model_name):
     finally:
         # In a finally so a cell that never finishes still leaves a FAIL row in votes_report
         # instead of silently vanishing from Task 10's only source for BASELINE.md.
-        record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results)
+        record_votes(TEST_SUITE, f"{case['id']}[{model_name}]", results, EVAL_REPEATS)
         t.log_outputs({"votes": results, "emissions": emissions})
 
     report = "\n".join(

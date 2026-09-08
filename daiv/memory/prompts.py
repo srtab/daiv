@@ -2,9 +2,8 @@ from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessageProm
 
 from memory.schemas import CONTENT_GUIDELINE_CHARS, MAX_OBSERVATIONS, MAX_OPERATIONS
 
-# Each reject is paired with its nearest good neighbour: a list of bad examples alone teaches a
-# category, not a boundary. Deliberately about a generic project — the prompt runs against every
-# repository DAIV serves, so the model must learn the boundary, not one repository's vocabulary.
+# Each reject is paired with its nearest good neighbour so the model learns a boundary, not just a
+# category; kept generic since this prompt runs against every repository DAIV serves.
 EXTRACTION_FEW_SHOTS = """Worked examples. Each pair is one boundary; the two sides are close on purpose.
 
 REJECT: "The API returned rate-limit errors on two requests during this run."
