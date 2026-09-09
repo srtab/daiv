@@ -200,6 +200,7 @@ ini_options.markers = [
   "deferred_frozen: integration test asserting deferred-tool schemas are frozen",
   "diff_to_metadata: scored eval of the diff-to-metadata agent (paid model calls)",
   "memory: scored eval of repository-memory extraction and consolidation (paid model calls)",
+  "own_replies: test registers its own webhook reply responses; skips the blanket sendMessage mock",
   "sandbox: integration test against a real sandbox executor",
   "skills: integration test of built-in agent skills",
 ]
