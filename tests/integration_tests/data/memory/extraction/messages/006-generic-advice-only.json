@@ -1,0 +1,31 @@
+[
+  {
+    "type": "human",
+    "content": "Before I start this feature, any general advice?"
+  },
+  {
+    "type": "ai",
+    "content": "Sure \u2014 a few habits that help on any project: run the linter before you commit, keep functions small and single-purpose, and write clear commit messages describing why, not just what."
+  },
+  {
+    "type": "ai",
+    "content": "I'll also run the linter now just to make sure the tree is clean before starting.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "make lint"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "All checks passed!"
+  },
+  {
+    "type": "ai",
+    "content": "Linter is clean. Ready to start the feature."
+  }
+]

@@ -2,7 +2,7 @@ import logging
 from unittest.mock import patch
 
 import pytest
-from memory.extraction import extract_observations
+from memory.extraction import extract_from_transcript, extract_observations
 from memory.schemas import CONTENT_HARD_LIMIT, MAX_OBSERVATIONS, ExtractedObservation
 
 from tests.unit_tests.memory.extraction_helpers import (
@@ -221,3 +221,137 @@ async def test_a_batch_over_the_prompt_guidance_is_kept_whole(caplog):
 
     assert len(result) == MAX_OBSERVATIONS + 4
     assert caplog.records == []
+
+
+class TestExtractFromTranscript:
+    async def test_uses_the_supplied_models_and_never_reads_site_settings(self):
+        extracted = [ExtractedObservation(category="build_test", content="`make test` needs -n auto")]
+
+        with (
+            patch("memory.extraction.build_structured_llm", return_value=_structured_llm_returning(extracted)) as build,
+            patch("memory.extraction.site_settings", _site_settings(memory_extraction_model_name=None)),
+        ):
+            result = await extract_from_transcript(
+                "[human] fix it\n[ai] done", repo_id="eval/x", status="SUCCESSFUL", model_names=["some:model"]
+            )
+
+        assert len(result) == 1
+        assert build.call_args.args[1] == ["some:model"]
+
+    async def test_falls_back_to_site_settings_when_no_models_given(self):
+        with (
+            patch("memory.extraction.build_structured_llm", return_value=_structured_llm_returning([])) as build,
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            await extract_from_transcript("[human] hi\n[ai] ok", repo_id="eval/x", status="SUCCESSFUL")
+
+        assert build.call_args.args[1] == ("openrouter:openai/gpt-5.4-mini", "openrouter:anthropic/claude-haiku-4.5")
+
+    async def test_returns_empty_when_no_model_is_configured(self, caplog):
+        with (
+            caplog.at_level(logging.ERROR, logger="daiv.memory"),
+            patch("memory.extraction.build_structured_llm") as build,
+            patch(
+                "memory.extraction.site_settings",
+                _site_settings(memory_extraction_model_name=None, memory_extraction_fallback_model_name=None),
+            ),
+        ):
+            assert await extract_from_transcript("[ai] x", repo_id="eval/x", status="SUCCESSFUL") == []
+
+        build.assert_not_called()
+        assert "no extraction model configured" in caplog.text
+
+    async def test_drops_unusable_observations(self):
+        extracted = [
+            ExtractedObservation(category="build_test", content="short"),
+            ExtractedObservation(category="build_test", content="a genuinely usable observation"),
+        ]
+        with (
+            patch("memory.extraction.build_structured_llm", return_value=_structured_llm_returning(extracted)),
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            result = await extract_from_transcript(
+                "[ai] x", repo_id="eval/x", status="FAILED", model_names=["some:model"]
+            )
+
+        assert len(result) == 1
+
+    async def test_trace_metadata_carries_both_repo_id_and_run_ref(self):
+        llm = _structured_llm_returning([])
+        with (
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            await extract_from_transcript(
+                "[ai] x", repo_id="eval/x", status="SUCCESSFUL", model_names=["some:model"], run_ref="case-7"
+            )
+
+        assert llm.with_config.call_args.kwargs["metadata"] == {"repo_id": "eval/x", "run_ref": "case-7"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extract_observations_labels_the_trace_with_the_runs_pk():
+    # Regression guard: extract_from_transcript's metadata dict must still carry a run-identifying
+    # dimension, or LangSmith traces lose it (it previously read run_id=str(run.pk)).
+    run = await _create_run()
+    llm = _structured_llm_returning([])
+
+    with (
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.extraction.build_structured_llm", return_value=llm),
+        patch("memory.extraction.site_settings", _site_settings()),
+    ):
+        await extract_observations(run)
+
+    assert llm.with_config.call_args.kwargs["metadata"] == {"repo_id": run.repo_id, "run_ref": str(run.pk)}
+
+
+def test_usable_labels_its_logs_with_the_supplied_run_ref(caplog):
+    from memory.extraction import _usable
+
+    with caplog.at_level(logging.WARNING, logger="daiv.memory"):
+        kept = _usable([ExtractedObservation(category="build_test", content="short")], run_ref="case-042")
+
+    assert kept == []
+    assert "case-042" in caplog.text
+
+
+class TestExtractionSeesMemory:
+    @pytest.mark.django_db(transaction=True)
+    async def test_the_stored_document_reaches_the_prompt(self):
+        from memory.models import RepositoryMemory
+
+        run = await _create_run()
+        await RepositoryMemory.objects.acreate(repo_id=run.repo_id, content="## Build & test\n- a known fact")
+        llm = _structured_llm_returning([])
+
+        with (
+            patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+        ):
+            await extract_observations(run)
+
+        human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
+        assert "- a known fact" in human.content
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lookup_failure_falls_open_to_no_memory(self):
+        run = await _create_run()
+        llm = _structured_llm_returning([])
+
+        with (
+            patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+            patch("memory.extraction.build_structured_llm", return_value=llm),
+            patch("memory.extraction.site_settings", _site_settings()),
+            patch("memory.models.RepositoryMemory.objects.filter", side_effect=RuntimeError("db down")),
+            # side_effect delegates to the real function so the LLM call below still happens;
+            # this only lets us assert the exact "" the signature promises, not just its rendering.
+            patch("memory.extraction.extract_from_transcript", side_effect=extract_from_transcript) as delegate,
+        ):
+            assert await extract_observations(run) == []
+
+        assert delegate.call_args.kwargs["memory"] == ""
+
+        human = llm.with_config.return_value.ainvoke.call_args.args[0][1]
+        assert "already records" not in human.content

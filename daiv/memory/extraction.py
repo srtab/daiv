@@ -21,11 +21,13 @@ logger = logging.getLogger("daiv.memory")
 LOG_EXCERPT_CHARS = 500
 
 
-def _usable(observations: Sequence[ExtractedObservation], run: Run) -> list[ExtractedObservation]:
+def _usable(observations: Sequence[ExtractedObservation], *, run_ref: str) -> list[ExtractedObservation]:
     """The observations worth storing.
 
-    Applies no batch cap on purpose: an observation dropped here is never persisted, so nothing can
-    re-queue it, whereas ``MAX_OPERATIONS`` in consolidation defers its tail instead of destroying it.
+    ``run_ref`` labels the two logs below with something traceable: the run's pk from the task
+    path, the case id from the eval. Applies no batch cap on purpose: an observation dropped here
+    is never persisted, so nothing can re-queue it, whereas ``MAX_OPERATIONS`` in consolidation
+    defers its tail instead of destroying it.
     """
     kept: list[ExtractedObservation] = []
     unusable: list[str] = []
@@ -42,25 +44,91 @@ def _usable(observations: Sequence[ExtractedObservation], run: Run) -> list[Extr
 
     if unusable:
         logger.warning(
-            "extract_observations: dropped %d of %d observation(s) from run %s as unusable: %s",
+            "extract_observations: dropped %d of %d observation(s) from %s as unusable: %s",
             len(unusable),
             len(observations),
-            run.pk,
+            run_ref,
             unusable,
         )
     if runaway:
         # ERROR, not warning: these are dropped before any row exists, so nothing re-queues them
         # and the transcript TTLs out — this log is the only trace of a real fact that was lost.
         logger.error(
-            "extract_observations: dropped %d of %d observation(s) from run %s as over-long, unrecoverably; "
+            "extract_observations: dropped %d of %d observation(s) from %s as over-long, unrecoverably; "
             "first %d characters of each: %s",
             len(runaway),
             len(observations),
-            run.pk,
+            run_ref,
             LOG_EXCERPT_CHARS,
             runaway,
         )
     return kept
+
+
+async def extract_from_transcript(
+    transcript: str,
+    *,
+    repo_id: str,
+    status: str,
+    memory: str = "",
+    model_names: Sequence[str] | None = None,
+    run_ref: str | None = None,
+) -> list[ExtractedObservation]:
+    """Run the extraction model over an already-serialized transcript.
+
+    The half of extraction that has no Django or Redis dependency: given text, it returns the
+    usable observations. Callers own transcript sourcing. ``model_names`` defaults to the
+    site-settings pair; an empty resolution is the documented precondition-failure skip, not a
+    crash on ``model_names[0]``. ``run_ref`` labels the drop logs — the run's pk from the task
+    path, the case id from the eval. ``memory`` is the repository's current memory document,
+    shown to the model so it can tell a read-only restatement from a contradiction or
+    re-verification (see the prompt's three-way rule).
+    """
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from memory.prompts import extraction_human, extraction_system
+
+    run_ref = run_ref or repo_id
+    if model_names is None:
+        model_names = tuple(
+            model
+            for model in (
+                site_settings.memory_extraction_model_name,
+                site_settings.memory_extraction_fallback_model_name,
+            )
+            if model
+        )
+    if not model_names:
+        logger.error(
+            "extract_observations: no extraction model configured "
+            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping %s",
+            run_ref,
+        )
+        return []
+    try:
+        structured_llm = build_structured_llm(ExtractedObservations, model_names)
+    except RuntimeError, ValueError:
+        logger.exception("extract_observations: extraction model unavailable/misconfigured, skipping")
+        return []
+
+    result = cast(
+        "ExtractedObservations",
+        await structured_llm.with_config(
+            run_name="MemoryExtraction", tags=["MemoryExtraction"], metadata={"repo_id": repo_id, "run_ref": run_ref}
+        ).ainvoke([
+            SystemMessage(content=cast("str", extraction_system.format().content)),
+            HumanMessage(
+                content=cast(
+                    "str",
+                    extraction_human.format(
+                        repo_id=repo_id, status=status, memory=memory, transcript=transcript
+                    ).content,
+                )
+            ),
+        ]),
+    )
+
+    return _usable(result.observations, run_ref=run_ref) if result else []
 
 
 async def extract_observations(run: Run) -> list[ExtractedObservation]:
@@ -76,11 +144,18 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
     that one run's observations are lost. Losing a single run's learnings is an accepted
     trade-off; agent runs are unaffected because this runs out-of-band. Unusable *individual*
     observations are not a schema mismatch and never reach that path — see ``_usable``.
-    """
-    from langchain_core.messages import HumanMessage, SystemMessage
 
+    Model resolution and the LLM call now live in ``extract_from_transcript``; this half only
+    loads the transcript out of the checkpoint. It also loads the repository's current memory
+    document and passes it along, so a fact the run merely read is not re-emitted, while a
+    contradiction or a re-verification still is.
+
+    That document is re-read here, at extraction time, while the run itself saw whatever
+    ``RepositoryMemoryMiddleware`` snapshotted at its own start — a consolidation round in
+    between can make the two differ. Accepted skew, not fixed here.
+    """
     from core.checkpointer import aresolve_thread_messages, open_checkpointer
-    from memory.prompts import extraction_human, extraction_system
+    from memory.models import RepositoryMemory
     from memory.transcript import serialize_transcript
 
     thread_config = {"configurable": {"thread_id": str(run.session_id)}}
@@ -123,45 +198,16 @@ async def extract_observations(run: Run) -> list[ExtractedObservation]:
 
     transcript = serialize_transcript(messages)
 
-    extraction_models = tuple(
-        model
-        for model in (site_settings.memory_extraction_model_name, site_settings.memory_extraction_fallback_model_name)
-        if model
-    )
-    if not extraction_models:
-        # Both the model and its fallback resolved to empty (only reachable via an explicit
-        # empty-string env override, e.g. DAIV_MEMORY_EXTRACTION_MODEL_NAME=""). Treat it as
-        # the documented precondition-failure skip rather than letting build_structured_llm
-        # raise IndexError on model_names[0], which would crash the task with no breadcrumb.
-        logger.error(
-            "extract_observations: no extraction model configured "
-            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping run %s",
-            run.pk,
-        )
-        return []
     try:
-        structured_llm = build_structured_llm(ExtractedObservations, extraction_models)
-    except RuntimeError, ValueError:
-        # Same precondition-failure handling as consolidation: a misconfigured/unparseable
-        # extraction model spec is a clean skip, not a task crash.
-        logger.exception("extract_observations: extraction model unavailable/misconfigured, skipping")
-        return []
+        memory = (
+            await RepositoryMemory.objects.filter(repo_id=run.repo_id).values_list("content", flat=True).afirst() or ""
+        ).strip()
+    except Exception:
+        # Falls open to "" on any lookup failure: an extraction that runs blind is worse than
+        # none, but not by much, and must never block the run.
+        logger.exception("extract_observations: could not load memory for repo %s, continuing without it", run.repo_id)
+        memory = ""
 
-    result = cast(
-        "ExtractedObservations",
-        await structured_llm.with_config(
-            run_name="MemoryExtraction",
-            tags=["MemoryExtraction"],
-            metadata={"repo_id": run.repo_id, "run_id": str(run.pk)},
-        ).ainvoke([
-            SystemMessage(content=cast("str", extraction_system.format().content)),
-            HumanMessage(
-                content=cast(
-                    "str",
-                    extraction_human.format(repo_id=run.repo_id, status=run.status, transcript=transcript).content,
-                )
-            ),
-        ]),
+    return await extract_from_transcript(
+        transcript, repo_id=run.repo_id, status=run.status, memory=memory, run_ref=str(run.pk)
     )
-
-    return _usable(result.observations, run) if result else []

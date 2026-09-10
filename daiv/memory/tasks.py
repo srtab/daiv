@@ -63,7 +63,7 @@ async def consolidate_memory_task(repo_id: str) -> None:
                 len(observations),
             )
             return
-        outcome = await run_consolidation_round(repo_id, config, observations)
+        outcome = await run_consolidation_round(repo_id, observations, config=config)
     finally:
         # In ``finally`` because the cron reads this: a round that raises without recording an
         # attempt is due again on the next hourly sweep, and pays for a full LLM round each time.

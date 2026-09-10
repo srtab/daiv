@@ -101,3 +101,30 @@ def require_provider_for_model(model_spec: str) -> None:
 
 def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
     return [tool_call for message in messages if isinstance(message, AIMessage) for tool_call in message.tool_calls]
+
+
+def _memory_models(env_var: str, production: list[ModelName]) -> list[str]:
+    """The production pair, or a comma-separated model-spec override from ``env_var``.
+
+    For scoring replacement candidates the two suites are parametrized on: any spec
+    ``parse_model_spec`` accepts, not only a ``ModelName``. DAIV_EVAL_ALL_MODELS
+    deliberately still does not widen these two suites.
+    """
+    override = [spec.strip() for spec in os.environ.get(env_var, "").split(",") if spec.strip()]
+    return override or list(production)
+
+
+MEMORY_EXTRACTION_MODELS = _memory_models(
+    "DAIV_EVAL_MEMORY_EXTRACTION_MODELS", [ModelName.GPT_5_4_MINI, ModelName.CLAUDE_HAIKU_4_5]
+)
+MEMORY_CONSOLIDATION_MODELS = _memory_models(
+    "DAIV_EVAL_MEMORY_CONSOLIDATION_MODELS", [ModelName.CLAUDE_SONNET_4_6, ModelName.GPT_5_3_CODEX]
+)
+
+# In neither matrix above: GPT_5_3_CODEX is a graded consolidation cell and would grade its own
+# output. Same vendor as two graded cells, which is acceptable only because the primary gate —
+# the decision check — is deterministic and never calls the judge.
+MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_4_6
+
+# A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
+EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))

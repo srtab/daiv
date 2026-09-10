@@ -87,7 +87,7 @@ class Command(BaseCommand):
 
         barren = 0
         for number, batch in enumerate(batches, start=1):
-            outcome = async_to_sync(run_consolidation_round)(repo_id, config, batch)
+            outcome = async_to_sync(run_consolidation_round)(repo_id, batch, config=config)
             if outcome is None:
                 logger.warning("Batch %d/%d applied nothing; its observations remain unreplayed.", number, len(batches))
                 barren += 1
