@@ -1,0 +1,73 @@
+{% extends "base_app.html" %}
+{% load icon_tags static %}
+
+{% block title %}Add passkey — DAIV{% endblock %}
+
+{% block container_width %}max-w-xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">Add passkey</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            You'll be asked to confirm with Touch ID, Windows Hello, or your security key.
+        </p>
+    </div>
+</div>
+
+<form method="post" action="{% url 'mfa_add_webauthn' %}"
+      class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 50ms">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+    <div class="mb-4 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+        {{ form.non_field_errors }}
+    </div>
+    {% endif %}
+    <div class="space-y-4">
+        <div>
+            <label for="{{ form.name.auto_id }}" class="mb-1.5 block text-[13px] font-medium text-gray-300">
+                Name
+            </label>
+            <input type="text" name="{{ form.name.html_name }}" id="{{ form.name.auto_id }}"
+                   value="{{ form.name.value|default:'' }}" maxlength="150"
+                   placeholder="e.g. MacBook Touch ID" class="w-full">
+            {% if form.name.help_text %}
+            <p class="mt-1.5 text-[12px] text-gray-500">{{ form.name.help_text }}</p>
+            {% endif %}
+        </div>
+        <input type="hidden" name="{{ form.credential.html_name }}" id="{{ form.credential.auto_id }}">
+        {% if form.passwordless %}
+        <label for="{{ form.passwordless.auto_id }}"
+               class="flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <input type="checkbox" name="{{ form.passwordless.html_name }}" id="{{ form.passwordless.auto_id }}"
+                   class="mt-0.5 h-4 w-4 accent-teal-400">
+            <span>
+                <span class="block text-[14px] font-medium text-white">Use for passwordless sign-in</span>
+                <span class="mt-0.5 block text-[12px] leading-relaxed text-gray-400">
+                    Lets you sign in with just this key. Requires biometrics or a PIN.
+                </span>
+            </span>
+        </label>
+        {% endif %}
+    </div>
+    <div class="mt-6 flex items-center gap-3">
+        <button type="button" id="mfa_webauthn_add" class="btn-primary">
+            {% icon "key" "h-4 w-4" %}
+            Add passkey
+        </button>
+        <a href="{% url 'mfa_list_webauthn' %}" class="btn-secondary">Cancel</a>
+    </div>
+</form>
+
+{% include "mfa/webauthn/snippets/scripts.html" %}
+{{ js_data|json_script:"js_data" }}
+<script data-allauth-onload="allauth.webauthn.forms.addForm" type="application/json">{
+    "ids": {
+        "add": "mfa_webauthn_add",
+        "passwordless": "{{ form.passwordless.auto_id }}",
+        "credential": "{{ form.credential.auto_id }}",
+        "data": "js_data"
+    }
+}
+</script>
+{% endblock app_content %}

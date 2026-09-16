@@ -92,4 +92,60 @@
                 {% endif %}
             </div>
         </form>
+
+          {% if object %}
+          <!-- Passkeys (edit only) -->
+          <div class="animate-fade-up mt-6 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 150ms">
+              <div class="flex items-center justify-between gap-4">
+                  <div>
+                      <h2 class="text-base font-semibold text-white">Passkeys</h2>
+                      <p class="mt-1 text-sm text-gray-400">
+                          Passkeys this user can sign in with. Removing one does not lock the user out —
+                          email sign-in always remains available.
+                      </p>
+                  </div>
+                  {% if passkeys %}
+                  <form method="post" action="{% url 'user_passkeys_reset' object.pk %}" class="shrink-0">
+                      {% csrf_token %}
+                      <button type="submit"
+                              onclick="return confirm('Remove all passkeys for \'{{ object.email|escapejs }}\'? The user will be notified by email.')"
+                              class="btn-danger-outline">
+                          Reset all
+                      </button>
+                  </form>
+                  {% endif %}
+              </div>
+
+              {% if passkeys %}
+              <div class="mt-4 overflow-hidden rounded-2xl border border-white/[0.06]">
+                  {% for passkey in passkeys %}
+                  <div class="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5 last:border-b-0">
+                      <div class="min-w-0 flex-1">
+                          <span class="text-[15px] font-medium text-white">{{ passkey }}</span>
+                          <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
+                              <span>Added {{ passkey.created_at|date:"M j, Y" }}</span>
+                              {% if passkey.last_used_at %}
+                              <span>&middot;</span>
+                              <span>Last used {{ passkey.last_used_at|timesince }} ago</span>
+                              {% endif %}
+                          </div>
+                      </div>
+                      <form method="post" action="{% url 'user_passkey_remove' object.pk passkey.pk %}" class="shrink-0">
+                          {% csrf_token %}
+                          <button type="submit"
+                                  onclick="return confirm('Remove passkey \'{{ passkey|escapejs }}\' from \'{{ object.email|escapejs }}\'? The user will be notified by email.')"
+                                  class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300">
+                              Remove
+                          </button>
+                      </form>
+                  </div>
+                  {% endfor %}
+              </div>
+              {% else %}
+              <div class="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+                  <p class="text-[15px] text-gray-400">No passkeys. The user can add one under Security &rarr; Passkeys.</p>
+              </div>
+              {% endif %}
+          </div>
+          {% endif %}
 {% endblock app_content %}

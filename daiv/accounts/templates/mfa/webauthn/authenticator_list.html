@@ -1,0 +1,71 @@
+{% extends "base_app.html" %}
+{% load icon_tags %}
+
+{% block title %}Passkeys — DAIV{% endblock %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">Passkeys</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            Sign in with Touch ID, Windows Hello, or a security key — no email code needed.
+        </p>
+    </div>
+    <a href="{% url 'mfa_add_webauthn' %}" class="btn-primary">
+        {% icon "plus" "h-4 w-4" %}
+        Add passkey
+    </a>
+</div>
+
+<!-- Passkey list -->
+<div class="animate-fade-up mt-8" style="animation-delay: 50ms">
+    {% if authenticators %}
+    <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+        {% for authenticator in authenticators %}
+        <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0">
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-3">
+                    <span class="text-[15px] font-medium text-white">{{ authenticator }}</span>
+                    {% if authenticator.wrap.is_passwordless is True %}
+                    <span class="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-accent-ink">Passkey</span>
+                    {% elif authenticator.wrap.is_passwordless is False %}
+                    <span class="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-xs font-medium text-gray-400">Security key</span>
+                    {% else %}
+                    <span class="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-xs font-medium text-gray-400">Unspecified</span>
+                    {% endif %}
+                </div>
+                <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
+                    <span>Added {{ authenticator.created_at|date:"M j, Y" }}</span>
+                    <span>&middot;</span>
+                    {% if authenticator.last_used_at %}
+                    <span>Last used {{ authenticator.last_used_at|timesince }} ago</span>
+                    {% else %}
+                    <span>Not used yet</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+                <a href="{% url 'mfa_edit_webauthn' authenticator.pk %}"
+                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:text-gray-200 hover:bg-white/[0.06]">
+                    Rename
+                </a>
+                <a href="{% url 'mfa_remove_webauthn' authenticator.pk %}"
+                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300">
+                    Remove
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]">
+            {% icon "lock-closed" "h-5 w-5 text-gray-400" %}
+        </div>
+        <p class="text-[15px] text-gray-400">No passkeys yet. Add one to sign in with a single gesture.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock app_content %}

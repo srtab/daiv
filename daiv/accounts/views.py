@@ -6,7 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.timezone import localdate
 from django.views import View
@@ -394,6 +394,13 @@ class UserUpdateView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, U
         kwargs["requesting_user"] = self.request.user
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        from allauth.mfa.models import Authenticator
+
+        context = super().get_context_data(**kwargs)
+        context["passkeys"] = Authenticator.objects.filter(user_id=self.object.pk, type=Authenticator.Type.WEBAUTHN)
+        return context
+
     def get_breadcrumbs(self):
         return [{"label": "Users", "url": reverse("user_list")}, {"label": self.object.email, "url": None}]
 
@@ -423,3 +430,50 @@ class UserDeleteView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, D
             {"label": self.object.email, "url": reverse("user_update", args=[self.object.pk])},
             {"label": "Delete", "url": None},
         ]
+
+
+def _remove_user_passkey(request, user, authenticator):
+    """
+    Delete a user's WebAuthn authenticator on their behalf (admin action).
+
+    allauth's own removal flow notifies ``request.user`` — correct for self-removal,
+    wrong here — so the notification goes to the passkey owner explicitly.
+    """
+    from allauth.account.adapter import get_adapter as get_account_adapter
+    from allauth.mfa.base.internal.flows import delete_and_cleanup
+
+    name = str(authenticator)
+    delete_and_cleanup(request, authenticator)
+    get_account_adapter(request).send_notification_mail("mfa/email/webauthn_removed", user)
+    return name
+
+
+class UserPasskeyRemoveView(AdminRequiredMixin, View):
+    """Remove a single passkey belonging to another user."""
+
+    def post(self, request, pk, authenticator_pk):
+        from allauth.mfa.models import Authenticator
+
+        user = get_object_or_404(User, pk=pk)
+        authenticator = get_object_or_404(
+            Authenticator, pk=authenticator_pk, user_id=user.pk, type=Authenticator.Type.WEBAUTHN
+        )
+        name = _remove_user_passkey(request, user, authenticator)
+        messages.success(request, f"Passkey '{name}' removed from '{user.email}'. The user has been notified.")
+        return redirect("user_update", pk=user.pk)
+
+
+class UserPasskeysResetView(AdminRequiredMixin, View):
+    """Remove all passkeys belonging to another user."""
+
+    def post(self, request, pk):
+        from allauth.mfa.models import Authenticator
+
+        user = get_object_or_404(User, pk=pk)
+        authenticators = list(Authenticator.objects.filter(user_id=user.pk, type=Authenticator.Type.WEBAUTHN))
+        for authenticator in authenticators:
+            _remove_user_passkey(request, user, authenticator)
+        messages.success(
+            request, f"Removed {len(authenticators)} passkey(s) from '{user.email}'. The user has been notified."
+        )
+        return redirect("user_update", pk=user.pk)

@@ -1,0 +1,29 @@
+{% extends "core/emails/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1 style="margin: 0 0 8px; font-size: 20px; font-weight: 600; color: #111827;">
+    {% translate "A new passkey was added" %}
+</h1>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">
+    {% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }}, a new passkey was added to your DAIV account.{% endblocktrans %}{% else %}{% translate "Hi, a new passkey was added to your DAIV account." %}{% endif %}
+</p>
+<p style="margin: 0 0 20px; padding: 12px 16px; border-radius: 8px; background-color: #f3f4f6; font-size: 13px; line-height: 1.7; color: #6b7280;">
+    {% translate "You can now sign in to DAIV using this passkey with Touch ID, Windows Hello, or a security key." %}
+</p>
+<p style="margin: 0 0 8px; font-size: 12px; font-weight: 600; color: #111827;">
+    {% translate "Details of the change" %}
+</p>
+<p style="margin: 0; font-size: 13px; line-height: 1.7; color: #6b7280;">
+    {% blocktrans with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktrans %}<br>
+    {% blocktrans %}IP address: {{ ip }}{% endblocktrans %}<br>
+    {% blocktrans %}Browser: {{ user_agent }}{% endblocktrans %}
+</p>
+{% endblock content %}
+
+{% block footer %}
+<p style="margin: 0 0 4px; font-size: 12px; color: #9ca3af;">
+    {% blocktrans %}If you do not recognize this change, remove the passkey from Security → Passkeys and change any passwords you use elsewhere.{% endblocktrans %}
+</p>
+{{ block.super }}
+{% endblock footer %}

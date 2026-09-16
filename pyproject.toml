@@ -25,7 +25,7 @@ dependencies = [
   "ddgs==9.16.0",
   "deepagents==0.7.13",
   "django==6.1.1",
-  "django-allauth[socialaccount]==65.19.3",
+  "django-allauth[mfa,socialaccount]==65.19.3",
   "django-crontask==2.0.0",
   "django-extensions==4.1.0",
   "django-filter==26.1",

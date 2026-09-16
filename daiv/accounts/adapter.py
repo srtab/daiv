@@ -1,6 +1,7 @@
 import logging
 
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.core.internal.httpkit import HTTP_USER_AGENT_MAX_LENGTH
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialApp
 
@@ -15,6 +16,36 @@ class AccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request):
         """Disable standard email/password signup. Users are created by admins."""
         return False
+
+    def send_notification_mail(self, template_prefix, user, context=None, email=None):
+        """
+        Send passkey added/removed notifications in DAIV's email styling.
+
+        allauth's WebAuthn flows call this with the ``mfa/email/webauthn_added`` /
+        ``mfa/email/webauthn_removed`` prefixes (plain-text templates otherwise).
+        Everything else falls through to allauth's default.
+        """
+        from accounts.emails import PASSKEY_NOTIFICATIONS, send_passkey_notification_email
+
+        if template_prefix not in PASSKEY_NOTIFICATIONS:
+            return super().send_notification_mail(template_prefix, user, context, email)
+
+        from django.utils import timezone
+
+        from allauth.account.models import EmailAddress
+
+        if not email:
+            email = EmailAddress.objects.get_primary_email(user)
+        if not email:
+            email = user.email
+        ctx = {
+            "timestamp": timezone.now(),
+            "ip": self.get_client_ip(self.request),
+            "user_agent": self.get_http_user_agent(self.request)[:HTTP_USER_AGENT_MAX_LENGTH],
+        }
+        if context:
+            ctx.update(context)
+        send_passkey_notification_email(user, template_prefix, ctx, email=email)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):

@@ -1,0 +1,11 @@
+{% load i18n %}{% autoescape off %}{% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }},{% endblocktrans %}{% else %}{% trans "Hi," %}{% endif %}
+
+{% trans "A new passkey was added to your DAIV account. You can now sign in using this passkey with Touch ID, Windows Hello, or a security key." %}
+
+{% blocktrans with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktrans %}
+{% blocktrans %}IP address: {{ ip }}{% endblocktrans %}
+{% blocktrans %}Browser: {{ user_agent }}{% endblocktrans %}
+
+{% trans "If you do not recognize this change, remove the passkey from Security - Passkeys and change any passwords you use elsewhere." %}
+
+— DAIV{% endautoescape %}
