@@ -8,6 +8,9 @@ This file provides guidance to agents when working with code in this repository.
 make test          # unit tests + coverage; CI gate
 make lint-fix       # check + fix lint/format in one step — prefer this over make lint
 make lint           # check only (no fixes); CI gate
+# NOTE: the djade step only checks *tracked* files (git ls-files). Run
+#   uv run --only-group=dev djade --target-version 6.0 <new .html files>
+# manually on newly created templates, or CI lint fails on files make lint never saw.
 make lint-typing    # ty, daiv/ only
 
 # Single test / pattern

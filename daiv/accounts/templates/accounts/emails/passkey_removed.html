@@ -6,21 +6,21 @@
     {% translate "A passkey was removed" %}
 </h1>
 <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">
-    {% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }}, a passkey was removed from your DAIV account.{% endblocktrans %}{% else %}{% translate "Hi, a passkey was removed from your DAIV account." %}{% endif %}
+    {% if user.name %}{% blocktranslate with name=user.name %}Hi {{ name }}, a passkey was removed from your DAIV account.{% endblocktranslate %}{% else %}{% translate "Hi, a passkey was removed from your DAIV account." %}{% endif %}
 </p>
 <p style="margin: 0 0 8px; font-size: 12px; font-weight: 600; color: #111827;">
     {% translate "Details of the change" %}
 </p>
 <p style="margin: 0; font-size: 13px; line-height: 1.7; color: #6b7280;">
-    {% blocktrans with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktrans %}<br>
-    {% blocktrans %}IP address: {{ ip }}{% endblocktrans %}<br>
-    {% blocktrans %}Browser: {{ user_agent }}{% endblocktrans %}
+    {% blocktranslate with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktranslate %}<br>
+    {% blocktranslate %}IP address: {{ ip }}{% endblocktranslate %}<br>
+    {% blocktranslate %}Browser: {{ user_agent }}{% endblocktranslate %}
 </p>
 {% endblock content %}
 
 {% block footer %}
 <p style="margin: 0 0 4px; font-size: 12px; color: #9ca3af;">
-    {% blocktrans %}If you did not remove this passkey yourself, you can still sign in with a one-time code sent to your email and review your passkeys under Security → Passkeys.{% endblocktrans %}
+    {% blocktranslate %}If you did not remove this passkey yourself, you can still sign in with a one-time code sent to your email and review your passkeys under Security → Passkeys.{% endblocktranslate %}
 </p>
 {{ block.super }}
 {% endblock footer %}
