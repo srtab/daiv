@@ -1,0 +1,26 @@
+{% extends "core/emails/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1 style="margin: 0 0 8px; font-size: 20px; font-weight: 600; color: #111827;">
+    {% translate "A third-party account was connected" %}
+</h1>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">
+    {% if user.name %}{% blocktranslate with name=user.name %}Hi {{ name }}, a third-party account was connected to your DAIV account.{% endblocktranslate %}{% else %}{% translate "Hi, a third-party account was connected to your DAIV account." %}{% endif %}
+</p>
+<p style="margin: 0 0 8px; font-size: 12px; font-weight: 600; color: #111827;">
+    {% translate "Details of the change" %}
+</p>
+<p style="margin: 0; font-size: 13px; line-height: 1.7; color: #6b7280;">
+    {% blocktranslate with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktranslate %}<br>
+    {% blocktranslate %}IP address: {{ ip }}{% endblocktranslate %}<br>
+    {% blocktranslate %}Browser: {{ user_agent }}{% endblocktranslate %}
+</p>
+{% endblock content %}
+
+{% block footer %}
+<p style="margin: 0 0 4px; font-size: 12px; color: #9ca3af;">
+    {% blocktranslate %}If you do not recognize this change, review the connected accounts on your profile and change any passwords you use elsewhere.{% endblocktranslate %}
+</p>
+{{ block.super }}
+{% endblock footer %}

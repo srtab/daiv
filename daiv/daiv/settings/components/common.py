@@ -41,6 +41,7 @@ THIRD_PARTY_APPS = [
     "allauth.socialaccount",
     "allauth.socialaccount.providers.github",
     "allauth.socialaccount.providers.gitlab",
+    "allauth.mfa",
 ]
 
 DJANGO_APPS = [

@@ -1,0 +1,1 @@
+{% load i18n %}{% autoescape off %}{% translate "A new passkey was added" %}{% endautoescape %}

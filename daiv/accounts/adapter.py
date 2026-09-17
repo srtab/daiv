@@ -12,9 +12,36 @@ logger = logging.getLogger(__name__)
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    MFA_AUTHENTICATE_STAGE = "allauth.mfa.stages.AuthenticateStage"
+
     def is_open_for_signup(self, request):
         """Disable standard email/password signup. Users are created by admins."""
         return False
+
+    def get_login_stages(self):
+        """
+        Drop allauth's MFA authenticate stage.
+
+        Passkeys here are an alternative way to sign in, not a second factor
+        (``MFA_SUPPORTED_TYPES`` is webauthn-only). Keeping the stage would send every
+        passkey owner who signed in by email code or OAuth to the passkey prompt, so
+        losing the device would lock the account out of every other login method.
+        """
+        return [stage for stage in super().get_login_stages() if stage != self.MFA_AUTHENTICATE_STAGE]
+
+    def send_notification_mail(self, template_prefix, user, context=None, email=None):
+        """
+        Add ``user`` to the template context and never let a failed send break the
+        operation that triggered the notification.
+
+        DAIV styling comes from the template overrides under ``templates/mfa/email/``
+        and ``templates/socialaccount/email/``, which allauth's ``render_mail`` picks up
+        on its own; the base implementation still honours ``ACCOUNT_EMAIL_NOTIFICATIONS``.
+        """
+        try:
+            super().send_notification_mail(template_prefix, user, {"user": user, **(context or {})}, email)
+        except Exception:
+            logger.exception("Failed to send '%s' notification to user pk=%s", template_prefix, user.pk)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):

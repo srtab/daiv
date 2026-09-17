@@ -1,12 +1,14 @@
+import re
 import uuid
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.core import mail
 from django.test import Client
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 
 import pytest
+from allauth.mfa.models import Authenticator
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, Role, User
@@ -34,6 +36,12 @@ def _create_api_key(user, name="test-key"):
     key, prefix, hashed_key = gen.generate()
     api_key = APIKey.objects.create(user=user, name=name, prefix=prefix, hashed_key=hashed_key)
     return api_key, key
+
+
+def _create_passkey(user, name="My key"):
+    return Authenticator.objects.create(
+        user=user, type=Authenticator.Type.WEBAUTHN, data={"name": name, "credential": {}}
+    )
 
 
 @pytest.mark.django_db
@@ -283,6 +291,12 @@ class TestUserUpdateView:
         assert response.status_code == 200
         assert response.context["form"].errors
 
+    def test_passkeys_in_context(self, admin_client, member_user):
+        _create_passkey(member_user, name="alice-key")
+        response = admin_client.get(reverse("user_update", kwargs={"pk": member_user.pk}))
+        assert response.status_code == 200
+        assert "alice-key" in response.content.decode()
+
 
 @pytest.mark.django_db
 class TestUserDeleteView:
@@ -331,6 +345,145 @@ class TestUserDeleteView:
         # The last-admin deletion guard in the view is a safety net for the case where
         # an admin tries to delete themselves (covered by test_cannot_delete_self).
         response = client.post(reverse("user_delete", kwargs={"pk": admin_user.pk}))
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestPasskeyLogin:
+    """Login-page passkey entry point (allauth's LoginView rendering our template)."""
+
+    def test_login_page_shows_passkey_button(self):
+        response = Client().get(reverse("account_login"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'id="passkey_login"' in content
+        assert "mfa_login" in content  # hidden credential form posted by allauth's JS
+
+    def test_mfa_url_wiring(self):
+        assert reverse("mfa_login_webauthn") == "/accounts/mfa/webauthn/login/"
+        assert reverse("mfa_list_webauthn") == "/accounts/mfa/webauthn/"
+        assert reverse("mfa_add_webauthn") == "/accounts/mfa/webauthn/add/"
+
+    def test_routes_reversed_by_allauth_internals_are_mounted(self):
+        # allauth's login pipeline and reauthentication middleware reverse these by
+        # name; a missing one is a 500 mid-flow rather than a routing error.
+        assert reverse("mfa_authenticate") == "/accounts/mfa/authenticate/"
+        assert reverse("mfa_reauthenticate") == "/accounts/mfa/reauthenticate/"
+        assert reverse("account_reauthenticate") == "/accounts/reauthenticate/"
+
+    def test_passkey_signup_not_mounted(self):
+        # Passkey signup stays off: users are created by admins.
+        with pytest.raises(NoReverseMatch):
+            reverse("mfa_signup_webauthn")
+
+    def test_mfa_index_redirects_to_passkey_list(self, member_client):
+        response = member_client.get("/accounts/mfa/")
+        assert response.status_code == 302
+        assert response.url == reverse("mfa_list_webauthn")
+
+    @pytest.mark.parametrize("with_passkey", [False, True])
+    def test_email_code_login_succeeds_for_passkey_owner(self, member_user, with_passkey):
+        # Owning a passkey must not block the other ways in: passkeys are an
+        # alternative sign-in method here, not a second factor.
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=member_user, email=member_user.email, verified=True, primary=True)
+        if with_passkey:
+            _create_passkey(member_user)
+
+        client = Client()
+        client.post(reverse("account_request_login_code"), {"email": member_user.email})
+        code = re.search(r"[A-Z0-9]{4}-[A-Z0-9]{4}", mail.outbox[-1].body).group()
+        response = client.post(reverse("account_confirm_login_code"), {"code": code})
+
+        assert response.status_code == 302
+        assert response.url == "/dashboard/"
+
+
+@pytest.mark.django_db
+class TestPasskeyManagementPages:
+    def test_list_requires_login(self):
+        response = Client().get(reverse("mfa_list_webauthn"))
+        assert response.status_code == 302
+        assert reverse("account_login") in response.url
+
+    def test_list_shows_own_passkeys(self, member_client, member_user):
+        _create_passkey(member_user, name="alice-key")
+        response = member_client.get(reverse("mfa_list_webauthn"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "alice-key" in content
+        assert reverse("mfa_add_webauthn") in content
+
+    def test_add_requires_login(self):
+        response = Client().get(reverse("mfa_add_webauthn"))
+        assert response.status_code == 302
+
+
+@pytest.mark.django_db
+class TestUserPasskeyRemoveView:
+    def test_admin_removes_user_passkey(self, admin_client, member_user):
+        passkey = _create_passkey(member_user, name="alice-key")
+        response = admin_client.post(reverse("user_passkey_remove", args=[member_user.pk, passkey.pk]))
+        assert response.status_code == 302
+        assert not Authenticator.objects.filter(pk=passkey.pk).exists()
+        # The passkey owner — not the admin — is notified, and the email names the key.
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == [member_user.email]
+        assert "alice-key" in mail.outbox[0].body
+
+    def test_removal_scoped_to_target_user(self, admin_client, admin_user, member_user):
+        # An authenticator of another user cannot be deleted via the wrong user URL.
+        passkey = _create_passkey(member_user, name="alice-key")
+        response = admin_client.post(reverse("user_passkey_remove", args=[admin_user.pk, passkey.pk]))
+        assert response.status_code == 404
+        assert Authenticator.objects.filter(pk=passkey.pk).exists()
+
+    def test_non_admin_cannot_remove(self, member_client, member_user):
+        passkey = _create_passkey(member_user, name="alice-key")
+        response = member_client.post(reverse("user_passkey_remove", args=[member_user.pk, passkey.pk]))
+        assert response.status_code == 403
+        assert Authenticator.objects.filter(pk=passkey.pk).exists()
+
+
+@pytest.mark.django_db
+class TestUserPasskeysResetView:
+    def test_admin_resets_all_user_passkeys(self, admin_client, member_user):
+        _create_passkey(member_user, name="key-1")
+        _create_passkey(member_user, name="key-2")
+        response = admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
+        assert response.status_code == 302
+        assert not Authenticator.objects.filter(user=member_user).exists()
+        # One email per removed key, each naming the key it covers.
+        assert len(mail.outbox) == 2
+        bodies = "\n".join(message.body for message in mail.outbox)
+        assert "key-1" in bodies
+        assert "key-2" in bodies
+
+    def test_removal_signal_carries_the_passkey_owner(self, admin_client, member_user):
+        # allauth's delete_and_cleanup would report the acting admin here.
+        from allauth.mfa import signals
+
+        received = []
+
+        def receiver(sender, user, **kwargs):
+            received.append(user)
+
+        signals.authenticator_removed.connect(receiver, weak=False)
+        try:
+            _create_passkey(member_user)
+            admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
+        finally:
+            signals.authenticator_removed.disconnect(receiver)
+        assert received == [member_user]
+
+    def test_reset_with_no_passkeys_sends_no_email(self, admin_client, member_user):
+        response = admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
+        assert response.status_code == 302
+        assert len(mail.outbox) == 0
+
+    def test_member_gets_403(self, member_client, admin_user):
+        response = member_client.post(reverse("user_passkeys_reset", args=[admin_user.pk]))
         assert response.status_code == 403
 
 

@@ -1,9 +1,11 @@
 from unittest.mock import Mock, patch
 
+from django.core import mail
+
 import pytest
 from pydantic import SecretStr
 
-from accounts.adapter import SocialAccountAdapter
+from accounts.adapter import AccountAdapter, SocialAccountAdapter
 from accounts.models import Role, User
 from codebase.base import GitPlatform
 
@@ -27,6 +29,76 @@ def _make_sociallogin(email: str | None) -> Mock:
     sociallogin = Mock()
     sociallogin.user.email = email
     return sociallogin
+
+
+@pytest.mark.django_db
+class TestAccountAdapterSendNotificationMail:
+    """Passkey added/removed notifications routed through AccountAdapter (accounts/adapter.py)."""
+
+    def _notify(self, user, prefix):
+        from django.test import RequestFactory
+
+        from allauth.account.adapter import get_adapter
+        from allauth.core import context as allauth_context
+
+        # allauth reads the request from its thread-local context; the views
+        # always run inside a real request, so emulate one here.
+        request = RequestFactory().get("/")
+        with allauth_context.request_context(request):
+            get_adapter().send_notification_mail(prefix, user)
+
+    def test_added_notification_uses_daiv_templates(self, user_in_db):
+        self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "example.com" in message.subject
+        assert "A new passkey was added" in message.subject
+        assert message.to == [user_in_db.email]
+        assert "Touch ID, Windows Hello" in message.body
+        assert "Touch ID, Windows Hello" in message.alternatives[0][0]
+
+    def test_removed_notification_uses_daiv_templates(self, user_in_db):
+        self._notify(user_in_db, "mfa/email/webauthn_removed")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "A passkey was removed" in message.subject
+        assert "IP address" in message.body
+
+    def test_non_passkey_prefix_falls_through_to_allauth(self, user_in_db):
+        # Non-passkey prefixes (TOTP/recovery codes, not mounted in this repo) go to
+        # allauth's default implementation: its own plain-text templates, not ours.
+        self._notify(user_in_db, "mfa/email/totp_activated")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "Authenticator App Activated" in message.subject
+        assert "Authenticator app activated" in message.body
+        assert "Touch ID" not in message.body
+
+    def test_socialaccount_notification_gets_daiv_html_alternative(self, user_in_db):
+        self._notify(user_in_db, "socialaccount/email/account_connected")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "A third-party account was connected" in message.alternatives[0][0]
+
+    def test_respects_email_notifications_kill_switch(self, user_in_db, settings):
+        settings.ACCOUNT_EMAIL_NOTIFICATIONS = False
+        self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert mail.outbox == []
+
+    def test_send_failure_does_not_propagate(self, user_in_db):
+        # The passkey operation must succeed even if SMTP is down.
+        with patch("allauth.account.adapter.DefaultAccountAdapter.render_mail", side_effect=OSError("SMTP down")):
+            self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert mail.outbox == []
+
+
+class TestAccountAdapterLoginStages:
+    def test_mfa_authenticate_stage_is_dropped(self):
+        from allauth.account.adapter import get_adapter
+
+        stages = get_adapter().get_login_stages()
+        assert AccountAdapter.MFA_AUTHENTICATE_STAGE not in stages
+        assert "allauth.account.stages.LoginByCodeStage" in stages
 
 
 @pytest.mark.django_db

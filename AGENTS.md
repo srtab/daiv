@@ -8,11 +8,22 @@ This file provides guidance to agents when working with code in this repository.
 make test          # unit tests + coverage; CI gate
 make lint-fix       # check + fix lint/format in one step — prefer this over make lint
 make lint           # check only (no fixes); CI gate
+# NOTE: the djade step only checks *tracked* files (git ls-files). Run
+#   uv run --only-group=dev djade --target-version 6.0 <new .html files>
+# manually on newly created templates, or CI lint fails on files make lint never saw.
+# NOTE: ruff check caches results (.ruff_cache) and can report "All checks passed!"
+# on a changed file — before declaring a CI lint failure un-reproducible, run
+#   rm -rf .ruff_cache && uv run --only-group=dev ruff check --no-cache .
 make lint-typing    # ty, daiv/ only
 
 # Single test / pattern
 uv run pytest tests/unit_tests/accounts/test_views.py
 uv run pytest tests/unit_tests/ -k "test_notes"
+
+# Test layout — one test file per application file: tests for
+# `accounts/adapter.py` go in `test_adapter.py`, `accounts/emails.py` in
+# `test_emails.py`, `accounts/views.py` in `test_views.py`, etc. Don't create
+# feature-named catch-all test files. Shared fixtures live in tests/unit_tests/conftest.py.
 
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
