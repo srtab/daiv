@@ -8,6 +8,11 @@
 <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">
     {% if user.name %}{% blocktranslate with name=user.name %}Hi {{ name }}, a passkey was removed from your DAIV account.{% endblocktranslate %}{% else %}{% translate "Hi, a passkey was removed from your DAIV account." %}{% endif %}
 </p>
+{% if passkey_name %}
+<p style="margin: 0 0 20px; padding: 12px 16px; border-radius: 8px; background-color: #f3f4f6; font-size: 13px; line-height: 1.7; color: #6b7280;">
+    {% blocktranslate with key=passkey_name %}Removed passkey: "{{ key }}"{% endblocktranslate %}
+</p>
+{% endif %}
 <p style="margin: 0 0 8px; font-size: 12px; font-weight: 600; color: #111827;">
     {% translate "Details of the change" %}
 </p>

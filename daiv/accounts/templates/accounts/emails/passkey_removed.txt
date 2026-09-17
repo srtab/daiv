@@ -1,6 +1,6 @@
 {% load i18n %}{% autoescape off %}{% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }},{% endblocktrans %}{% else %}{% trans "Hi," %}{% endif %}
 
-{% trans "A passkey was removed from your DAIV account." %}
+{% if passkey_name %}{% blocktrans with key=passkey_name %}The passkey "{{ key }}" was removed from your DAIV account.{% endblocktrans %}{% else %}{% trans "A passkey was removed from your DAIV account." %}{% endif %}
 
 {% blocktrans with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktrans %}
 {% blocktrans %}IP address: {{ ip }}{% endblocktrans %}

@@ -403,9 +403,10 @@ class TestUserPasskeyRemoveView:
         response = admin_client.post(reverse("user_passkey_remove", args=[member_user.pk, passkey.pk]))
         assert response.status_code == 302
         assert not Authenticator.objects.filter(pk=passkey.pk).exists()
-        # The passkey owner — not the admin — is notified.
+        # The passkey owner — not the admin — is notified, and the email names the key.
         assert len(mail.outbox) == 1
         assert mail.outbox[0].to == [member_user.email]
+        assert "alice-key" in mail.outbox[0].body
 
     def test_removal_scoped_to_target_user(self, admin_client, admin_user, member_user):
         # An authenticator of another user cannot be deleted via the wrong user URL.
@@ -429,7 +430,15 @@ class TestUserPasskeysResetView:
         response = admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
         assert response.status_code == 302
         assert not Authenticator.objects.filter(user=member_user).exists()
+        # One email per removed key, each naming the key it covers.
         assert len(mail.outbox) == 2
+        assert "key-1" in mail.outbox[0].body
+        assert "key-2" in mail.outbox[1].body
+
+    def test_reset_with_no_passkeys_sends_no_email(self, admin_client, member_user):
+        response = admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
+        assert response.status_code == 302
+        assert len(mail.outbox) == 0
 
     def test_member_gets_403(self, member_client, admin_user):
         response = member_client.post(reverse("user_passkeys_reset", args=[admin_user.pk]))

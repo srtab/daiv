@@ -17,13 +17,14 @@ class AccountAdapter(DefaultAccountAdapter):
         """Disable standard email/password signup. Users are created by admins."""
         return False
 
-    def send_notification_mail(self, template_prefix, user, context=None, email=None):
+    def send_notification_mail(self, template_prefix, user, context=None, email=None, connection=None):
         """
         Send passkey added/removed notifications in DAIV's email styling.
 
         allauth's WebAuthn flows call this with the ``mfa/email/webauthn_added`` /
         ``mfa/email/webauthn_removed`` prefixes (plain-text templates otherwise).
-        Everything else falls through to allauth's default.
+        Everything else falls through to allauth's default. ``connection`` lets
+        callers sending several notifications share one SMTP connection.
         """
         from accounts.emails import PASSKEY_NOTIFICATIONS, send_passkey_notification_email
 
@@ -45,7 +46,7 @@ class AccountAdapter(DefaultAccountAdapter):
         }
         if context:
             ctx.update(context)
-        send_passkey_notification_email(user, template_prefix, ctx, email=email)
+        send_passkey_notification_email(user, template_prefix, ctx, email=email, connection=connection)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):

@@ -56,7 +56,9 @@ PASSKEY_NOTIFICATIONS: dict[str, tuple[str, str]] = {
 }
 
 
-def send_passkey_notification_email(user: User, template_prefix: str, context: dict, email: str | None = None) -> bool:
+def send_passkey_notification_email(
+    user: User, template_prefix: str, context: dict, email: str | None = None, connection=None
+) -> bool:
     """
     Send the passkey added/removed security notification in DAIV's email styling.
 
@@ -67,8 +69,11 @@ def send_passkey_notification_email(user: User, template_prefix: str, context: d
         user: The user whose passkey was added or removed.
         template_prefix: allauth notification prefix, a key of ``PASSKEY_NOTIFICATIONS``
             (``mfa/email/webauthn_added`` or ``mfa/email/webauthn_removed``).
-        context: Security context (timestamp, ip, user_agent) rendered in the notice.
+        context: Security context (timestamp, ip, user_agent, and optionally
+            ``passkey_name`` for removals) rendered in the notice.
         email: Recipient address; defaults to the user's address.
+        connection: Optional shared email backend connection (see ``get_connection``),
+            so bulk senders can reuse one SMTP session.
 
     Returns:
         True if the email was sent, False otherwise.
@@ -87,6 +92,7 @@ def send_passkey_notification_email(user: User, template_prefix: str, context: d
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[email or user.email],
             html_message=html_body,
+            connection=connection,
         )
     except Exception:
         logger.exception("Failed to send %s email to %s", kind, user.email)
