@@ -7,6 +7,7 @@ from django.utils.translation import gettext_lazy as _
 
 from mcp_servers.constants import RESERVED_MCP_NAMES
 from mcp_servers.models import MCPServer
+from mcp_servers.validators import is_internal_network_target
 
 # RFC 7230 token grammar for header names.
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
@@ -143,6 +144,22 @@ class MCPServerForm(forms.ModelForm):
         if name in RESERVED_MCP_NAMES:
             raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
         return name
+
+    def clean_url(self):
+        """User-scoped (member-controlled) servers may not target the app host's
+        internal network — that is an SSRF primitive (the probe / agent runs from
+        the app host). Global/admin-configured rows keep the permissive
+        ``validate_http_url`` (internal MCP servers are a legitimate deployment
+        shape — see its docstring)."""
+        url = self.cleaned_data.get("url")
+        if not url:
+            return url
+        if self.scope == MCPServer.Scope.USER and is_internal_network_target(url):
+            raise forms.ValidationError(
+                _("URLs targeting private, loopback, or link-local addresses are not allowed for personal servers."),
+                code="private_target",
+            )
+        return url
 
     def clean(self):
         cleaned = super().clean()

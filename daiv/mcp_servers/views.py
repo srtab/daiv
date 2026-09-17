@@ -4,6 +4,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -21,6 +22,7 @@ from mcp_servers import services
 from mcp_servers.filters import MCPServerFilter
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_servers.models import MCPServer
+from mcp_servers.validators import is_internal_network_target, validate_http_url
 
 logger = logging.getLogger("daiv.mcp_servers")
 
@@ -357,6 +359,20 @@ class MCPServerTestView(LoginRequiredMixin, View):
         )
         if not formset.is_valid():
             return JsonResponse({"ok": False, "error": "invalid headers"}, status=400)
+        # Validate the URL *before* probing. The model validator permits internal
+        # hostnames for legitimate deployments, but a non-admin probing from the app
+        # host must not target private/loopback/link-local IPs (or names resolving to
+        # them) — that is an SSRF primitive against the internal network. Admins keep
+        # the permissive allowance (global servers are admin-controlled).
+        url = request.POST.get("url") or ""
+        try:
+            validate_http_url(url)
+        except DjangoValidationError:
+            return JsonResponse({"ok": False, "error": "Enter a valid http(s) URL."}, status=400)
+        if not request.user.is_admin and is_internal_network_target(url):
+            return JsonResponse(
+                {"ok": False, "error": "URLs targeting private or internal addresses are not allowed."}, status=400
+            )
         # Re-testing a saved server: the form blanks preserved literal values (see
         # _existing_headers_for_formset), so resolve them from the stored row here —
         # otherwise a blank "preserve existing" secret would probe without it and fail.
@@ -383,7 +399,7 @@ class MCPServerTestView(LoginRequiredMixin, View):
         headers = build_headers_from_formset(formset, existing=existing_headers)
         if not request.user.is_admin and any(h.get("mode") == MCPServer.HeaderMode.ENV_REF for h in headers):
             return JsonResponse({"ok": False, "error": "env_ref headers are not allowed"}, status=400)
-        payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
+        payload = {"transport": request.POST.get("transport"), "url": url, "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
         # Always 200: the probe ran and produced a structured answer. A failed probe
         # is a negative *result*, not a server error — returning 5xx would log as a
