@@ -42,6 +42,7 @@ class TestSidebarSmoke:
             ("sandbox_envs:list", lambda u: {}),
             ("user_channels", lambda u: {}),
             ("api_keys", lambda u: {}),
+            ("mfa_list_webauthn", lambda u: {}),
         ],
     )
     def test_sidebar_present_on_every_section_root(self, member, url_name, kwargs_fn):
@@ -64,6 +65,16 @@ class TestAdminGroupVisibility:
     def test_member_does_not_see_admin_group(self, member):
         response = _client(member).get(reverse("dashboard"))
         assert b'data-testid="nav-admin-group"' not in response.content
+
+
+@pytest.mark.django_db
+class TestSecurityGroupVisibility:
+    def test_security_section_shows_passkeys_for_every_member(self, member):
+        response = _client(member).get(reverse("dashboard"))
+        content = response.content.decode()
+        assert "Security" in content
+        assert reverse("mfa_list_webauthn") in content
+        assert "Passkeys" in content
 
 
 @pytest.mark.django_db

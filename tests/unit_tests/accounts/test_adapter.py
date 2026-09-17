@@ -1,5 +1,7 @@
 from unittest.mock import Mock, patch
 
+from django.core import mail
+
 import pytest
 from pydantic import SecretStr
 
@@ -27,6 +29,50 @@ def _make_sociallogin(email: str | None) -> Mock:
     sociallogin = Mock()
     sociallogin.user.email = email
     return sociallogin
+
+
+@pytest.mark.django_db
+class TestAccountAdapterSendNotificationMail:
+    """Passkey added/removed notifications routed through AccountAdapter (accounts/adapter.py)."""
+
+    def _notify(self, user, prefix):
+        from django.test import RequestFactory
+
+        from allauth.account.adapter import get_adapter
+        from allauth.core import context as allauth_context
+
+        # allauth reads the request from its thread-local context; the views
+        # always run inside a real request, so emulate one here.
+        request = RequestFactory().get("/")
+        with allauth_context.request_context(request):
+            get_adapter().send_notification_mail(prefix, user)
+
+    def test_added_notification_uses_daiv_templates(self, user_in_db):
+        self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "example.com" in message.subject
+        assert "A new passkey was added" in message.subject
+        assert message.to == [user_in_db.email]
+        assert "Touch ID, Windows Hello" in message.body
+        assert "Touch ID, Windows Hello" in message.alternatives[0][0]
+
+    def test_removed_notification_uses_daiv_templates(self, user_in_db):
+        self._notify(user_in_db, "mfa/email/webauthn_removed")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "A passkey was removed" in message.subject
+        assert "IP address" in message.body
+
+    def test_non_passkey_prefix_falls_through_to_allauth(self, user_in_db):
+        # Non-passkey prefixes (TOTP/recovery codes, not mounted in this repo) go to
+        # allauth's default implementation: its own plain-text templates, not ours.
+        self._notify(user_in_db, "mfa/email/totp_activated")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "Authenticator App Activated" in message.subject
+        assert "Authenticator app activated" in message.body
+        assert "Touch ID" not in message.body
 
 
 @pytest.mark.django_db

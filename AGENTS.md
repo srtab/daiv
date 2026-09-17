@@ -17,6 +17,11 @@ make lint-typing    # ty, daiv/ only
 uv run pytest tests/unit_tests/accounts/test_views.py
 uv run pytest tests/unit_tests/ -k "test_notes"
 
+# Test layout — one test file per application file: tests for
+# `accounts/adapter.py` go in `test_adapter.py`, `accounts/emails.py` in
+# `test_emails.py`, `accounts/views.py` in `test_views.py`, etc. Don't create
+# feature-named catch-all test files. Shared fixtures live in tests/unit_tests/conftest.py.
+
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
 # Translations
