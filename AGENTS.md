@@ -11,6 +11,9 @@ make lint           # check only (no fixes); CI gate
 # NOTE: the djade step only checks *tracked* files (git ls-files). Run
 #   uv run --only-group=dev djade --target-version 6.0 <new .html files>
 # manually on newly created templates, or CI lint fails on files make lint never saw.
+# NOTE: ruff check caches results (.ruff_cache) and can report "All checks passed!"
+# on a changed file — before declaring a CI lint failure un-reproducible, run
+#   rm -rf .ruff_cache && uv run --only-group=dev ruff check --no-cache .
 make lint-typing    # ty, daiv/ only
 
 # Single test / pattern

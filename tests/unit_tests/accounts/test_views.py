@@ -1,13 +1,13 @@
 import uuid
 from unittest.mock import patch
 
-from allauth.mfa.models import Authenticator
 from django.contrib.messages import get_messages
 from django.core import mail
 from django.test import Client
 from django.urls import NoReverseMatch, reverse
 
 import pytest
+from allauth.mfa.models import Authenticator
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, Role, User
