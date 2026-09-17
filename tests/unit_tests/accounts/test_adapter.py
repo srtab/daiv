@@ -5,7 +5,7 @@ from django.core import mail
 import pytest
 from pydantic import SecretStr
 
-from accounts.adapter import SocialAccountAdapter
+from accounts.adapter import AccountAdapter, SocialAccountAdapter
 from accounts.models import Role, User
 from codebase.base import GitPlatform
 
@@ -73,6 +73,32 @@ class TestAccountAdapterSendNotificationMail:
         assert "Authenticator App Activated" in message.subject
         assert "Authenticator app activated" in message.body
         assert "Touch ID" not in message.body
+
+    def test_socialaccount_notification_gets_daiv_html_alternative(self, user_in_db):
+        self._notify(user_in_db, "socialaccount/email/account_connected")
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert "A third-party account was connected" in message.alternatives[0][0]
+
+    def test_respects_email_notifications_kill_switch(self, user_in_db, settings):
+        settings.ACCOUNT_EMAIL_NOTIFICATIONS = False
+        self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert mail.outbox == []
+
+    def test_send_failure_does_not_propagate(self, user_in_db):
+        # The passkey operation must succeed even if SMTP is down.
+        with patch("allauth.account.adapter.DefaultAccountAdapter.render_mail", side_effect=OSError("SMTP down")):
+            self._notify(user_in_db, "mfa/email/webauthn_added")
+        assert mail.outbox == []
+
+
+class TestAccountAdapterLoginStages:
+    def test_mfa_authenticate_stage_is_dropped(self):
+        from allauth.account.adapter import get_adapter
+
+        stages = get_adapter().get_login_stages()
+        assert AccountAdapter.MFA_AUTHENTICATE_STAGE not in stages
+        assert "allauth.account.stages.LoginByCodeStage" in stages
 
 
 @pytest.mark.django_db

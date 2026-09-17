@@ -1,7 +1,6 @@
 import logging
 
 from allauth.account.adapter import DefaultAccountAdapter
-from allauth.core.internal.httpkit import HTTP_USER_AGENT_MAX_LENGTH
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialApp
 
@@ -13,40 +12,36 @@ logger = logging.getLogger(__name__)
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    MFA_AUTHENTICATE_STAGE = "allauth.mfa.stages.AuthenticateStage"
+
     def is_open_for_signup(self, request):
         """Disable standard email/password signup. Users are created by admins."""
         return False
 
-    def send_notification_mail(self, template_prefix, user, context=None, email=None, connection=None):
+    def get_login_stages(self):
         """
-        Send passkey added/removed notifications in DAIV's email styling.
+        Drop allauth's MFA authenticate stage.
 
-        allauth's WebAuthn flows call this with the ``mfa/email/webauthn_added`` /
-        ``mfa/email/webauthn_removed`` prefixes (plain-text templates otherwise).
-        Everything else falls through to allauth's default. ``connection`` lets
-        callers sending several notifications share one SMTP connection.
+        Passkeys here are an alternative way to sign in, not a second factor
+        (``MFA_SUPPORTED_TYPES`` is webauthn-only). Keeping the stage would send every
+        passkey owner who signed in by email code or OAuth to the passkey prompt, so
+        losing the device would lock the account out of every other login method.
         """
-        from accounts.emails import PASSKEY_NOTIFICATIONS, send_passkey_notification_email
+        return [stage for stage in super().get_login_stages() if stage != self.MFA_AUTHENTICATE_STAGE]
 
-        if template_prefix not in PASSKEY_NOTIFICATIONS:
-            return super().send_notification_mail(template_prefix, user, context, email)
+    def send_notification_mail(self, template_prefix, user, context=None, email=None):
+        """
+        Add ``user`` to the template context and never let a failed send break the
+        operation that triggered the notification.
 
-        from django.utils import timezone
-
-        from allauth.account.models import EmailAddress
-
-        if not email:
-            email = EmailAddress.objects.get_primary_email(user)
-        if not email:
-            email = user.email
-        ctx = {
-            "timestamp": timezone.now(),
-            "ip": self.get_client_ip(self.request),
-            "user_agent": self.get_http_user_agent(self.request)[:HTTP_USER_AGENT_MAX_LENGTH],
-        }
-        if context:
-            ctx.update(context)
-        send_passkey_notification_email(user, template_prefix, ctx, email=email, connection=connection)
+        DAIV styling comes from the template overrides under ``templates/mfa/email/``
+        and ``templates/socialaccount/email/``, which allauth's ``render_mail`` picks up
+        on its own; the base implementation still honours ``ACCOUNT_EMAIL_NOTIFICATIONS``.
+        """
+        try:
+            super().send_notification_mail(template_prefix, user, {"user": user, **(context or {})}, email)
+        except Exception:
+            logger.exception("Failed to send '%s' notification to user pk=%s", template_prefix, user.pk)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):

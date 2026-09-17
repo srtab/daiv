@@ -4,7 +4,6 @@ from datetime import date, timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from django.core.mail import get_connection
 from django.db import IntegrityError
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
@@ -399,7 +398,9 @@ class UserUpdateView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, U
         from allauth.mfa.models import Authenticator
 
         context = super().get_context_data(**kwargs)
-        context["passkeys"] = Authenticator.objects.filter(user_id=self.object.pk, type=Authenticator.Type.WEBAUTHN)
+        context["passkeys"] = Authenticator.objects.filter(
+            user_id=self.object.pk, type=Authenticator.Type.WEBAUTHN
+        ).order_by("created_at")
         return context
 
     def get_breadcrumbs(self):
@@ -433,25 +434,25 @@ class UserDeleteView(BreadcrumbMixin, SuccessMessageMixin, AdminRequiredMixin, D
         ]
 
 
-def _remove_user_passkey(request, user, authenticator, email=None, connection=None):
+def _remove_user_passkey(request, user, authenticator, email=None):
     """
     Delete a user's WebAuthn authenticator on their behalf (admin action) and notify
     the owner — one email per removed key, naming the key.
 
-    allauth's own removal flow notifies ``request.user`` — correct for self-removal,
-    wrong here — so the notification goes to the passkey owner explicitly.
-
-    ``delete_and_cleanup`` is allauth-internal API (it also deletes dangling recovery
-    codes and emits the removal signal); the ``django-allauth`` pin plus
-    ``test_admin_removes_user_passkey`` make an upgrade renaming it fail loudly.
+    allauth's ``delete_and_cleanup`` is not used: both the notification and the
+    ``authenticator_removed`` signal it emits carry ``request.user``, which is the
+    admin rather than the passkey owner. Recovery codes need no cleanup here because
+    ``MFA_SUPPORTED_TYPES`` is webauthn-only.
     """
     from allauth.account.adapter import get_adapter as get_account_adapter
-    from allauth.mfa.base.internal.flows import delete_and_cleanup
+    from allauth.mfa import signals
+    from allauth.mfa.models import Authenticator
 
     name = str(authenticator)
-    delete_and_cleanup(request, authenticator)
+    authenticator.delete()
+    signals.authenticator_removed.send(sender=Authenticator, request=request, user=user, authenticator=authenticator)
     get_account_adapter(request).send_notification_mail(
-        "mfa/email/webauthn_removed", user, context={"passkey_name": name}, email=email, connection=connection
+        "mfa/email/webauthn_removed", user, context={"passkey_name": name}, email=email
     )
     return name
 
@@ -479,19 +480,16 @@ class UserPasskeysResetView(AdminRequiredMixin, View):
         from allauth.mfa.models import Authenticator
 
         user = get_object_or_404(User, pk=pk)
-        authenticators = list(Authenticator.objects.filter(user_id=user.pk, type=Authenticator.Type.WEBAUTHN))
+        authenticators = list(
+            Authenticator.objects.filter(user_id=user.pk, type=Authenticator.Type.WEBAUTHN).order_by("created_at")
+        )
         if not authenticators:
             messages.info(request, f"'{user.email}' has no passkeys to remove.")
             return redirect("user_update", pk=user.pk)
-        # One notification per removed key, all over a single SMTP connection;
-        # the recipient is resolved once instead of once per key.
+        # One notification per removed key; the recipient is resolved once, not once per key.
         email = EmailAddress.objects.get_primary_email(user) or user.email
-        connection = get_connection()
-        try:
-            for authenticator in authenticators:
-                _remove_user_passkey(request, user, authenticator, email=email, connection=connection)
-        finally:
-            connection.close()
+        for authenticator in authenticators:
+            _remove_user_passkey(request, user, authenticator, email=email)
         messages.success(
             request, f"Removed {len(authenticators)} passkey(s) from '{user.email}'. The user has been notified."
         )

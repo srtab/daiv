@@ -44,7 +44,14 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "channels": {"user_channels"},
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
     # Passkey (WebAuthn) management pages, mounted under /accounts/mfa/.
-    "passkeys": {"mfa_index", "mfa_list_webauthn", "mfa_add_webauthn", "mfa_edit_webauthn", "mfa_remove_webauthn"},
+    "passkeys": {
+        "mfa_index",
+        "mfa_list_webauthn",
+        "mfa_add_webauthn",
+        "mfa_edit_webauthn",
+        "mfa_remove_webauthn",
+        "mfa_reauthenticate_webauthn",
+    },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
     "skills": {"skills:list", "skills:upload", "skills:detail", "skills:delete", "skills:download"},

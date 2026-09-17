@@ -23,15 +23,20 @@ urlpatterns = [
     path("logout/", account_views.logout, name="account_logout"),
     path("login/code/", account_views.request_login_code, name="account_request_login_code"),
     path("login/code/confirm/", account_views.confirm_login_code, name="account_confirm_login_code"),
-    # MFA / passkeys (WebAuthn). Mounting the pieces of allauth.mfa.urls by hand
-    # instead of including the whole module: passkey-only mode has no use for the
-    # generic MFA index/authenticate/reauthenticate routes, and mfa_index
-    # (allauth's redirect target after adding a key) points at the passkey list.
+    # Required by allauth's reauthentication middleware: any user with a usable
+    # password is redirected here before managing passkeys.
+    path("reauthenticate/", account_views.reauthenticate, name="account_reauthenticate"),
+    # MFA / passkeys (WebAuthn). The whole of allauth.mfa.urls is mounted: adding
+    # allauth.mfa to INSTALLED_APPS inserts AuthenticateStage into the login
+    # pipeline, which reverses mfa_authenticate for any passkey owner signing in by
+    # another method, and the reauthentication middleware reverses mfa_reauthenticate.
+    # The redirect shadows allauth's mfa_index view (both resolve /accounts/mfa/, so
+    # reverse() is unaffected) to send allauth's post-add redirect at the passkey list.
     path(
         "mfa/",
         include([
             path("", RedirectView.as_view(pattern_name="mfa_list_webauthn", permanent=False), name="mfa_index"),
-            path("webauthn/", include("allauth.mfa.webauthn.urls")),
+            path("", include("allauth.mfa.urls")),
         ]),
     ),
     # Social account views required by the OAuth flow.

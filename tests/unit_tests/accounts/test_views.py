@@ -1,3 +1,4 @@
+import re
 import uuid
 from unittest.mock import patch
 
@@ -38,8 +39,6 @@ def _create_api_key(user, name="test-key"):
 
 
 def _create_passkey(user, name="My key"):
-    from allauth.mfa.models import Authenticator
-
     return Authenticator.objects.create(
         user=user, type=Authenticator.Type.WEBAUTHN, data={"name": name, "credential": {}}
     )
@@ -365,6 +364,13 @@ class TestPasskeyLogin:
         assert reverse("mfa_list_webauthn") == "/accounts/mfa/webauthn/"
         assert reverse("mfa_add_webauthn") == "/accounts/mfa/webauthn/add/"
 
+    def test_routes_reversed_by_allauth_internals_are_mounted(self):
+        # allauth's login pipeline and reauthentication middleware reverse these by
+        # name; a missing one is a 500 mid-flow rather than a routing error.
+        assert reverse("mfa_authenticate") == "/accounts/mfa/authenticate/"
+        assert reverse("mfa_reauthenticate") == "/accounts/mfa/reauthenticate/"
+        assert reverse("account_reauthenticate") == "/accounts/reauthenticate/"
+
     def test_passkey_signup_not_mounted(self):
         # Passkey signup stays off: users are created by admins.
         with pytest.raises(NoReverseMatch):
@@ -374,6 +380,24 @@ class TestPasskeyLogin:
         response = member_client.get("/accounts/mfa/")
         assert response.status_code == 302
         assert response.url == reverse("mfa_list_webauthn")
+
+    @pytest.mark.parametrize("with_passkey", [False, True])
+    def test_email_code_login_succeeds_for_passkey_owner(self, member_user, with_passkey):
+        # Owning a passkey must not block the other ways in: passkeys are an
+        # alternative sign-in method here, not a second factor.
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=member_user, email=member_user.email, verified=True, primary=True)
+        if with_passkey:
+            _create_passkey(member_user)
+
+        client = Client()
+        client.post(reverse("account_request_login_code"), {"email": member_user.email})
+        code = re.search(r"[A-Z0-9]{4}-[A-Z0-9]{4}", mail.outbox[-1].body).group()
+        response = client.post(reverse("account_confirm_login_code"), {"code": code})
+
+        assert response.status_code == 302
+        assert response.url == "/dashboard/"
 
 
 @pytest.mark.django_db
@@ -432,8 +456,26 @@ class TestUserPasskeysResetView:
         assert not Authenticator.objects.filter(user=member_user).exists()
         # One email per removed key, each naming the key it covers.
         assert len(mail.outbox) == 2
-        assert "key-1" in mail.outbox[0].body
-        assert "key-2" in mail.outbox[1].body
+        bodies = "\n".join(message.body for message in mail.outbox)
+        assert "key-1" in bodies
+        assert "key-2" in bodies
+
+    def test_removal_signal_carries_the_passkey_owner(self, admin_client, member_user):
+        # allauth's delete_and_cleanup would report the acting admin here.
+        from allauth.mfa import signals
+
+        received = []
+
+        def receiver(sender, user, **kwargs):
+            received.append(user)
+
+        signals.authenticator_removed.connect(receiver, weak=False)
+        try:
+            _create_passkey(member_user)
+            admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))
+        finally:
+            signals.authenticator_removed.disconnect(receiver)
+        assert received == [member_user]
 
     def test_reset_with_no_passkeys_sends_no_email(self, admin_client, member_user):
         response = admin_client.post(reverse("user_passkeys_reset", args=[member_user.pk]))

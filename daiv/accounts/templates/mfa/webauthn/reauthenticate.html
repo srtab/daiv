@@ -1,0 +1,58 @@
+{% extends "base_app.html" %}
+{% load icon_tags %}
+
+{% block title %}Confirm access — DAIV{% endblock %}
+
+{% block container_width %}max-w-xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">Confirm access</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            Confirm it's you with your passkey before changing your security settings.
+        </p>
+    </div>
+</div>
+
+<form method="post" action="{% url 'mfa_reauthenticate_webauthn' %}"
+      class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 50ms">
+    {% csrf_token %}
+    {% if form.non_field_errors or form.credential.errors %}
+    <div class="mb-4 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+        {{ form.non_field_errors }}{{ form.credential.errors }}
+    </div>
+    {% endif %}
+    <input type="hidden" name="{{ form.credential.html_name }}" id="{{ form.credential.auto_id }}">
+    {{ redirect_field }}
+    <div class="flex items-center gap-3">
+        <button type="submit" id="mfa_webauthn_reauthenticate" class="btn-primary">
+            {% icon "key" "h-4 w-4" %}
+            Use your passkey
+        </button>
+        <a href="{% url 'mfa_list_webauthn' %}" class="btn-secondary">Cancel</a>
+    </div>
+</form>
+
+{% if reauthentication_alternatives %}
+<div class="animate-fade-up mt-6" style="animation-delay: 100ms">
+    <p class="mb-3 text-[13px] font-medium text-gray-300">Other ways to confirm</p>
+    <div class="flex flex-wrap items-center gap-3">
+        {% for alt in reauthentication_alternatives %}
+        <a href="{{ alt.url }}" class="btn-secondary">{{ alt.description }}</a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% include "mfa/webauthn/snippets/scripts.html" %}
+{{ js_data|json_script:"js_data" }}
+<script data-allauth-onload="allauth.webauthn.forms.authenticateForm" type="application/json">{
+    "ids": {
+        "authenticate": "mfa_webauthn_reauthenticate",
+        "credential": "{{ form.credential.auto_id }}",
+        "data": "js_data"
+    }
+}
+</script>
+{% endblock app_content %}

@@ -18,11 +18,10 @@
 <form method="post" action="{% url 'mfa_add_webauthn' %}"
       class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 50ms">
     {% csrf_token %}
-    {% if form.non_field_errors %}
-    <div class="mb-4 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
-        {{ form.non_field_errors }}
+    <div id="passkey_error"{% if not form.non_field_errors and not form.credential.errors %} hidden{% endif %}
+         class="mb-4 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+        {{ form.non_field_errors }}{{ form.credential.errors }}
     </div>
-    {% endif %}
     <div class="space-y-4">
         <div>
             <label for="{{ form.name.auto_id }}" class="mb-1.5 block text-[13px] font-medium text-gray-300">
@@ -31,7 +30,9 @@
             <input type="text" name="{{ form.name.html_name }}" id="{{ form.name.auto_id }}"
                    value="{{ form.name.value|default:'' }}" maxlength="150"
                    placeholder="e.g. MacBook Touch ID" class="w-full">
-            {% if form.name.help_text %}
+            {% if form.name.errors %}
+            <p class="mt-1.5 text-[13px] text-red-400">{{ form.name.errors }}</p>
+            {% elif form.name.help_text %}
             <p class="mt-1.5 text-[12px] text-gray-500">{{ form.name.help_text }}</p>
             {% endif %}
         </div>
@@ -69,5 +70,17 @@
         "data": "js_data"
     }
 }
+</script>
+<script>
+    (function () {
+        const box = document.getElementById("passkey_error");
+        document.addEventListener("allauth.error", function (event) {
+            const exception = event.detail && event.detail.exception;
+            box.textContent = (exception && exception.message)
+                || "Your browser could not create a passkey. Check that you are on a secure (https) connection and try again.";
+            box.hidden = false;
+            event.preventDefault();
+        });
+    })();
 </script>
 {% endblock app_content %}

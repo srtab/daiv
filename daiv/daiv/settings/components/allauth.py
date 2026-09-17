@@ -32,7 +32,8 @@ LOGIN_URL = "/accounts/login/"
 MFA_SUPPORTED_TYPES = ["webauthn"]
 MFA_PASSKEY_LOGIN_ENABLED = True
 # Passkey signup stays off: users are created by admins (AccountAdapter.is_open_for_signup).
-# Enables passkey added/removed notification emails (see AccountAdapter.send_notification_mail).
+# Global switch, not passkey-scoped: it also enables allauth's socialaccount
+# connected/disconnected notifications, which templates/socialaccount/email/ styles.
 ACCOUNT_EMAIL_NOTIFICATIONS = True
 
 # Provider scopes are always registered; whether a provider is actually usable
