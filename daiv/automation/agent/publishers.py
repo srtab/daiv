@@ -260,26 +260,26 @@ class GitChangePublisher(ChangePublisher):
                 branch_name = merge_request.source_branch
 
             # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
-            # private cross-project CI includes; skip that push's CI and re-trigger as the service
-            # account below. The client capability answers False for platforms without ephemeral
-            # tokens, so no platform check is needed here; an explicit skip_ci ("no CI at all") also
-            # leaves nothing to heal.
-            heal_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
+            # private cross-project CI includes, so suppress that push's CI. The client capability
+            # answers False for platforms without ephemeral tokens, so no platform check is needed
+            # here; an explicit skip_ci ("no CI at all") leaves nothing to suppress.
+            suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
                 self.ctx.repository
             )
+            # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
+            # already-open MR needs the heal — and only it needs the pushed sha.
+            will_heal = suppress_bot_pipeline and merge_request is not None
 
             # Only an existing MR's source branch may have advanced under the run (a dependabot
             # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
             # A fresh, unique branch can't, so leave integration off for new MRs.
-            # skip_ci here suppresses only the ephemeral bot's doomed pipeline (not the caller's
-            # skip_ci intent); _trigger_service_account_pipeline recreates it below.
             await git_manager.push_head_to(
-                branch_name, integrate_on_reject=merge_request is not None, skip_ci=heal_pipeline
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
             )
             # Read after the push: an integrate-on-reject rebase rewrites HEAD, and the heal below
             # needs the sha that actually landed on the remote.
             pushed_sha = None
-            if heal_pipeline:
+            if will_heal:
                 try:
                     pushed_sha = await git_manager.head_sha()
                 except Exception:
@@ -291,7 +291,6 @@ class GitChangePublisher(ChangePublisher):
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
-        opened_merge_request = merge_request is None
         if merge_request is None:
             try:
                 merge_request = await self._create_merge_request(
@@ -309,7 +308,7 @@ class GitChangePublisher(ChangePublisher):
                 # suppressed pipeline in the log — the branch has no CI until the MR is created.
                 pipeline_note = (
                     " The push skipped CI and no pipeline was triggered; CI will not run until the MR exists."
-                    if heal_pipeline
+                    if suppress_bot_pipeline
                     else ""
                 )
                 logger.error(
@@ -331,22 +330,19 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.draft,
             )
             await self._suggest_context_file(merge_request)
-        elif merge_request.draft and as_draft is False:
-            merge_request = await sync_to_async(self.client.update_merge_request)(
-                merge_request.repo_id, merge_request.merge_request_id, as_draft=as_draft
-            )
-            logger.info(
-                "Updated merge request: %s [merge_request_id: %s, draft: %r]",
-                merge_request.web_url,
-                merge_request.merge_request_id,
-                merge_request.draft,
-            )
-
-        # Not on a merge request we just opened: opening one is itself a pipeline trigger, and the
-        # pipeline GitLab creates for it runs as the MR's author — the service account — which is
-        # the whole point of the heal.
-        if heal_pipeline and merge_request is not None and not opened_merge_request:
-            await self._trigger_service_account_pipeline(merge_request, pushed_sha)
+        else:
+            if merge_request.draft and as_draft is False:
+                merge_request = await sync_to_async(self.client.update_merge_request)(
+                    merge_request.repo_id, merge_request.merge_request_id, as_draft=as_draft
+                )
+                logger.info(
+                    "Updated merge request: %s [merge_request_id: %s, draft: %r]",
+                    merge_request.web_url,
+                    merge_request.merge_request_id,
+                    merge_request.draft,
+                )
+            if suppress_bot_pipeline:
+                await self._trigger_service_account_pipeline(merge_request, pushed_sha)
 
         return PublishOutcome(
             merge_request=merge_request,

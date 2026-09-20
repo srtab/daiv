@@ -83,8 +83,6 @@ def test_a_status_still_in_flight_is_not_judgeable(status):
 
 
 def test_the_ci_skip_placeholder_is_not_judgeable():
-    """GitLab materialises a jobless ``skipped`` pipeline for a ``-o ci.skip`` push — including
-    DAIV's own heal push. Judging it closed the watch before the real MR pipeline existed."""
     assert PipelineReport(make_pipeline("skipped", [])).is_judgeable is False
 
 

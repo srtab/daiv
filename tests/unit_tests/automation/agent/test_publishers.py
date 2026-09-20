@@ -1275,7 +1275,6 @@ class TestPublishPipelineHeal:
         gm.push_head_to = AsyncMock(side_effect=_push)
         gm.head_sha = AsyncMock(side_effect=lambda: head["sha"])
         _patch_open_git_manager(monkeypatch, gm)
-        publisher.client.is_branch_protected.return_value = False
         mr = _make_merge_request()
 
         with (
@@ -1294,7 +1293,6 @@ class TestPublishPipelineHeal:
         gm = _fake_git_manager()
         gm.head_sha = AsyncMock(side_effect=GitCommandError(["git", "rev-parse", "HEAD"], 128))
         _patch_open_git_manager(monkeypatch, gm)
-        publisher.client.is_branch_protected.return_value = False
         mr = _make_merge_request()
 
         with (
@@ -1310,6 +1308,8 @@ class TestPublishPipelineHeal:
         assert any(r.levelname == "ERROR" for r in caplog.records)
 
     async def test_pat_push_does_not_skip_ci_or_trigger(self, monkeypatch):
+        """Pushing to an existing MR — the one path that heals — so a non-ephemeral token is what
+        suppresses it here, not the absence of a heal-eligible path."""
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
@@ -1318,19 +1318,17 @@ class TestPublishPipelineHeal:
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=mr),
-            patch.object(publisher, "_suggest_context_file", AsyncMock()),
             patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
         ):
-            await publisher.publish()
+            await publisher.publish(merge_request=mr)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
         trigger.assert_not_awaited()
 
     async def test_github_never_heals(self, monkeypatch):
+        """On the heal-eligible path (a push to an existing MR), so what stops the heal is the
+        platform capability alone — the publisher special-cases no platform."""
         publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
-        # GitHub's client reports no ephemeral token (base default), so the polymorphic heal never
-        # fires — the publisher special-cases no platform.
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
         _patch_open_git_manager(monkeypatch, gm)
@@ -1338,13 +1336,11 @@ class TestPublishPipelineHeal:
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=mr),
-            patch.object(publisher, "_suggest_context_file", AsyncMock()),
             patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
         ):
-            await publisher.publish()
+            await publisher.publish(merge_request=mr)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
         trigger.assert_not_awaited()
 
     async def test_a_freshly_opened_mr_is_left_to_gitlabs_own_pipeline(self, monkeypatch):
@@ -1367,13 +1363,13 @@ class TestPublishPipelineHeal:
 
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
         trigger.assert_not_awaited()
+        gm.head_sha.assert_not_awaited()
 
     async def test_a_push_to_an_existing_mr_still_heals(self, monkeypatch):
         """No MR-open event here, so the skip-ci push suppresses the merge-request pipeline too and
         the service account is the only way one runs."""
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = True
-        publisher.client.is_branch_protected.return_value = False
         gm = _fake_git_manager()
         _patch_open_git_manager(monkeypatch, gm)
         mr = _make_merge_request()
@@ -1384,6 +1380,7 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=mr)
 
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=True)
         trigger.assert_awaited_once_with(mr, "post-push-sha")
 
     async def test_a_protected_branch_fallback_mr_is_also_left_to_gitlab(self, monkeypatch):
@@ -1405,6 +1402,8 @@ class TestPublishPipelineHeal:
         trigger.assert_not_awaited()
 
     async def test_skip_ci_flag_disables_heal(self, monkeypatch):
+        """Ephemeral token and an existing MR — everything the heal needs — so only the caller's
+        explicit skip_ci ("no CI at all") stops it."""
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
@@ -1413,14 +1412,11 @@ class TestPublishPipelineHeal:
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_create_merge_request", return_value=mr),
-            patch.object(publisher, "_suggest_context_file", AsyncMock()),
             patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()) as trigger,
         ):
-            await publisher.publish(skip_ci=True)
+            await publisher.publish(merge_request=mr, skip_ci=True)
 
-        # explicit skip_ci means "no CI at all" — no bot pipeline, no service-account trigger
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
         trigger.assert_not_awaited()
 
 

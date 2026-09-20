@@ -62,11 +62,9 @@ class PipelineReport:
     def is_judgeable(self) -> bool:
         """Whether the pipeline has settled into a status worth judging at all.
 
-        A jobless ``skipped`` is the row GitLab materialises for a ``-o ci.skip`` push — including
-        the publish's own heal push — so it is the absence of a pipeline, not a verdict and not a
-        state a person owes an answer to. Judging it closed the watch seconds after arming, before
-        the merge-request pipeline it was armed for existed. A ``skipped`` pipeline that does have
-        jobs is a real ``rules`` decision and still stops the watch.
+        A jobless ``skipped`` is the row GitLab records for a ``-o ci.skip`` push: the absence of a
+        pipeline, not a verdict, and judging it closes the watch before the pipeline it was armed
+        for exists. With jobs, ``skipped`` is a real ``rules`` decision and still stops the watch.
         """
         if self.pipeline.status == "skipped" and not self.pipeline.jobs:
             return False
