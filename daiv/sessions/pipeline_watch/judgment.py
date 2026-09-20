@@ -60,7 +60,14 @@ class PipelineReport:
 
     @property
     def is_judgeable(self) -> bool:
-        """Whether the pipeline has settled into a status worth judging at all."""
+        """Whether the pipeline has settled into a status worth judging at all.
+
+        A jobless ``skipped`` is the row GitLab records for a ``-o ci.skip`` push: the absence of a
+        pipeline, not a verdict, and judging it closes the watch before the pipeline it was armed
+        for exists. With jobs, ``skipped`` is a real ``rules`` decision and still stops the watch.
+        """
+        if self.pipeline.status == "skipped" and not self.pipeline.jobs:
+            return False
         return self.pipeline.status in JUDGEABLE_PIPELINE_STATUSES
 
     def failed_job_names(self, default: str = "") -> str:
