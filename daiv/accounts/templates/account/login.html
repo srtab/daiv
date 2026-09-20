@@ -75,7 +75,7 @@
       <!-- Passkey login (WebAuthn) -->
       {% if PASSKEY_LOGIN_ENABLED %}
       <div class="animate-fade-up space-y-2.5" style="animation-delay: {% if socialaccount_providers %}200ms{% else %}80ms{% endif %}">
-          <button type="button" id="passkey_login"
+          <button type="button" id="passkey_login" form="mfa_login"
                   class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
               {% icon "key" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
               Continue with a passkey

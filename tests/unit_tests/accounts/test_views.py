@@ -357,7 +357,15 @@ class TestPasskeyLogin:
         assert response.status_code == 200
         content = response.content.decode()
         assert 'id="passkey_login"' in content
-        assert "mfa_login" in content  # hidden credential form posted by allauth's JS
+        assert 'id="mfa_login"' in content  # hidden credential form posted by allauth's JS
+
+    def test_passkey_button_is_associated_with_the_credential_form(self):
+        # allauth's loginForm() reads the form off `loginBtn.form`; the button sits
+        # outside the form, so without form="mfa_login" the click handler dies silently.
+        content = Client().get(reverse("account_login")).content.decode()
+        button = re.search(r"<button[^>]*\bid=\"passkey_login\"[^>]*>", content)
+        assert button is not None
+        assert 'form="mfa_login"' in button.group(0)
 
     def test_mfa_url_wiring(self):
         assert reverse("mfa_login_webauthn") == "/accounts/mfa/webauthn/login/"
