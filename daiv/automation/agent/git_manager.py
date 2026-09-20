@@ -393,7 +393,9 @@ class GitManager:
         when the remote host is unreachable (e.g. a network-disabled sandbox), and ``GitCommandError``
         on any other push failure. Returns ``branch``.
 
-        skip_ci: pass ``-o ci.skip`` so the push creates no pipeline.
+        skip_ci: pass ``-o ci.skip`` so the push runs no jobs. GitLab still *records* a pipeline for
+            it — status ``skipped``, no jobs — and fires a pipeline webhook for that row, so a
+            consumer must not read it as a verdict (see ``PipelineReport.is_judgeable``).
         """
         push_args = [
             "push",

@@ -706,3 +706,17 @@ async def test_correlation_is_asked_about_the_watched_merge_request(watched_sess
     await watch.make().aevaluate(ref="daiv/branch", pipeline_id=100)
 
     assert watch.platform.correlated == [watched_session.merge_request_iid]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_ci_skip_placeholder_leaves_the_watch_armed(watched_session, watch):
+    """DAIV's own ``-o ci.skip`` push materialises a jobless ``skipped`` pipeline seconds before the
+    real merge-request pipeline exists. Acting on it closed the watch one second after arming."""
+    watch.platform.pipeline = make_pipeline("skipped", pipeline_id=812577, jobs=[])
+    await watch.make().aevaluate(ref="daiv/branch", pipeline_id=812577)
+
+    assert watch.dispatcher.dispatched == []
+    assert watch.platform.notes == []
+    await watched_session.arefresh_from_db()
+    assert watched_session.watch_state == WatchState.WATCHING
+    assert watched_session.watch_pipeline_id is None

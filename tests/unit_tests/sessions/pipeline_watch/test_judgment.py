@@ -80,3 +80,13 @@ def test_a_judgeable_status_is_marked_judgeable(status):
 @pytest.mark.parametrize("status", ["running", "pending", "created", "preparing"])
 def test_a_status_still_in_flight_is_not_judgeable(status):
     assert PipelineReport(make_pipeline(status, [make_job("running")])).is_judgeable is False
+
+
+def test_the_ci_skip_placeholder_is_not_judgeable():
+    """GitLab materialises a jobless ``skipped`` pipeline for a ``-o ci.skip`` push — including
+    DAIV's own heal push. Judging it closed the watch before the real MR pipeline existed."""
+    assert PipelineReport(make_pipeline("skipped", [])).is_judgeable is False
+
+
+def test_a_skipped_pipeline_with_jobs_is_still_judgeable():
+    assert PipelineReport(make_pipeline("skipped", [make_job("manual")])).is_judgeable is True
