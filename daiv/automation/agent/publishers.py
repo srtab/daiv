@@ -291,6 +291,7 @@ class GitChangePublisher(ChangePublisher):
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
+        opened_merge_request = merge_request is None
         if merge_request is None:
             try:
                 merge_request = await self._create_merge_request(
@@ -341,7 +342,10 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.draft,
             )
 
-        if heal_pipeline and merge_request is not None:
+        # Not on a merge request we just opened: opening one is itself a pipeline trigger, and the
+        # pipeline GitLab creates for it runs as the MR's author — the service account — which is
+        # the whole point of the heal.
+        if heal_pipeline and merge_request is not None and not opened_merge_request:
             await self._trigger_service_account_pipeline(merge_request, pushed_sha)
 
         return PublishOutcome(
@@ -419,6 +423,10 @@ class GitChangePublisher(ChangePublisher):
     async def _trigger_service_account_pipeline(self, merge_request: MergeRequest, pushed_sha: str | None) -> None:
         """Create the MR's CI pipeline as the service account (which can read private cross-project
         CI includes), used after a ``-o ci.skip`` push suppressed the ephemeral bot's pipeline.
+
+        Only for a push to an already-open merge request, where that push is the sole trigger and
+        ``ci.skip`` suppresses its merge-request pipeline along with its branch one. Opening an MR
+        triggers a pipeline of its own, as the MR's author, so the caller does not heal that path.
 
         ``pushed_sha`` is the commit the publish just pushed; the client waits for the platform to
         make it the MR's head before creating and answers whether it got there. A pipeline that
