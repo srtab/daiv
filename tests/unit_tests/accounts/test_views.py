@@ -367,6 +367,18 @@ class TestPasskeyLogin:
         assert button is not None
         assert 'form="mfa_login"' in button.group(0)
 
+    def test_email_input_offers_passkey_autofill(self):
+        content = Client().get(reverse("account_login")).content.decode()
+        email_input = re.search(r"<input[^>]*\bid=\"email\"[^>]*>", content)
+        assert email_input is not None
+        assert 'autocomplete="email webauthn"' in email_input.group(0)
+        assert "accounts/js/login.js" in content
+
+    def test_sign_in_options_are_tagged_for_last_used_tracking(self):
+        content = Client().get(reverse("account_login")).content.decode()
+        assert 'data-login-method="email"' in content
+        assert 'data-login-method="passkey"' in content
+
     def test_mfa_url_wiring(self):
         assert reverse("mfa_login_webauthn") == "/accounts/mfa/webauthn/login/"
         assert reverse("mfa_list_webauthn") == "/accounts/mfa/webauthn/"

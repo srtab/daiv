@@ -1,5 +1,5 @@
 (function() {
-    var CONTAINER_CLS = 'fixed top-5 right-5 z-50 flex flex-col gap-2';
+    var CONTAINER_CLS = 'fixed inset-x-4 top-4 z-50 flex flex-col items-center gap-2 sm:inset-x-auto sm:top-5 sm:right-5 sm:items-end';
     var LEVEL_CLS = {
         error: 'border-red-800/50 bg-red-950/80 text-red-200',
         success: 'border-emerald-800/50 bg-emerald-950/80 text-emerald-200',
