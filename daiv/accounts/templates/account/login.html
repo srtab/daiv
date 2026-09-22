@@ -40,10 +40,40 @@
             <p class="mt-4 text-[14px] font-light tracking-wide text-gray-400">Sign in to your account</p>
         </div>
 
-        <!-- Social providers -->
+        <!-- Primary: login code by email -->
+        <form method="post" action="{% url 'account_request_login_code' %}"
+              class="animate-fade-up" style="animation-delay: 80ms">
+            {% csrf_token %}
+            <div class="space-y-3">
+                <input type="email" name="email" id="email" required autocomplete="email"
+                       aria-label="Email address" placeholder="you@company.com" class="py-3">
+                <button type="submit" class="btn-primary w-full px-4 py-3">
+                    Continue with email
+                </button>
+            </div>
+            <p class="mt-3 text-center text-[12px] font-light tracking-wide text-gray-400">
+                We'll send a one-time code to your inbox
+            </p>
+        </form>
+
         {% get_providers as socialaccount_providers %}
-        {% if socialaccount_providers %}
-        <div class="animate-fade-up space-y-2.5" style="animation-delay: 80ms">
+        {% if PASSKEY_LOGIN_ENABLED or socialaccount_providers %}
+        <!-- Divider -->
+        <div class="animate-fade-up my-7 flex items-center gap-4" style="animation-delay: 140ms">
+            <div class="h-px flex-1 bg-white/[0.06]"></div>
+            <span class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">or</span>
+            <div class="h-px flex-1 bg-white/[0.06]"></div>
+        </div>
+
+        <!-- Alternatives: passkey + social providers -->
+        <div class="animate-fade-up space-y-2.5" style="animation-delay: 200ms">
+            {% if PASSKEY_LOGIN_ENABLED %}
+            <button type="button" id="passkey_login" form="mfa_login"
+                    class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
+                {% icon "key" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                Sign in with a passkey
+            </button>
+            {% endif %}
             {% for provider in socialaccount_providers %}
             {% if provider.id == "github" %}
             <a href="{% provider_login_url provider.id process='login' %}"
@@ -60,49 +90,12 @@
             {% endif %}
             {% endfor %}
         </div>
-
-        <!-- Divider -->
-        <div class="animate-fade-up relative my-7" style="animation-delay: 140ms">
-            <div class="absolute inset-0 flex items-center">
-                <div class="w-full border-t border-white/[0.06]"></div>
-            </div>
-            <div class="relative flex justify-center">
-                <span class="bg-ground px-4 text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">or</span>
-            </div>
-        </div>
+        {% if PASSKEY_LOGIN_ENABLED %}
+        <p class="animate-fade-up mt-3 text-center text-[12px] font-light tracking-wide text-gray-400" style="animation-delay: 200ms">
+            Touch ID, Face ID, Windows Hello, or a security key
+        </p>
         {% endif %}
-
-      <!-- Passkey login (WebAuthn) -->
-      {% if PASSKEY_LOGIN_ENABLED %}
-      <div class="animate-fade-up space-y-2.5" style="animation-delay: {% if socialaccount_providers %}200ms{% else %}80ms{% endif %}">
-          <button type="button" id="passkey_login" form="mfa_login"
-                  class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
-              {% icon "key" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-              Continue with a passkey
-          </button>
-          <p class="text-center text-[12px] font-light tracking-wide text-gray-400">
-              Use Touch ID, Windows Hello, or a security key
-          </p>
-      </div>
-      {% endif %}
-
-      <!-- Login code form -->
-      <form method="post" action="{% url 'account_request_login_code' %}"
-            class="animate-fade-up" style="animation-delay: 260ms">
-            {% csrf_token %}
-            <div class="space-y-3">
-                <div class="relative">
-                    <input type="email" name="email" id="email" required autocomplete="email"
-                           placeholder="you@company.com" class="py-3">
-                </div>
-                <button type="submit" class="btn-primary w-full px-4 py-3">
-                    Continue with email
-                </button>
-            </div>
-            <p class="mt-4 text-center text-[12px] font-light tracking-wide text-gray-400">
-                We'll send a one-time code to your inbox
-            </p>
-        </form>
+        {% endif %}
     </div>
 </div>
 
