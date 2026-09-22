@@ -41,11 +41,11 @@
         </div>
 
         <!-- Primary: login code by email -->
-        <form method="post" action="{% url 'account_request_login_code' %}"
+        <form method="post" action="{% url 'account_request_login_code' %}" data-login-method="email"
               class="animate-fade-up" style="animation-delay: 80ms">
             {% csrf_token %}
             <div class="space-y-3">
-                <input type="email" name="email" id="email" required autocomplete="email"
+                <input type="email" name="email" id="email" required autocomplete="email{% if PASSKEY_LOGIN_ENABLED %} webauthn{% endif %}"
                        aria-label="Email address" placeholder="you@company.com" class="py-3">
                 <button type="submit" class="btn-primary w-full px-4 py-3">
                     Continue with email
@@ -68,7 +68,7 @@
         <!-- Alternatives: passkey + social providers -->
         <div class="animate-fade-up space-y-2.5" style="animation-delay: 200ms">
             {% if PASSKEY_LOGIN_ENABLED %}
-            <button type="button" id="passkey_login" form="mfa_login"
+            <button type="button" id="passkey_login" form="mfa_login" data-login-method="passkey"
                     class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
                 {% icon "key" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 Sign in with a passkey
@@ -76,13 +76,13 @@
             {% endif %}
             {% for provider in socialaccount_providers %}
             {% if provider.id == "github" %}
-            <a href="{% provider_login_url provider.id process='login' %}"
+            <a data-login-method="github" href="{% provider_login_url provider.id process='login' %}"
                class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
                 {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
                 Continue with GitHub
             </a>
             {% elif provider.id == "gitlab" %}
-            <a href="{% provider_login_url provider.id process='login' %}"
+            <a data-login-method="gitlab" href="{% provider_login_url provider.id process='login' %}"
                class="btn-secondary group w-full gap-3 px-4 py-3 text-gray-200">
                 {% icon "gitlab" "h-5 w-5 text-[#FC6D26] transition-colors group-hover:text-white" %}
                 Continue with GitLab
@@ -102,4 +102,5 @@
 {% if PASSKEY_LOGIN_ENABLED %}
 {% include "mfa/webauthn/snippets/login_script.html" %}
 {% endif %}
+<script src="{% static 'accounts/js/login.js' %}"></script>
 {% endblock content %}
