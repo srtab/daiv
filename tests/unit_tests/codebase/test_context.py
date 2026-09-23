@@ -298,6 +298,45 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
             assert ctx.sandbox.egress.policy.rules[0].host == "github.com"
 
 
+@pytest.mark.parametrize("token", [pytest.param("tok", id="push-token"), pytest.param(None, id="token-less")])
+async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(token):
+    """B9: a network-off env reaches the git host only when a real push token exists."""
+    from codebase.clients.base import GitEgressCredential
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+    from tests.unit_tests.conftest import FakeSandboxClient
+
+    repo_client = MagicMock()
+    repo_client.current_user.username = "daiv"
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
+    repo_client.get_git_egress_credential.return_value = GitEgressCredential.for_token(host="github.com", token=token)
+    network_off = SandboxRuntime(
+        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
+    )
+
+    with (
+        patch.multiple(
+            "codebase.context",
+            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
+            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
+            DAIVSandboxClient=FakeSandboxClient,
+        ),
+        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=network_off)),
+        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
+    ):
+        async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
+            egress = ctx.sandbox.egress
+
+    if token:
+        assert egress.policy.default == "deny"
+        assert [rule.host for rule in egress.policy.rules] == ["github.com"]
+        assert egress.policy.rules[0].inject in egress.secrets
+    else:
+        assert egress is None
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():

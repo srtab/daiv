@@ -774,7 +774,7 @@ class TestPublishBaseBranchInvariant:
 
 class TestPublishSandboxEgressRefresh:
     async def test_sandbox_publish_refreshes_egress_before_git_ops(self, monkeypatch):
-        """Sandbox publishes re-mint the platform token and deliver it onto the live session BEFORE
+        """B8: sandbox publishes re-mint the platform token and deliver it onto the live session BEFORE
         the first in-sandbox network git op, so a turn that outlived the turn-start token (GitHub
         installation tokens live 1h) still pushes with a fresh credential."""
         from automation.agent.git_manager import RepoStatus
