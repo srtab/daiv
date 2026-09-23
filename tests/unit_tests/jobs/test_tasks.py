@@ -1,10 +1,15 @@
+import asyncio
 import uuid
 from contextlib import asynccontextmanager, contextmanager, suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from jobs.tasks import _acquire_session_lock as _real_acquire_session_lock
 from jobs.tasks import run_job_task
+from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
+
+from tests.unit_tests.sessions.conftest import watch_recorder
 
 
 @pytest.mark.django_db
@@ -415,3 +420,239 @@ async def test_run_job_task_references_default_to_empty_when_no_session():
     captured = await _runtime_ctx_kwargs(str(uuid.uuid4()))
 
     assert captured.get("references") == ()
+
+
+def _raising_agent() -> AsyncMock:
+    agent = AsyncMock()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    return agent
+
+
+async def _active_holder(thread_id: str) -> str | None:
+    return (await Session.objects.aget(thread_id=thread_id)).active_run_id
+
+
+class TestRunJobTaskAfterRunMatrix:
+    """Pins the job trigger's row of the run-executor spec's after-run matrix."""
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(("run_id", "holder"), [("run-9", "run-9"), (None, "job-3f2c9a1b")])
+    async def test_it_holds_the_session_lock_while_the_agent_runs(self, run_id, holder):
+        thread_id = "3f2c9a1b-0000-4000-8000-000000000000"
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        agent = _agent_with_mr(None)
+        seen: list[str | None] = []
+
+        async def _invoke(*_args, **_kwargs):
+            seen.append(await _active_holder(thread_id))
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id=run_id)
+
+        assert seen == [holder]
+        assert await _active_holder(thread_id) is None
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_times_out_when_the_slot_never_frees(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo", active_run_id="chat-run"
+        )
+
+        with (
+            _job_scaffolding(_agent_with_mr(None)),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
+            patch("codebase.context.set_runtime_ctx") as set_ctx,
+            pytest.raises(TimeoutError),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        try_claim.assert_awaited()
+        set_ctx.assert_not_called()
+        assert await _active_holder(thread_id) == "chat-run"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_runs_unlocked_without_a_session_row(self):
+        heartbeats: list[tuple] = []
+
+        async def _loop(*args):
+            heartbeats.append(args)
+
+        with (
+            _job_scaffolding(_agent_with_mr(None)),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks._heartbeat_loop", _loop),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+        ):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+
+        assert result == {"response": "ok"}
+        assert heartbeats == []
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_heartbeats_while_locked_and_cancels_the_heartbeat_after(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        started = asyncio.Event()
+        heartbeats: list[tuple] = []
+        cancelled: list[bool] = []
+
+        async def _loop(*args):
+            heartbeats.append(args)
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(True)
+                raise
+
+        async def _invoke(*_args, **_kwargs):
+            await asyncio.wait_for(started.wait(), timeout=5)
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent = _agent_with_mr(None)
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks._heartbeat_loop", _loop),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert heartbeats == [(thread_id, "run-1")]
+        assert cancelled == [True]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_an_agent_error_releases_the_lock_and_skips_every_after_run_step(self):
+        """No ref sync, no watch arm and no draft recovery: the job trigger re-raises as-is."""
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        agent = _raising_agent()
+        armed: list[dict] = []
+        persist = AsyncMock()
+
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
+            patch("sessions.services.apersist_session_ref", persist),
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert await _active_holder(thread_id) is None
+        agent.aget_state.assert_not_awaited()
+        agent.aupdate_state.assert_not_awaited()
+        persist.assert_not_awaited()
+        assert armed == []
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_survives_a_failed_watch_arm(self):
+        class _BrokenWatch:
+            def __init__(self, repo_id):
+                pass
+
+            async def aarm_after_run(self, **_kwargs):
+                raise RuntimeError("redis down")
+
+        with _job_scaffolding(_agent_with_mr(None)), patch("jobs.tasks.PipelineWatch", _BrokenWatch):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+
+        assert result == {"response": "ok"}
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_survives_a_failed_lock_release(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+
+        with (
+            _job_scaffolding(_agent_with_mr(None)),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+        ):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert result == {"response": "ok"}
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lost_slot_is_logged_and_the_job_runs_to_completion(self, caplog):
+        """Unlike a chat turn, a job whose slot is taken over mid-run keeps going and runs its after-run
+        steps; its release then leaves the new holder's slot alone."""
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        real_heartbeat = SessionLock.heartbeat
+        lost = asyncio.Event()
+
+        async def _heartbeat(thread_id, holder_id):
+            still_ours = await real_heartbeat(thread_id, holder_id)
+            if not still_ours:
+                lost.set()
+            return still_ours
+
+        async def _invoke(*_args, **_kwargs):
+            await Session.objects.filter(thread_id=thread_id).aupdate(active_run_id="chat-run")
+            await asyncio.wait_for(lost.wait(), timeout=5)
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent = _agent_with_mr({"source_branch": "feat/published"})
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        armed: list[dict] = []
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.heartbeat", _heartbeat),
+            patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
+            caplog.at_level("WARNING", logger="daiv.jobs"),
+        ):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert result == {"response": "ok"}
+        assert "lost session lock" in caplog.text
+        assert (await Session.objects.aget(thread_id=thread_id)).ref == "feat/published"
+        assert len(armed) == 1
+        assert await _active_holder(thread_id) == "chat-run"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_releases_the_slot_before_persisting_the_ref_and_arming_the_watch(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        mr = {"source_branch": "feat/published"}
+        agent = _agent_with_mr(mr)
+        agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": mr, "published": True}))
+        calls: list[tuple] = []
+
+        async def _release(thread_id, holder_id):
+            calls.append(("release", thread_id, holder_id))
+
+        async def _persist(*, thread_id, current_ref, merge_request):
+            calls.append(("persist", current_ref, merge_request))
+
+        class _Watch:
+            def __init__(self, repo_id):
+                pass
+
+            async def aarm_after_run(self, *, run_id, merge_request, published, user_id):
+                calls.append(("arm", published))
+
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.SessionLock.release", _release),
+            patch("sessions.services.apersist_session_ref", _persist),
+            patch("jobs.tasks.PipelineWatch", _Watch),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
+
+        assert calls == [("release", thread_id, "run-1"), ("persist", "main", mr), ("arm", True)]

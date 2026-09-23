@@ -5,8 +5,10 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 from git import Repo
+from pydantic import SecretStr
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import (
@@ -17,7 +19,15 @@ from automation.agent.middlewares.sandbox import (
     _run_bash_commands,
 )
 from core.conf import settings as core_settings
-from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+from core.sandbox.schemas import (
+    EgressConfigRequest,
+    EgressPolicy,
+    EgressRule,
+    EgressSecret,
+    RunCommandResult,
+    RunCommandsResponse,
+)
+from tests.unit_tests.conftest import FakeSandboxClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -375,13 +385,11 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
         with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient") as ctor,
             patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
             patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
         ):
             result = await mw.abefore_agent({}, _make_runtime())  # empty state => first turn
 
-        ctor.assert_not_called()  # no client constructed inside the middleware
         assert result == {"session_id": "sess-1"}
         assert sandbox_backend._session_id == "sess-1"  # session bound onto the injected backend
 
@@ -936,3 +944,192 @@ class TestSandboxEgress:
         runtime, _ = self._runtime_with_egress()
         with pytest.raises(SandboxEgressUnavailableError):
             await self._mw(client).abefore_agent({}, runtime)
+
+
+def _egress(token: str) -> EgressConfigRequest:
+    return EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="gitlab.test", inject="platform")]),
+        secrets={"platform": EgressSecret(header="Authorization", value=SecretStr(token))},
+    )
+
+
+def _lifecycle_runtime(repo_dir: Path, *, egress: EgressConfigRequest | None = None) -> Mock:
+    """A runtime over a real on-disk repo, so seeding tars actual files."""
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    runtime = Mock()
+    runtime.context.gitrepo = Mock(working_dir=str(repo_dir))
+    runtime.context.sandbox = SandboxRuntime(
+        base_image="python:3.12",
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=egress,
+    )
+    return runtime
+
+
+@pytest.fixture
+def repo_dir(tmp_path: Path) -> Path:
+    path = tmp_path / "repo"
+    path.mkdir()
+    (path / "README.md").write_text("hello\n")
+    return path
+
+
+async def _turn(client: FakeSandboxClient, state: dict, runtime: Mock, *, thread_id: str | None) -> dict:
+    """Run one agent turn's sandbox hooks and return the state the checkpoint would hold after it."""
+    middleware = SandboxMiddleware(
+        agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+    )
+    with patch("automation.agent.middlewares.sandbox.conversation_thread_id", return_value=thread_id):
+        state = {**state, **(await middleware.abefore_agent(state, runtime) or {})}
+        return {**state, **(await middleware.aafter_agent(state, runtime) or {})}
+
+
+class TestPinnedSessionLifecycle:
+    """B1–B6 of the run-executor refactor spec. Assertions read the fake sandbox's state and call log,
+    plus the session id carried in the checkpointed state; none asserts what a hook returns, so they
+    hold when the lifecycle moves out of ``SandboxMiddleware``."""
+
+    async def test_next_turn_reuses_the_warm_session(self, repo_dir: Path):
+        """B1: the checkpointed session id is reused on the next turn; `session_exists` restarts it."""
+        client = FakeSandboxClient()
+        runtime = _lifecycle_runtime(repo_dir)
+
+        state = await _turn(client, {}, runtime, thread_id="t-1")
+        session_id = state["session_id"]
+        assert client.sessions[session_id].repo_files == {"README.md"}
+        assert client.sessions[session_id].state == "stopped"
+
+        state = await _turn(client, state, runtime, thread_id="t-1")
+
+        assert state["session_id"] == session_id
+        assert client.calls_to("session_exists") == [(session_id,)]
+        assert client.method_names().count("start_session") == 1
+        assert client.method_names().count("seed_session") == 1
+
+    async def test_a_reused_session_gets_the_fresh_credential(self, repo_dir: Path):
+        """B2: a reused session gets this run's egress credential pushed onto it."""
+        client = FakeSandboxClient()
+        state = await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+        fresh = _egress("tok-2")
+
+        state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+
+        assert client.calls_to("update_egress") == [(state["session_id"], fresh)]
+        assert client.sessions[state["session_id"]].egress == fresh
+        assert client.method_names().count("start_session") == 1
+
+    @pytest.mark.parametrize("status", [404, 409, None])
+    async def test_a_failed_credential_refresh_replaces_the_session(self, repo_dir: Path, status: int | None):
+        """B2: when `update_egress` fails, the old container is force-closed and a new one is seeded."""
+        client = FakeSandboxClient()
+        state = await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+        stale = state["session_id"]
+        client.fail("update_egress", status=status)
+        fresh = _egress("tok-2")
+
+        state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+
+        assert state["session_id"] != stale
+        assert stale not in client.sessions
+        assert (stale, True) in client.calls_to("close_session")
+        assert client.sessions[state["session_id"]].request.egress == fresh
+        assert client.sessions[state["session_id"]].repo_files == {"README.md"}
+
+    async def test_a_session_started_without_egress_is_replaced_once_egress_is_needed(self, repo_dir: Path):
+        """B2: a warm session with no egress proxy can't take a credential, so it is replaced."""
+        client = FakeSandboxClient()
+        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+        stale = state["session_id"]
+        fresh = _egress("tok-1")
+
+        state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+
+        assert stale not in client.sessions
+        assert (stale, True) in client.calls_to("close_session")
+        assert client.sessions[state["session_id"]].request.egress == fresh
+        assert client.sessions[state["session_id"]].repo_files == {"README.md"}
+
+    async def test_a_missing_egress_proxy_fails_closed(self, repo_dir: Path):
+        """B3: a create-time 400 naming the egress proxy raises `SandboxEgressUnavailableError`."""
+        client = FakeSandboxClient()
+        client.fail("start_session", status=400, detail="egress requires the egress proxy, which is not configured")
+
+        with pytest.raises(SandboxEgressUnavailableError):
+            await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+
+        assert client.sessions == {}
+
+    async def test_any_other_create_time_400_is_re_raised(self, repo_dir: Path):
+        """B3: a 400 that does not name the egress proxy propagates unchanged."""
+        client = FakeSandboxClient()
+        client.fail("start_session", status=400, detail="base_image is invalid")
+
+        with pytest.raises(httpx.HTTPStatusError) as raised:
+            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+
+        assert raised.value.response.status_code == 400
+
+    async def test_a_seed_failure_removes_the_new_session(self, repo_dir: Path):
+        """B4: a seed failure force-closes the just-created session, then re-raises."""
+        client = FakeSandboxClient()
+        client.fail("seed_session", status=500)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+
+        assert client.sessions == {}
+        assert client.calls_to("close_session") == [("sess-1", True)]
+
+    async def test_a_resumable_run_stops_the_container_and_keeps_its_id(self, repo_dir: Path):
+        """B5: a run with a thread id stops the container and leaves the id in state."""
+        client = FakeSandboxClient()
+
+        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+
+        assert client.calls_to("close_session") == [(state["session_id"], False)]
+        assert client.sessions[state["session_id"]].state == "stopped"
+
+    async def test_a_one_shot_run_removes_the_container(self, repo_dir: Path):
+        """B5: a run without a thread id force-removes the container."""
+        client = FakeSandboxClient()
+
+        await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=None)
+
+        assert client.calls_to("close_session") == [("sess-1", True)]
+        assert client.sessions == {}
+
+    @pytest.mark.parametrize("status", [404, 409, 500, None])
+    @pytest.mark.parametrize("thread_id", ["t-1", None])
+    async def test_a_failed_close_is_logged_not_raised(self, repo_dir: Path, status: int | None, thread_id):
+        """B5: 404/409, other statuses and transport errors on close never fail the run."""
+        client = FakeSandboxClient()
+        client.fail("close_session", status=status)
+
+        await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=thread_id)
+
+        assert client.calls_to("close_session") == [("sess-1", thread_id is None)]
+
+    async def test_a_subagent_shares_the_parent_session(self, repo_dir: Path):
+        """B6: a subagent's sandbox hooks never open, refresh or close a session."""
+        client = FakeSandboxClient()
+        runtime = _lifecycle_runtime(repo_dir, egress=_egress("tok-1"))
+        backend = SandboxFileBackend(client=client)
+        parent = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=backend)
+        state = await parent.abefore_agent({}, runtime)
+        calls_before = list(client.calls)
+
+        subagent = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=backend, close_session=False
+        )
+        await subagent.abefore_agent(state, runtime)
+        await subagent.aafter_agent(state, runtime)
+
+        assert client.calls == calls_before
+        assert client.sessions[state["session_id"]].state == "running"
+        await backend.run_commands(["true"], fail_fast=True)
+        assert client.calls_to("run_commands") == [(state["session_id"], ("true",))]

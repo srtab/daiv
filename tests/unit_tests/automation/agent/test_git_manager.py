@@ -19,6 +19,7 @@ from automation.agent.git_manager import (
 )
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+from tests.unit_tests.conftest import FakeSandboxClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -60,38 +61,6 @@ def _init_repo_with_origin(tmp_path: Path) -> tuple[Repo, Path]:
     repo.create_remote("origin", origin_dir.as_posix())
     _create_initial_commit(repo, repo_dir)
     return repo, origin_dir
-
-
-# ---------------------------------------------------------------------------
-# Sandbox-mode test double
-# ---------------------------------------------------------------------------
-
-
-class FakeSandboxClient:
-    """Records issued git commands and returns canned ``(exit_code, output)`` results.
-
-    ``responses`` maps a substring of the command to ``(exit_code, output)``; the first
-    matching entry wins. Unmatched commands return success with empty output.
-    """
-
-    def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
-        self.responses = responses or {}
-        self.commands: list[str] = []
-
-    async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
-        results: list[RunCommandResult] = []
-        for command in request.commands:
-            self.commands.append(command)
-            exit_code, output = 0, ""
-            for needle, (code, out) in self.responses.items():
-                if needle in command:
-                    exit_code, output = code, out
-                    break
-            results.append(RunCommandResult(command=command, output=output, exit_code=exit_code))
-        return RunCommandsResponse(results=results)
-
-    def ran(self, needle: str) -> bool:
-        return any(needle in command for command in self.commands)
 
 
 def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:

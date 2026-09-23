@@ -11,17 +11,23 @@ the resolved primary model and thinking level must match site settings whenever 
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage
+from sessions.models import Session, SessionOrigin
 
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, User
 from codebase.managers.base import BaseManager
-from codebase.managers.issue_addressor import IssueAddressorManager
+from codebase.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 from codebase.repo_config import RepositoryConfig
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL
 from core.site_settings import site_settings
+from tests.unit_tests.sessions.conftest import watch_recorder
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -33,7 +39,12 @@ class _StubRepo:
 def _ctx() -> SimpleNamespace:
     """Minimal RuntimeCtx stub: only the attributes ``_address_issue`` actually touches."""
     return SimpleNamespace(
-        repository=_StubRepo(), git_platform=GitPlatform.GITLAB, bot_username="daiv-bot", config=RepositoryConfig()
+        repository=_StubRepo(),
+        git_platform=GitPlatform.GITLAB,
+        bot_username="daiv-bot",
+        config=RepositoryConfig(),
+        acting_user_id=None,
+        repo=SimpleNamespace(ref="main"),
     )
 
 
@@ -125,3 +136,105 @@ class TestMaxLabelRoutesToMaxModel:
         assert captured["thinking_level"] == repo_agent_cfg.thinking_level
         # The max model must NOT leak into a non-max run.
         assert site_settings.agent_max_model_name not in captured["model_names"]
+
+
+def _agent(**ainvoke) -> MagicMock:
+    agent = MagicMock()
+    agent.get_name.return_value = "daiv"
+    agent.ainvoke = AsyncMock(**ainvoke)
+    agent.aget_state = AsyncMock(return_value=SimpleNamespace(values={"merge_request": None, "published": False}))
+    return agent
+
+
+@contextmanager
+def _issue_run(agent: MagicMock, *, draft_published: bool = False, kwargs_error: Exception | None = None):
+    """Stub everything around the agent and expose the after-run seams the matrix pins."""
+    run = SimpleNamespace(armed=[], persist=AsyncMock())
+    with (
+        patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
+        patch(
+            "codebase.managers.issue_addressor.get_daiv_agent_kwargs",
+            return_value={"model_names": ["m"], "thinking_level": "medium"},
+            side_effect=kwargs_error,
+        ),
+        patch("codebase.managers.issue_addressor.create_daiv_agent", AsyncMock(return_value=agent)) as create,
+        patch("codebase.managers.issue_addressor.build_langsmith_config", return_value={}),
+        patch("codebase.managers.issue_addressor.track_usage_metadata", MagicMock()),
+        patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder(run.armed)),
+        patch("sessions.services.apersist_session_ref", run.persist),
+        patch.object(IssueAddressorManager, "_recover_draft", AsyncMock(return_value=draft_published)) as recover,
+        patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
+    ):
+        run.create, run.recover = create, recover
+        yield run
+
+
+class TestIssueAfterRunMatrix:
+    """Pins the issue trigger's row of the run-executor spec's after-run matrix."""
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_runs_while_another_holder_has_the_session_slot(self, captured_client):
+        """No session lock today; B13 makes this run wait instead."""
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread_id, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo", active_run_id="chat-run"
+        )
+        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with _issue_run(agent):
+            await IssueAddressorManager.address_issue(
+                issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_ctx(), thread_id=thread_id
+            )
+
+        agent.ainvoke.assert_awaited_once()
+        assert (await Session.objects.aget(thread_id=thread_id)).active_run_id == "chat-run"
+
+    async def test_a_successful_run_persists_the_ref_and_arms_the_watch(self, captured_client):
+        with _issue_run(_agent(return_value={"messages": [AIMessage(content="done")]})) as run:
+            await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_ctx())
+
+        run.persist.assert_awaited_once()
+        assert len(run.armed) == 1
+        run.recover.assert_not_awaited()
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2] == "done"
+
+    async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, captured_client):
+        with (
+            _issue_run(_agent(side_effect=RuntimeError("boom")), draft_published=True) as run,
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_ctx())
+
+        assert run.recover.await_args.kwargs == {"entity_label": "issue", "entity_id": 42}
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert "To avoid losing progress" in note.args[2]
+        run.persist.assert_not_awaited()
+        assert run.armed == []
+
+    async def test_a_missing_model_says_it_cannot_run_yet_and_returns(self, captured_client):
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
+        with _issue_run(_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
+            result = await IssueAddressorManager.address_issue(
+                issue=_issue(labels=[BOT_LABEL]), mention_comment_id="c-1", runtime_ctx=_ctx()
+            )
+
+        assert result is None
+        run.create.assert_not_awaited()
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert note.args[2] == "@alice I can't run yet: no model"
+        assert note.kwargs["reply_to_id"] == "c-1"
+
+    @pytest.mark.parametrize(
+        ("label", "prompt"), [(BOT_AUTO_LABEL, ADDRESS_ISSUE_PROMPT), (BOT_LABEL, PLAN_ISSUE_PROMPT)]
+    )
+    async def test_the_label_picks_the_prompt(self, captured_client, label: str, prompt: str):
+        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with _issue_run(agent):
+            await IssueAddressorManager.address_issue(issue=_issue(labels=[label]), runtime_ctx=_ctx())
+
+        [message] = agent.ainvoke.await_args.args[0]["messages"]
+        assert message.content == prompt.format(issue_iid=42)

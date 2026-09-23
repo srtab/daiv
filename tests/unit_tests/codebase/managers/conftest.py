@@ -35,3 +35,19 @@ def noop_checkpointer():
         yield MagicMock()
 
     return _open
+
+
+@pytest.fixture
+def captured_client():
+    """Stub ``BaseManager.__init__`` so every manager instance shares one client mock the
+    test can inspect, and the resolved kwargs feed the (patched) downstream agent stack."""
+    client = MagicMock()
+
+    def _init(self, *, runtime_ctx, thread_id):
+        self.ctx = runtime_ctx
+        self.thread_id = thread_id
+        self.client = client
+        self.store = MagicMock()
+
+    with patch.object(BaseManager, "__init__", _init):
+        yield client

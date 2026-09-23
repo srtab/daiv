@@ -11,6 +11,7 @@ Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.p
 """
 
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -984,3 +985,216 @@ async def test_events_forwards_external_refs_to_the_runtime_ctx():
             pass
 
     assert captured["references"] == refs
+
+
+def _snapshot(**values) -> StateSnapshotEvent:
+    return StateSnapshotEvent(
+        type=EventType.STATE_SNAPSHOT, raw_event={"metadata": {"langgraph_checkpoint_ns": ""}}, snapshot=values
+    )
+
+
+def _failing_ctx(*_args, **_kwargs):
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(side_effect=RuntimeError("clone failed"))
+    ctx.__aexit__ = AsyncMock(return_value=None)
+    return ctx
+
+
+@contextmanager
+def _recorded_turn(
+    agui_agent,
+    *,
+    heartbeat: bool | Exception = True,
+    cancel: bool = False,
+    runtime_ctx=_mock_ctx,
+    graph=None,
+    finalize_error: Exception | None = None,
+    release_error: Exception | None = None,
+):
+    """Run a chat turn over ``agui_agent`` and record the after-run steps, in order, into ``calls``."""
+    calls: list[tuple] = []
+
+    async def _start(**_kwargs):
+        calls.append(("start",))
+        return SimpleNamespace(pk="run-pk")
+
+    async def _finalize(_run_pk, *, success, usage, response_text, error_message=""):
+        calls.append(("finalize", success, error_message))
+        if finalize_error is not None:
+            raise finalize_error
+
+    async def _persist(*, thread_id, current_ref, merge_request):
+        calls.append(("persist", current_ref, merge_request))
+
+    class _Watch:
+        def __init__(self, repo_id):
+            pass
+
+        async def aarm_after_run(self, *, merge_request, published, user_id):
+            calls.append(("arm", published))
+
+    async def _release(thread_id, run_id):
+        calls.append(("release", thread_id, run_id))
+        if release_error is not None:
+            raise release_error
+
+    heartbeat_mock = (
+        AsyncMock(side_effect=heartbeat) if isinstance(heartbeat, Exception) else AsyncMock(return_value=heartbeat)
+    )
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", runtime_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock(return_value=graph or MagicMock())),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui_agent),
+        patch("chat.api.streaming.start_chat_run", side_effect=_start),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
+        patch("chat.api.streaming.apersist_session_ref", side_effect=_persist),
+        patch("chat.api.streaming.PipelineWatch", _Watch),
+        patch("chat.api.streaming.SessionLock.release", side_effect=_release),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=heartbeat_mock),
+        patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
+        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=cancel)),
+    ):
+        yield calls
+
+
+def _raising_agent(*events):
+    async def _run(_input):
+        for event in events:
+            yield event
+        raise RuntimeError("kaboom")
+
+    agent = MagicMock()
+    agent.run = _run
+    return agent
+
+
+_RELEASE = ("release", "t-stream", "r-1")
+
+
+class TestChatAfterRunMatrix:
+    """Pins the chat trigger's row of the run-executor spec's after-run matrix."""
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_clean_turn_runs_the_after_run_steps_in_order(self):
+        mr = {"source_branch": "feature-y", "merge_request_id": 42}
+
+        with _recorded_turn(_mock_agent([_snapshot(merge_request=mr, published=True)])) as calls:
+            [event async for event in _streamer().events()]
+
+        assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_raised_agent_error_becomes_a_run_error_event(self):
+        from core.constants import RUN_FAILED_MESSAGE
+
+        graph = MagicMock(aget_state=AsyncMock(), aupdate_state=AsyncMock())
+
+        with _recorded_turn(_raising_agent(_snapshot(merge_request=None)), graph=graph) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert events[-1].type == EventType.RUN_ERROR
+        assert (events[-1].code, events[-1].message) == ("run_failed", RUN_FAILED_MESSAGE)
+        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+        graph.aget_state.assert_not_awaited()
+        graph.aupdate_state.assert_not_awaited()
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_an_emitted_run_error_fails_the_turn_and_skips_ref_and_watch(self):
+        from ag_ui.core.events import RunErrorEvent
+
+        from core.constants import RUN_FAILED_MESSAGE
+
+        err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
+
+        with _recorded_turn(_mock_agent([_snapshot(merge_request=None), err])) as calls:
+            [event async for event in _streamer().events()]
+
+        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_setup_failure_before_the_run_row_only_releases_the_slot(self):
+        with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert [(event.type, event.code) for event in events] == [(EventType.RUN_ERROR, "run_failed")]
+        assert calls == [_RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):
+        from core.constants import INTERRUPTED_MESSAGE
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert events[-1].code == "run_interrupted"
+        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lost_lock_wins_over_a_cancel_request(self):
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False, cancel=True):
+            events = [event async for event in _streamer().events()]
+
+        assert events[-1].code == "run_interrupted"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_cancel_request_stops_the_turn_and_skips_ref_and_watch(self):
+        from core.constants import CANCELLED_BY_USER_MESSAGE
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), cancel=True) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert events[-1].code == "run_cancelled"
+        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_hard_cancel_after_a_stop_request_is_recorded_as_stopped(self):
+        import asyncio
+
+        from core.constants import CANCELLED_BY_USER_MESSAGE
+
+        started = asyncio.Event()
+
+        async def _hang(_input):
+            started.set()
+            await asyncio.Event().wait()
+            yield  # pragma: no cover - makes this an async generator
+
+        agent = MagicMock()
+        agent.run = _hang
+
+        async def _drain():
+            async for _ in _streamer().events():
+                pass
+
+        with _recorded_turn(agent, cancel=True) as calls:
+            task = asyncio.create_task(_drain())
+            await asyncio.wait_for(started.wait(), timeout=5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_heartbeat_error_keeps_the_turn_running(self):
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=RuntimeError("db down")) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert [event.type for event in events] == [EventType.STATE_SNAPSHOT, EventType.STATE_SNAPSHOT]
+        assert ("finalize", True, "") in calls
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_finalize_failure_still_releases_the_slot(self):
+        with _recorded_turn(_mock_agent([]), finalize_error=RuntimeError("db down")) as calls:
+            [event async for event in _streamer().events()]
+
+        assert calls[-1] == _RELEASE
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_release_failure_is_swallowed(self):
+        with _recorded_turn(_mock_agent([]), release_error=RuntimeError("db down")) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert events == []
+        assert calls[-1] == _RELEASE
