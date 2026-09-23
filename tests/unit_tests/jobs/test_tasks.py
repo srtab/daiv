@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from jobs.tasks import _acquire_session_lock as _real_acquire_session_lock
 from jobs.tasks import run_job_task
+from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.sessions.conftest import watch_recorder
@@ -467,12 +468,15 @@ class TestRunJobTaskAfterRunMatrix:
         with (
             _job_scaffolding(_agent_with_mr(None)),
             patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
-            patch("jobs.tasks.LOCK_WAIT_TIMEOUT_S", 0.0),
+            patch("jobs.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             patch("codebase.context.set_runtime_ctx") as set_ctx,
             pytest.raises(TimeoutError),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
+        try_claim.assert_awaited()
         set_ctx.assert_not_called()
         assert await _active_holder(thread_id) == "chat-run"
 
@@ -580,3 +584,75 @@ class TestRunJobTaskAfterRunMatrix:
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
         assert result == {"response": "ok"}
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_lost_slot_is_logged_and_the_job_runs_to_completion(self, caplog):
+        """Unlike a chat turn, a job whose slot is taken over mid-run keeps going and runs its after-run
+        steps; its release then leaves the new holder's slot alone."""
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        real_heartbeat = SessionLock.heartbeat
+        lost = asyncio.Event()
+
+        async def _heartbeat(thread_id, holder_id):
+            still_ours = await real_heartbeat(thread_id, holder_id)
+            if not still_ours:
+                lost.set()
+            return still_ours
+
+        async def _invoke(*_args, **_kwargs):
+            await Session.objects.filter(thread_id=thread_id).aupdate(active_run_id="chat-run")
+            await asyncio.wait_for(lost.wait(), timeout=5)
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent = _agent_with_mr({"source_branch": "feat/published"})
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        armed: list[dict] = []
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.heartbeat", _heartbeat),
+            patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
+            caplog.at_level("WARNING", logger="daiv.jobs"),
+        ):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert result == {"response": "ok"}
+        assert "lost session lock" in caplog.text
+        assert (await Session.objects.aget(thread_id=thread_id)).ref == "feat/published"
+        assert len(armed) == 1
+        assert await _active_holder(thread_id) == "chat-run"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_releases_the_slot_before_persisting_the_ref_and_arming_the_watch(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        mr = {"source_branch": "feat/published"}
+        agent = _agent_with_mr(mr)
+        agent.aget_state = AsyncMock(return_value=MagicMock(values={"merge_request": mr, "published": True}))
+        calls: list[tuple] = []
+
+        async def _release(thread_id, holder_id):
+            calls.append(("release", thread_id, holder_id))
+
+        async def _persist(*, thread_id, current_ref, merge_request):
+            calls.append(("persist", current_ref, merge_request))
+
+        class _Watch:
+            def __init__(self, repo_id):
+                pass
+
+            async def aarm_after_run(self, *, run_id, merge_request, published, user_id):
+                calls.append(("arm", published))
+
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.SessionLock.release", _release),
+            patch("sessions.services.apersist_session_ref", _persist),
+            patch("jobs.tasks.PipelineWatch", _Watch),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
+
+        assert calls == [("release", thread_id, "run-1"), ("persist", "main", mr), ("arm", True)]
