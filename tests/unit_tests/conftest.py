@@ -43,7 +43,9 @@ class FakeSandboxClient:
 
     ``responses`` maps a command substring to ``(exit_code, output)`` for ``run_commands``; the
     first match wins and unmatched commands succeed with empty output. ``run_commands`` does not
-    require a started session, so a backend bound to any id works.
+    require a started session, so a backend bound to any id works. Like the real sandbox,
+    ``session_exists`` answers ``False`` to a 404 and ``update_egress`` 409s on a session started
+    without egress.
     """
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
@@ -57,12 +59,11 @@ class FakeSandboxClient:
 
     def fail(self, method: str, *, status: int | None = None, detail: str = "") -> None:
         """Make every later call to ``method`` raise: an HTTP ``status`` error, or a transport error."""
-        request = httpx.Request("POST", f"http://sandbox.test/{method}")
         if status is None:
+            request = httpx.Request("POST", f"http://sandbox.test/{method}")
             self._failures[method] = httpx.ConnectError("connection refused", request=request)
         else:
-            response = httpx.Response(status, json={"detail": detail}, request=request)
-            self._failures[method] = httpx.HTTPStatusError(str(status), request=request, response=response)
+            self._failures[method] = self._status_error(method, status, detail)
 
     def calls_to(self, method: str) -> list[tuple]:
         return [args for name, args in self.calls if name == method]
@@ -78,11 +79,15 @@ class FakeSandboxClient:
         if (failure := self._failures.get(method)) is not None:
             raise failure
 
+    @staticmethod
+    def _status_error(method: str, status: int, detail: str) -> httpx.HTTPStatusError:
+        request = httpx.Request("POST", f"http://sandbox.test/{method}")
+        response = httpx.Response(status, json={"detail": detail}, request=request)
+        return httpx.HTTPStatusError(str(status), request=request, response=response)
+
     def _require(self, method: str, session_id: str) -> FakeSandboxSession:
         if session_id not in self.sessions:
-            request = httpx.Request("POST", f"http://sandbox.test/{method}")
-            response = httpx.Response(404, json={"detail": "Session not found"}, request=request)
-            raise httpx.HTTPStatusError("404", request=request, response=response)
+            raise self._status_error(method, 404, "Session not found")
         return self.sessions[session_id]
 
     async def open(self) -> FakeSandboxClient:
@@ -110,7 +115,12 @@ class FakeSandboxClient:
         session.skills_files = _archive_members(skills_archive)
 
     async def session_exists(self, session_id: str) -> bool:
-        self._record("session_exists", session_id)
+        try:
+            self._record("session_exists", session_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return False
+            raise
         session = self.sessions.get(session_id)
         if session is None:
             return False
@@ -127,7 +137,10 @@ class FakeSandboxClient:
 
     async def update_egress(self, session_id: str, egress: EgressConfigRequest) -> None:
         self._record("update_egress", session_id, egress)
-        self._require("update_egress", session_id).egress = egress
+        session = self._require("update_egress", session_id)
+        if session.request.egress is None:
+            raise self._status_error("update_egress", 409, "Session has no egress proxy")
+        session.egress = egress
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))

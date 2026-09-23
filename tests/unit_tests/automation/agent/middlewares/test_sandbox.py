@@ -990,8 +990,9 @@ async def _turn(client: FakeSandboxClient, state: dict, runtime: Mock, *, thread
 
 
 class TestPinnedSessionLifecycle:
-    """B1–B6 of the run-executor refactor spec. Assertions read only the fake sandbox's state and
-    call log, so they hold when the lifecycle moves out of ``SandboxMiddleware``."""
+    """B1–B6 of the run-executor refactor spec. Assertions read the fake sandbox's state and call log,
+    plus the session id carried in the checkpointed state; none asserts what a hook returns, so they
+    hold when the lifecycle moves out of ``SandboxMiddleware``."""
 
     async def test_next_turn_reuses_the_warm_session(self, repo_dir: Path):
         """B1: the checkpointed session id is reused on the next turn; `session_exists` restarts it."""
@@ -1039,6 +1040,20 @@ class TestPinnedSessionLifecycle:
         assert client.sessions[state["session_id"]].request.egress == fresh
         assert client.sessions[state["session_id"]].repo_files == {"README.md"}
 
+    async def test_a_session_started_without_egress_is_replaced_once_egress_is_needed(self, repo_dir: Path):
+        """B2: a warm session with no egress proxy can't take a credential, so it is replaced."""
+        client = FakeSandboxClient()
+        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+        stale = state["session_id"]
+        fresh = _egress("tok-1")
+
+        state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+
+        assert stale not in client.sessions
+        assert (stale, True) in client.calls_to("close_session")
+        assert client.sessions[state["session_id"]].request.egress == fresh
+        assert client.sessions[state["session_id"]].repo_files == {"README.md"}
+
     async def test_a_missing_egress_proxy_fails_closed(self, repo_dir: Path):
         """B3: a create-time 400 naming the egress proxy raises `SandboxEgressUnavailableError`."""
         client = FakeSandboxClient()
@@ -1057,7 +1072,7 @@ class TestPinnedSessionLifecycle:
         with pytest.raises(httpx.HTTPStatusError) as raised:
             await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
 
-        assert not isinstance(raised.value, SandboxEgressUnavailableError)
+        assert raised.value.response.status_code == 400
 
     async def test_a_seed_failure_removes_the_new_session(self, repo_dir: Path):
         """B4: a seed failure force-closes the just-created session, then re-raises."""
@@ -1079,13 +1094,12 @@ class TestPinnedSessionLifecycle:
         assert client.calls_to("close_session") == [(state["session_id"], False)]
         assert client.sessions[state["session_id"]].state == "stopped"
 
-    async def test_a_one_shot_run_removes_the_container_and_clears_its_id(self, repo_dir: Path):
-        """B5: a run without a thread id force-removes the container and clears its id."""
+    async def test_a_one_shot_run_removes_the_container(self, repo_dir: Path):
+        """B5: a run without a thread id force-removes the container."""
         client = FakeSandboxClient()
 
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=None)
+        await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=None)
 
-        assert state["session_id"] is None
         assert client.calls_to("close_session") == [("sess-1", True)]
         assert client.sessions == {}
 
@@ -1096,9 +1110,9 @@ class TestPinnedSessionLifecycle:
         client = FakeSandboxClient()
         client.fail("close_session", status=status)
 
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=thread_id)
+        await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=thread_id)
 
-        assert state["session_id"] == ("sess-1" if thread_id else None)
+        assert client.calls_to("close_session") == [("sess-1", thread_id is None)]
 
     async def test_a_subagent_shares_the_parent_session(self, repo_dir: Path):
         """B6: a subagent's sandbox hooks never open, refresh or close a session."""
@@ -1112,8 +1126,8 @@ class TestPinnedSessionLifecycle:
         subagent = SandboxMiddleware(
             agent_root="/workspace/repo", client=client, sandbox_backend=backend, close_session=False
         )
-        assert await subagent.abefore_agent(state, runtime) is None
-        assert await subagent.aafter_agent(state, runtime) is None
+        await subagent.abefore_agent(state, runtime)
+        await subagent.aafter_agent(state, runtime)
 
         assert client.calls == calls_before
         assert client.sessions[state["session_id"]].state == "running"
