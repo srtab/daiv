@@ -7,9 +7,11 @@ from django.contrib.sites.models import Site
 
 import pytest
 from git import GitCommandError
+from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
 
 from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
+from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
@@ -29,11 +31,13 @@ from codebase.base import (
     TriggeredPipeline,
     User,
 )
-from codebase.clients.base import GitAuthEnv
+from codebase.clients.base import GitAuthEnv, GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from core.site_settings import site_settings
+from tests.unit_tests.conftest import FakeSandboxClient
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
@@ -860,6 +864,76 @@ class TestPublishSandboxEgressRefresh:
 
         publisher.sandbox_backend.refresh_egress.assert_awaited_once()
         assert "Could not refresh the sandbox egress token" in caplog.text
+
+
+def _platform_credential(token: str) -> GitEgressCredential:
+    return GitEgressCredential.for_token(host="gitlab.com", token=token)
+
+
+def _platform_egress(credential: GitEgressCredential) -> EgressConfigRequest:
+    return EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host=credential.host, inject=PLATFORM_EGRESS_SECRET_NAME)]),
+        secrets={PLATFORM_EGRESS_SECRET_NAME: EgressSecret(header=credential.header, value=credential.value)},
+    )
+
+
+def _injected_values(egress: EgressConfigRequest) -> list[str]:
+    return [secret.value.get_secret_value() for secret in egress.secrets.values()]
+
+
+def _header_value(credential: GitEgressCredential) -> str:
+    return credential.value.get_secret_value()
+
+
+async def _publish_on_a_live_session(client: FakeSandboxClient, *, remint: Mock) -> str:
+    """Publish through a real backend bound to a fake session started with the turn-start token."""
+    turn_start = _platform_egress(_platform_credential("turn-start"))
+    session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
+    publisher = _make_publisher()
+    publisher.sandbox_backend = SandboxFileBackend(client=client, session_id=session_id)
+    publisher.ctx.sandbox.egress = turn_start
+    publisher.client.get_git_egress_credential = remint
+
+    await publisher.publish(merge_request=None)
+    return session_id
+
+
+class TestPublishSandboxEgressRefreshOnTheWire:
+    async def test_a_rotated_token_reaches_the_session_before_any_git_command(self):
+        """B8: a re-minted token is pushed onto the live session before the publish's first git command."""
+        client = FakeSandboxClient()
+        fresh = _platform_credential("fresh")
+
+        session_id = await _publish_on_a_live_session(client, remint=Mock(return_value=fresh))
+
+        names = client.method_names()
+        assert names.index("update_egress") < names.index("run_commands")
+        assert _injected_values(client.sessions[session_id].egress) == [_header_value(fresh)]
+
+    async def test_an_unchanged_token_is_not_redelivered(self):
+        """B8: a re-mint that returns the turn-start token sends nothing to the session."""
+        client = FakeSandboxClient()
+
+        await _publish_on_a_live_session(client, remint=Mock(return_value=_platform_credential("turn-start")))
+
+        assert "update_egress" not in client.method_names()
+        assert client.ran("ls-remote")
+
+    @pytest.mark.parametrize("failure", ["remint", "update_egress"])
+    async def test_a_failed_refresh_still_runs_the_publish_git_commands(self, failure):
+        """B8: a failed re-mint or delivery leaves the turn-start token in place and publishes anyway."""
+        client = FakeSandboxClient()
+        turn_start = _platform_credential("turn-start")
+        remint = Mock(return_value=_platform_credential("fresh"))
+        if failure == "remint":
+            remint.side_effect = RuntimeError("mint failed")
+        else:
+            client.fail("update_egress", status=500)
+
+        session_id = await _publish_on_a_live_session(client, remint=remint)
+
+        assert client.ran("ls-remote")
+        assert _injected_values(client.sessions[session_id].egress) == [_header_value(turn_start)]
 
 
 class TestPublishCommitMessage:

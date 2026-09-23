@@ -1,13 +1,19 @@
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
 
+from automation.agent.middlewares.file_system import SandboxFileBackend
+from automation.agent.middlewares.sandbox import SandboxMiddleware
 from codebase.base import Scope as RepoScope
-from codebase.context import set_runtime_ctx
+from codebase.clients.base import GitEgressCredential
+from codebase.context import SandboxRuntime, set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
-from core.sandbox.client import _run_sandbox_client
+from core.sandbox.client import _run_sandbox_client, get_run_sandbox_client
+from core.sandbox.command_policy import SandboxCommandPolicy
+from core.sandbox.schemas import EgressSecret
+from tests.unit_tests.conftest import FakeSandboxClient
 
 
 @pytest.fixture
@@ -298,18 +304,13 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
             assert ctx.sandbox.egress.policy.rules[0].host == "github.com"
 
 
-@pytest.mark.parametrize("token", [pytest.param("tok", id="push-token"), pytest.param(None, id="token-less")])
-async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(token):
-    """B9: a network-off env reaches the git host only when a real push token exists."""
-    from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
-    from tests.unit_tests.conftest import FakeSandboxClient
-
+@contextmanager
+def _network_off_run(credential: GitEgressCredential, working_dir: str):
+    """Patch ``set_runtime_ctx``'s collaborators for a network-off env over a fake sandbox transport."""
     repo_client = MagicMock()
     repo_client.current_user.username = "daiv"
-    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
-    repo_client.get_git_egress_credential.return_value = GitEgressCredential.for_token(host="github.com", token=token)
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
+    repo_client.get_git_egress_credential.return_value = credential
     network_off = SandboxRuntime(
         base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
     )
@@ -326,6 +327,15 @@ async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(tok
         patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=network_off)),
         patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
     ):
+        yield
+
+
+@pytest.mark.parametrize("token", [pytest.param("tok", id="push-token"), pytest.param(None, id="token-less")])
+async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(token):
+    """B9: a network-off env reaches the git host only when a real push token exists."""
+    credential = GitEgressCredential.for_token(host="github.com", token=token)
+
+    with _network_off_run(credential, "/tmp/repo"):  # noqa: S108
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             egress = ctx.sandbox.egress
 
@@ -333,6 +343,30 @@ async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(tok
         assert egress.policy.default == "deny"
         assert [rule.host for rule in egress.policy.rules] == ["github.com"]
         assert egress.policy.rules[0].inject in egress.secrets
+    else:
+        assert egress is None
+
+
+@pytest.mark.parametrize("token", [pytest.param("tok", id="push-token"), pytest.param(None, id="token-less")])
+async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_push_token(token, tmp_path):
+    """B9: the session a network-off run starts carries egress only for the git host, only with a token."""
+    (tmp_path / "README.md").write_text("hello\n")
+    credential = GitEgressCredential.for_token(host="github.com", token=token)
+
+    with _network_off_run(credential, str(tmp_path)):
+        async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
+            client = get_run_sandbox_client()
+            middleware = SandboxMiddleware(
+                agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+            )
+            await middleware.abefore_agent({}, MagicMock(context=ctx))
+
+    [session] = client.sessions.values()
+    egress = session.request.egress
+    if token:
+        [rule] = egress.policy.rules
+        assert (egress.policy.default, rule.host) == ("deny", "github.com")
+        assert egress.secrets == {rule.inject: EgressSecret(header=credential.header, value=credential.value)}
     else:
         assert egress is None
 
