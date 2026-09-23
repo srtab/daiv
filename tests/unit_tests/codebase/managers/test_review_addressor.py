@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,8 +12,8 @@ from sessions.pipeline_watch.service import PipelineWatch
 
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, User
-from codebase.managers.base import BaseManager
 from codebase.managers.review_addressor import CommentsAddressorManager
+from tests.unit_tests.codebase.managers.conftest import addressor_agent, addressor_run
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -42,38 +42,14 @@ def _ctx() -> SimpleNamespace:
     )
 
 
-@asynccontextmanager
-async def _noop_checkpointer():
-    yield MagicMock()
-
-
-def _agent(*, state_values: dict | None = None, **ainvoke) -> MagicMock:
-    agent = MagicMock()
-    agent.get_name.return_value = "daiv"
-    agent.ainvoke = AsyncMock(**ainvoke)
-    agent.aget_state = AsyncMock(return_value=SimpleNamespace(values=state_values or {}))
-    return agent
-
-
 @contextmanager
-def _review_run(agent: MagicMock, *, draft_published: bool = False, kwargs_error: Exception | None = None):
-    """Stub everything around the agent; yield the watch and draft-recovery mocks."""
-    run = SimpleNamespace(arm=AsyncMock())
+def _review_run(agent, **options):
+    """``addressor_run`` for the review addressor, also yielding the watch-arm mock."""
     with (
-        patch("codebase.managers.review_addressor.open_checkpointer", _noop_checkpointer),
-        patch(
-            "codebase.managers.review_addressor.get_daiv_agent_kwargs",
-            return_value={"model_names": ["m"], "thinking_level": "medium"},
-            side_effect=kwargs_error,
-        ),
-        patch("codebase.managers.review_addressor.create_daiv_agent", AsyncMock(return_value=agent)),
-        patch("codebase.managers.review_addressor.build_langsmith_config", return_value={}),
-        patch("codebase.managers.review_addressor.track_usage_metadata", MagicMock()),
-        patch.object(PipelineWatch, "aarm_after_run", run.arm),
-        patch.object(CommentsAddressorManager, "_recover_draft", AsyncMock(return_value=draft_published)) as recover,
-        patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
+        addressor_run(CommentsAddressorManager, agent, **options) as run,
+        patch.object(PipelineWatch, "aarm_after_run", AsyncMock()) as arm,
     ):
-        run.recover = recover
+        run.arm = arm
         yield run
 
 
@@ -85,9 +61,9 @@ def mention(captured_client):
     return captured_client
 
 
-async def _review_session(thread_id: str) -> Session:
+async def _review_session(thread_id: str, **fields) -> Session:
     return await Session.objects.acreate(
-        thread_id=thread_id, origin=SessionOrigin.MR_WEBHOOK, repo_id="owner/repo", ref="feature"
+        thread_id=thread_id, origin=SessionOrigin.MR_WEBHOOK, repo_id="owner/repo", ref="feature", **fields
     )
 
 
@@ -96,10 +72,8 @@ class TestReviewAfterRunMatrix:
     async def test_it_runs_while_another_holder_has_the_session_slot(self, mention):
         """No session lock: the run proceeds while another holder has the slot."""
         thread_id = str(uuid.uuid4())
-        await Session.objects.acreate(
-            thread_id=thread_id, origin=SessionOrigin.MR_WEBHOOK, repo_id="owner/repo", active_run_id="chat-run"
-        )
-        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+        await _review_session(thread_id, active_run_id="chat-run")
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with _review_run(agent):
             await CommentsAddressorManager.address_comments(
@@ -113,7 +87,7 @@ class TestReviewAfterRunMatrix:
     async def test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch(self, mention):
         """The checkpoint names another published branch, so any ref sync would show on the session row."""
         session = await _review_session(str(uuid.uuid4()))
-        agent = _agent(
+        agent = addressor_agent(
             return_value={"messages": [AIMessage(content="done")]},
             state_values={"merge_request": _merge_request(source_branch="daiv/published"), "published": True},
         )
@@ -133,7 +107,7 @@ class TestReviewAfterRunMatrix:
         assert reply.args[2] == "done"
 
     async def test_the_reply_carries_the_protected_branch_footer(self, mention):
-        agent = _agent(
+        agent = addressor_agent(
             return_value={"messages": [AIMessage(content="done")]},
             state_values={"protected_branch_fallback_source": "feature", "merge_request": _merge_request(200)},
         )
@@ -150,7 +124,7 @@ class TestReviewAfterRunMatrix:
     @pytest.mark.django_db(transaction=True)
     async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, mention):
         session = await _review_session(str(uuid.uuid4()))
-        agent = _agent(
+        agent = addressor_agent(
             side_effect=RuntimeError("boom"),
             state_values={"merge_request": _merge_request(source_branch="daiv/published"), "published": True},
         )
@@ -172,7 +146,7 @@ class TestReviewAfterRunMatrix:
 
     async def test_a_missing_model_says_it_cannot_run_yet_and_re_raises(self, mention):
         with (
-            _review_run(_agent(), kwargs_error=AgentConfigurationError("no model")),
+            _review_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")),
             pytest.raises(AgentConfigurationError),
         ):
             await CommentsAddressorManager.address_comments(

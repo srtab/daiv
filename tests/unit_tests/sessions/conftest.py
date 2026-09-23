@@ -122,13 +122,13 @@ async def amake_watched_session(
     )
 
 
-def watch_recorder(armed: list[dict]):
+def watch_recorder(armed: list[dict], *, error: Exception | None = None):
     """A stand-in for ``PipelineWatch`` that records the ``aarm_after_run`` calls a seam makes.
 
     Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach
     the watch — rather than the watch itself. Every publishing seam has such a test; keeping one
     stub means a new keyword argument is one edit, not three, and a copy that drifts records
-    nothing while still passing.
+    nothing while still passing. ``error`` is raised after each call is recorded.
     """
 
     class RecordingWatch:
@@ -137,6 +137,8 @@ def watch_recorder(armed: list[dict]):
 
         async def aarm_after_run(self, **kwargs):
             armed.append({"repo_id": self.repo_id, **kwargs})
+            if error is not None:
+                raise error
 
     return RecordingWatch
 

@@ -19,7 +19,10 @@ from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from codebase.context import SandboxRuntime
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -27,6 +30,29 @@ from core.sandbox.schemas import (
     RunCommandsResponse,
     StartSessionRequest,
 )
+
+
+def sandbox_runtime(
+    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None
+) -> SandboxRuntime:
+    return SandboxRuntime(
+        base_image=base_image,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=egress,
+    )
+
+
+@contextmanager
+def bound_run_sandbox_client(client):
+    """Bind ``client`` as the run-scoped sandbox client, as ``set_runtime_ctx`` does for a sandbox run."""
+    token = set_run_sandbox_client(client)
+    try:
+        yield client
+    finally:
+        reset_run_sandbox_client(token)
 
 
 @dataclass

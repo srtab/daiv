@@ -47,7 +47,7 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
     return config
 
 
-def _make_sandbox_runtime(disallow=(), allow=()):
+def _make_sandbox_runtime(disallow=(), allow=(), egress: EgressConfigRequest | None = None):
     """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
     from codebase.context import SandboxRuntime
     from core.sandbox.command_policy import SandboxCommandPolicy
@@ -58,15 +58,16 @@ def _make_sandbox_runtime(disallow=(), allow=()):
         cpus=None,
         env_vars={},
         command_policy=SandboxCommandPolicy(disallow=tuple(disallow), allow=tuple(allow)),
+        egress=egress,
     )
 
 
-def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
+def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigRequest | None = None) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
-    runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
+    runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
     runtime.context.config = _make_sandbox_config_mock()
-    runtime.context.sandbox = _make_sandbox_runtime()
+    runtime.context.sandbox = _make_sandbox_runtime(egress=egress)
     return runtime
 
 
@@ -139,8 +140,6 @@ class TestBashTool:
 
     async def test_bash_tool_transient_failure_invites_single_retry(self, tmp_path: Path):
         """A transport error (no HTTP response) yields transient guidance: retry once, then stop."""
-        import httpx
-
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
@@ -159,8 +158,6 @@ class TestBashTool:
 
     async def test_bash_tool_permanent_failure_tells_agent_to_stop(self, tmp_path: Path):
         """A non-retryable status (e.g. 403) tells the agent the tool is gone for the run."""
-        import httpx
-
         repo_dir = tmp_path / "repoY"
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
@@ -355,23 +352,17 @@ class TestRunBashCommands:
 
     async def test_transport_error_is_transient(self):
         """No HTTP response (timeout/connection blip) → transient: a retry may connect."""
-        import httpx
-
         assert await self._run_with_error(httpx.RequestError("boom")) is BashFailure.TRANSIENT
 
     @pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
     async def test_retryable_status_is_transient(self, status: int):
         """409 is the per-session lock contention ("Session is busy"): the op never ran, so a retry
         once the lock frees is safe — it must be transient, not permanent."""
-        import httpx
-
         err = httpx.HTTPStatusError("busy", request=httpx.Request("POST", "x"), response=httpx.Response(status))
         assert await self._run_with_error(err) is BashFailure.TRANSIENT
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
     async def test_non_retryable_status_is_permanent(self, status: int):
-        import httpx
-
         err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(status))
         assert await self._run_with_error(err) is BashFailure.PERMANENT
 
@@ -426,8 +417,6 @@ class TestSandboxMiddleware:
 
     async def test_abefore_agent_closes_session_on_seed_failure(self):
         """If seed_session raises, the started session is force-removed; the injected client is NOT closed."""
-        import pytest
-
         client = MagicMock()
         client.start_session = AsyncMock(return_value="sess-leaky")
         client.seed_session = AsyncMock(side_effect=RuntimeError("simulated seed failure"))
@@ -480,8 +469,6 @@ class TestSandboxMiddleware:
 
     async def test_aafter_agent_swallows_already_closed_session(self):
         """A 404 from close_session (warm session reaped) is swallowed; resumable run still keeps state."""
-        import httpx
-
         err = httpx.HTTPStatusError("gone", request=httpx.Request("DELETE", "x"), response=httpx.Response(404))
         client = MagicMock()
         client.close = AsyncMock()
@@ -527,10 +514,6 @@ class TestSandboxMiddleware:
     async def test_abefore_agent_recreates_when_egress_refresh_fails(self, refresh_error):
         """A failed egress refresh — an HTTP status error (e.g. 404 on an old sandbox) or a transport
         error (httpx.RequestError) — closes the stale session and recreates it instead of reusing it."""
-        import httpx
-
-        from core.sandbox.schemas import EgressConfigRequest
-
         error = (
             httpx.HTTPStatusError("nope", request=httpx.Request("PUT", "x"), response=httpx.Response(404))
             if refresh_error == "http_status"
@@ -724,8 +707,6 @@ class TestSandboxMiddleware:
         runtime.context.config.sandbox.base_image = None  # Would fail if read.
         runtime.context.config.sandbox.memory_bytes = None
         runtime.context.config.sandbox.cpus = None
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
-
         egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
         runtime.context.sandbox = SandboxRuntime(
             base_image="alpine:test",
@@ -838,8 +819,6 @@ class TestSessionExists:
     async def test_soft_fails_to_false_on_transport_error(self):
         """A transient ``session_exists`` HTTP error falls back to a cold create rather than
         failing the run."""
-        import httpx
-
         client = Mock(session_exists=AsyncMock(side_effect=httpx.HTTPError("boom")))
         assert await SandboxMiddleware._session_exists(client, "warm-1") is False
 
@@ -861,8 +840,6 @@ class TestSandboxEgress:
             yield
 
     def _runtime_with_egress(self):
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
-
         runtime = _make_runtime()
         runtime.context.sandbox.egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
         return runtime, runtime.context.sandbox.egress
@@ -904,8 +881,6 @@ class TestSandboxEgress:
 
     async def test_create_time_400_without_egress_detail_propagates_raw(self):
         """A create-time 400 that does NOT mention 'egress' is re-raised as-is (not mapped)."""
-        import httpx
-
         resp = httpx.Response(400, json={"detail": "base_image is invalid"})
         client = MagicMock()
         client.start_session = AsyncMock(
@@ -918,8 +893,6 @@ class TestSandboxEgress:
 
     async def test_start_passes_egress_block_and_no_separate_provision(self):
         """start_session is called with egress set; no separate configure_egress call is made."""
-        import httpx  # noqa: F401 — ensure httpx import is available if needed
-
         client = MagicMock()
         client.start_session = AsyncMock(return_value="sess-egress")
         client.seed_session = AsyncMock()
@@ -934,8 +907,6 @@ class TestSandboxEgress:
 
     async def test_create_time_400_egress_maps_to_unavailable(self):
         """A create-time 400 with an egress detail is mapped to SandboxEgressUnavailableError."""
-        import httpx
-
         resp = httpx.Response(400, json={"detail": "egress requires the egress proxy, which is not configured"})
         client = MagicMock()
         client.start_session = AsyncMock(
@@ -953,24 +924,6 @@ def _egress(token: str) -> EgressConfigRequest:
     )
 
 
-def _lifecycle_runtime(repo_dir: Path, *, egress: EgressConfigRequest | None = None) -> Mock:
-    """A runtime over a real on-disk repo, so seeding tars actual files."""
-    from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
-    runtime = Mock()
-    runtime.context.gitrepo = Mock(working_dir=str(repo_dir))
-    runtime.context.sandbox = SandboxRuntime(
-        base_image="python:3.12",
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=egress,
-    )
-    return runtime
-
-
 @pytest.fixture
 def repo_dir(tmp_path: Path) -> Path:
     path = tmp_path / "repo"
@@ -983,7 +936,7 @@ _PROBE = ("true",)
 _FRESH_SESSION_TURN = ["start_session", "seed_session", "run_commands", "close_session"]
 
 
-async def _turn(client: FakeSandboxClient, state: dict, runtime: Mock, *, thread_id: str | None) -> dict:
+async def _turn(client: FakeSandboxClient, state: dict, runtime: Mock, *, thread_id: str | None = "t-1") -> dict:
     """Run one agent turn — the sandbox hooks around a command through the bound backend — and return
     the state the checkpoint would hold after it."""
     backend = SandboxFileBackend(client=client)
@@ -1005,16 +958,16 @@ class TestPinnedSessionLifecycle:
     async def test_next_turn_reuses_the_warm_session(self, repo_dir: Path):
         """B1: the next turn reuses the checkpointed session via `session_exists`; nothing new is started or seeded."""
         client = FakeSandboxClient.opened()
-        runtime = _lifecycle_runtime(repo_dir)
+        runtime = _make_agent_runtime(repo_dir)
 
-        state = await _turn(client, {}, runtime, thread_id="t-1")
+        state = await _turn(client, {}, runtime)
         session_id = state["session_id"]
         assert client.sessions[session_id].repo_files == {"README.md"}
         assert any(name.endswith("SKILL.md") for name in client.sessions[session_id].skills_files)
         assert client.sessions[session_id].state == "stopped"
         mark = len(client.calls)
 
-        state = await _turn(client, state, runtime, thread_id="t-1")
+        state = await _turn(client, state, runtime)
 
         assert state["session_id"] == session_id
         assert client.calls[mark:] == [
@@ -1026,13 +979,13 @@ class TestPinnedSessionLifecycle:
     async def test_a_reaped_session_is_replaced_by_a_fresh_one(self, repo_dir: Path):
         """B1: a checkpointed session the sandbox no longer has is replaced by a freshly seeded one."""
         client = FakeSandboxClient.opened()
-        runtime = _lifecycle_runtime(repo_dir)
-        state = await _turn(client, {}, runtime, thread_id="t-1")
+        runtime = _make_agent_runtime(repo_dir)
+        state = await _turn(client, {}, runtime)
         reaped = state["session_id"]
         del client.sessions[reaped]
         mark = len(client.calls)
 
-        state = await _turn(client, state, runtime, thread_id="t-1")
+        state = await _turn(client, state, runtime)
 
         assert state["session_id"] != reaped
         assert client.method_names()[mark:] == ["session_exists", *_FRESH_SESSION_TURN]
@@ -1045,13 +998,13 @@ class TestPinnedSessionLifecycle:
     ):
         """B1: a non-404 `session_exists` error starts a fresh session and logs the old one as possibly leaked."""
         client = FakeSandboxClient.opened()
-        runtime = _lifecycle_runtime(repo_dir)
-        state = await _turn(client, {}, runtime, thread_id="t-1")
+        runtime = _make_agent_runtime(repo_dir)
+        state = await _turn(client, {}, runtime)
         stale = state["session_id"]
         client.fail("session_exists", status=status)
 
         with caplog.at_level("ERROR", logger="daiv.tools"):
-            state = await _turn(client, state, runtime, thread_id="t-1")
+            state = await _turn(client, state, runtime)
 
         assert state["session_id"] != stale
         assert client.calls_to("run_commands")[-1] == (state["session_id"], _PROBE)
@@ -1060,12 +1013,12 @@ class TestPinnedSessionLifecycle:
     async def test_a_reused_session_gets_the_fresh_credential(self, repo_dir: Path):
         """B2: a reused session gets this run's egress credential pushed onto it before the turn runs."""
         client = FakeSandboxClient.opened()
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir, egress=_egress("tok-1")))
         session_id = state["session_id"]
         fresh = _egress("tok-2")
         mark = len(client.calls)
 
-        await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+        await _turn(client, state, _make_agent_runtime(repo_dir, egress=fresh))
 
         assert client.calls[mark:] == [
             ("session_exists", (session_id,)),
@@ -1079,14 +1032,14 @@ class TestPinnedSessionLifecycle:
     async def test_a_failed_credential_refresh_replaces_the_session(self, repo_dir: Path, status: int | None, caplog):
         """B2: when `update_egress` fails, the old container is force-closed before a new one is started and seeded."""
         client = FakeSandboxClient.opened()
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir, egress=_egress("tok-1")))
         stale = state["session_id"]
         client.fail("update_egress", status=status)
         fresh = _egress("tok-2")
         mark = len(client.calls)
 
         with caplog.at_level("WARNING", logger="daiv.tools"):
-            state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+            state = await _turn(client, state, _make_agent_runtime(repo_dir, egress=fresh))
 
         assert client.calls[mark : mark + 3] == _refused_refresh(stale, fresh)
         assert client.method_names()[mark + 3 :] == _FRESH_SESSION_TURN
@@ -1099,12 +1052,12 @@ class TestPinnedSessionLifecycle:
     async def test_a_session_started_without_egress_is_replaced_once_egress_is_needed(self, repo_dir: Path):
         """B2: a warm session with no egress proxy can't take a credential, so it is closed and replaced."""
         client = FakeSandboxClient.opened()
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir))
         stale = state["session_id"]
         fresh = _egress("tok-1")
         mark = len(client.calls)
 
-        state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=fresh), thread_id="t-1")
+        state = await _turn(client, state, _make_agent_runtime(repo_dir, egress=fresh))
 
         assert client.calls[mark : mark + 3] == _refused_refresh(stale, fresh)
         assert client.method_names()[mark + 3 :] == _FRESH_SESSION_TURN
@@ -1115,13 +1068,13 @@ class TestPinnedSessionLifecycle:
     async def test_a_stale_session_that_will_not_close_is_logged_and_still_replaced(self, repo_dir: Path, caplog):
         """B2: a failed close of the stale session is logged and the replacement session still starts."""
         client = FakeSandboxClient.opened()
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir, egress=_egress("tok-1")))
         stale = state["session_id"]
         client.fail("update_egress", status=409)
         client.fail("close_session", status=500)
 
         with caplog.at_level("WARNING", logger="daiv.tools"):
-            state = await _turn(client, state, _lifecycle_runtime(repo_dir, egress=_egress("tok-2")), thread_id="t-1")
+            state = await _turn(client, state, _make_agent_runtime(repo_dir, egress=_egress("tok-2")))
 
         assert state["session_id"] != stale
         assert client.calls_to("run_commands")[-1] == (state["session_id"], _PROBE)
@@ -1133,7 +1086,7 @@ class TestPinnedSessionLifecycle:
         client.fail("start_session", status=400, detail="egress requires the egress proxy, which is not configured")
 
         with pytest.raises(SandboxEgressUnavailableError):
-            await _turn(client, {}, _lifecycle_runtime(repo_dir, egress=_egress("tok-1")), thread_id="t-1")
+            await _turn(client, {}, _make_agent_runtime(repo_dir, egress=_egress("tok-1")))
 
         assert client.method_names() == ["start_session"]
 
@@ -1143,7 +1096,7 @@ class TestPinnedSessionLifecycle:
         client.fail("start_session", status=400, detail="base_image is invalid")
 
         with pytest.raises(httpx.HTTPStatusError) as raised:
-            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+            await _turn(client, {}, _make_agent_runtime(repo_dir))
 
         assert raised.value.response.status_code == 400
         assert client.method_names() == ["start_session"]
@@ -1154,7 +1107,7 @@ class TestPinnedSessionLifecycle:
         client.fail("seed_session", status=500)
 
         with caplog.at_level("ERROR", logger="daiv.tools"), pytest.raises(httpx.HTTPStatusError):
-            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+            await _turn(client, {}, _make_agent_runtime(repo_dir))
 
         assert client.sessions == {}
         assert client.calls_to("close_session") == [("sess-1", True)]
@@ -1167,7 +1120,7 @@ class TestPinnedSessionLifecycle:
         client.fail("close_session", status=None)
 
         with caplog.at_level("ERROR", logger="daiv.tools"), pytest.raises(httpx.HTTPStatusError):
-            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+            await _turn(client, {}, _make_agent_runtime(repo_dir))
 
         assert client.calls_to("close_session") == [("sess-1", True)]
         assert "Failed to close session sess-1 after seed failure" in caplog.text
@@ -1176,7 +1129,7 @@ class TestPinnedSessionLifecycle:
         """B5: a run with a thread id stops the container and leaves the id in state."""
         client = FakeSandboxClient.opened()
 
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id="t-1")
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir))
 
         assert client.calls_to("close_session") == [(state["session_id"], False)]
         assert client.sessions[state["session_id"]].state == "stopped"
@@ -1185,7 +1138,7 @@ class TestPinnedSessionLifecycle:
         """B5: a run without a thread id force-removes the container and clears the id from state."""
         client = FakeSandboxClient.opened()
 
-        state = await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=None)
+        state = await _turn(client, {}, _make_agent_runtime(repo_dir), thread_id=None)
 
         assert client.calls_to("close_session") == [("sess-1", True)]
         assert client.sessions == {}
@@ -1201,7 +1154,7 @@ class TestPinnedSessionLifecycle:
         client.fail("close_session", status=status)
 
         with caplog.at_level("ERROR", logger="daiv.tools"):
-            await _turn(client, {}, _lifecycle_runtime(repo_dir), thread_id=thread_id)
+            await _turn(client, {}, _make_agent_runtime(repo_dir), thread_id=thread_id)
 
         assert client.calls_to("close_session") == [("sess-1", thread_id is None)]
         assert ("sess-1 close" in caplog.text and "may have leaked" in caplog.text) is leak_logged
@@ -1209,7 +1162,7 @@ class TestPinnedSessionLifecycle:
     async def test_a_subagent_shares_the_parent_session(self, repo_dir: Path):
         """B6: a subagent's sandbox hooks never open, refresh or close a session."""
         client = FakeSandboxClient.opened()
-        runtime = _lifecycle_runtime(repo_dir, egress=_egress("tok-1"))
+        runtime = _make_agent_runtime(repo_dir, egress=_egress("tok-1"))
         backend = SandboxFileBackend(client=client)
         parent = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=backend)
         state = await parent.abefore_agent({}, runtime)

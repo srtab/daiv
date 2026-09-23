@@ -536,8 +536,6 @@ def _resp(*outputs_and_codes):
 
 def _backend_for(client) -> SandboxFileBackend:
     backend = SandboxFileBackend(client=client)
-    if isinstance(client, FakeSandboxClient):
-        client.add_running_session("sess-1")
     backend.bind_session("sess-1")
     return backend
 
@@ -878,16 +876,14 @@ async def test_get_diff_raises_on_ls_files_failure() -> None:
 
 
 async def test_push_head_to_adds_ci_skip_push_option_when_skip_ci() -> None:
-    client = FakeSandboxClient.opened()
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm, client = _sandbox_manager()
     await gm.push_head_to("b", skip_ci=True)
     push_cmds = [c for c in client.commands if " push " in f" {c} "]
     assert push_cmds and all("-o ci.skip" in c for c in push_cmds)
 
 
 async def test_push_head_to_omits_ci_skip_by_default() -> None:
-    client = FakeSandboxClient.opened()
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm, client = _sandbox_manager()
     await gm.push_head_to("b")
     assert not any("ci.skip" in c for c in client.commands)
 

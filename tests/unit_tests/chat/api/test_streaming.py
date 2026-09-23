@@ -1004,53 +1004,43 @@ def _failing_ctx(*_args, **_kwargs):
 def _recorded_turn(
     agui_agent,
     *,
-    heartbeat: bool | Exception | AsyncMock = True,
+    heartbeat: bool | AsyncMock = True,
     cancel: bool = False,
     runtime_ctx=_mock_ctx,
     graph=None,
-    persist_error: Exception | None = None,
-    arm_error: Exception | None = None,
-    finalize_error: Exception | None = None,
-    release_error: Exception | None = None,
+    errors: dict[str, Exception] | None = None,
 ):
     """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs start and each
-    after-run step in order. ``*_error`` makes that step raise after it is logged."""
+    after-run step in order. ``errors`` maps a step name to the exception it raises after it is logged."""
     calls: list[tuple] = []
+    errors = errors or {}
+
+    def _log(step: str, *args) -> None:
+        calls.append((step, *args))
+        if step in errors:
+            raise errors[step]
 
     async def _start(**_kwargs):
-        calls.append(("start",))
+        _log("start")
         return SimpleNamespace(pk="run-pk")
 
     async def _finalize(_run_pk, *, success, usage, response_text, error_message=""):
-        calls.append(("finalize", success, error_message))
-        if finalize_error is not None:
-            raise finalize_error
+        _log("finalize", success, error_message)
 
     async def _persist(*, thread_id, current_ref, merge_request):
-        calls.append(("persist", current_ref, merge_request))
-        if persist_error is not None:
-            raise persist_error
+        _log("persist", current_ref, merge_request)
 
     class _Watch:
         def __init__(self, repo_id):
             pass
 
         async def aarm_after_run(self, *, merge_request, published, user_id):
-            calls.append(("arm", published))
-            if arm_error is not None:
-                raise arm_error
+            _log("arm", published)
 
     async def _release(thread_id, run_id):
-        calls.append(("release", thread_id, run_id))
-        if release_error is not None:
-            raise release_error
+        _log("release", thread_id, run_id)
 
-    if isinstance(heartbeat, AsyncMock):
-        heartbeat_mock = heartbeat
-    elif isinstance(heartbeat, Exception):
-        heartbeat_mock = AsyncMock(side_effect=heartbeat)
-    else:
-        heartbeat_mock = AsyncMock(return_value=heartbeat)
+    heartbeat_mock = heartbeat if isinstance(heartbeat, AsyncMock) else AsyncMock(return_value=heartbeat)
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", runtime_ctx),
@@ -1083,7 +1073,6 @@ _RELEASE = ("release", "t-stream", "r-1")
 
 
 class TestChatAfterRunMatrix:
-    @pytest.mark.django_db(transaction=True)
     async def test_a_clean_turn_runs_the_after_run_steps_in_order(self):
         mr = {"source_branch": "feature-y", "merge_request_id": 42}
 
@@ -1092,7 +1081,6 @@ class TestChatAfterRunMatrix:
 
         assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_raised_agent_error_becomes_a_run_error_event(self):
         from core.constants import RUN_FAILED_MESSAGE
 
@@ -1107,7 +1095,6 @@ class TestChatAfterRunMatrix:
         graph.aget_state.assert_not_awaited()
         graph.aupdate_state.assert_not_awaited()
 
-    @pytest.mark.django_db(transaction=True)
     async def test_an_emitted_run_error_fails_the_turn_and_skips_ref_and_watch(self):
         from ag_ui.core.events import RunErrorEvent
 
@@ -1120,7 +1107,6 @@ class TestChatAfterRunMatrix:
 
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_setup_failure_before_the_run_row_only_releases_the_slot(self):
         with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
             events = [event async for event in _streamer().events()]
@@ -1128,7 +1114,6 @@ class TestChatAfterRunMatrix:
         assert [(event.type, event.code) for event in events] == [(EventType.RUN_ERROR, "run_failed")]
         assert calls == [_RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):
         from core.constants import INTERRUPTED_MESSAGE
 
@@ -1138,14 +1123,12 @@ class TestChatAfterRunMatrix:
         assert events[-1].code == "run_interrupted"
         assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_lost_lock_wins_over_a_cancel_request(self):
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False, cancel=True):
             events = [event async for event in _streamer().events()]
 
         assert events[-1].code == "run_interrupted"
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_cancel_request_stops_the_turn_and_skips_ref_and_watch(self):
         from core.constants import CANCELLED_BY_USER_MESSAGE
 
@@ -1155,7 +1138,6 @@ class TestChatAfterRunMatrix:
         assert events[-1].code == "run_cancelled"
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_hard_cancel_after_a_stop_request_is_recorded_as_stopped(self):
         import asyncio
 
@@ -1184,7 +1166,6 @@ class TestChatAfterRunMatrix:
 
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_heartbeat_error_is_logged_and_keeps_the_turn_running(self, caplog):
         heartbeat = AsyncMock(side_effect=RuntimeError("db down"))
 
@@ -1199,14 +1180,13 @@ class TestChatAfterRunMatrix:
         assert ("finalize", True, "") in calls
         assert "heartbeat failed" in caplog.text
 
-    @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(("step", "message"), [("persist", "persist session ref"), ("arm", "arm pipeline watch")])
     async def test_a_failed_ref_or_watch_step_is_logged_and_the_turn_still_succeeds(self, caplog, step, message):
         mr = {"source_branch": "feature-y", "merge_request_id": 42}
 
         with (
             _recorded_turn(
-                _mock_agent([_snapshot(merge_request=mr, published=True)]), **{f"{step}_error": RuntimeError("db down")}
+                _mock_agent([_snapshot(merge_request=mr, published=True)]), errors={step: RuntimeError("db down")}
             ) as calls,
             caplog.at_level("ERROR", logger="daiv.chat"),
         ):
@@ -1215,10 +1195,9 @@ class TestChatAfterRunMatrix:
         assert calls == [("start",), ("persist", "main", mr), ("arm", True), ("finalize", True, ""), _RELEASE]
         assert f"failed to {message}" in caplog.text
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_finalize_failure_is_logged_and_still_releases_the_slot(self, caplog):
         with (
-            _recorded_turn(_mock_agent([]), finalize_error=RuntimeError("db down")) as calls,
+            _recorded_turn(_mock_agent([]), errors={"finalize": RuntimeError("db down")}) as calls,
             caplog.at_level("ERROR", logger="daiv.chat"),
         ):
             [event async for event in _streamer().events()]
@@ -1226,10 +1205,9 @@ class TestChatAfterRunMatrix:
         assert calls[-2:] == [("finalize", True, ""), _RELEASE]
         assert "failed to finalize chat run" in caplog.text
 
-    @pytest.mark.django_db(transaction=True)
     async def test_a_release_failure_is_logged_and_swallowed(self, caplog):
         with (
-            _recorded_turn(_mock_agent([]), release_error=RuntimeError("db down")) as calls,
+            _recorded_turn(_mock_agent([]), errors={"release": RuntimeError("db down")}) as calls,
             caplog.at_level("ERROR", logger="daiv.chat"),
         ):
             events = [event async for event in _streamer().events()]

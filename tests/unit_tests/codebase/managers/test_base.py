@@ -3,13 +3,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, Mock, patch
 
 from codebase.base import Issue, MergeRequest, User
-from codebase.context import SandboxRuntime
 from codebase.managers.issue_addressor import IssueAddressorManager
-from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy
-from core.sandbox.schemas import StartSessionRequest
 from tests.unit_tests.codebase.managers.conftest import publisher_through_backend
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -30,9 +26,7 @@ def _sandbox_ctx() -> Mock:
     ctx.repository = Mock(slug="owner/repo")
     ctx.merge_request = None
     ctx.gitrepo = Mock()
-    ctx.sandbox = SandboxRuntime(
-        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
-    )
+    ctx.sandbox = sandbox_runtime()
     return ctx
 
 
@@ -43,15 +37,12 @@ async def _recover(client: FakeSandboxClient, session_id: str, *, publisher) -> 
     agent = Mock()
     agent.aget_state = AsyncMock(return_value=Mock(values={"merge_request": None, "session_id": session_id}))
     agent.aupdate_state = AsyncMock()
-    token = set_run_sandbox_client(client)
-    try:
-        with (
-            patch("codebase.managers.base.GitChangePublisher", publisher),
-            patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-10"),
-        ):
-            published = await manager._recover_draft(agent, {}, entity_label="issue", entity_id=10)
-    finally:
-        reset_run_sandbox_client(token)
+    with (
+        bound_run_sandbox_client(client),
+        patch("codebase.managers.base.GitChangePublisher", publisher),
+        patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-10"),
+    ):
+        published = await manager._recover_draft(agent, {}, entity_label="issue", entity_id=10)
     return published, agent
 
 
@@ -59,7 +50,7 @@ class TestRecoverDraftInSandboxMode:
     async def test_it_publishes_a_draft_through_the_live_session(self, stub_base_init):
         """B7: recovery publishes through the run's live session, without reopening or closing it."""
         client = FakeSandboxClient.opened()
-        session_id = await client.start_session(StartSessionRequest(base_image="python:3.12"))
+        session_id = client.add_running_session("sess-1")
         created: list = []
 
         published, agent = await _recover(
@@ -69,13 +60,13 @@ class TestRecoverDraftInSandboxMode:
         assert published is True
         assert created[0].target == (None, True)
         assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
-        assert client.method_names() == ["start_session", "run_commands"]
+        assert client.method_names() == ["run_commands"]
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"merge_request": _DRAFT_MR})
 
     async def test_a_failed_publish_reports_no_draft(self, stub_base_init, caplog):
         """B7: a publish that raises is logged and reported as no draft, never re-raised."""
         client = FakeSandboxClient.opened()
-        session_id = await client.start_session(StartSessionRequest(base_image="python:3.12"))
+        session_id = client.add_running_session("sess-1")
         publisher = Mock()
         publisher.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
 

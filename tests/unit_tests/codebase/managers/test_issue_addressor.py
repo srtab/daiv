@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -11,17 +11,18 @@ from sessions.models import Session, SessionOrigin
 
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, User
-from codebase.context import SandboxRuntime
-from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
-from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.codebase.managers.conftest import publisher_through_backend
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.codebase.managers.conftest import (
+    addressor_agent,
+    addressor_run,
+    open_noop_checkpointer,
+    publisher_through_backend,
+)
+from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
 from tests.unit_tests.sessions.conftest import watch_recorder
 
 _AUTHOR = User(id=1, username="alice")
@@ -45,10 +46,7 @@ def _ctx() -> SimpleNamespace:
 
 def _sandbox_ctx() -> SimpleNamespace:
     """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    sandbox = SandboxRuntime(
-        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
-    )
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox)
+    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_runtime())
 
 
 def _issue(*, labels: list[str]) -> Issue:
@@ -66,11 +64,6 @@ def _merge_request() -> MergeRequest:
         author=_AUTHOR,
         draft=True,
     )
-
-
-@asynccontextmanager
-async def _noop_checkpointer():
-    yield MagicMock()
 
 
 class _CapturedError(RuntimeError):
@@ -93,7 +86,7 @@ async def _run_addressor(*, labels: list[str]) -> dict:
         raise _CapturedError
 
     with (
-        patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
+        patch("codebase.managers.issue_addressor.open_checkpointer", open_noop_checkpointer),
         patch("codebase.managers.issue_addressor.create_daiv_agent", side_effect=_capture),
         patch.object(IssueAddressorManager, "_add_unable_to_address_issue_note"),
         pytest.raises(_CapturedError),
@@ -142,48 +135,17 @@ class TestMaxLabelRoutesToMaxModel:
         assert site_settings.agent_max_model_name not in captured["model_names"]
 
 
-def _agent(**ainvoke) -> MagicMock:
-    agent = MagicMock()
-    agent.get_name.return_value = "daiv"
-    agent.ainvoke = AsyncMock(**ainvoke)
-    agent.aget_state = AsyncMock(return_value=SimpleNamespace(values={"merge_request": None, "published": False}))
-    return agent
-
-
 @contextmanager
-def _issue_run(
-    agent: MagicMock,
-    *,
-    draft_published: bool = False,
-    kwargs_error: Exception | None = None,
-    stub_recovery: bool = True,
-):
-    """Stub everything around the agent; yield the persist, watch and draft-recovery mocks.
-
-    ``stub_recovery=False`` keeps the real draft recovery, and ``run.recover`` is then ``None``.
-    """
-    run = SimpleNamespace(armed=[], persist=AsyncMock())
-    recovery = (
-        patch.object(IssueAddressorManager, "_recover_draft", AsyncMock(return_value=draft_published))
-        if stub_recovery
-        else nullcontext()
-    )
+def _issue_run(agent, **options):
+    """``addressor_run`` for the issue addressor, also yielding the persist mock and the armed watches."""
+    armed: list[dict] = []
+    persist = AsyncMock()
     with (
-        patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
-        patch(
-            "codebase.managers.issue_addressor.get_daiv_agent_kwargs",
-            return_value={"model_names": ["m"], "thinking_level": "medium"},
-            side_effect=kwargs_error,
-        ),
-        patch("codebase.managers.issue_addressor.create_daiv_agent", AsyncMock(return_value=agent)) as create,
-        patch("codebase.managers.issue_addressor.build_langsmith_config", return_value={}),
-        patch("codebase.managers.issue_addressor.track_usage_metadata", MagicMock()),
-        patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder(run.armed)),
-        patch("sessions.services.apersist_session_ref", run.persist),
-        recovery as recover,
-        patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
+        addressor_run(IssueAddressorManager, agent, **options) as run,
+        patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder(armed)),
+        patch("sessions.services.apersist_session_ref", persist),
     ):
-        run.create, run.recover = create, recover
+        run.armed, run.persist = armed, persist
         yield run
 
 
@@ -195,7 +157,7 @@ class TestIssueAfterRunMatrix:
         await Session.objects.acreate(
             thread_id=thread_id, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo", active_run_id="chat-run"
         )
-        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with _issue_run(agent):
             await IssueAddressorManager.address_issue(
@@ -207,8 +169,10 @@ class TestIssueAfterRunMatrix:
 
     async def test_a_successful_run_persists_the_ref_and_arms_the_watch(self, captured_client):
         mr = _merge_request()
-        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
-        agent.aget_state = AsyncMock(return_value=SimpleNamespace(values={"merge_request": mr, "published": True}))
+        agent = addressor_agent(
+            return_value={"messages": [AIMessage(content="done")]},
+            state_values={"merge_request": mr, "published": True},
+        )
         ctx = _ctx()
         ctx.acting_user_id = 7
 
@@ -225,7 +189,7 @@ class TestIssueAfterRunMatrix:
 
     async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, captured_client):
         with (
-            _issue_run(_agent(side_effect=RuntimeError("boom")), draft_published=True) as run,
+            _issue_run(addressor_agent(side_effect=RuntimeError("boom")), draft_published=True) as run,
             pytest.raises(RuntimeError, match="boom"),
         ):
             await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_ctx())
@@ -245,26 +209,23 @@ class TestIssueAfterRunMatrix:
             started.append(await client.start_session(StartSessionRequest(base_image="python:3.12")))
             raise RuntimeError("boom")
 
-        agent = _agent(side_effect=_fail_mid_turn)
+        agent = addressor_agent(side_effect=_fail_mid_turn)
         agent.aget_state = AsyncMock(
             side_effect=lambda **_kwargs: SimpleNamespace(values={"merge_request": None, "session_id": started[0]})
         )
         agent.aupdate_state = AsyncMock()
         created: list = []
-        token = set_run_sandbox_client(client)
-        try:
-            with (
-                _issue_run(agent, stub_recovery=False),
-                patch(
-                    "codebase.managers.base.GitChangePublisher",
-                    publisher_through_backend(created, publishes=_merge_request()),
-                ),
-                patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-42"),
-                pytest.raises(RuntimeError, match="boom"),
-            ):
-                await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_sandbox_ctx())
-        finally:
-            reset_run_sandbox_client(token)
+        with (
+            bound_run_sandbox_client(client),
+            _issue_run(agent, stub_recovery=False),
+            patch(
+                "codebase.managers.base.GitChangePublisher",
+                publisher_through_backend(created, publishes=_merge_request()),
+            ),
+            patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-42"),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_sandbox_ctx())
 
         assert client.calls_to("run_commands") == [(started[0], ("git push origin HEAD",))]
         [note] = captured_client.create_issue_comment.call_args_list
@@ -274,7 +235,7 @@ class TestIssueAfterRunMatrix:
         captured_client.get_issue_comment.return_value = SimpleNamespace(
             notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
         )
-        with _issue_run(_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
+        with _issue_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run:
             result = await IssueAddressorManager.address_issue(
                 issue=_issue(labels=[BOT_LABEL]), mention_comment_id="c-1", runtime_ctx=_ctx()
             )
@@ -289,7 +250,7 @@ class TestIssueAfterRunMatrix:
         ("label", "prompt"), [(BOT_AUTO_LABEL, ADDRESS_ISSUE_PROMPT), (BOT_LABEL, PLAN_ISSUE_PROMPT)]
     )
     async def test_the_label_picks_the_prompt(self, captured_client, label: str, prompt: str):
-        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with _issue_run(agent):
             await IssueAddressorManager.address_issue(issue=_issue(labels=[label]), runtime_ctx=_ctx())
