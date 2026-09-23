@@ -433,8 +433,6 @@ async def _active_holder(thread_id: str) -> str | None:
 
 
 class TestRunJobTaskAfterRunMatrix:
-    """Pins the job trigger's row of the run-executor spec's after-run matrix."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(("run_id", "holder"), [("run-9", "run-9"), (None, "job-3f2c9a1b")])
     async def test_it_holds_the_session_lock_while_the_agent_runs(self, run_id, holder):
@@ -472,13 +470,49 @@ class TestRunJobTaskAfterRunMatrix:
             patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
             patch("jobs.tasks.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             patch("codebase.context.set_runtime_ctx") as set_ctx,
-            pytest.raises(TimeoutError),
+            pytest.raises(TimeoutError, match="not released within"),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
-        try_claim.assert_awaited()
+        assert try_claim.await_count >= 2
         set_ctx.assert_not_called()
         assert await _active_holder(thread_id) == "chat-run"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_it_waits_for_a_held_slot_and_runs_once_it_frees(self):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo", active_run_id="chat-run"
+        )
+        real_try_claim = SessionLock.try_claim
+        attempts: list[bool] = []
+
+        async def _try_claim(thread_id, holder_id):
+            claimed = await real_try_claim(thread_id, holder_id)
+            attempts.append(claimed)
+            if not claimed:
+                await SessionLock.release(thread_id, "chat-run")
+            return claimed
+
+        agent = _agent_with_mr(None)
+        seen: list[str | None] = []
+
+        async def _invoke(*_args, **_kwargs):
+            seen.append(await _active_holder(thread_id))
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.try_claim", _try_claim),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert attempts == [False, True]
+        assert seen == ["run-1"]
 
     @pytest.mark.django_db(transaction=True)
     async def test_it_runs_unlocked_without_a_session_row(self):
@@ -557,38 +591,85 @@ class TestRunJobTaskAfterRunMatrix:
         assert armed == []
 
     @pytest.mark.django_db(transaction=True)
-    async def test_it_survives_a_failed_watch_arm(self):
+    async def test_it_survives_a_failed_watch_arm(self, caplog):
+        arms: list[dict] = []
+
         class _BrokenWatch:
             def __init__(self, repo_id):
                 pass
 
-            async def aarm_after_run(self, **_kwargs):
+            async def aarm_after_run(self, **kwargs):
+                arms.append(kwargs)
                 raise RuntimeError("redis down")
 
-        with _job_scaffolding(_agent_with_mr(None)), patch("jobs.tasks.PipelineWatch", _BrokenWatch):
+        with (
+            _job_scaffolding(_agent_with_mr(None)),
+            patch("jobs.tasks.PipelineWatch", _BrokenWatch),
+            caplog.at_level("ERROR", logger="daiv.jobs"),
+        ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
 
         assert result == {"response": "ok"}
+        assert len(arms) == 1
+        assert "failed to arm pipeline watch" in caplog.text
 
     @pytest.mark.django_db(transaction=True)
-    async def test_it_survives_a_failed_lock_release(self):
+    async def test_it_survives_a_failed_lock_release(self, caplog):
         thread_id = str(uuid.uuid4())
         await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        release = AsyncMock(side_effect=RuntimeError("db down"))
 
         with (
             _job_scaffolding(_agent_with_mr(None)),
             patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
-            patch("jobs.tasks.SessionLock.release", AsyncMock(side_effect=RuntimeError("db down"))),
+            patch("jobs.tasks.SessionLock.release", release),
             patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+            caplog.at_level("ERROR", logger="daiv.jobs"),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
         assert result == {"response": "ok"}
+        release.assert_awaited_once_with(thread_id, "run-1")
+        assert "failed to release session lock" in caplog.text
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_failed_heartbeat_is_logged_and_the_next_one_still_runs(self, caplog):
+        thread_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
+        beats: list[str] = []
+        recovered = asyncio.Event()
+
+        async def _heartbeat(thread_id, holder_id):
+            beats.append(holder_id)
+            if len(beats) == 1:
+                raise RuntimeError("db down")
+            recovered.set()
+            return True
+
+        async def _invoke(*_args, **_kwargs):
+            await asyncio.wait_for(recovered.wait(), timeout=5)
+            return {"messages": [MagicMock(content="ok")]}
+
+        agent = _agent_with_mr(None)
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent),
+            patch("jobs.tasks._acquire_session_lock", _real_acquire_session_lock),
+            patch("jobs.tasks.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("jobs.tasks.SessionLock.heartbeat", _heartbeat),
+            patch("jobs.tasks.PipelineWatch", watch_recorder([])),
+            caplog.at_level("ERROR", logger="daiv.jobs"),
+        ):
+            result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
+
+        assert result == {"response": "ok"}
+        assert beats[:2] == ["run-1", "run-1"]
+        assert "heartbeat failed" in caplog.text
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_lost_slot_is_logged_and_the_job_runs_to_completion(self, caplog):
-        """Unlike a chat turn, a job whose slot is taken over mid-run keeps going and runs its after-run
-        steps; its release then leaves the new holder's slot alone."""
+        """A job whose slot is taken over mid-run logs it, runs its after-run steps, and its release leaves
+        the new holder's slot alone."""
         thread_id = str(uuid.uuid4())
         await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo")
         real_heartbeat = SessionLock.heartbeat
