@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codebase.base import GitPlatform, Issue, MergeRequest, User
-from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
 
@@ -38,22 +37,6 @@ def _ctx() -> SimpleNamespace:
 @asynccontextmanager
 async def _noop_checkpointer():
     yield MagicMock()
-
-
-@pytest.fixture
-def captured_client():
-    """Stub ``BaseManager.__init__`` so every manager instance shares one client mock the
-    test can inspect, and the resolved kwargs feed the (patched) downstream agent stack."""
-    client = MagicMock()
-
-    def _init(self, *, runtime_ctx, thread_id):
-        self.ctx = runtime_ctx
-        self.thread_id = thread_id
-        self.client = client
-        self.store = MagicMock()
-
-    with patch.object(BaseManager, "__init__", _init):
-        yield client
 
 
 _AGENT_KWARGS = {"model_names": ["m"], "thinking_level": "medium"}
