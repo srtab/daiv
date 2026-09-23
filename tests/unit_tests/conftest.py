@@ -1,11 +1,16 @@
+import io
+import tarfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.core.cache import cache
 from django.test import Client
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
@@ -15,6 +20,134 @@ from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+from core.sandbox.schemas import (
+    EgressConfigRequest,
+    RunCommandResult,
+    RunCommandsRequest,
+    RunCommandsResponse,
+    StartSessionRequest,
+)
+
+
+@dataclass
+class FakeSandboxSession:
+    request: StartSessionRequest
+    state: Literal["running", "stopped"] = "running"
+    egress: EgressConfigRequest | None = None
+    repo_files: frozenset[str] | None = None
+    skills_files: frozenset[str] | None = None
+
+
+class FakeSandboxClient:
+    """In-memory ``DAIVSandboxClient``: sessions, seeded files, a call log and failure switches.
+
+    ``responses`` maps a command substring to ``(exit_code, output)`` for ``run_commands``; the
+    first match wins and unmatched commands succeed with empty output. ``run_commands`` does not
+    require a started session, so a backend bound to any id works.
+    """
+
+    def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
+        self.responses = responses or {}
+        self.sessions: dict[str, FakeSandboxSession] = {}
+        self.calls: list[tuple[str, tuple]] = []
+        self.commands: list[str] = []
+        self.is_open = False
+        self._failures: dict[str, Exception] = {}
+        self._next_id = 0
+
+    def fail(self, method: str, *, status: int | None = None, detail: str = "") -> None:
+        """Make every later call to ``method`` raise: an HTTP ``status`` error, or a transport error."""
+        request = httpx.Request("POST", f"http://sandbox.test/{method}")
+        if status is None:
+            self._failures[method] = httpx.ConnectError("connection refused", request=request)
+        else:
+            response = httpx.Response(status, json={"detail": detail}, request=request)
+            self._failures[method] = httpx.HTTPStatusError(str(status), request=request, response=response)
+
+    def calls_to(self, method: str) -> list[tuple]:
+        return [args for name, args in self.calls if name == method]
+
+    def method_names(self) -> list[str]:
+        return [name for name, _ in self.calls]
+
+    def ran(self, needle: str) -> bool:
+        return any(needle in command for command in self.commands)
+
+    def _record(self, method: str, *args) -> None:
+        self.calls.append((method, args))
+        if (failure := self._failures.get(method)) is not None:
+            raise failure
+
+    def _require(self, method: str, session_id: str) -> FakeSandboxSession:
+        if session_id not in self.sessions:
+            request = httpx.Request("POST", f"http://sandbox.test/{method}")
+            response = httpx.Response(404, json={"detail": "Session not found"}, request=request)
+            raise httpx.HTTPStatusError("404", request=request, response=response)
+        return self.sessions[session_id]
+
+    async def open(self) -> FakeSandboxClient:
+        self.is_open = True
+        return self
+
+    async def close(self) -> None:
+        self.is_open = False
+
+    async def start_session(self, request: StartSessionRequest) -> str:
+        self._record("start_session", request)
+        self._next_id += 1
+        session_id = f"sess-{self._next_id}"
+        self.sessions[session_id] = FakeSandboxSession(request=request, egress=request.egress)
+        return session_id
+
+    async def seed_session(
+        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+    ) -> None:
+        self._record("seed_session", session_id)
+        session = self._require("seed_session", session_id)
+        if session.repo_files is not None or session.skills_files is not None:
+            return
+        session.repo_files = _archive_members(repo_archive)
+        session.skills_files = _archive_members(skills_archive)
+
+    async def session_exists(self, session_id: str) -> bool:
+        self._record("session_exists", session_id)
+        session = self.sessions.get(session_id)
+        if session is None:
+            return False
+        session.state = "running"
+        return True
+
+    async def close_session(self, session_id: str, *, force: bool = False) -> None:
+        self._record("close_session", session_id, force)
+        self._require("close_session", session_id)
+        if force:
+            del self.sessions[session_id]
+        else:
+            self.sessions[session_id].state = "stopped"
+
+    async def update_egress(self, session_id: str, egress: EgressConfigRequest) -> None:
+        self._record("update_egress", session_id, egress)
+        self._require("update_egress", session_id).egress = egress
+
+    async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
+        self._record("run_commands", session_id, tuple(request.commands))
+        results: list[RunCommandResult] = []
+        for command in request.commands:
+            self.commands.append(command)
+            exit_code, output = 0, ""
+            for needle, (code, out) in self.responses.items():
+                if needle in command:
+                    exit_code, output = code, out
+                    break
+            results.append(RunCommandResult(command=command, output=output, exit_code=exit_code))
+        return RunCommandsResponse(results=results)
+
+
+def _archive_members(archive: bytes | None) -> frozenset[str] | None:
+    if archive is None:
+        return None
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+        return frozenset(member.name for member in tf.getmembers() if member.isfile())
 
 
 @pytest.fixture(autouse=True)

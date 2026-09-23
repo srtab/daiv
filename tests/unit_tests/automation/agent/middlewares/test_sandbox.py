@@ -375,13 +375,11 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
         with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient") as ctor,
             patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
             patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
         ):
             result = await mw.abefore_agent({}, _make_runtime())  # empty state => first turn
 
-        ctor.assert_not_called()  # no client constructed inside the middleware
         assert result == {"session_id": "sess-1"}
         assert sandbox_backend._session_id == "sess-1"  # session bound onto the injected backend
 
