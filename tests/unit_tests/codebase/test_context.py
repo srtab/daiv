@@ -361,6 +361,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
             )
             await middleware.abefore_agent({}, MagicMock(context=ctx))
 
+    assert not client.is_open
     [session] = client.sessions.values()
     egress = session.request.egress
     if token:

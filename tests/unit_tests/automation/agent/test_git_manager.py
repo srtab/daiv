@@ -64,9 +64,9 @@ def _init_repo_with_origin(tmp_path: Path) -> tuple[Repo, Path]:
 
 
 def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
-    client = FakeSandboxClient(responses)
+    client = FakeSandboxClient.opened(responses)
     backend = SandboxFileBackend(client=client)
-    backend.bind_session("sid")
+    backend.bind_session(client.add_running_session("sid"))
     return GitManager.for_sandbox(backend), client
 
 
@@ -536,6 +536,8 @@ def _resp(*outputs_and_codes):
 
 def _backend_for(client) -> SandboxFileBackend:
     backend = SandboxFileBackend(client=client)
+    if isinstance(client, FakeSandboxClient):
+        client.add_running_session("sess-1")
     backend.bind_session("sess-1")
     return backend
 
@@ -876,7 +878,7 @@ async def test_get_diff_raises_on_ls_files_failure() -> None:
 
 
 async def test_push_head_to_adds_ci_skip_push_option_when_skip_ci() -> None:
-    client = FakeSandboxClient()
+    client = FakeSandboxClient.opened()
     gm = GitManager.for_sandbox(_backend_for(client))
     await gm.push_head_to("b", skip_ci=True)
     push_cmds = [c for c in client.commands if " push " in f" {c} "]
@@ -884,7 +886,7 @@ async def test_push_head_to_adds_ci_skip_push_option_when_skip_ci() -> None:
 
 
 async def test_push_head_to_omits_ci_skip_by_default() -> None:
-    client = FakeSandboxClient()
+    client = FakeSandboxClient.opened()
     gm = GitManager.for_sandbox(_backend_for(client))
     await gm.push_head_to("b")
     assert not any("ci.skip" in c for c in client.commands)

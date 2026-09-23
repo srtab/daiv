@@ -820,7 +820,7 @@ class TestPublishSandboxEgressRefresh:
         publisher._refresh_sandbox_egress.assert_not_awaited()
 
     async def test_publish_proceeds_when_refresh_fails(self, monkeypatch, caplog):
-        """A failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it
+        """B8: a failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it
         degrades to publishing with the turn-start token, the pre-existing behavior — but the
         failure must stay diagnosable (exception-logged), or the degradation is truly silent."""
         publisher = _make_sandbox_publisher()
@@ -836,6 +836,7 @@ class TestPublishSandboxEgressRefresh:
         assert "Could not refresh the sandbox egress token" in caplog.text
 
     async def test_refresh_skips_delivery_when_nothing_to_refresh(self, monkeypatch):
+        """B8: a re-mint that hands back the turn-start egress delivers nothing."""
         publisher = _make_sandbox_publisher()
 
         # refresh_platform_egress returns the same object when there is no token to rotate (no
@@ -849,8 +850,7 @@ class TestPublishSandboxEgressRefresh:
         publisher.sandbox_backend.refresh_egress.assert_not_awaited()
 
     async def test_refresh_swallows_delivery_error(self, monkeypatch, caplog):
-        # The failure is in the sidecar DELIVERY (mint succeeded): swallow it — but exception-log
-        # it — and proceed with the turn-start token rather than failing the publish.
+        """B8: a failed delivery after a good re-mint is exception-logged, not raised."""
         import httpx
 
         from core.sandbox.schemas import EgressConfigRequest
@@ -898,10 +898,10 @@ async def _publish_on_a_live_session(client: FakeSandboxClient, *, remint: Mock)
     return session_id
 
 
-class TestPublishSandboxEgressRefreshOnTheWire:
+class TestPublishSandboxEgressRefreshAtTheSandbox:
     async def test_a_rotated_token_reaches_the_session_before_any_git_command(self):
         """B8: a re-minted token is pushed onto the live session before the publish's first git command."""
-        client = FakeSandboxClient()
+        client = FakeSandboxClient.opened()
         fresh = _platform_credential("fresh")
 
         session_id = await _publish_on_a_live_session(client, remint=Mock(return_value=fresh))
@@ -912,7 +912,7 @@ class TestPublishSandboxEgressRefreshOnTheWire:
 
     async def test_an_unchanged_token_is_not_redelivered(self):
         """B8: a re-mint that returns the turn-start token sends nothing to the session."""
-        client = FakeSandboxClient()
+        client = FakeSandboxClient.opened()
 
         await _publish_on_a_live_session(client, remint=Mock(return_value=_platform_credential("turn-start")))
 
@@ -920,9 +920,9 @@ class TestPublishSandboxEgressRefreshOnTheWire:
         assert client.ran("ls-remote")
 
     @pytest.mark.parametrize("failure", ["remint", "update_egress"])
-    async def test_a_failed_refresh_still_runs_the_publish_git_commands(self, failure):
-        """B8: a failed re-mint or delivery leaves the turn-start token in place and publishes anyway."""
-        client = FakeSandboxClient()
+    async def test_a_failed_refresh_still_runs_the_publish_git_commands(self, failure, caplog):
+        """B8: a failed re-mint or delivery is logged and keeps the turn-start token; the publish still runs git."""
+        client = FakeSandboxClient.opened()
         turn_start = _platform_credential("turn-start")
         remint = Mock(return_value=_platform_credential("fresh"))
         if failure == "remint":
@@ -930,8 +930,12 @@ class TestPublishSandboxEgressRefreshOnTheWire:
         else:
             client.fail("update_egress", status=500)
 
-        session_id = await _publish_on_a_live_session(client, remint=remint)
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            session_id = await _publish_on_a_live_session(client, remint=remint)
 
+        remint.assert_called_once()
+        assert len(client.calls_to("update_egress")) == (failure == "update_egress")
+        assert "Could not refresh the sandbox egress token" in caplog.text
         assert client.ran("ls-remote")
         assert _injected_values(client.sessions[session_id].egress) == [_header_value(turn_start)]
 

@@ -1,18 +1,7 @@
-"""Regression guard: the webhook entry point for an issue with the ``daiv-max`` label must
-route through ``get_daiv_agent_kwargs(..., use_max=True)`` and resolve to the
-``site_settings.agent_max_*`` values.
-
-Webhook handlers bypass ``run_job_task`` and call ``create_daiv_agent`` directly via
-``get_daiv_agent_kwargs``. ``use_max`` is the only remaining call-site flag after the
-model-override refactor, so we lock the contract at the ``create_daiv_agent`` boundary:
-the resolved primary model and thinking level must match site settings whenever the
-``daiv-max`` label is present.
-"""
-
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,12 +10,18 @@ from langchain_core.messages import AIMessage
 from sessions.models import Session, SessionOrigin
 
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import GitPlatform, Issue, User
+from codebase.base import GitPlatform, Issue, MergeRequest, User
+from codebase.context import SandboxRuntime
 from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
+from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.command_policy import SandboxCommandPolicy
+from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
+from tests.unit_tests.codebase.managers.conftest import publisher_through_backend
+from tests.unit_tests.conftest import FakeSandboxClient
 from tests.unit_tests.sessions.conftest import watch_recorder
 
 _AUTHOR = User(id=1, username="alice")
@@ -48,24 +43,29 @@ def _ctx() -> SimpleNamespace:
     )
 
 
+def _sandbox_ctx() -> SimpleNamespace:
+    """``_ctx()`` for a sandbox run, with what draft recovery reads."""
+    sandbox = SandboxRuntime(
+        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
+    )
+    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox)
+
+
 def _issue(*, labels: list[str]) -> Issue:
     return Issue(id=1, iid=42, title="t", author=_AUTHOR, labels=labels)
 
 
-@pytest.fixture
-def stub_base_init():
-    """Skip BaseManager side effects (RepoClient, GitManager); we exercise ``_address_issue``
-    only up to the ``create_daiv_agent`` boundary, so a stub client and store are enough."""
-
-    def _init(self, *, runtime_ctx, thread_id):
-        self.ctx = runtime_ctx
-        self.thread_id = thread_id
-        self.client = MagicMock()
-        self.store = MagicMock()
-        self.git_manager = MagicMock()
-
-    with patch.object(BaseManager, "__init__", _init):
-        yield
+def _merge_request() -> MergeRequest:
+    return MergeRequest(
+        repo_id="owner/repo",
+        merge_request_id=7,
+        source_branch="daiv/issue-42",
+        target_branch="main",
+        title="t",
+        description="d",
+        author=_AUTHOR,
+        draft=True,
+    )
 
 
 @asynccontextmanager
@@ -104,7 +104,11 @@ async def _run_addressor(*, labels: list[str]) -> dict:
 
 
 class TestMaxLabelRoutesToMaxModel:
-    """Lock the webhook → ``use_max`` → ``site_settings.agent_max_*`` contract."""
+    """Lock the webhook → ``use_max`` → ``site_settings.agent_max_*`` contract.
+
+    Webhook handlers bypass ``run_job_task`` and call ``create_daiv_agent`` via ``get_daiv_agent_kwargs``,
+    so the resolved primary model and thinking level are checked at the ``create_daiv_agent`` boundary.
+    """
 
     async def test_max_label_resolves_to_max_model(self, stub_base_init):
         """``daiv-max`` label → primary model is ``site_settings.agent_max_model_name`` and
@@ -147,9 +151,23 @@ def _agent(**ainvoke) -> MagicMock:
 
 
 @contextmanager
-def _issue_run(agent: MagicMock, *, draft_published: bool = False, kwargs_error: Exception | None = None):
-    """Stub everything around the agent and expose the after-run seams the matrix pins."""
+def _issue_run(
+    agent: MagicMock,
+    *,
+    draft_published: bool = False,
+    kwargs_error: Exception | None = None,
+    stub_recovery: bool = True,
+):
+    """Stub everything around the agent; yield the persist, watch and draft-recovery mocks.
+
+    ``stub_recovery=False`` keeps the real draft recovery, and ``run.recover`` is then ``None``.
+    """
     run = SimpleNamespace(armed=[], persist=AsyncMock())
+    recovery = (
+        patch.object(IssueAddressorManager, "_recover_draft", AsyncMock(return_value=draft_published))
+        if stub_recovery
+        else nullcontext()
+    )
     with (
         patch("codebase.managers.issue_addressor.open_checkpointer", _noop_checkpointer),
         patch(
@@ -162,7 +180,7 @@ def _issue_run(agent: MagicMock, *, draft_published: bool = False, kwargs_error:
         patch("codebase.managers.issue_addressor.track_usage_metadata", MagicMock()),
         patch("codebase.managers.issue_addressor.PipelineWatch", watch_recorder(run.armed)),
         patch("sessions.services.apersist_session_ref", run.persist),
-        patch.object(IssueAddressorManager, "_recover_draft", AsyncMock(return_value=draft_published)) as recover,
+        recovery as recover,
         patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
     ):
         run.create, run.recover = create, recover
@@ -170,11 +188,9 @@ def _issue_run(agent: MagicMock, *, draft_published: bool = False, kwargs_error:
 
 
 class TestIssueAfterRunMatrix:
-    """Pins the issue trigger's row of the run-executor spec's after-run matrix."""
-
     @pytest.mark.django_db(transaction=True)
     async def test_it_runs_while_another_holder_has_the_session_slot(self, captured_client):
-        """No session lock today; B13 makes this run wait instead."""
+        """No session lock: the run proceeds while another holder has the slot."""
         thread_id = str(uuid.uuid4())
         await Session.objects.acreate(
             thread_id=thread_id, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo", active_run_id="chat-run"
@@ -190,11 +206,19 @@ class TestIssueAfterRunMatrix:
         assert (await Session.objects.aget(thread_id=thread_id)).active_run_id == "chat-run"
 
     async def test_a_successful_run_persists_the_ref_and_arms_the_watch(self, captured_client):
-        with _issue_run(_agent(return_value={"messages": [AIMessage(content="done")]})) as run:
-            await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_ctx())
+        mr = _merge_request()
+        agent = _agent(return_value={"messages": [AIMessage(content="done")]})
+        agent.aget_state = AsyncMock(return_value=SimpleNamespace(values={"merge_request": mr, "published": True}))
+        ctx = _ctx()
+        ctx.acting_user_id = 7
 
-        run.persist.assert_awaited_once()
-        assert len(run.armed) == 1
+        with _issue_run(agent) as run:
+            await IssueAddressorManager.address_issue(
+                issue=_issue(labels=[BOT_LABEL]), runtime_ctx=ctx, thread_id="t-issue"
+            )
+
+        run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr)
+        assert run.armed == [{"repo_id": "owner/repo", "merge_request": mr, "published": True, "user_id": 7}]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
@@ -211,6 +235,40 @@ class TestIssueAfterRunMatrix:
         assert "To avoid losing progress" in note.args[2]
         run.persist.assert_not_awaited()
         assert run.armed == []
+
+    async def test_an_agent_error_recovers_the_draft_through_the_live_session(self, captured_client):
+        """B7: after an agent error, the draft is pushed through the open run client and the turn's own session."""
+        client = FakeSandboxClient.opened()
+        started: list[str] = []
+
+        async def _fail_mid_turn(*_args, **_kwargs):
+            started.append(await client.start_session(StartSessionRequest(base_image="python:3.12")))
+            raise RuntimeError("boom")
+
+        agent = _agent(side_effect=_fail_mid_turn)
+        agent.aget_state = AsyncMock(
+            side_effect=lambda **_kwargs: SimpleNamespace(values={"merge_request": None, "session_id": started[0]})
+        )
+        agent.aupdate_state = AsyncMock()
+        created: list = []
+        token = set_run_sandbox_client(client)
+        try:
+            with (
+                _issue_run(agent, stub_recovery=False),
+                patch(
+                    "codebase.managers.base.GitChangePublisher",
+                    publisher_through_backend(created, publishes=_merge_request()),
+                ),
+                patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-42"),
+                pytest.raises(RuntimeError, match="boom"),
+            ):
+                await IssueAddressorManager.address_issue(issue=_issue(labels=[BOT_LABEL]), runtime_ctx=_sandbox_ctx())
+        finally:
+            reset_run_sandbox_client(token)
+
+        assert client.calls_to("run_commands") == [(started[0], ("git push origin HEAD",))]
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert "To avoid losing progress" in note.args[2]
 
     async def test_a_missing_model_says_it_cannot_run_yet_and_returns(self, captured_client):
         captured_client.get_issue_comment.return_value = SimpleNamespace(

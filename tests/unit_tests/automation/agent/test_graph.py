@@ -10,34 +10,41 @@ from deepagents.backends.protocol import BackendProtocol
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, SandboxFileBackend
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from codebase.context import SandboxRuntime
 from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.command_policy import SandboxCommandPolicy
 from tests.unit_tests.conftest import FakeSandboxClient
 
-_PATCHES = {
-    "disk_backend": ("build_disk_workspace_backend", {"return_value": MagicMock(spec=BackendProtocol)}),
-    "composite_backend": ("DAIVCompositeBackend", {"return_value": MagicMock(spec=BackendProtocol)}),
-    "create_general_purpose": ("create_general_purpose_subagent", {}),
-    "create_explore": ("create_explore_subagent", {}),
-    "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
-    "create_deep_agent": ("create_deep_agent", {}),
-    "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
-    "base_agent": ("BaseAgent", {}),
-    "site_settings": ("site_settings", {}),
-    "skills_middleware": ("SkillsMiddleware", {}),
-    "git_middleware": ("GitMiddleware", {}),
-    "git_platform_middleware": ("GitPlatformMiddleware", {}),
-    "prompt_caching_middleware": ("AnthropicPromptCachingMiddleware", {}),
-    "tool_call_logging_middleware": ("ToolCallLoggingMiddleware", {}),
-}
+
+def _patches() -> dict[str, tuple[str, dict]]:
+    return {
+        "disk_backend": ("build_disk_workspace_backend", {"return_value": MagicMock(spec=BackendProtocol)}),
+        "composite_backend": ("DAIVCompositeBackend", {"return_value": MagicMock(spec=BackendProtocol)}),
+        "create_general_purpose": ("create_general_purpose_subagent", {}),
+        "create_explore": ("create_explore_subagent", {}),
+        "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
+        "create_deep_agent": ("create_deep_agent", {}),
+        "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
+        "base_agent": ("BaseAgent", {}),
+        "site_settings": ("site_settings", {}),
+        "skills_middleware": ("SkillsMiddleware", {}),
+        "git_middleware": ("GitMiddleware", {}),
+        "git_platform_middleware": ("GitPlatformMiddleware", {}),
+        "prompt_caching_middleware": ("AnthropicPromptCachingMiddleware", {}),
+        "tool_call_logging_middleware": ("ToolCallLoggingMiddleware", {}),
+    }
 
 
-async def _build(*, sandbox_enabled: bool) -> SimpleNamespace:
-    """Build the agent with every collaborator stubbed and return the stubs plus the run's client."""
-    run_client = FakeSandboxClient()
+async def _build(*, base_image: str | None) -> SimpleNamespace:
+    """Build the agent with its collaborators stubbed and return the stubs plus the run's client."""
+    run_client = FakeSandboxClient.opened()
+    sandbox = SandboxRuntime(
+        base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
+    )
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
-            for name, (target, kwargs) in _PATCHES.items()
+            for name, (target, kwargs) in _patches().items()
         }
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         mocks["site_settings"].configure_mock(
@@ -50,9 +57,9 @@ async def _build(*, sandbox_enabled: bool) -> SimpleNamespace:
         )
         ctx = MagicMock()
         ctx.gitrepo.working_dir = "/repo"
-        ctx.sandbox.enabled = sandbox_enabled
+        ctx.sandbox = sandbox
         ctx.config.context_file_name = "AGENTS.md"
-        token = set_run_sandbox_client(run_client) if sandbox_enabled else None
+        token = set_run_sandbox_client(run_client) if sandbox.enabled else None
         try:
             await create_daiv_agent(ctx=ctx, auto_commit_changes=False)
         finally:
@@ -66,8 +73,9 @@ def _middleware(built: SimpleNamespace) -> list:
 
 
 async def test_disk_mode_builds_no_sandbox():
-    """B10: no base image means the disk backend, the workspace fence, no bash and copied skills."""
-    built = await _build(sandbox_enabled=False)
+    """B10: with no base image, the run gets the disk backend, the workspace fence, no bash tool, and disk-mode
+    skills and subagents."""
+    built = await _build(base_image=None)
 
     deep_agent_kwargs = built.create_deep_agent.call_args.kwargs
     built.disk_backend.assert_called_once_with(Path("/repo"))
@@ -86,8 +94,9 @@ async def test_disk_mode_builds_no_sandbox():
 
 
 async def test_sandbox_mode_shares_one_backend_across_the_run():
-    """B6: the parent, every subagent and the git middleware get the same backend and client."""
-    built = await _build(sandbox_enabled=True)
+    """B6: the parent's SandboxFileBackend also backs the git middleware and the general-purpose and custom
+    subagents, which get the run's client too; explore gets it through the composite backend."""
+    built = await _build(base_image="python:3.12")
 
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
     backend = sandbox_middleware._sandbox_backend
