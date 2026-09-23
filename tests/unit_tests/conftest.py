@@ -19,7 +19,10 @@ from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from codebase.context import SandboxRuntime
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -27,6 +30,29 @@ from core.sandbox.schemas import (
     RunCommandsResponse,
     StartSessionRequest,
 )
+
+
+def sandbox_runtime(
+    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None
+) -> SandboxRuntime:
+    return SandboxRuntime(
+        base_image=base_image,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=egress,
+    )
+
+
+@contextmanager
+def bound_run_sandbox_client(client):
+    """Bind ``client`` as the run-scoped sandbox client, as ``set_runtime_ctx`` does for a sandbox run."""
+    token = set_run_sandbox_client(client)
+    try:
+        yield client
+    finally:
+        reset_run_sandbox_client(token)
 
 
 @dataclass
@@ -41,11 +67,14 @@ class FakeSandboxSession:
 class FakeSandboxClient:
     """In-memory ``DAIVSandboxClient``: sessions, seeded files, a call log and failure switches.
 
-    ``responses`` maps a command substring to ``(exit_code, output)`` for ``run_commands``; the
-    first match wins and unmatched commands succeed with empty output. ``run_commands`` does not
-    require a started session, so a backend bound to any id works. Like the real sandbox,
-    ``session_exists`` answers ``False`` to a 404 and ``update_egress`` 409s on a session started
-    without egress.
+    Like the real client, it starts closed (``opened()`` builds one as ``set_runtime_ctx`` hands it
+    to the run), a call on a closed client raises ``AttributeError`` without reaching the log, and
+    ``session_exists`` returns ``False`` on a 404. Like the real sandbox, commands 404 on a missing
+    session and restart a stopped one, ``fail_fast`` stops at the first non-zero exit,
+    ``close_session`` is idempotent, and ``update_egress`` 409s on a session started without egress.
+
+    ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
+    unmatched commands succeed with empty output.
     """
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
@@ -57,8 +86,22 @@ class FakeSandboxClient:
         self._failures: dict[str, Exception] = {}
         self._next_id = 0
 
+    @classmethod
+    def opened(cls, responses: dict[str, tuple[int, str]] | None = None) -> FakeSandboxClient:
+        client = cls(responses)
+        client.is_open = True
+        return client
+
+    def add_running_session(self, session_id: str) -> str:
+        """Register a running session without a logged ``start_session``, for tests that only need a live id."""
+        self.sessions[session_id] = FakeSandboxSession(request=StartSessionRequest(base_image="python:3.12"))
+        return session_id
+
     def fail(self, method: str, *, status: int | None = None, detail: str = "") -> None:
-        """Make every later call to ``method`` raise: an HTTP ``status`` error, or a transport error."""
+        """Make every later call to ``method`` fail with HTTP ``status``, or a transport error when ``status`` is None.
+
+        The failed call is still logged; ``session_exists`` maps a 404 to ``False``.
+        """
         if status is None:
             request = httpx.Request("POST", f"http://sandbox.test/{method}")
             self._failures[method] = httpx.ConnectError("connection refused", request=request)
@@ -75,6 +118,8 @@ class FakeSandboxClient:
         return any(needle in command for command in self.commands)
 
     def _record(self, method: str, *args) -> None:
+        if not self.is_open:
+            raise AttributeError(f"{method} called on a closed sandbox client")
         self.calls.append((method, args))
         if (failure := self._failures.get(method)) is not None:
             raise failure
@@ -91,10 +136,14 @@ class FakeSandboxClient:
         return self.sessions[session_id]
 
     async def open(self) -> FakeSandboxClient:
+        if self.is_open:
+            raise RuntimeError("FakeSandboxClient is already open")
+        self.calls.append(("open", ()))
         self.is_open = True
         return self
 
     async def close(self) -> None:
+        self.calls.append(("close", ()))
         self.is_open = False
 
     async def start_session(self, request: StartSessionRequest) -> str:
@@ -107,6 +156,8 @@ class FakeSandboxClient:
     async def seed_session(
         self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
     ) -> None:
+        if repo_archive is None and skills_archive is None:
+            raise ValueError("seed_session requires at least one of repo_archive or skills_archive")
         self._record("seed_session", session_id)
         session = self._require("seed_session", session_id)
         if session.repo_files is not None or session.skills_files is not None:
@@ -129,7 +180,8 @@ class FakeSandboxClient:
 
     async def close_session(self, session_id: str, *, force: bool = False) -> None:
         self._record("close_session", session_id, force)
-        self._require("close_session", session_id)
+        if session_id not in self.sessions:
+            return
         if force:
             del self.sessions[session_id]
         else:
@@ -144,6 +196,7 @@ class FakeSandboxClient:
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))
+        self._require("run_commands", session_id).state = "running"
         results: list[RunCommandResult] = []
         for command in request.commands:
             self.commands.append(command)
@@ -153,6 +206,8 @@ class FakeSandboxClient:
                     exit_code, output = code, out
                     break
             results.append(RunCommandResult(command=command, output=output, exit_code=exit_code))
+            if request.fail_fast and exit_code != 0:
+                break
         return RunCommandsResponse(results=results)
 
 

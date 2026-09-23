@@ -1,4 +1,4 @@
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,12 +8,11 @@ from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
-from codebase.context import SandboxRuntime, set_runtime_ctx
+from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
 from core.sandbox.client import _run_sandbox_client, get_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import EgressSecret
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_runtime
 
 
 @pytest.fixture
@@ -154,6 +153,11 @@ def _patch_context_deps(*, sandbox_enabled: bool):
     # transport open/close.
     sandbox.egress = None
     repo_client.get_git_egress_credential.return_value = None
+    return _context_deps(repo_client, sandbox)
+
+
+def _context_deps(repo_client, sandbox):
+    """Patches that make ``set_runtime_ctx`` load ``repo_client``'s repo and resolve ``sandbox`` as the run's."""
     return (
         patch.multiple(
             "codebase.context",
@@ -311,22 +315,11 @@ def _network_off_run(credential: GitEgressCredential, working_dir: str):
     repo_client.current_user.username = "daiv"
     repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
     repo_client.get_git_egress_credential.return_value = credential
-    network_off = SandboxRuntime(
-        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, command_policy=SandboxCommandPolicy()
-    )
 
-    with (
-        patch.multiple(
-            "codebase.context",
-            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
-            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
-            DAIVSandboxClient=FakeSandboxClient,
-        ),
-        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=network_off)),
-        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
-    ):
+    with ExitStack() as stack:
+        for deps_patch in _context_deps(repo_client, sandbox_runtime()):
+            stack.enter_context(deps_patch)
+        stack.enter_context(patch("codebase.context.DAIVSandboxClient", FakeSandboxClient))
         yield
 
 
@@ -361,6 +354,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
             )
             await middleware.abefore_agent({}, MagicMock(context=ctx))
 
+    assert not client.is_open
     [session] = client.sessions.values()
     egress = session.request.egress
     if token:
