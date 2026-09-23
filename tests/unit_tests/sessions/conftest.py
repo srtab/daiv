@@ -122,6 +122,17 @@ async def amake_watched_session(
     )
 
 
+async def amake_job_session(thread_id: str | None = None, **fields) -> str:
+    """Create a job ``Session`` row and return its thread id."""
+    thread_id = thread_id or str(uuid.uuid4())
+    await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.UI_JOB, repo_id="owner/repo", **fields)
+    return thread_id
+
+
+async def active_holder(thread_id: str) -> str | None:
+    return (await Session.objects.aget(thread_id=thread_id)).active_run_id
+
+
 def watch_recorder(armed: list[dict], *, error: Exception | None = None):
     """A stand-in for ``PipelineWatch`` that records the ``aarm_after_run`` calls a seam makes.
 

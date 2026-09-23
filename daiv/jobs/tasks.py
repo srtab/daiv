@@ -1,87 +1,18 @@
-import asyncio
 import logging
-import time
 from typing import TYPE_CHECKING
 
 from django_tasks import task
-from sessions.locks import SessionLock
-from sessions.models import Run, Session
-from sessions.pipeline_watch.service import PipelineWatch
+from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.executor.run import execute_run
+from sessions.executor.spec import RunHooks, RunSpec
+from sessions.models import Session
+
+from codebase.base import Scope
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.jobs")
-
-LOCK_WAIT_TIMEOUT_S = 1800.0  # give a long-running chat turn time to finish
-LOCK_POLL_INTERVAL_S = 5.0
-LOCK_HEARTBEAT_INTERVAL_S = 60.0
-
-
-async def _acquire_session_lock(thread_id: str, holder_id: str, *, session_exists: bool) -> bool | None:
-    """Claim the session's execution slot, waiting for the current holder.
-
-    Returns True when claimed, None when the session row doesn't exist (legacy
-    rows — run unlocked rather than fail), and raises TimeoutError if the slot
-    never frees within LOCK_WAIT_TIMEOUT_S. Note ``LOCK_WAIT_TIMEOUT_S`` and
-    ``STALE_RUN_MINUTES`` are the same length (30 min): a fresh waiter that
-    started polling strictly after the holder went stale takes it over well
-    before timing out, but a waiter that began at (roughly) the moment the
-    holder crashed can hit its own timeout at about the same time takeover
-    would first succeed. Takeover is not guaranteed for that co-incident case.
-    ``session_exists`` is pre-computed by the caller from the same row it reads
-    ``mcp_overrides`` off of, avoiding a redundant DB round-trip.
-    """
-    if not session_exists:
-        logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
-        return None
-    deadline = time.monotonic() + LOCK_WAIT_TIMEOUT_S
-    while time.monotonic() < deadline:
-        if await SessionLock.try_claim(thread_id, holder_id):
-            return True
-        await asyncio.sleep(LOCK_POLL_INTERVAL_S)
-    raise TimeoutError(f"session lock for thread_id={thread_id} not released within {LOCK_WAIT_TIMEOUT_S}s")
-
-
-async def _persist_resolved_agent(
-    *, run_id: str | None, thread_id: str, agent_model: str, agent_thinking_level: str
-) -> None:
-    """Overwrite the Run + Session ``agent_model`` with the resolved model/thinking.
-
-    ``agent_model`` normally holds the *requested* override, where empty means "use the
-    site default". Once a run has resolved a concrete model we overwrite it with that
-    spec so the session detail view shows what actually ran rather than an empty pill.
-    A run that fails before it reaches this point (e.g. a git-clone error inside
-    ``set_runtime_ctx``) leaves the field empty and the UI falls back to the "Auto"
-    pill label instead. Best-effort: this is a cosmetic denormalization and must never
-    abort the run, so any DB error is logged and swallowed.
-    """
-    if not agent_model:
-        return
-    fields = {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
-    try:
-        if run_id:
-            await Run.objects.filter(pk=run_id).aupdate(**fields)
-        await Session.objects.filter(pk=thread_id).aupdate(**fields)
-    except Exception:
-        logger.exception("run_job_task: failed to persist resolved agent model for thread_id=%s", thread_id)
-
-
-async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
-    while True:
-        await asyncio.sleep(LOCK_HEARTBEAT_INTERVAL_S)
-        try:
-            if not await SessionLock.heartbeat(thread_id, holder_id):
-                # We no longer hold the slot (stale takeover reassigned it). We
-                # can't safely abort the in-flight invocation, but surface it.
-                logger.warning(
-                    "run_job_task: lost session lock for thread_id=%s (holder=%s superseded); "
-                    "another holder may be running against the same checkpoint",
-                    thread_id,
-                    holder_id,
-                )
-        except Exception:
-            logger.exception("run_job_task: heartbeat failed for thread_id=%s", thread_id)
 
 
 @task()
@@ -106,22 +37,11 @@ async def run_job_task(
     ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
     ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
     to select the user's personal MCP servers.
-    Webhook callers (issue/review addressors) bypass this task and call
-    ``create_daiv_agent`` directly; ``use_max`` is therefore not accepted here.
+    Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
+    not accepted here.
     """
     # Heavy imports live here so enqueue-side importers of this module stay light.
     from langchain_core.messages import HumanMessage
-
-    # Local for the cycle, not the weight: ``sessions.services`` imports this module.
-    from sessions.services import apersist_session_ref
-
-    from automation.agent.graph import create_daiv_agent
-    from automation.agent.results import build_agent_result
-    from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
-    from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-    from codebase.base import Scope
-    from codebase.context import set_runtime_ctx
-    from core.checkpointer import open_checkpointer
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -136,105 +56,43 @@ async def run_job_task(
         sandbox_environment_id,
     )
 
-    input_data = {"messages": [HumanMessage(content=prompt)]}
-
-    holder_id = run_id or f"job-{thread_id[:8]}"
     session_row = (
         await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
     )
-    mcp_overrides = session_row.mcp_overrides if session_row is not None else {}
-    session_refs = session_row.external_references() if session_row is not None else ()
-    locked = await _acquire_session_lock(thread_id, holder_id, session_exists=session_row is not None)
-    heartbeat_task = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if locked else None
-    try:
-        try:
-            async with (
-                set_runtime_ctx(
-                    repo_id=repo_id,
-                    scope=Scope.GLOBAL,
-                    ref=ref,
-                    sandbox_env_id=sandbox_environment_id,
-                    acting_user_id=user_id,
-                    mcp_overrides=mcp_overrides,
-                    references=session_refs,
-                ) as runtime_ctx,
-                open_checkpointer() as checkpointer,
-            ):
-                agent_kwargs = get_daiv_agent_kwargs(
-                    model_config=runtime_ctx.config.models.agent,
-                    agent_model=agent_model,
-                    agent_thinking_level=agent_thinking_level,
-                )
-                # Record the resolved model now — after resolution, before invoke — so a
-                # failure mid-run still reflects what it ran with. Earlier failures (e.g. the
-                # clone in ``set_runtime_ctx``) never reach here and fall back to the "Auto" pill.
-                await _persist_resolved_agent(
-                    run_id=run_id,
-                    thread_id=thread_id,
-                    agent_model=agent_kwargs["model_names"][0],
-                    agent_thinking_level=agent_kwargs["thinking_level"] or "",
-                )
-                daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
-                config = build_langsmith_config(
-                    runtime_ctx,
-                    trigger="job",
-                    model=agent_kwargs["model_names"][0],
-                    thinking_level=agent_kwargs["thinking_level"],
-                    agent_name=daiv_agent.get_name(),
-                    extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
-                    configurable={"thread_id": thread_id},
-                )
-                with track_usage_metadata() as usage_handler:
-                    result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
-        except Exception:
-            logger.exception("Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>")
-            raise
-    finally:
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            # Await the cancellation so an in-flight heartbeat aupdate can't land
-            # after release() and re-touch a freed slot.
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
-        if locked:
-            try:
-                await SessionLock.release(thread_id, holder_id)
-            except Exception:
-                logger.exception("run_job_task: failed to release session lock for thread_id=%s", thread_id)
+    if session_row is None:
+        logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
+        lock, mcp_overrides, references = NoLock(), {}, ()
+    else:
+        lock = Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S)
+        mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
 
-    messages = result.get("messages")
-    if not messages:
-        logger.error("Job for repo_id=%s produced no messages", repo_id)
-        raise ValueError(f"Agent returned no messages for repo_id={repo_id}")
-
-    response_text = extract_text_content(messages[-1].content)
-
-    logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
-    # The chat streamer takes this off its final STATE_SNAPSHOT; a job run has no stream, so it
-    # reads the branch it published to off the checkpoint ``build_agent_result`` needs anyway.
-    snapshot = await daiv_agent.aget_state(config=config)
-    try:
-        await apersist_session_ref(
-            thread_id=thread_id, current_ref=ref or "", merge_request=snapshot.values.get("merge_request")
+    async def _log_failure(exc: Exception, *, draft_published: bool) -> None:
+        logger.error(
+            "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )
-    except Exception:
-        logger.exception("run_job_task: failed to persist session ref for thread_id=%s", thread_id)
 
-    agent_result = await build_agent_result(
-        daiv_agent,
-        config,
-        response=response_text,
-        usage=build_usage_summary(usage_handler).to_dict(),
-        snapshot=snapshot,
+    outcome = await execute_run(
+        RunSpec(
+            thread_id=thread_id,
+            repo_id=repo_id,
+            scope=Scope.GLOBAL,
+            input_messages=(HumanMessage(content=prompt),),
+            trigger="job",
+            lock=lock,
+            ref=ref,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            sandbox_env_id=sandbox_environment_id,
+            acting_user_id=user_id,
+            mcp_overrides=mcp_overrides,
+            references=references,
+            run_id=run_id,
+            persist_ref=True,
+            arm_watch=True,
+            extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
+        ),
+        RunHooks(on_failure=_log_failure),
     )
 
-    try:
-        await PipelineWatch(repo_id).aarm_after_run(
-            run_id=run_id,
-            merge_request=snapshot.values.get("merge_request"),
-            published=bool(snapshot.values.get("published")),
-            user_id=user_id,
-        )
-    except Exception:
-        logger.exception("run_job_task: failed to arm pipeline watch for thread_id=%s", thread_id)
-
-    return agent_result
+    logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
+    return outcome.agent_result
