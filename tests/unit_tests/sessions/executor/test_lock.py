@@ -1,20 +1,18 @@
 import asyncio
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sessions.executor.lock import Held, NoLock, Wait, hold_session_lock
 from sessions.locks import SessionLock
-from sessions.models import Session
 
-from tests.unit_tests.sessions.executor.conftest import active_holder, make_session
+from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
 class TestWait:
     async def test_it_holds_the_slot_for_the_body_and_frees_it_after(self):
-        thread_id = await make_session()
+        thread_id = await amake_job_session()
 
         async with hold_session_lock(Wait(holder_id="run-1", timeout_s=1), thread_id):
             assert await active_holder(thread_id) == "run-1"
@@ -22,7 +20,7 @@ class TestWait:
         assert await active_holder(thread_id) is None
 
     async def test_it_waits_for_a_held_slot_and_claims_it_once_freed(self):
-        thread_id = await make_session(active_run_id="chat-run")
+        thread_id = await amake_job_session(active_run_id="chat-run")
         real_try_claim = SessionLock.try_claim
         attempts: list[bool] = []
 
@@ -43,7 +41,7 @@ class TestWait:
         assert attempts == [False, True]
 
     async def test_it_times_out_when_the_slot_never_frees(self):
-        thread_id = await make_session(active_run_id="chat-run")
+        thread_id = await amake_job_session(active_run_id="chat-run")
         body = AsyncMock()
 
         with (
@@ -56,25 +54,10 @@ class TestWait:
         body.assert_not_awaited()
         assert await active_holder(thread_id) == "chat-run"
 
-    async def test_it_runs_unlocked_without_a_session_row(self, caplog):
-        thread_id = str(uuid.uuid4())
-        heartbeats: list[tuple] = []
-
-        async def _loop(*args):
-            heartbeats.append(args)
-
-        with patch("sessions.executor.lock._heartbeat_loop", _loop), caplog.at_level("WARNING", logger="daiv.sessions"):
-            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=1), thread_id):
-                pass
-
-        assert heartbeats == []
-        assert "no session row" in caplog.text
-        assert not await Session.objects.filter(thread_id=thread_id).aexists()
-
 
 class TestHeld:
     async def test_it_keeps_the_callers_claim_and_frees_it_after(self):
-        thread_id = await make_session(active_run_id="chat-run")
+        thread_id = await amake_job_session(active_run_id="chat-run")
         try_claim = AsyncMock()
 
         with patch("sessions.executor.lock.SessionLock.try_claim", try_claim):
@@ -85,7 +68,7 @@ class TestHeld:
         assert await active_holder(thread_id) is None
 
     async def test_it_heartbeats_the_callers_claim(self):
-        thread_id = await make_session(active_run_id="chat-run")
+        thread_id = await amake_job_session(active_run_id="chat-run")
         beats: list[str] = []
         beat = asyncio.Event()
 
@@ -106,7 +89,7 @@ class TestHeld:
 
 class TestNoLock:
     async def test_it_never_touches_the_session_slot(self):
-        thread_id = await make_session(active_run_id="chat-run")
+        thread_id = await amake_job_session(active_run_id="chat-run")
         heartbeats: list[tuple] = []
 
         async def _loop(*args):
@@ -121,8 +104,7 @@ class TestNoLock:
 
 
 async def test_the_heartbeat_is_cancelled_before_the_slot_is_released():
-    """An in-flight heartbeat that landed after the release would re-touch a freed slot."""
-    thread_id = await make_session()
+    thread_id = await amake_job_session()
     order: list[str] = []
     started = asyncio.Event()
 
@@ -148,7 +130,7 @@ async def test_the_heartbeat_is_cancelled_before_the_slot_is_released():
 
 
 async def test_a_failed_release_is_logged_not_raised(caplog):
-    thread_id = await make_session()
+    thread_id = await amake_job_session()
     release = AsyncMock(side_effect=RuntimeError("db down"))
 
     with patch("sessions.executor.lock.SessionLock.release", release), caplog.at_level("ERROR", logger="daiv.sessions"):

@@ -2,10 +2,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from django_tasks import task
-from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, Wait
+from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
+
+from codebase.base import Scope
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -41,8 +43,6 @@ async def run_job_task(
     # Heavy imports live here so enqueue-side importers of this module stay light.
     from langchain_core.messages import HumanMessage
 
-    from codebase.base import Scope
-
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 
@@ -59,6 +59,12 @@ async def run_job_task(
     session_row = (
         await Session.objects.filter(pk=thread_id).only("thread_id", "mcp_overrides", "external_refs").afirst()
     )
+    if session_row is None:
+        logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
+        lock, mcp_overrides, references = NoLock(), {}, ()
+    else:
+        lock = Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S)
+        mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
 
     async def _log_failure(exc: Exception, *, draft_published: bool) -> None:
         logger.error(
@@ -72,14 +78,14 @@ async def run_job_task(
             scope=Scope.GLOBAL,
             input_messages=(HumanMessage(content=prompt),),
             trigger="job",
-            lock=Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S),
+            lock=lock,
             ref=ref,
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,
             acting_user_id=user_id,
-            mcp_overrides=session_row.mcp_overrides if session_row is not None else {},
-            references=session_row.external_references() if session_row is not None else (),
+            mcp_overrides=mcp_overrides,
+            references=references,
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,

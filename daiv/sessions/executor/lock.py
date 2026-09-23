@@ -5,15 +5,14 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sessions.locks import SessionLock
-from sessions.models import Session
+from sessions.locks import STALE_RUN_MINUTES, SessionLock
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 logger = logging.getLogger("daiv.sessions")
 
-LOCK_WAIT_TIMEOUT_S = 1800.0  # give a long-running chat turn time to finish
+LOCK_WAIT_TIMEOUT_S = STALE_RUN_MINUTES * 60.0  # give a long-running chat turn time to finish
 LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
 
@@ -46,8 +45,8 @@ LockPolicy = Wait | Held | NoLock
 async def hold_session_lock(policy: LockPolicy, thread_id: str) -> AsyncIterator[None]:
     """Hold ``thread_id``'s execution slot for the body under ``policy``, heartbeating it, then release it.
 
-    The heartbeat is cancelled and awaited before the release, so an in-flight bump can't land on a
-    freed slot. A failed release is logged, never raised over the body's own outcome.
+    The heartbeat is cancelled and awaited before the release, so no heartbeat outlives the hold. A
+    failed release is logged, never raised over the body's own outcome.
     """
     holder_id = await _acquire_session_lock(policy, thread_id)
     if holder_id is None:
@@ -68,19 +67,14 @@ async def hold_session_lock(policy: LockPolicy, thread_id: str) -> AsyncIterator
 async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | None:
     """Return the holder id that now holds the slot, or ``None`` to run unlocked.
 
-    ``Wait`` on a thread with no ``Session`` row runs unlocked rather than failing (legacy rows), and
-    raises ``TimeoutError`` if the slot never frees within ``timeout_s``. ``LOCK_WAIT_TIMEOUT_S`` and
-    ``STALE_RUN_MINUTES`` are the same length (30 min): a waiter that started polling strictly after the
-    holder went stale takes it over well before timing out, but one that began at about the moment the
-    holder crashed can time out just as takeover would first succeed.
+    ``Wait`` raises ``TimeoutError`` if the slot never frees within ``timeout_s``. Takeover needs the holder's
+    last heartbeat to be ``STALE_RUN_MINUTES`` old, so with ``timeout_s`` at that length (``LOCK_WAIT_TIMEOUT_S``)
+    a waiter that started before a crashed holder's last heartbeat times out before it can take over.
     """
     if isinstance(policy, NoLock):
         return None
     if isinstance(policy, Held):
         return policy.holder_id
-    if not await Session.objects.filter(pk=thread_id).aexists():
-        logger.warning("executor: no session row for thread_id=%s; running without lock", thread_id)
-        return None
     deadline = time.monotonic() + policy.timeout_s
     while time.monotonic() < deadline:
         if await SessionLock.try_claim(thread_id, policy.holder_id):

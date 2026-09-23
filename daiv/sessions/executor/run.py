@@ -137,15 +137,10 @@ async def _after_run(
 
 
 async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: str) -> None:
-    """Overwrite the Run + Session ``agent_model`` with the resolved model/thinking.
-
-    ``agent_model`` normally holds the *requested* override, where empty means "use the site default".
-    Once a run has resolved a concrete model it is overwritten with that spec, so the session detail
-    view shows what actually ran rather than an empty pill. A run that fails earlier (e.g. the git
-    clone inside ``set_runtime_ctx``) leaves the field empty and the UI falls back to the "Auto" pill.
-    Best-effort: a cosmetic denormalization must never abort the run, so a DB error is logged.
+    """Overwrite the requested ``agent_model`` on the Run and its Session with the resolved one, so the
+    detail view shows what ran instead of the "Auto" pill. Best-effort: a DB error is logged, never raised.
     """
-    if not spec.run_id or not model:
+    if not spec.run_id:
         return
     fields = {"agent_model": model, "agent_thinking_level": thinking_level}
     try:
