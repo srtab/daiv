@@ -86,14 +86,16 @@ class TestRecoverDraftInSandboxMode:
         assert client.method_names() == ["start_session", "run_commands"]
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"merge_request": _DRAFT_MR})
 
-    async def test_a_failed_publish_reports_no_draft(self, stub_base_init):
+    async def test_a_failed_publish_reports_no_draft(self, stub_base_init, caplog):
         """B7: a publish that raises is logged and reported as no draft, never re-raised."""
         client = FakeSandboxClient()
         session_id = await client.start_session(StartSessionRequest(base_image="python:3.12"))
         publisher = Mock()
         publisher.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
 
-        published, agent = await _recover(client, session_id, publisher=publisher)
+        with caplog.at_level("ERROR", logger="daiv.managers"):
+            published, agent = await _recover(client, session_id, publisher=publisher)
 
         assert published is False
         agent.aupdate_state.assert_not_awaited()
+        assert "Recovery failed after agent error for issue 10" in caplog.text

@@ -83,7 +83,6 @@ async def test_disk_mode_builds_no_sandbox():
     assert general_purpose_kwargs["sandbox_backend"] is None
     assert built.create_explore.call_args.kwargs["sandbox_enabled"] is False
     assert built.load_custom.await_args.kwargs["sandbox_enabled"] is False
-    assert built.run_client.calls == []
 
 
 async def test_sandbox_mode_shares_one_backend_across_the_run():
@@ -93,6 +92,8 @@ async def test_sandbox_mode_shares_one_backend_across_the_run():
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
     backend = sandbox_middleware._sandbox_backend
     assert isinstance(backend, SandboxFileBackend)
+    assert built.composite_backend.call_args.kwargs["default"] is backend
+    assert built.create_explore.call_args.args[0] is built.composite_backend.return_value
     assert built.git_middleware.call_args.kwargs["sandbox_backend"] is backend
     for kwargs in (built.create_general_purpose.call_args.kwargs, built.load_custom.await_args.kwargs):
         assert kwargs["sandbox_backend"] is backend

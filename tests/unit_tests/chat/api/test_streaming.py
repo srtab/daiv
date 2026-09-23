@@ -1100,6 +1100,19 @@ class TestChatAfterRunMatrix:
         graph.aupdate_state.assert_not_awaited()
 
     @pytest.mark.django_db(transaction=True)
+    async def test_an_emitted_run_error_fails_the_turn_and_skips_ref_and_watch(self):
+        from ag_ui.core.events import RunErrorEvent
+
+        from core.constants import RUN_FAILED_MESSAGE
+
+        err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
+
+        with _recorded_turn(_mock_agent([_snapshot(merge_request=None), err])) as calls:
+            [event async for event in _streamer().events()]
+
+        assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+
+    @pytest.mark.django_db(transaction=True)
     async def test_a_setup_failure_before_the_run_row_only_releases_the_slot(self):
         with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
             events = [event async for event in _streamer().events()]
@@ -1156,7 +1169,7 @@ class TestChatAfterRunMatrix:
 
         with _recorded_turn(agent, cancel=True) as calls:
             task = asyncio.create_task(_drain())
-            await started.wait()
+            await asyncio.wait_for(started.wait(), timeout=5)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
