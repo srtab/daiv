@@ -31,7 +31,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
     runtime_ctx.config.models.agent = MagicMock()
 
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
@@ -44,7 +44,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
+        patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx

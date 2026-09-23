@@ -74,7 +74,7 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
@@ -160,7 +160,7 @@ async def test_run_job_task_persists_resolved_model():
     runtime_ctx.config.models.agent = MagicMock()
 
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
@@ -207,7 +207,7 @@ async def test_run_job_task_reads_session_mcp_overrides():
         yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
 
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
@@ -238,7 +238,7 @@ async def test_run_job_task_mcp_overrides_defaults_to_empty_when_no_session():
         yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
 
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
@@ -274,7 +274,7 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
         yield  # pragma: no cover — generator body never reached past the raise
 
     with (
-        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("core.checkpointer.open_checkpointer"),
         patch("codebase.context.set_runtime_ctx", _boom),
         patch(
@@ -308,8 +308,10 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
     ``real_lock`` keeps the real session lock; ``armed`` records the watch arms instead of arming a real watch.
     """
     with (
-        nullcontext() if real_lock else patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
-        nullcontext() if armed is None else patch("jobs.tasks.PipelineWatch", watch_recorder(armed)),
+        nullcontext()
+        if real_lock
+        else patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
+        nullcontext() if armed is None else patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
         patch("core.checkpointer.open_checkpointer"),
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
@@ -467,8 +469,8 @@ class TestRunJobTaskAfterRunMatrix:
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
             patch("jobs.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
-            patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
-            patch("jobs.tasks.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
+            patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             pytest.raises(TimeoutError, match="not released within"),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
@@ -499,8 +501,8 @@ class TestRunJobTaskAfterRunMatrix:
         agent.ainvoke = AsyncMock(side_effect=_invoke)
         with (
             _job_scaffolding(agent, real_lock=True, armed=[]),
-            patch("jobs.tasks.LOCK_POLL_INTERVAL_S", 0.01),
-            patch("jobs.tasks.SessionLock.try_claim", _try_claim),
+            patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.try_claim", _try_claim),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
@@ -515,7 +517,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True, armed=[]),
-            patch("jobs.tasks._heartbeat_loop", _loop),
+            patch("sessions.executor.lock._heartbeat_loop", _loop),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
 
@@ -543,7 +545,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         agent = _agent_with_mr(None)
         agent.ainvoke = AsyncMock(side_effect=_invoke)
-        with _job_scaffolding(agent, real_lock=True, armed=[]), patch("jobs.tasks._heartbeat_loop", _loop):
+        with _job_scaffolding(agent, real_lock=True, armed=[]), patch("sessions.executor.lock._heartbeat_loop", _loop):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
         assert heartbeats == [(thread_id, "run-1")]
@@ -574,8 +576,8 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None)),
-            patch("jobs.tasks.PipelineWatch", watch_recorder(arms, error=RuntimeError("redis down"))),
-            caplog.at_level("ERROR", logger="daiv.jobs"),
+            patch("sessions.executor.run.PipelineWatch", watch_recorder(arms, error=RuntimeError("redis down"))),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
 
@@ -589,8 +591,8 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True, armed=[]),
-            patch("jobs.tasks.SessionLock.release", release),
-            caplog.at_level("ERROR", logger="daiv.jobs"),
+            patch("sessions.executor.lock.SessionLock.release", release),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
@@ -618,9 +620,9 @@ class TestRunJobTaskAfterRunMatrix:
         agent.ainvoke = AsyncMock(side_effect=_invoke)
         with (
             _job_scaffolding(agent, real_lock=True, armed=[]),
-            patch("jobs.tasks.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
-            patch("jobs.tasks.SessionLock.heartbeat", _heartbeat),
-            caplog.at_level("ERROR", logger="daiv.jobs"),
+            patch("sessions.executor.lock.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.heartbeat", _heartbeat),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
@@ -651,9 +653,9 @@ class TestRunJobTaskAfterRunMatrix:
         armed: list[dict] = []
         with (
             _job_scaffolding(agent, real_lock=True, armed=armed),
-            patch("jobs.tasks.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
-            patch("jobs.tasks.SessionLock.heartbeat", _heartbeat),
-            caplog.at_level("WARNING", logger="daiv.jobs"),
+            patch("sessions.executor.lock.LOCK_HEARTBEAT_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.heartbeat", _heartbeat),
+            caplog.at_level("WARNING", logger="daiv.sessions"),
         ):
             result = await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id="run-1")
 
@@ -663,7 +665,8 @@ class TestRunJobTaskAfterRunMatrix:
         assert len(armed) == 1
         assert await _active_holder(thread_id) == "chat-run"
 
-    async def test_it_releases_the_slot_before_persisting_the_ref_and_arming_the_watch(self):
+    async def test_it_persists_the_ref_and_arms_the_watch_before_releasing_the_slot(self):
+        """Chat's order, which every executor run now shares: the after-run steps run while the slot is held."""
         thread_id = await _job_session()
         mr = {"source_branch": "feat/published"}
         agent = _agent_with_mr(mr)
@@ -685,10 +688,10 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(agent, real_lock=True),
-            patch("jobs.tasks.SessionLock.release", _release),
+            patch("sessions.executor.lock.SessionLock.release", _release),
             patch("sessions.services.apersist_session_ref", _persist),
-            patch("jobs.tasks.PipelineWatch", _Watch),
+            patch("sessions.executor.run.PipelineWatch", _Watch),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
 
-        assert calls == [("release", thread_id, "run-1"), ("persist", "main", mr), ("arm", True)]
+        assert calls == [("persist", "main", mr), ("arm", True), ("release", thread_id, "run-1")]
