@@ -145,7 +145,7 @@ async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: 
     clone inside ``set_runtime_ctx``) leaves the field empty and the UI falls back to the "Auto" pill.
     Best-effort: a cosmetic denormalization must never abort the run, so a DB error is logged.
     """
-    if spec.run_id is None or not model:
+    if not spec.run_id or not model:
         return
     fields = {"agent_model": model, "agent_thinking_level": thinking_level}
     try:

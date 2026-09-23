@@ -161,10 +161,15 @@ async def test_the_agent_runs_inside_the_slot_and_the_context():
             stack.events.append(f"invoked holding {await active_holder(thread_id)}")
             return {"messages": [MagicMock(content="done")]}
 
-        agent.ainvoke = AsyncMock(side_effect=_invoke)
-        await execute_run(_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)))
+        async def _on_success(outcome):
+            stack.events.append(f"on_success holding {await active_holder(thread_id)}")
 
-    assert stack.events == ["context entered", "invoked holding run-1", "context exited"]
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        await execute_run(
+            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), RunHooks(on_success=_on_success)
+        )
+
+    assert stack.events == ["context entered", "invoked holding run-1", "context exited", "on_success holding run-1"]
     assert await active_holder(thread_id) is None
 
 
@@ -293,6 +298,25 @@ async def test_a_spec_without_a_run_leaves_the_session_model_alone():
         await execute_run(_spec(thread_id=thread_id))
 
     assert (await Session.objects.aget(thread_id=thread_id)).agent_model == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_db_error_during_model_persist_is_swallowed(caplog):
+    thread_id = await make_session()
+    session = await Session.objects.aget(thread_id=thread_id)
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+
+    with (
+        _agent_stack(_agent()),
+        patch.object(Run.objects, "filter", side_effect=RuntimeError("db connection failed")),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        outcome = await execute_run(_spec(thread_id=thread_id, run_id=str(run.pk)))
+
+    assert outcome.response_text == "done"
+    assert "failed to persist resolved agent model" in caplog.text
 
 
 async def test_a_failing_on_failure_hook_does_not_mask_the_run_error(caplog):

@@ -15,11 +15,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, kw_only=True)
 class RunSpec:
-    """What a trigger decided about one agent run; the executor adds no decisions of its own.
+    """What a trigger decided about one agent run.
 
     ``persist_ref`` and ``arm_watch`` are opt-in because each writes state outside the checkpoint: the
     session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
-    resolved model is recorded on, together with its session.
+    resolved model is recorded on, together with its session. ``Wait`` on a thread with no ``Session``
+    row runs unlocked (no executor decision, but a lock policy consequence).
     """
 
     thread_id: str
