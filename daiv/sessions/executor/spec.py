@@ -21,7 +21,8 @@ class RunSpec:
     session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
     resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
     degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
-    ``use_max`` picks the site's max model (the ``daiv-max`` label).
+    ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
+    merge request from the checkpoint when the agent raises.
     """
 
     thread_id: str
@@ -44,6 +45,7 @@ class RunSpec:
     run_id: str | None = None
     persist_ref: bool = False
     arm_watch: bool = False
+    recover_draft: bool = False
     extra_metadata: dict[str, Any] = field(default_factory=dict)
 
 

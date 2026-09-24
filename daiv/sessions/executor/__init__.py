@@ -11,14 +11,16 @@ does the rest. The order inside a run, and why each step sits where it does:
    for a branch that is gone; a failed re-pin is logged.
 3. The model is resolved. For a spec with ``run_id`` it is recorded on the ``Run`` and its session
    before the invoke, so a run that fails mid-way still shows what it ran with.
-4. The agent is built and invoked.
+4. The agent is built and invoked. If it raises and the spec asks for it (``recover_draft``), a draft
+   merge request is published from its checkpoint while the clone and sandbox are still open, and the
+   checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is
    synced against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``)
    and the ``AgentResult`` is built. A failed checkpoint read yields ``None``, and a failed ref sync or
    watch arm is logged; none of them fails a run the agent already finished.
 6. The context and the checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,
-   ``hooks.on_failure(exc, draft_published=False, snapshot=None)`` and then the error is re-raised.
+   ``hooks.on_failure(exc, draft_published=..., snapshot=...)`` and then the error is re-raised.
 8. The heartbeat is cancelled and the slot released, even when an earlier step raised.
 
 Callers import the submodule they need; this package has no façade.

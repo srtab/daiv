@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 
 from sessions.executor.lock import SessionLockTimeoutError, hold_session_lock
+from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, Session
 from sessions.pipeline_watch.service import PipelineWatch
@@ -37,10 +38,11 @@ async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcom
 
 
 async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
+    recovery = _Recovery()
     try:
-        outcome = await _invoke(spec)
+        outcome = await _invoke(spec, recovery)
     except Exception as exc:
-        await _notify_failure(hooks, exc)
+        await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
         raise
     if hooks.on_success is not None:
         await hooks.on_success(outcome)
@@ -54,14 +56,28 @@ class _AgentRun:
     config: RunnableConfig
 
 
-async def _invoke(spec: RunSpec) -> RunOutcome:
+@dataclass
+class _Recovery:
+    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
+
+    draft_published: bool = False
+    snapshot: StateSnapshot | None = None
+
+
+async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
     from automation.agent.usage_tracking import track_usage_metadata
 
     async with _agent_run(spec) as run:
-        with track_usage_metadata() as usage_handler:
-            result = await run.agent.ainvoke(
-                {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
-            )
+        try:
+            with track_usage_metadata() as usage_handler:
+                result = await run.agent.ainvoke(
+                    {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
+                )
+        except Exception:
+            if spec.recover_draft:
+                recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
+                recovery.snapshot = await _read_snapshot(run, spec.thread_id)
+            raise
         return await _after_run(spec, run, result, usage_handler)
 
 

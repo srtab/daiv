@@ -515,3 +515,44 @@ class TestRefFallback:
         run.reset.assert_awaited_once()
         run.agent.ainvoke.assert_awaited_once()
         assert "failed to reset session ref" in caplog.text
+
+
+async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_failure():
+    agent = _agent(state={"merge_request": MR})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    on_failure = AsyncMock()
+    spec = _spec(recover_draft=True)
+
+    with _agent_stack(agent) as stack:
+
+        async def _recover(*_args, **_kwargs):
+            stack.events.append("draft recovered")
+            return True
+
+        with (
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)) as recover,
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await execute_run(spec, RunHooks(on_failure=on_failure))
+
+    recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=spec.thread_id)
+    assert stack.events == ["context entered", "draft recovered", "context exited"]
+    agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
+    on_failure.assert_awaited_once_with(
+        agent.ainvoke.side_effect, draft_published=True, snapshot=agent.aget_state.return_value
+    )
+
+
+async def test_a_setup_error_skips_draft_recovery():
+    error = AgentConfigurationError("no default model configured")
+    on_failure = AsyncMock()
+
+    with (
+        _agent_stack(_agent(), resolve=MagicMock(side_effect=error)),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock()) as recover,
+        pytest.raises(AgentConfigurationError),
+    ):
+        await execute_run(_spec(recover_draft=True), RunHooks(on_failure=on_failure))
+
+    recover.assert_not_awaited()
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
