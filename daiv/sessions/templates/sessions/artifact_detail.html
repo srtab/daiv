@@ -18,35 +18,48 @@
             <span>&middot; {{ artifact.kind_label }}</span>
             <span>&middot; {{ artifact.size|filesizeformat }}</span>
             <span>&middot; {{ artifact.created_at|naturaltime }}</span>
-            <span>&middot; <a href="{% url 'session_detail' thread_id=session.thread_id %}#run-{{ artifact.run_id }}"
+            <span>&middot; <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
                              class="text-violet-300 hover:text-violet-200">{% translate "View run" %}</a></span>
         </div>
     </div>
     <div class="page-header__actions flex items-center gap-2">
-        {% if kind != "other" %}
-        <a href="{{ raw_url }}" target="_blank" rel="noopener noreferrer"
+        {% if kind != "other" and not too_large and not unavailable %}
+        <a href="{{ artifact.get_raw_url }}" target="_blank" rel="noopener noreferrer"
            class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
             {% icon "link" "h-4 w-4 shrink-0" %}
             {% translate "Open raw" %}
         </a>
         {% endif %}
-        <a href="{{ download_url }}"
+        {% if not unavailable %}
+        <a href="{{ artifact.get_download_url }}"
            class="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
             {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
             {% translate "Download" %}
         </a>
+        {% endif %}
     </div>
 </div>
 
 <section class="animate-fade-up mt-6" style="animation-delay: 100ms">
-    {% if kind == "markdown" %}
+    {% if unavailable %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+        <p class="text-[15px] text-gray-300">{% translate "This artifact's file is no longer available." %}</p>
+    </div>
+    {% elif too_large %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+        <p class="text-[15px] text-gray-300">{% translate "This file is too large to preview in the browser." %}</p>
+        <a href="{{ artifact.get_download_url }}" class="btn-primary mt-5 inline-flex items-center gap-2">
+            {% icon "arrow-down-tray" "h-4 w-4" %}{% translate "Download" %}
+        </a>
+    </div>
+    {% elif kind == "markdown" %}
     <div class="prose-dark rounded-2xl border border-white/[0.06] bg-black/30 p-6">
         {{ text|render_markdown }}
     </div>
     {% elif kind == "html" %}
     {# The frame gets no ``allow-same-origin``: the report runs in an opaque origin and the raw #}
     {# endpoint repeats the same sandbox in its Content-Security-Policy for direct opens. #}
-    <iframe src="{{ raw_url }}"
+    <iframe src="{{ artifact.get_raw_url }}"
             title="{{ artifact.title }}"
             sandbox="allow-scripts allow-popups"
             referrerpolicy="no-referrer"
@@ -54,7 +67,7 @@
             class="h-[calc(100vh-14rem)] min-h-[32rem] w-full rounded-2xl border border-white/[0.06] bg-white"></iframe>
     {% elif kind == "image" %}
     <div class="flex justify-center rounded-2xl border border-white/[0.06] bg-black/30 p-6">
-        <img src="{{ raw_url }}" alt="{{ artifact.title }}" class="max-w-full rounded-xl">
+        <img src="{{ artifact.get_raw_url }}" alt="{{ artifact.title }}" class="max-w-full rounded-xl">
     </div>
     {% elif kind == "text" %}
     <pre class="overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/30 p-6 font-mono text-[13px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ text }}</pre>
@@ -65,7 +78,7 @@
         </div>
         <p class="text-[15px] text-gray-300">{% translate "This file type is not previewed in the browser." %}</p>
         <p class="mt-1.5 font-mono text-[13px] text-gray-500">{{ artifact.content_type }}</p>
-        <a href="{{ download_url }}" class="btn-primary mt-5 inline-flex items-center gap-2">
+        <a href="{{ artifact.get_download_url }}" class="btn-primary mt-5 inline-flex items-center gap-2">
             {% icon "arrow-down-tray" "h-4 w-4" %}{% translate "Download" %}
         </a>
     </div>

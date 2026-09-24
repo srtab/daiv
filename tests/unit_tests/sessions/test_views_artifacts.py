@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
 
 from django.core.files.base import ContentFile
 from django.urls import reverse
@@ -9,7 +8,6 @@ from django.urls import reverse
 import pytest
 from sessions import views as views_module
 from sessions.artifacts import guess_content_type
-from sessions.hydration import HydratedThread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 pytestmark = pytest.mark.django_db
@@ -64,11 +62,6 @@ def _own_artifact(user, **artifact_kwargs) -> RunArtifact:
     return _create_artifact(_create_run(_create_session(user=user)), **artifact_kwargs)
 
 
-# ---------------------------------------------------------------------------
-# Detail view
-# ---------------------------------------------------------------------------
-
-
 def test_detail_requires_login(client, member_user):
     artifact = _own_artifact(member_user)
     resp = client.get(_detail_url(artifact))
@@ -82,11 +75,20 @@ def test_detail_404_for_other_users_artifact(member_client, other_user):
     assert member_client.get(_raw_url(artifact)).status_code == 404
 
 
-def test_detail_404_when_thread_does_not_own_artifact(member_client, member_user):
+@pytest.mark.parametrize("url_name", ["session_artifact_detail", "session_artifact_raw"])
+def test_404_when_thread_does_not_own_artifact(member_client, member_user, url_name):
     artifact = _own_artifact(member_user)
     other_session = _create_session(user=member_user)
-    url = reverse("session_artifact_detail", kwargs={"thread_id": other_session.thread_id, "pk": artifact.pk})
+    url = reverse(url_name, kwargs={"thread_id": other_session.thread_id, "pk": artifact.pk})
     assert member_client.get(url).status_code == 404
+
+
+def test_session_owner_opens_artifact_of_a_run_someone_else_triggered(member_client, member_user, other_user):
+    session = _create_session(user=member_user)
+    artifact = _create_artifact(_create_run(session, user=other_user))
+
+    assert member_client.get(_detail_url(artifact)).status_code == 200
+    assert member_client.get(_raw_url(artifact)).status_code == 200
 
 
 def test_detail_renders_markdown_inline(member_client, member_user):
@@ -101,7 +103,6 @@ def test_detail_renders_markdown_inline(member_client, member_user):
     html = resp.content.decode()
     assert "<h1>Findings</h1>" in html
     assert "<script>x</script>" not in html
-    assert "prose-dark" in html
     assert [c["label"] for c in resp.context["breadcrumbs"]] == ["Sessions", "group/project", "Findings"]
 
 
@@ -115,7 +116,6 @@ def test_detail_embeds_html_in_sandboxed_iframe(member_client, member_user):
     assert "<h1>Audit</h1>" not in html
     assert f'<iframe src="{_raw_url(artifact)}"' in html
     assert 'sandbox="allow-scripts allow-popups"' in html
-    assert "max-w-screen-2xl" in html
 
 
 def test_detail_renders_text_escaped(member_client, member_user):
@@ -146,19 +146,33 @@ def test_detail_offers_download_for_unpreviewable_types(member_client, member_us
     assert "not previewed" in resp.content.decode()
 
 
-def test_detail_large_text_falls_back_to_download(member_client, member_user, monkeypatch):
+def test_detail_large_text_is_flagged_too_large_not_unpreviewable(member_client, member_user, monkeypatch):
     monkeypatch.setattr(views_module, "ARTIFACT_INLINE_TEXT_MAX_BYTES", 4)
     artifact = _own_artifact(member_user, filename="big.md", content=b"# too big")
 
     resp = member_client.get(_detail_url(artifact))
 
-    assert resp.context["kind"] == "other"
+    assert resp.context["kind"] == "markdown"
+    assert resp.context["too_large"] is True
     assert resp.context["text"] is None
+    html = resp.content.decode()
+    assert "too large to preview" in html
+    assert "not previewed" not in html
 
 
-# ---------------------------------------------------------------------------
-# Raw view
-# ---------------------------------------------------------------------------
+def test_missing_file_renders_unavailable_and_raw_404s(member_client, member_user, caplog):
+    artifact = _own_artifact(member_user, filename="audit.html", content=b"<p>x</p>")
+    artifact.file.storage.delete(artifact.file.name)
+
+    detail = member_client.get(_detail_url(artifact))
+    raw = member_client.get(_raw_url(artifact))
+
+    assert detail.status_code == 200
+    assert detail.context["unavailable"] is True
+    assert "no longer available" in detail.content.decode()
+    assert "<iframe" not in detail.content.decode()
+    assert raw.status_code == 404
+    assert "MEDIA_ROOT" in caplog.text
 
 
 def test_raw_requires_login(client, member_user):
@@ -167,15 +181,25 @@ def test_raw_requires_login(client, member_user):
     assert resp.status_code == 302
 
 
-def test_raw_streams_bytes_under_sandbox_policy(member_client, member_user):
-    artifact = _own_artifact(member_user, filename="audit.html", content=b"<h1>Audit</h1>")
+def test_raw_streams_bytes_as_utf8_text(member_client, member_user):
+    artifact = _own_artifact(member_user, filename="audit.html", content="<h1>Relatório</h1>".encode())
 
     resp = member_client.get(_raw_url(artifact))
 
     assert resp.status_code == 200
-    assert b"".join(resp.streaming_content) == b"<h1>Audit</h1>"
-    assert resp["Content-Type"] == "text/html"
+    assert b"".join(resp.streaming_content) == "<h1>Relatório</h1>".encode()
+    assert resp["Content-Type"] == "text/html; charset=utf-8"
     assert resp["Content-Disposition"] == 'inline; filename="audit.html"'
+
+
+@pytest.mark.parametrize(
+    ("filename", "query"), [("audit.html", ""), ("chart.svg", ""), ("chart.png", ""), ("audit.html", "?download=1")]
+)
+def test_raw_always_sends_the_sandbox_policy(member_client, member_user, filename, query):
+    artifact = _own_artifact(member_user, filename=filename, content=b"<svg/>")
+
+    resp = member_client.get(_raw_url(artifact) + query)
+
     csp = resp["Content-Security-Policy"]
     assert csp.startswith("sandbox allow-scripts allow-popups;")
     assert "frame-ancestors 'self'" in csp
@@ -186,46 +210,22 @@ def test_raw_streams_bytes_under_sandbox_policy(member_client, member_user):
     assert resp["Cache-Control"] == "private, no-store"
 
 
+def test_raw_binary_type_carries_no_charset(member_client, member_user):
+    artifact = _own_artifact(member_user, filename="chart.png", content=b"\x89PNG")
+
+    assert member_client.get(_raw_url(artifact))["Content-Type"] == "image/png"
+
+
 def test_raw_download_flag_forces_attachment(member_client, member_user):
     artifact = _own_artifact(member_user, filename="data.csv", content=b"a,b")
 
     resp = member_client.get(_raw_url(artifact) + "?download=1")
 
     assert resp["Content-Disposition"] == 'attachment; filename="data.csv"'
-    assert resp["Content-Type"] == "text/csv"
+    assert resp["Content-Type"] == "text/csv; charset=utf-8"
     assert b"".join(resp.streaming_content) == b"a,b"
 
 
 def test_raw_visible_to_admin(admin_client, member_user):
     artifact = _own_artifact(member_user)
     assert admin_client.get(_raw_url(artifact)).status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Session detail lists the session's artifacts
-# ---------------------------------------------------------------------------
-
-
-def test_session_detail_lists_artifacts(member_client, member_user):
-    session = _create_session(user=member_user)
-    run = _create_run(session)
-    artifact = _create_artifact(run, filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
-    _create_artifact(_create_run(_create_session(user=member_user)), filename="other.md")
-
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.status_code == 200
-    assert [a.pk for a in resp.context["artifacts"]] == [artifact.pk]
-    html = resp.content.decode()
-    assert "Dependency audit" in html
-    assert _detail_url(artifact) in html
-    assert _raw_url(artifact) + "?download=1" in html
-
-
-def test_session_detail_without_artifacts_omits_section(member_client, member_user):
-    session = _create_session(user=member_user)
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["artifacts"] == []
-    assert 'id="session-artifacts-heading"' not in resp.content.decode()

@@ -150,7 +150,7 @@ GET /api/jobs/{job_id}
 
 `merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
-`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`) and a direct download (`download_url`); both require a signed-in DAIV user who can see the run. The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`.
+`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`) and a direct download (`download_url`); both require a signed-in DAIV user who can see the run. The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
 
 **Status values:**
 

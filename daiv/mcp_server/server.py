@@ -19,7 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
-from sessions.artifacts import aserialize_run_artifacts
+from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
@@ -317,13 +317,15 @@ async def submit_job(
 async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
     error = "Job execution failed." if run.status == RunStatus.FAILED else None
+    artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return {
         "job_id": str(run.id),
         "status": str(run.status),
         "thread_id": str(run.session_id) if run.session_id else None,
         "result": run.result_summary or None,
         "merge_request_url": run.merge_request_web_url or None,
-        "artifacts": await aserialize_run_artifacts(run),
+        "artifacts": [artifact.model_dump() for artifact in artifacts],
+        **({"artifacts_error": artifacts_error} if artifacts_error else {}),
         "error": error,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,
@@ -337,17 +339,16 @@ async def _build_job_response(run: Run) -> str:
 
 
 async def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Run]) -> str:
-    statuses = []
-    for jid in [j["job_id"] for j in enqueue_response["jobs"]]:
-        if jid in results_by_id:
-            statuses.append(await _build_job_response_dict(results_by_id[jid]))
-        else:
-            statuses.append({"job_id": jid, "status": str(RunStatus.RUNNING)})
     return json.dumps({
         "batch_id": batch_id,
         "jobs": enqueue_response["jobs"],
         "failed": enqueue_response["failed"],
-        "statuses": statuses,
+        "statuses": [
+            await _build_job_response_dict(results_by_id[jid])
+            if jid in results_by_id
+            else {"job_id": jid, "status": str(RunStatus.RUNNING)}
+            for jid in [j["job_id"] for j in enqueue_response["jobs"]]
+        ],
     })
 
 

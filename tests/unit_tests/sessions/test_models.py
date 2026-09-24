@@ -292,11 +292,6 @@ def test_run_defaults_to_classify_eligible():
     assert run.classify_eligible is True
 
 
-# ---------------------------------------------------------------------------
-# RunArtifact
-# ---------------------------------------------------------------------------
-
-
 def _mk_artifact(run: Run, **kwargs):
     from sessions.models import RunArtifact
 
@@ -334,13 +329,15 @@ def test_artifact_urls_are_scoped_to_the_session():
     assert str(artifact) == f"report.md (text/markdown) for run {run.pk}"
 
 
-def test_artifact_visible_to_follows_run_visibility(admin_user, member_user, other_user):
+def test_artifact_visible_to_follows_session_visibility(admin_user, member_user, other_user):
     from sessions.models import RunArtifact
 
     mine = _mk_artifact(_mk_run(_mk_session(user=member_user), user=member_user))
     mine.save()
+    on_my_session_by_other = _mk_artifact(_mk_run(_mk_session(user=member_user), user=other_user))
+    on_my_session_by_other.save()
     theirs = _mk_artifact(_mk_run(_mk_session(user=other_user), user=other_user))
     theirs.save()
 
-    assert set(RunArtifact.objects.visible_to(member_user)) == {mine}
-    assert set(RunArtifact.objects.visible_to(admin_user)) == {mine, theirs}
+    assert set(RunArtifact.objects.visible_to(member_user)) == {mine, on_my_session_by_other}
+    assert set(RunArtifact.objects.visible_to(admin_user)) == {mine, on_my_session_by_other, theirs}

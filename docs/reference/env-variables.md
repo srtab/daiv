@@ -321,7 +321,7 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
-| `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes                   | `10485760` (10 MiB) | `52428800` |
+| `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit) | `10485760` (10 MiB) | `52428800` |
 | `DAIV_ARTIFACTS_PER_RUN_MAX`    | Maximum number of files one run may publish                    | `20`           | `50` |
 
 ### MCP Tools

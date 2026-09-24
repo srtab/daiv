@@ -1,11 +1,12 @@
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
 
+from sessions.artifacts import bind_active_run
 from sessions.executor.lock import hold_session_lock
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -72,7 +73,10 @@ async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
 
     async with _agent_run(spec) as run:
         try:
-            with track_usage_metadata() as usage_handler:
+            with (
+                track_usage_metadata() as usage_handler,
+                bind_active_run(spec.run_id) if spec.run_id else nullcontext(),
+            ):
                 result = await run.agent.ainvoke(
                     {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
                 )

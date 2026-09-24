@@ -23,7 +23,7 @@ CACHES = {
 }
 
 
-# Use simple static file storage to avoid manifest requirement in tests
+# In-memory media, and simple static file storage to avoid the manifest requirement in tests
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},

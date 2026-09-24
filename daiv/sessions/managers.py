@@ -136,9 +136,9 @@ class RunEnvelopeManager(models.Manager["RunEnvelope"]):
 
 class RunArtifactManager(models.Manager["RunArtifact"]):
     def visible_to(self, user: User) -> models.QuerySet[RunArtifact]:
-        """Artifacts of the runs the user may view. SYNC ONLY, like :meth:`RunManager.visible_to`."""
-        from sessions.models import Run
+        """Artifacts of the sessions the user may view, whose page lists every run's transcript. SYNC ONLY."""
+        from sessions.models import Session
 
         if user.is_admin:
             return self.all()
-        return self.filter(run__in=Run.objects.visible_to(user))
+        return self.filter(run__session__in=Session.objects.visible_to(user))

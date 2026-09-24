@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.sites.models import Site
 
@@ -11,6 +11,8 @@ import pytest
 from asgiref.sync import sync_to_async
 from deepagents.backends.protocol import FILE_NOT_FOUND, FileDownloadResponse
 from langchain.tools import ToolRuntime
+from sessions.artifacts import bind_active_run
+from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from automation.agent.middlewares.artifacts import (
@@ -137,9 +139,25 @@ async def test_publish_rejects_path_outside_workspace_without_touching_backend()
 async def test_publish_without_active_run_reports_no_session():
     backend = _FakeBackend({"/workspace/tmp/r.md": b"# r"})
 
-    assert "no session" in await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(str(uuid.uuid4())))
+    result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(str(uuid.uuid4())))
+
+    assert "no session" in result
+    assert "final response" in result
     assert "no session" in await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(None))
     assert backend.requested == []
+
+
+async def test_publish_attaches_to_the_bound_run_not_a_newer_waiting_one():
+    session, executing = await _session_with_running_run()
+    await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, repo_id=session.repo_id, status=RunStatus.RUNNING
+    )
+    backend = _FakeBackend({"/workspace/tmp/r.md": b"# r"})
+
+    with bind_active_run(executing.pk):
+        await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+
+    assert await RunArtifact.objects.filter(run=executing).acount() == 1
 
 
 async def test_publish_missing_file_tells_agent_to_write_it_first():
@@ -151,13 +169,21 @@ async def test_publish_missing_file_tells_agent_to_write_it_first():
     assert not await RunArtifact.objects.filter(run=run).aexists()
 
 
-async def test_publish_surfaces_backend_error_string():
+@pytest.mark.parametrize(
+    ("error", "hint"),
+    [
+        ("is_directory", "is a directory"),
+        ("permission_denied", "chmod"),
+        ("file_too_large", "artifact limit"),
+        ("reading the file timed out in the sandbox", "timed out in the sandbox. Do not retry"),
+    ],
+)
+async def test_publish_download_errors_carry_actionable_hints(error, hint):
     session, _run = await _session_with_running_run()
-    backend = _FakeBackend(error="permission denied by sandbox")
 
-    result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+    result = await _tool(_FakeBackend(error=error))(path="/workspace/tmp/reports", runtime=_runtime(session.thread_id))
 
-    assert "permission denied by sandbox" in result
+    assert hint in result
 
 
 async def test_publish_transport_failure_is_a_soft_error():
@@ -168,7 +194,40 @@ async def test_publish_transport_failure_is_a_soft_error():
     result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
 
     assert result.startswith("Error publishing artifact '/workspace/tmp/r.md'")
-    assert "ConnectError" in result
+    assert "retry" in result
+
+
+@pytest.mark.parametrize("failing", ["download", "store"])
+async def test_publish_unexpected_failure_is_logged_and_returned_not_raised(caplog, failing):
+    session, run = await _session_with_running_run()
+    backend = _FakeBackend({"/workspace/tmp/r.md": b"# r"})
+    if failing == "download":
+        backend.adownload_files = AsyncMock(side_effect=OSError("File name too long"))
+        patcher = patch("automation.agent.middlewares.artifacts.astore_artifact")
+    else:
+        patcher = patch("automation.agent.middlewares.artifacts.astore_artifact", side_effect=OSError("disk full"))
+
+    with patcher:
+        result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+
+    assert result.startswith("Error publishing artifact '/workspace/tmp/r.md': DAIV could not store the file")
+    assert "unexpected failure publishing" in caplog.text
+    assert not await RunArtifact.objects.filter(run=run).aexists()
+
+
+async def test_publish_returns_a_flagged_relative_url_when_absolute_urls_fail(caplog):
+    session, run = await _session_with_running_run()
+    backend = _FakeBackend({"/workspace/tmp/r.md": b"# r"})
+
+    with patch("automation.agent.middlewares.artifacts.serialize_artifact", side_effect=RuntimeError("no site")):
+        result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+
+    payload = json.loads(result)
+    artifact = await RunArtifact.objects.aget(run=run)
+    assert payload["status"] == "published"
+    assert payload["url"] == f"/dashboard/sessions/{session.thread_id}/artifacts/{artifact.pk}/"
+    assert "relative" in payload["warning"]
+    assert "could not build its absolute URLs" in caplog.text
 
 
 async def test_publish_empty_file_is_rejected_by_store():
@@ -191,3 +250,25 @@ async def test_awrap_model_call_appends_artifacts_prompt():
 
     request.override.assert_called_once_with(system_prompt=f"BASE\n\n{ARTIFACTS_SYSTEM_PROMPT}")
     handler.assert_awaited_once_with("overridden")
+
+
+async def test_publish_through_the_sandbox_refuses_oversized_files_before_transfer(monkeypatch):
+    from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+    from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+
+    monkeypatch.setattr(sessions_settings, "ARTIFACT_MAX_BYTES", 1234)
+    session, run = await _session_with_running_run()
+    client = AsyncMock()
+    client.run_commands.return_value = RunCommandsResponse(
+        results=[RunCommandResult(command="download", output="", exit_code=6)]
+    )
+    sandbox = SandboxFileBackend(client=client)
+    sandbox.bind_session("sid")
+    backend = DAIVCompositeBackend(default=sandbox, routes={}, artifacts_root="/workspace")
+
+    result = await _tool(backend)(path="/workspace/tmp/huge.log", runtime=_runtime(session.thread_id))
+
+    (command,) = client.run_commands.call_args.args[1].commands
+    assert "-gt 1234 ]" in command
+    assert "artifact limit" in result
+    assert not await RunArtifact.objects.filter(run=run).aexists()

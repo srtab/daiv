@@ -94,17 +94,19 @@ Published files appear in an **Artifacts** panel on the session detail page, abo
 | File type | Viewer |
 |-----------|--------|
 | Markdown (`.md`) | Rendered server-side, sanitized, in the DAIV shell |
-| HTML (`.html`) | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages, and no network calls |
+| HTML (`.html`) | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS |
 | Images (`.png`, `.svg`, `.jpg`, `.gif`, `.webp`) | Displayed inline |
-| Text, CSV, JSON, XML, YAML, logs | Shown as preformatted text (up to 1 MB; larger files are offered as a download) |
+| Text, CSV, JSON, XML, YAML, logs | Shown as preformatted text |
 | Anything else (`.pdf`, archives, …) | Download only |
 
-**Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Artifacts follow run visibility: whoever can open the session can open its artifacts.
+Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.
+
+**Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
 
 Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 
 !!! note "Limits and storage"
-    A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`~/data/media` in the containers), which the web and worker containers must share — the Compose files mount `./data/media` for both. Deleting a run deletes its artifacts and their files.
+    A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`/home/daiv/data/media` in the containers), which the `app` and `worker` containers must share through one volume — see the [deployment guide](../getting-started/deployment.md). Deleting a run deletes its artifacts and their files.
 
 ---
 

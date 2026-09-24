@@ -19,8 +19,5 @@ include(
 )
 
 # Serve static files directly from app directories without collectstatic
-STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-}
+STORAGES = {**STORAGES, "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}}  # type: ignore[name-defined]  # noqa: F821
 INSTALLED_APPS = ["whitenoise.runserver_nostatic", *INSTALLED_APPS]  # type: ignore[name-defined]  # noqa: F821

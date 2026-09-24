@@ -152,7 +152,7 @@ STORAGES = {
 }
 WHITENOISE_ROOT = Path(__file__).resolve().parents[2] / "public"
 
-# MEDIA FILES - run artifacts published by the agent; shared between the web and worker containers.
+# MEDIA FILES - must be shared between the web and worker containers.
 
 MEDIA_ROOT = Path.home() / "data" / "media"
 

@@ -1,10 +1,17 @@
 import base64
+import subprocess  # noqa: S404
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from deepagents.backends.protocol import FILE_NOT_FOUND
 
-from automation.agent.middlewares.file_system import SandboxFileBackend
+from automation.agent.middlewares.file_system import (
+    DOWNLOAD_TOO_LARGE,
+    SandboxFileBackend,
+    _download_command,
+    _download_response,
+)
 from core.sandbox.schemas import (
     FsDeleteResponse,
     FsEditResponse,
@@ -287,24 +294,135 @@ async def test_aupload_files_ok_and_failure(backend, client):
     assert bad[0].error is not None and "disk full" in bad[0].error
 
 
-async def test_adownload_files_branches(backend, client):
-    client.fs_read.return_value = FsReadResponse(content="hi", encoding="utf-8")
-    text = await backend.adownload_files(["/workspace/repo/a.txt"])
-    assert text[0].content == b"hi" and text[0].error is None
+def _run_result(exit_code: int = 0, output: str = "") -> RunCommandResult:
+    return RunCommandResult(command="download", output=output, exit_code=exit_code)
 
-    client.fs_read.return_value = FsReadResponse(content=base64.b64encode(b"\x00\x01").decode(), encoding="base64")
-    binary = await backend.adownload_files(["/workspace/repo/b.bin"])
-    assert binary[0].content == b"\x00\x01"
 
-    # not_found must map to deepagents' FILE_NOT_FOUND sentinel (the old code compared the raw error
-    # string to that sentinel, which silently stopped matching once errors became objects).
-    client.fs_read.return_value = FsReadResponse(error=_err(FsErrorCode.NOT_FOUND, "does not exist"))
-    missing = await backend.adownload_files(["/workspace/repo/gone.txt"])
-    assert missing[0].error == FILE_NOT_FOUND and missing[0].content is None
+def _encoded(content: bytes, *, noise: str = "") -> str:
+    return f"{noise}__DAIV_DOWNLOAD__\n{base64.encodebytes(content).decode()}"
 
-    client.fs_read.return_value = FsReadResponse(error=_err(FsErrorCode.EXEC_FAILED, "boom"))
-    err = await backend.adownload_files(["/workspace/repo/x.txt"])
-    assert err[0].error is not None and "boom" in err[0].error and err[0].content is None
+
+async def test_adownload_files_decodes_base64_from_one_command_batch(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(
+        results=[
+            _run_result(output=_encoded(b"a\r\nb\n")),
+            _run_result(output=_encoded(b"\x00\x01")),
+            _run_result(output=_encoded(b"")),
+        ]
+    )
+
+    out = await backend.adownload_files(["/workspace/tmp/a.csv", "/workspace/tmp/b.bin", "/workspace/tmp/empty.md"])
+
+    assert [r.content for r in out] == [b"a\r\nb\n", b"\x00\x01", b""]
+    assert all(r.error is None for r in out)
+    sent = client.run_commands.call_args.args[1]
+    assert len(sent.commands) == 3 and sent.fail_fast is False
+    client.fs_read.assert_not_called()
+
+
+async def test_adownload_files_ignores_shell_noise_before_the_marker(backend, client):
+    noise = "bash: warning: setlocale: LC_ALL: cannot change locale (pt_PT.UTF-8)\n"
+    client.run_commands.return_value = RunCommandsResponse(
+        results=[_run_result(output=_encoded(b"<h1>x</h1>", noise=noise))]
+    )
+
+    (out,) = await backend.adownload_files(["/workspace/tmp/r.html"])
+
+    assert out.content == b"<h1>x</h1>"
+
+
+@pytest.mark.parametrize("output", ["aGk=", "__DAIV_DOWNLOAD__\nnot base64!"])
+async def test_adownload_files_rejects_output_it_cannot_decode_strictly(backend, client, caplog, output):
+    client.run_commands.return_value = RunCommandsResponse(results=[_run_result(output=output)])
+
+    (out,) = await backend.adownload_files(["/workspace/tmp/r.html"])
+
+    assert out.content is None
+    assert "undecodable" in out.error
+    assert "Sandbox download of '/workspace/tmp/r.html' failed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "expected"),
+    [(3, "is_directory"), (4, FILE_NOT_FOUND), (5, "permission_denied"), (6, DOWNLOAD_TOO_LARGE)],
+)
+async def test_adownload_files_maps_actionable_exit_codes(backend, client, caplog, exit_code, expected):
+    client.run_commands.return_value = RunCommandsResponse(results=[_run_result(exit_code=exit_code)])
+
+    (out,) = await backend.adownload_files(["/workspace/tmp/x"])
+
+    assert out.content is None
+    assert out.error == expected
+    assert "Sandbox download" not in caplog.text
+
+
+@pytest.mark.parametrize(("exit_code", "expected"), [(124, "timed out"), (127, "exit 127")])
+async def test_adownload_files_logs_sandbox_side_failures(backend, client, caplog, exit_code, expected):
+    client.run_commands.return_value = RunCommandsResponse(results=[_run_result(exit_code=exit_code)])
+
+    (out,) = await backend.adownload_files(["/workspace/tmp/x"])
+
+    assert expected in out.error
+    assert "Sandbox download of '/workspace/tmp/x' failed" in caplog.text
+
+
+async def test_adownload_files_rejects_paths_outside_workspace_without_a_command(backend, client):
+    out = await backend.adownload_files(["/etc/passwd", "/workspace/../etc/passwd", "/workspace"])
+
+    assert [r.error for r in out] == ["invalid_path"] * 3
+    client.run_commands.assert_not_called()
+
+
+async def test_adownload_files_reports_missing_results(backend, client, caplog):
+    client.run_commands.return_value = RunCommandsResponse(results=[_run_result(output=_encoded(b"a"))])
+
+    first, second = await backend.adownload_files(["/workspace/tmp/a", "/workspace/tmp/b"])
+
+    assert first.content == b"a"
+    assert "no result" in second.error
+    assert "'/workspace/tmp/b' failed" in caplog.text
+
+
+async def test_adownload_files_propagates_transport_error(backend, client):
+    client.run_commands.side_effect = httpx.ConnectError("boom")
+
+    with pytest.raises(httpx.ConnectError):
+        await backend.adownload_files(["/workspace/tmp/x"])
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"",
+        b"no trailing newline",
+        b"crlf\r\nline\r\n",
+        b"\x89PNG\x00\xff",
+        "".join(f"{i}\n" for i in range(3000)).encode(),
+    ],
+)
+def test_download_command_round_trips_exact_bytes_through_a_posix_shell(tmp_path, content):
+    target = tmp_path / "it's a file.txt"
+    target.write_bytes(content)
+
+    proc = subprocess.run(["/bin/sh", "-c", _download_command(str(target), 1_000_000)], capture_output=True, text=True)  # noqa: S603
+
+    result = _run_result(exit_code=proc.returncode, output=proc.stdout + proc.stderr)
+    assert _download_response(str(target), result).content == content
+
+
+@pytest.mark.parametrize(
+    ("make", "expected"), [("missing", FILE_NOT_FOUND), ("dir", "is_directory"), ("big", DOWNLOAD_TOO_LARGE)]
+)
+def test_download_command_classifies_non_files(tmp_path, make, expected):
+    target = tmp_path / "entry"
+    if make == "dir":
+        target.mkdir()
+    elif make == "big":
+        target.write_bytes(b"x" * 65)
+
+    proc = subprocess.run(["/bin/sh", "-c", _download_command(str(target), 64)], capture_output=True, text=True)  # noqa: S603
+
+    assert _download_response(str(target), _run_result(exit_code=proc.returncode)).error == expected
 
 
 @pytest.mark.parametrize(

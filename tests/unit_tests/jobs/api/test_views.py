@@ -544,7 +544,7 @@ async def test_get_job_status_lists_artifacts(authenticated_client: TestAsyncCli
     await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Report published")
-    artifact = RunArtifact(run=run, title="Audit", filename="audit.html", content_type="text/html", size=6)
+    artifact = RunArtifact(run=run, title="Audit", filename="audit.html", content_type="text/html", size=8)
     await sync_to_async(artifact.file.save)("audit.html", ContentFile(b"<p>x</p>"), save=True)
 
     response = await authenticated_client.get(f"/jobs/{run.id}")
@@ -557,7 +557,7 @@ async def test_get_job_status_lists_artifacts(authenticated_client: TestAsyncCli
             "title": "Audit",
             "filename": "audit.html",
             "content_type": "text/html",
-            "size": 6,
+            "size": 8,
             "url": f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/",
             "download_url": (
                 f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/raw/?download=1"
@@ -572,3 +572,19 @@ async def test_get_job_status_without_artifacts_returns_empty_list(authenticated
     run = await _create_run_row(user, status="RUNNING")
     response = await authenticated_client.get(f"/jobs/{run.id}")
     assert response.json()["artifacts"] == []
+    assert response.json()["artifacts_error"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_still_answers_when_artifacts_cannot_be_listed(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary="done")
+
+    with patch("sessions.artifacts.aserialize_run_artifacts", AsyncMock(side_effect=RuntimeError("no site"))):
+        response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["result"] == "done"
+    assert data["artifacts"] == []
+    assert "could not be listed" in data["artifacts_error"]

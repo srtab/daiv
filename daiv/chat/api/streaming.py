@@ -20,6 +20,7 @@ from ag_ui.core.events import (
 )
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
+from sessions.artifacts import bind_active_run
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
 from sessions.pipeline_watch.service import PipelineWatch
@@ -357,7 +358,10 @@ class ChatRunStreamer:
                 # cost-aware callback to every nested runnable (subagents included) — the
                 # same mechanism ``run_job_task`` relies on. The whole generator body runs
                 # in one task, so the ContextVar scope holds across ``yield``.
-                with track_usage_metadata() as usage_handler:
+                with (
+                    track_usage_metadata() as usage_handler,
+                    bind_active_run(chat_run.pk) if chat_run is not None else contextlib.nullcontext(),
+                ):
                     stream = SubagentEventFilter().apply(langgraph_agent.run(self.input_data))
                     try:
                         async for event in stream:

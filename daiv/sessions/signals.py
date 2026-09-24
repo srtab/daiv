@@ -164,6 +164,21 @@ def sync_run_on_task_signal(sender: type, task_result: Any, **kwargs: Any) -> No
     _sync_run_for_task(task_result.id)
 
 
+@receiver(task_started, dispatch_uid="sessions.bind_active_task_result")
+def bind_task_result_on_start(sender: type, task_result: Any, **kwargs: Any) -> None:
+    """Let ``publish_artifact`` find a webhook run, whose task never learns its ``Run`` id, by task result."""
+    from sessions.artifacts import bind_active_task_result
+
+    bind_active_task_result(task_result.id)
+
+
+@receiver(task_finished, dispatch_uid="sessions.clear_active_task_result")
+def clear_task_result_on_finish(sender: type, task_result: Any, **kwargs: Any) -> None:
+    from sessions.artifacts import bind_active_task_result
+
+    bind_active_task_result(None)
+
+
 #: Cap on consecutive enqueue failures before the dispatcher bails. A persistent
 #: broker outage would otherwise mass-fail every QUEUED row on the session within
 #: a single signal-handler call; bailing leaves the rest QUEUED for
@@ -307,10 +322,14 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
 
 @receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")
 def delete_artifact_file(sender: type, instance: Any, **kwargs: Any) -> None:
-    """Remove the stored bytes when an artifact row goes (Django never deletes FileField content itself)."""
-    if not instance.file:
-        return
-    try:
-        instance.file.delete(save=False)
-    except Exception:
-        logger.exception("Failed to delete artifact file %s", instance.file.name)
+    """Remove the stored bytes once the row's deletion commits (Django never deletes FileField content itself)."""
+    storage, name = instance.file.storage, instance.file.name
+
+    def _delete() -> None:
+        try:
+            storage.delete(name)
+        except Exception:
+            logger.exception("Failed to delete artifact file %s", name)
+
+    if name:
+        transaction.on_commit(_delete)

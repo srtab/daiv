@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import logging
 import re
+import shlex
 import stat
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, NamedTuple, Protocol, cast, runtime_checkable
 
 import httpx
@@ -67,6 +69,8 @@ if TYPE_CHECKING:
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
     from pydantic import BaseModel
+
+    from core.sandbox.schemas import RunCommandResult
 
 logger = logging.getLogger("daiv.tools")
 
@@ -642,6 +646,10 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, stripped = self._get_backend_and_key(virtual_path)
         return await cast("DAIVBackendProtocol", backend).stat_mode(stripped)
 
+    def route(self, virtual_path: str) -> tuple[BackendProtocol, str]:
+        """The backend that owns ``virtual_path`` and the key that backend knows it by."""
+        return self._get_backend_and_key(virtual_path)
+
     def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
         """Return the underlying backend that owns ``virtual_path``.
 
@@ -754,6 +762,58 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
         return _FS_TRANSPORT_TRANSIENT_TEXT
     logger.error("Sandbox %s transport failure for %r (permanent)", op, target, exc_info=exc)
     return _FS_TRANSPORT_PERMANENT_TEXT
+
+
+DOWNLOAD_TOO_LARGE = "file_too_large"
+_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+_DOWNLOAD_MARKER = "__DAIV_DOWNLOAD__"
+_DOWNLOAD_EXIT_ERRORS = {3: "is_directory", 4: FILE_NOT_FOUND, 5: "permission_denied", 6: DOWNLOAD_TOO_LARGE}
+_SANDBOX_TIMEOUT_EXIT = 124
+
+
+def _download_command(path: str, max_bytes: int) -> str:
+    """A shell line printing a marker, then ``path`` base64-encoded, or exiting with an ``_DOWNLOAD_EXIT_ERRORS`` code.
+
+    The marker separates the payload from anything the shell prints first (e.g. a setlocale warning).
+    """
+    q = shlex.quote(path)
+    return (
+        f"if [ -d {q} ]; then exit 3; fi; if [ ! -e {q} ]; then exit 4; fi; if [ ! -r {q} ]; then exit 5; fi; "
+        f"if [ $(($(wc -c < {q}))) -gt {max_bytes} ]; then exit 6; fi; "
+        f"echo {_DOWNLOAD_MARKER}; base64 {q} 2>/dev/null"
+    )
+
+
+def _decode_download(output: str) -> bytes | None:
+    _, marker, encoded = output.rpartition(_DOWNLOAD_MARKER)
+    if not marker:
+        return None
+    try:
+        return base64.b64decode("".join(encoded.split()), validate=True)
+    except binascii.Error:
+        return None
+
+
+def _download_response(path: str, result: RunCommandResult | None) -> FileDownloadResponse:
+    if result is not None and result.exit_code in _DOWNLOAD_EXIT_ERRORS:
+        return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
+    if result is None:
+        error = "the sandbox returned no result for this file"
+    elif result.exit_code == _SANDBOX_TIMEOUT_EXIT:
+        error = "reading the file timed out in the sandbox"
+    elif result.exit_code != 0:
+        error = f"the file could not be read (exit {result.exit_code})"
+    elif (content := _decode_download(result.output)) is not None:
+        return FileDownloadResponse(path=path, content=content)
+    else:
+        error = "the sandbox returned undecodable file content"
+    logger.error("Sandbox download of %r failed: %s", path, error)
+    return FileDownloadResponse(path=path, error=error)
+
+
+def _is_workspace_path(path: str) -> bool:
+    pure = PurePosixPath(path)
+    return ".." not in pure.parts and PurePosixPath(WORKSPACE_PATH) in pure.parents
 
 
 class _ReadFault(NamedTuple):
@@ -1093,26 +1153,25 @@ class SandboxFileBackend(BackendProtocol):
             out.append(FileUploadResponse(path=path, error=error))  # ty: ignore[invalid-argument-type]
         return out
 
-    async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
-        client, session_id = self._require_bound()
-        out: list[FileDownloadResponse] = []
-        for path in paths:
-            resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(path)))
-            if resp.error is not None and resp.error.code == FsErrorCode.NOT_FOUND:
-                # Normalise absence onto deepagents' FILE_NOT_FOUND sentinel so its callers can branch
-                # on it. (The old code compared the raw error string to this sentinel, which silently
-                # stopped matching once the wire error became a structured object.)
-                out.append(FileDownloadResponse(path=path, error=FILE_NOT_FOUND))
-            elif resp.error is not None:
-                # See ``aupload_files``: deepagents accepts backend-specific error strings.
-                out.append(
-                    FileDownloadResponse(path=path, error=_fs_error_text(resp.error))  # ty: ignore[invalid-argument-type]
-                )
-            elif resp.encoding == "base64":
-                out.append(FileDownloadResponse(path=path, content=base64.b64decode(resp.content or "")))
-            else:
-                out.append(FileDownloadResponse(path=path, content=(resp.content or "").encode("utf-8")))
-        return out
+    async def adownload_files(
+        self, paths: list[str], *, max_bytes: int = _DOWNLOAD_MAX_BYTES
+    ) -> list[FileDownloadResponse]:
+        # Not ``fs_read``: it pages text through a 2000-line / 512 KB window and rewrites line endings.
+        # ``run_commands`` output is never truncated, and base64 carries the bytes through it unchanged.
+        targets = {i: self._abs(path) for i, path in enumerate(paths)}
+        commands = {
+            i: _download_command(target, max_bytes) for i, target in targets.items() if _is_workspace_path(target)
+        }
+        results: dict[int, RunCommandResult] = {}
+        if commands:
+            response = await self.run_commands(list(commands.values()), fail_fast=False)
+            results = dict(zip(commands, response.results, strict=False))
+        return [
+            _download_response(path, results.get(i))
+            if i in commands
+            else FileDownloadResponse(path=path, error="invalid_path")
+            for i, path in enumerate(paths)
+        ]
 
     # -- DAIVBackendProtocol -------------------------------------------------
     async def unlink(self, virtual_path: str) -> bool:

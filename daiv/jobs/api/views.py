@@ -8,7 +8,7 @@ from django.http import HttpRequest  # noqa: TC002 - required at runtime by Djan
 from ninja import Router
 from ninja.errors import HttpError
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
-from sessions.artifacts import aserialize_run_artifacts
+from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
@@ -125,13 +125,15 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     error = "Job execution failed" if run.status == RunStatus.FAILED else None
+    artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),
         status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'FAILED']", run.status),
         thread_id=str(run.session_id) if run.session_id else None,
         result=run.result_summary or None,
         merge_request_url=run.merge_request_web_url or None,
-        artifacts=await aserialize_run_artifacts(run),
+        artifacts=artifacts,
+        artifacts_error=artifacts_error,
         error=error,
         created_at=run.created_at,
         started_at=run.started_at,

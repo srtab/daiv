@@ -124,7 +124,7 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 | `GitMiddleware` | Branch management, auto-commit, MR creation |
 | `GitPlatformMiddleware` | Git platform CLI tool (issues, MRs, pipelines) |
 | `SkillsMiddleware` | Skill loading and slash command execution |
-| `ArtifactsMiddleware` | The `publish_artifact` tool — stores a workspace file as a run artifact and renders it in the dashboard |
+| `ArtifactsMiddleware` | The `publish_artifact` tool and its system-prompt section — stores a workspace file as a run artifact |
 | `SubAgentMiddleware` | Delegates tasks to subagents |
 | `MemoryMiddleware` | Loads `AGENTS.md` and repository context |
 | `TodoListMiddleware` | Task tracking within conversations |

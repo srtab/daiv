@@ -16,7 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from automation.agent.results import parse_agent_result
 from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
-from sessions.artifacts import ARTIFACT_KIND_LABELS, ArtifactKind, artifact_kind
+from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
 from sessions.managers import RunArtifactManager, RunEnvelopeManager, RunManager, SessionManager
 
@@ -634,4 +634,4 @@ class RunArtifact(models.Model):
 
     @property
     def kind_label(self) -> str:
-        return str(ARTIFACT_KIND_LABELS[self.kind])
+        return str(self.kind.label)

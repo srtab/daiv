@@ -417,12 +417,8 @@
   // publish_artifact returns JSON ({"status":"published","url":...}) on success and an
   // "Error publishing artifact..." string otherwise.
   const parseArtifactResult = (result) => {
-    try {
-      const parsed = JSON.parse(String(result ?? ""));
-      return parsed && typeof parsed === "object" && parsed.url ? parsed : null;
-    } catch {
-      return null;
-    }
+    const parsed = parseArgs(result);
+    return parsed.url ? parsed : null;
   };
 
   const formatBytes = (n) => {

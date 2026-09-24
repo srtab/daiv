@@ -4,6 +4,7 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
 from pydantic import ConfigDict
+from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
 
 from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
@@ -54,24 +55,17 @@ class JobSubmitResponse(Schema):
     failed: list[JobSubmitFailureItem]
 
 
-class JobArtifactItem(Schema):
-    id: str
-    title: str
-    filename: str
-    content_type: str
-    size: int
-    url: str
-    download_url: str
-
-
 class JobStatusResponse(Schema):
     job_id: str
     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "FAILED"]
     thread_id: str | None = None
     result: str | None = None
     merge_request_url: str | None = None
-    artifacts: list[JobArtifactItem] = Field(
+    artifacts: list[ArtifactPayload] = Field(
         default_factory=list, description="Files the agent published from this run, with viewer and download URLs."
+    )
+    artifacts_error: str | None = Field(
+        default=None, description="Set when the artifacts could not be listed; `artifacts` is then empty."
     )
     error: str | None = None
     created_at: datetime | None = None

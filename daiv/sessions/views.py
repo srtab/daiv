@@ -13,7 +13,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
@@ -350,7 +350,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["context_usage"] = hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
-        ctx["artifacts"] = list(RunArtifact.objects.filter(run__in=runs).select_related("run"))
+        ctx["artifacts"] = list(RunArtifact.objects.filter(run__session=session).select_related("run"))
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a
         # chat run (holder id == AG-UI run id). Background holders don't publish to
@@ -433,21 +433,32 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
         return f"daiv-{repo_slug}-{date_str}.md"
 
 
-# Agent-authored HTML runs in an opaque origin (``sandbox``) with no outbound fetches, embedded or
-# opened directly; ``frame-ancestors`` lets only DAIV's own viewer page frame it.
+# The same sandbox tokens as the viewer iframe. connect-src 'none' stops fetch/XHR/WebSocket, but https:
+# subresources (scripts, styles, images, fonts, media) still load, so a report can reach third-party hosts.
 ARTIFACT_CONTENT_SECURITY_POLICY = (
     "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' https:; "
     "style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; "
     "media-src data: blob: https:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 )
-# Markdown/text bodies above this are not rendered inline (the page would stall); the viewer offers the file instead.
+ARTIFACT_RAW_HEADERS = {
+    "Content-Security-Policy": ARTIFACT_CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "private, no-store",
+}
 ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
 
 
-class RunArtifactMixin(LoginRequiredMixin):
-    """Scopes an artifact lookup to the URL's session and to the runs the viewer may see."""
+def _log_missing_artifact_file(artifact: RunArtifact) -> None:
+    logger.error(
+        "Artifact %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+        artifact.pk,
+        artifact.file.name,
+    )
 
-    model = RunArtifact
+
+class RunArtifactMixin(LoginRequiredMixin):
+    """Scopes an artifact lookup to the URL's session and to the sessions the viewer may see."""
 
     def get_queryset(self) -> QuerySet[RunArtifact]:
         return (
@@ -478,41 +489,40 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         artifact: RunArtifact = self.object
-        kind = artifact.kind
+        unavailable = not artifact.file.storage.exists(artifact.file.name)
+        if unavailable:
+            _log_missing_artifact_file(artifact)
+        inline_text = artifact.kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT)
+        too_large = inline_text and artifact.size > ARTIFACT_INLINE_TEXT_MAX_BYTES
         text = None
-        if kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT):
-            if artifact.size <= ARTIFACT_INLINE_TEXT_MAX_BYTES:
-                with artifact.file.open("rb") as fh:
-                    text = fh.read().decode("utf-8", errors="replace")
-            else:
-                kind = ArtifactKind.OTHER
-        ctx.update({
-            "kind": kind,
-            "text": text,
-            "raw_url": artifact.get_raw_url(),
-            "download_url": artifact.get_download_url(),
-            "session": artifact.run.session,
-        })
+        if inline_text and not too_large and not unavailable:
+            with artifact.file.open("rb") as fh:
+                text = fh.read().decode("utf-8", errors="replace")
+        ctx.update({"kind": artifact.kind, "text": text, "too_large": too_large, "unavailable": unavailable})
         return ctx
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
-class RunArtifactRawView(RunArtifactMixin, View):
+class RunArtifactRawView(RunArtifactMixin, DetailView):
     """Stream the stored bytes as their declared type; ``?download=1`` forces an attachment."""
 
     def get(self, request, *args, **kwargs):
-        artifact = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
-        response = FileResponse(
-            artifact.file.open("rb"),
-            content_type=artifact.content_type,
+        artifact: RunArtifact = self.get_object()
+        try:
+            fh = artifact.file.open("rb")
+        except FileNotFoundError:
+            _log_missing_artifact_file(artifact)
+            raise Http404("Artifact file is missing.") from None
+        content_type = artifact.content_type
+        if content_type.startswith("text/"):
+            content_type = f"{content_type}; charset=utf-8"
+        return FileResponse(
+            fh,
+            content_type=content_type,
             as_attachment=request.GET.get("download") == "1",
             filename=artifact.filename,
+            headers=ARTIFACT_RAW_HEADERS,
         )
-        response["Content-Security-Policy"] = ARTIFACT_CONTENT_SECURITY_POLICY
-        response["X-Content-Type-Options"] = "nosniff"
-        response["Referrer-Policy"] = "no-referrer"
-        response["Cache-Control"] = "private, no-store"
-        return response
 
 
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
