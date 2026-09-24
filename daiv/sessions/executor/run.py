@@ -1,19 +1,21 @@
+import contextlib
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
 
-from sessions.executor.lock import hold_session_lock
+from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, Session
 from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
@@ -24,6 +26,12 @@ if TYPE_CHECKING:
     from sessions.executor.spec import RunSpec
 
 logger = logging.getLogger("daiv.sessions")
+
+STREAM_HEARTBEAT_INTERVAL_S = 5.0
+
+
+class RunStoppedError(Exception):
+    """``stream_run``'s ``should_stop`` asked the run to stop."""
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,73 @@ async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcom
         if not entered:
             await _notify_failure(hooks, exc)
         raise
+
+
+async def stream_run(
+    spec: RunSpec,
+    stream: Callable[[AgentRun], AsyncGenerator[Any]],
+    hooks: RunHooks | None = None,
+    *,
+    should_stop: Callable[[], Awaitable[bool]],
+) -> AsyncGenerator[Any]:
+    """Run the agent once for ``spec`` and yield what ``stream`` makes of the built agent, as it comes.
+
+    Consume it with ``contextlib.aclosing``: closing it early (a reader that went away) closes the stream and the
+    run's context, and skips both hooks. The package docstring lists the order of the steps.
+    """
+    hooks = hooks or RunHooks()
+    entered = False
+    try:
+        async with hold_session_lock(spec.lock, spec.thread_id, background_heartbeat=False) as holder_id:
+            entered = True
+            recovery = _Recovery()
+            try:
+                async with _agent_run(spec, hooks) as run:
+                    try:
+                        async with contextlib.aclosing(
+                            _supervised(stream(run), spec.thread_id, holder_id, should_stop)
+                        ) as events:
+                            async for event in events:
+                                yield event
+                    except Exception:
+                        await _recover(spec, run, recovery)
+                        raise
+                    outcome = await _after_run(spec, run)
+            except Exception as exc:
+                await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
+                raise
+            if hooks.on_success is not None:
+                await hooks.on_success(outcome)
+    except Exception as exc:
+        if not entered:
+            await _notify_failure(hooks, exc)
+        raise
+
+
+async def _supervised(
+    events: AsyncGenerator[Any], thread_id: str, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]]
+) -> AsyncGenerator[Any]:
+    """Yield ``events``, checking the slot and then ``should_stop`` at most every ``STREAM_HEARTBEAT_INTERVAL_S``.
+
+    A lost slot wins over a stop request: another holder owns the checkpoint now. Either one raises and closes
+    ``events``, which is what stops the graph run inside it; an error while closing is swallowed so it can't mask
+    why the stream stopped.
+    """
+    last_check = time.monotonic()
+    try:
+        async for event in events:
+            yield event
+            now = time.monotonic()
+            if now - last_check < STREAM_HEARTBEAT_INTERVAL_S:
+                continue
+            last_check = now
+            if holder_id is not None and not await still_held(thread_id, holder_id):
+                raise SessionLockLostError(f"session lock for thread_id={thread_id} was taken over by another holder")
+            if await should_stop():
+                raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
+    finally:
+        with contextlib.suppress(Exception):
+            await events.aclose()
 
 
 async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
@@ -157,13 +232,19 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
         logger.exception("executor: failed to reset session ref for thread_id=%s", thread_id)
 
 
-async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str) -> RunOutcome:
+async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
+    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
+    stands in."""
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
+    from automation.agent.utils import extract_text_content
     from sessions.services import apersist_session_ref  # sessions.services imports jobs.tasks, which imports us
 
     snapshot = await _read_snapshot(run, spec.thread_id)
     values = snapshot.values if snapshot is not None else {}
+    if response_text is None:
+        messages = values.get("messages") or []
+        response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     if spec.persist_ref:
         try:
