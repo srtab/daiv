@@ -1,0 +1,94 @@
+from unittest.mock import patch
+
+import pytest
+from ninja.testing import TestAsyncClient
+from webhooks.gitlab.callbacks import PushCallback
+from webhooks.gitlab.models import Project
+
+from daiv.api import api
+
+
+@pytest.fixture
+def client():
+    return TestAsyncClient(api)
+
+
+@pytest.fixture
+def mock_push_callback():
+    return PushCallback(
+        object_kind="push", project=Project(id=123, path_with_namespace="test/test"), checkout_sha="123", ref="main"
+    ).model_dump()
+
+
+async def test_gitlab_callback_valid_token(client: TestAsyncClient, mock_push_callback):
+    """Test GitLab callback with valid token."""
+    # Execute
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=True) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=True) as process_callback,
+    ):
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "test_secret"}
+        )
+
+    # Assert
+    assert response.status_code == 204
+    accept_callback.assert_called_once()
+    process_callback.assert_called_once()
+
+
+async def test_gitlab_callback_invalid_token(client: TestAsyncClient, mock_push_callback):
+    """
+    Test GitLab callback with invalid token.
+    """
+    # Execute
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
+    ):
+        response = await client.post(
+            "/codebase/callbacks/gitlab/", json=mock_push_callback, headers={"X-Gitlab-Token": "invalid_secret"}
+        )
+
+    # Assert
+    assert response.status_code == 401
+    accept_callback.assert_not_called()
+    process_callback.assert_not_called()
+
+
+async def test_gitlab_callback_non_ascii_token_is_401_not_500(client: TestAsyncClient, mock_push_callback):
+    """An attacker-supplied non-ASCII token byte must answer 401, never crash the endpoint."""
+    # Execute
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
+    ):
+        response = await client.post(
+            "/codebase/callbacks/gitlab/",
+            json=mock_push_callback,
+            headers={"X-Gitlab-Token": b"\xe9".decode("latin-1")},
+        )
+
+    # Assert
+    assert response.status_code == 401
+    accept_callback.assert_not_called()
+    process_callback.assert_not_called()
+
+
+async def test_gitlab_callback_not_accepted(client: TestAsyncClient, mock_push_callback, mock_settings):
+    """
+    Test GitLab callback with not accepted webhook.
+    """
+    mock_settings.GITLAB_WEBHOOK_SECRET = None
+
+    # Execute
+    with (
+        patch.object(PushCallback, "accept_callback", return_value=False) as accept_callback,
+        patch.object(PushCallback, "process_callback", return_value=False) as process_callback,
+    ):
+        response = await client.post("/codebase/callbacks/gitlab/", json=mock_push_callback)
+
+    # Assert
+    assert response.status_code == 204
+    accept_callback.assert_called_once()
+    process_callback.assert_not_called()
