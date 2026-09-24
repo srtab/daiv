@@ -2,7 +2,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from redis.exceptions import RedisError
 
@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 
+@dataclass(frozen=True)
+class AgentRun:
+    """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included."""
+
+    ctx: RuntimeCtx
+    agent: CompiledAgent
+    config: RunnableConfig
+    usage: CostAwareUsageMetadataCallbackHandler
+
+
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
@@ -43,20 +53,13 @@ async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcom
 async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
     recovery = _Recovery()
     try:
-        outcome = await _invoke(spec, recovery)
+        outcome = await _invoke(spec, hooks, recovery)
     except Exception as exc:
         await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
         raise
     if hooks.on_success is not None:
         await hooks.on_success(outcome)
     return outcome
-
-
-@dataclass(frozen=True)
-class _AgentRun:
-    ctx: RuntimeCtx
-    agent: CompiledAgent
-    config: RunnableConfig
 
 
 @dataclass
@@ -67,27 +70,37 @@ class _Recovery:
     snapshot: StateSnapshot | None = None
 
 
-async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
-    from automation.agent.usage_tracking import track_usage_metadata
+async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> RunOutcome:
+    from automation.agent.utils import extract_text_content
 
-    async with _agent_run(spec) as run:
+    async with _agent_run(spec, hooks) as run:
         try:
-            with track_usage_metadata() as usage_handler:
-                result = await run.agent.ainvoke(
-                    {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
-                )
+            result = await run.agent.ainvoke(
+                {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
+            )
         except Exception:
-            if spec.recover_draft:
-                recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
-                recovery.snapshot = await _read_snapshot_after_recovery(run, spec.thread_id)
+            await _recover(spec, run, recovery)
             raise
-        return await _after_run(spec, run, result, usage_handler)
+        messages = result.get("messages")
+        if not messages:
+            raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
+        return await _after_run(spec, run, response_text=extract_text_content(messages[-1].content))
+
+
+async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
+    """Publish a draft from the checkpoint after an agent error, if the spec asks for it, and re-read the checkpoint
+    for ``on_failure``. Runs while the clone and the sandbox are still open."""
+    if not spec.recover_draft:
+        return
+    recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
+    recovery.snapshot = await _read_snapshot_after_recovery(run, spec.thread_id)
 
 
 @asynccontextmanager
-async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
+async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     # Imported here so django.setup(), which reaches this module via jobs.tasks, never loads the agent stack.
     from automation.agent.graph import create_daiv_agent
+    from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
@@ -109,6 +122,8 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
     ):
         if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
             await _repin_fallback_ref(spec.thread_id, ctx.repo.ref)
+        if hooks.on_context_ready is not None:
+            await hooks.on_context_ready(ctx.repo.ref)
         agent_kwargs = get_daiv_agent_kwargs(
             model_config=ctx.config.models.agent,
             agent_model=spec.agent_model,
@@ -127,7 +142,8 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
             extra_metadata=spec.extra_metadata,
             configurable={"thread_id": spec.thread_id},
         )
-        yield _AgentRun(ctx=ctx, agent=agent, config=config)
+        with track_usage_metadata() as usage:
+            yield AgentRun(ctx=ctx, agent=agent, config=config, usage=usage)
 
 
 async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
@@ -141,18 +157,10 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
         logger.exception("executor: failed to reset session ref for thread_id=%s", thread_id)
 
 
-async def _after_run(
-    spec: RunSpec, run: _AgentRun, result: dict[str, Any], usage_handler: CostAwareUsageMetadataCallbackHandler
-) -> RunOutcome:
+async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str) -> RunOutcome:
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
-    from automation.agent.utils import extract_text_content
     from sessions.services import apersist_session_ref  # sessions.services imports jobs.tasks, which imports us
-
-    messages = result.get("messages")
-    if not messages:
-        raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
-    response_text = extract_text_content(messages[-1].content)
 
     snapshot = await _read_snapshot(run, spec.thread_id)
     values = snapshot.values if snapshot is not None else {}
@@ -176,16 +184,12 @@ async def _after_run(
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", spec.thread_id)
 
     agent_result = await build_agent_result(
-        run.agent,
-        run.config,
-        response=response_text,
-        usage=build_usage_summary(usage_handler).to_dict(),
-        snapshot=snapshot,
+        run.agent, run.config, response=response_text, usage=build_usage_summary(run.usage).to_dict(), snapshot=snapshot
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _read_snapshot(run: _AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
     """Read the run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the agent
     already finished, so a Redis blip must not fail the run."""
     try:
@@ -195,7 +199,7 @@ async def _read_snapshot(run: _AgentRun, thread_id: str) -> StateSnapshot | None
         return None
 
 
-async def _read_snapshot_after_recovery(run: _AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot_after_recovery(run: AgentRun, thread_id: str) -> StateSnapshot | None:
     """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
     error is what must reach ``on_failure``, not this one."""
     try:

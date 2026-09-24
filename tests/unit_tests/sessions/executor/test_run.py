@@ -538,3 +538,29 @@ async def test_a_post_recovery_snapshot_read_that_fails_does_not_replace_the_age
 
     on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=None)
     assert "failed to read agent state" in caplog.text
+
+
+async def test_on_context_ready_sees_the_landed_ref_after_the_re_pin_and_before_the_model_is_resolved():
+    order: list[str] = []
+
+    async def _ready(ref):
+        order.append(f"ready on {ref}")
+
+    with agent_stack(_agent()) as stack:
+        stack.ctx.repo.ref = "master"
+        stack.reset.side_effect = lambda **_kwargs: order.append("re-pinned")
+        stack.resolve.side_effect = lambda **_kwargs: order.append("resolved") or AGENT_KWARGS
+        await execute_run(_spec(ref="fix/10", fallback_ref_on_missing=True), RunHooks(on_context_ready=_ready))
+
+    assert order == ["re-pinned", "ready on master", "resolved"]
+
+
+async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_built():
+    error = RuntimeError("db down")
+    on_failure = AsyncMock()
+
+    with agent_stack(_agent()) as stack, pytest.raises(RuntimeError, match="db down"):
+        await execute_run(_spec(), RunHooks(on_context_ready=AsyncMock(side_effect=error), on_failure=on_failure))
+
+    stack.create_agent.assert_not_awaited()
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
