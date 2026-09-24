@@ -4,7 +4,6 @@ import uuid
 from unittest.mock import patch
 
 from django.contrib.sites.models import Site
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import DatabaseError
 from django.db.backends.base.base import BaseDatabaseWrapper
@@ -21,12 +20,13 @@ from sessions.artifacts import (
     aserialize_run_artifacts_for_status,
     astore_artifact,
     bind_active_run,
-    bind_active_task_result,
     guess_content_type,
     serialize_artifact,
 )
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.sessions.conftest import make_artifact
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -46,20 +46,6 @@ def _mk_run(session: Session, **kwargs) -> Run:
 async def _amk_run(**run_kwargs) -> Run:
     """Session + run built off the event loop (the ORM helpers above are sync)."""
     return await sync_to_async(lambda: _mk_run(_mk_session(), **run_kwargs))()
-
-
-def _mk_artifact(
-    run: Run, *, filename: str = "report.md", content: bytes = b"# Report", title: str = ""
-) -> RunArtifact:
-    artifact = RunArtifact(
-        run=run,
-        title=title or filename,
-        filename=filename,
-        content_type=guess_content_type(filename),
-        size=len(content),
-    )
-    artifact.file.save(filename, ContentFile(content), save=True)
-    return artifact
 
 
 @pytest.mark.parametrize(
@@ -102,31 +88,13 @@ def test_artifact_kind(content_type, kind):
     assert artifact_kind(content_type) == kind
 
 
-async def test_aresolve_active_run_prefers_running_over_ready():
-    ready = await _amk_run(status=RunStatus.READY)
-    session = await Session.objects.aget(pk=ready.session_id)
-    running = await sync_to_async(_mk_run)(session, status=RunStatus.RUNNING)
+async def test_aresolve_active_run_without_a_bound_run_does_not_guess_one():
+    """A RUNNING row may be a run waiting on the session lock, not the one executing."""
+    running = await _amk_run(status=RunStatus.RUNNING)
+    session = await Session.objects.aget(pk=running.session_id)
+    await sync_to_async(_mk_run)(session, status=RunStatus.READY)
 
-    resolved = await aresolve_active_run(session.thread_id)
-
-    assert resolved is not None
-    assert resolved.pk == running.pk
-    assert resolved.pk != ready.pk
-
-
-async def test_aresolve_active_run_falls_back_to_ready_then_none():
-    done = await _amk_run(status=RunStatus.SUCCESSFUL)
-    session = await Session.objects.aget(pk=done.session_id)
     assert await aresolve_active_run(session.thread_id) is None
-
-    ready = await sync_to_async(_mk_run)(session, status=RunStatus.READY)
-    resolved = await aresolve_active_run(session.thread_id)
-    assert resolved is not None
-    assert resolved.pk == ready.pk
-
-
-async def test_aresolve_active_run_unknown_thread():
-    assert await aresolve_active_run(str(uuid.uuid4())) is None
 
 
 async def test_aresolve_active_run_prefers_the_bound_run_over_a_newer_waiting_one():
@@ -148,27 +116,6 @@ async def test_aresolve_active_run_bound_to_another_thread_finds_nothing(caplog)
     with bind_active_run(executing.pk):
         assert await aresolve_active_run(other.session_id) is None
     assert f"Bound run {executing.pk} is not on thread {other.session_id}" in caplog.text
-
-
-async def test_aresolve_active_run_finds_a_webhook_run_by_its_task_result():
-    from django_tasks_db.models import DBTaskResult
-
-    executing = await _amk_run(status=RunStatus.RUNNING)
-    session = await Session.objects.aget(pk=executing.session_id)
-    await sync_to_async(_mk_run)(session, status=RunStatus.RUNNING)
-    task_result = await DBTaskResult.objects.acreate(
-        args_kwargs={"args": [], "kwargs": {}}, task_path="codebase.tasks.address_issue_task", backend_name="default"
-    )
-    await Run.objects.filter(pk=executing.pk).aupdate(task_result=task_result)
-
-    bind_active_task_result(task_result.id)
-    try:
-        resolved = await aresolve_active_run(session.thread_id)
-    finally:
-        bind_active_task_result(None)
-
-    assert resolved is not None
-    assert resolved.pk == executing.pk
 
 
 async def test_astore_artifact_persists_file_and_metadata():
@@ -242,7 +189,7 @@ async def test_astore_artifact_enforces_per_run_cap(monkeypatch):
 def test_serialize_artifact_uses_site_domain_for_absolute_urls():
     Site.objects.update_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
     run = _mk_run(_mk_session())
-    artifact = _mk_artifact(run, filename="report.md", content=b"# r", title="Report")
+    artifact = make_artifact(run, filename="report.md", content=b"# r", title="Report")
 
     payload = serialize_artifact(artifact)
 
@@ -262,8 +209,8 @@ async def test_aserialize_run_artifacts_orders_oldest_first_and_handles_none():
     run = await _amk_run()
     assert await aserialize_run_artifacts(run) == []
 
-    first = await sync_to_async(_mk_artifact)(run, filename="a.md")
-    second = await sync_to_async(_mk_artifact)(run, filename="b.csv", content=b"a,b")
+    first = await sync_to_async(make_artifact)(run, filename="a.md")
+    second = await sync_to_async(make_artifact)(run, filename="b.csv", content=b"a,b")
 
     payloads = await aserialize_run_artifacts(run)
 
@@ -273,7 +220,7 @@ async def test_aserialize_run_artifacts_orders_oldest_first_and_handles_none():
 
 async def test_aserialize_run_artifacts_for_status_degrades_to_a_flagged_empty_list(caplog):
     run = await _amk_run()
-    await sync_to_async(_mk_artifact)(run, filename="a.md")
+    await sync_to_async(make_artifact)(run, filename="a.md")
 
     with patch.object(artifacts_module, "serialize_artifact", side_effect=RuntimeError("no site")):
         artifacts, error = await aserialize_run_artifacts_for_status(run)

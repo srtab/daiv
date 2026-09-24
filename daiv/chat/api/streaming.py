@@ -360,7 +360,7 @@ class ChatRunStreamer:
                 # in one task, so the ContextVar scope holds across ``yield``.
                 with (
                     track_usage_metadata() as usage_handler,
-                    bind_active_run(chat_run.pk) if chat_run is not None else contextlib.nullcontext(),
+                    bind_active_run(chat_run.pk if chat_run is not None else None),
                 ):
                     stream = SubagentEventFilter().apply(langgraph_agent.run(self.input_data))
                     try:

@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
+TASK_RUN_LOOKUP_DELAYS_S = (0.5, 1.0, 2.0)
+
 
 @dataclass(frozen=True)
 class RepoTarget:
@@ -147,6 +149,25 @@ async def aget_session_ref(*, thread_id: str) -> str:
     its own — an issue is not a branch.
     """
     return await Session.objects.filter(thread_id=thread_id).values_list("ref", flat=True).afirst() or ""
+
+
+async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
+    """The id of the ``Run`` linked to a task result, or ``None`` when none is.
+
+    A webhook callback creates the Run only after enqueueing its task, so a worker that claims the task in
+    between finds no row yet; the lookup waits a few seconds for it before giving up.
+    """
+    lookup = Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True)
+    run_id = await lookup.afirst()
+    for delay in TASK_RUN_LOOKUP_DELAYS_S:
+        if run_id is not None:
+            break
+        await asyncio.sleep(delay)
+        run_id = await lookup.afirst()
+    if run_id is None:
+        logger.warning("No run is linked to task result %s; running without one", task_result_id)
+        return None
+    return str(run_id)
 
 
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:

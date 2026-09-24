@@ -15,6 +15,8 @@ from mcp_server.server import (
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from tests.unit_tests.sessions.conftest import make_artifact
+
 
 def _mock_task():
     m = MagicMock()
@@ -816,26 +818,7 @@ async def test_list_repositories_unauthenticated_rejected():
 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_lists_artifacts(_default_mcp_user):
-    from django.contrib.sites.models import Site
-    from django.core.files.base import ContentFile
-
-    from asgiref.sync import sync_to_async
-    from sessions.models import RunArtifact
-
-    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
-    session = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="group/project", user=_default_mcp_user
-    )
-    run = await Run.objects.acreate(
-        session=session,
-        trigger_type=SessionOrigin.MCP_JOB,
-        repo_id="group/project",
-        user=_default_mcp_user,
-        status=RunStatus.SUCCESSFUL,
-        result_summary="Report published",
-    )
-    artifact = RunArtifact(run=run, title="Audit", filename="audit.md", content_type="text/markdown", size=3)
-    await sync_to_async(artifact.file.save)("audit.md", ContentFile(b"# a"), save=True)
+    run, artifact = await _run_with_artifact(_default_mcp_user, result_summary="Report published")
 
     data = json.loads(await get_job_status(job_id=str(run.id)))
 
@@ -843,17 +826,15 @@ async def test_get_job_status_lists_artifacts(_default_mcp_user):
     assert data["result"] == "Report published"
     assert [a["id"] for a in data["artifacts"]] == [str(artifact.pk)]
     assert data["artifacts"][0]["url"] == (
-        f"https://daiv.example.com/dashboard/sessions/{session.thread_id}/artifacts/{artifact.pk}/"
+        f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/"
     )
     assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")
 
 
-async def _run_with_artifact(user) -> tuple[Run, object]:
+async def _run_with_artifact(user, **run_kwargs) -> tuple[Run, object]:
     from django.contrib.sites.models import Site
-    from django.core.files.base import ContentFile
 
     from asgiref.sync import sync_to_async
-    from sessions.models import RunArtifact
 
     await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
     session = await Session.objects.acreate(
@@ -865,9 +846,9 @@ async def _run_with_artifact(user) -> tuple[Run, object]:
         repo_id="group/project",
         user=user,
         status=RunStatus.SUCCESSFUL,
+        **run_kwargs,
     )
-    artifact = RunArtifact(run=run, title="Audit", filename="audit.md", content_type="text/markdown", size=3)
-    await sync_to_async(artifact.file.save)("audit.md", ContentFile(b"# a"), save=True)
+    artifact = await sync_to_async(make_artifact)(run, filename="audit.md", content=b"# a", title="Audit")
     return run, artifact
 
 
@@ -881,7 +862,7 @@ async def test_batch_response_lists_artifacts_per_finished_job(_default_mcp_user
 
     finished, pending = data["statuses"]
     assert [a["id"] for a in finished["artifacts"]] == [str(artifact.pk)]
-    assert "artifacts_error" not in finished
+    assert finished["artifacts_error"] is None
     assert pending == {"job_id": pending_id, "status": "RUNNING"}
 
 

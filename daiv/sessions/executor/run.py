@@ -1,6 +1,6 @@
 import json
 import logging
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -73,10 +73,7 @@ async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
 
     async with _agent_run(spec) as run:
         try:
-            with (
-                track_usage_metadata() as usage_handler,
-                bind_active_run(spec.run_id) if spec.run_id else nullcontext(),
-            ):
+            with track_usage_metadata() as usage_handler, bind_active_run(spec.run_id):
                 result = await run.agent.ainvoke(
                     {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
                 )

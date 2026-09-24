@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +9,15 @@ from gitlab.exceptions import GitlabError
 import codebase.tasks as codebase_tasks
 from codebase.base import MergeRequest, MergeRequestCommit, MergeRequestDiffStats, User
 from codebase.exceptions import CloneRefNotFoundError
+
+_CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
+
+
+@pytest.fixture(autouse=True)
+def run_lookup():
+    """The Run a webhook linked to ``_CONTEXT``'s task result, stubbed so these tests need no database."""
+    with patch("sessions.services.aget_task_run_id", AsyncMock(return_value="run-1")) as lookup:
+        yield lookup
 
 
 def _mr(*, merged: bool) -> MergeRequest:
@@ -24,7 +34,7 @@ def _mr(*, merged: bool) -> MergeRequest:
     )
 
 
-async def test_address_mr_comments_skips_when_merged():
+async def test_address_mr_comments_skips_when_merged(run_lookup):
     from codebase.tasks import address_mr_comments_task
 
     client = MagicMock()
@@ -34,9 +44,12 @@ async def test_address_mr_comments_skips_when_merged():
         patch("codebase.tasks.RepoClient.create_instance", return_value=client),
         patch("codebase.managers.review_addressor.CommentsAddressorManager.address_comments") as address,
     ):
-        result = await address_mr_comments_task.func(repo_id="group/repo", merge_request_id=7, mention_comment_id="d1")
+        result = await address_mr_comments_task.func(
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1"
+        )
 
     address.assert_not_called()
+    run_lookup.assert_not_awaited()
     client.create_merge_request_comment.assert_called_once()
     assert "already been merged" in result["response"]
     assert result["code_changes"] is False
@@ -55,14 +68,16 @@ async def test_address_mr_comments_skips_when_branch_gone():
             AsyncMock(side_effect=CloneRefNotFoundError("chore/x", "group/repo")),
         ),
     ):
-        result = await address_mr_comments_task.func(repo_id="group/repo", merge_request_id=7, mention_comment_id="d1")
+        result = await address_mr_comments_task.func(
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1"
+        )
 
     client.create_merge_request_comment.assert_called_once()
     assert "no longer exists" in result["response"]
     assert result["code_changes"] is False
 
 
-async def test_address_mr_comments_hands_the_merge_request_to_the_addressor():
+async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_addressor(run_lookup):
     from codebase.tasks import address_mr_comments_task
 
     client = MagicMock()
@@ -75,6 +90,7 @@ async def test_address_mr_comments_hands_the_merge_request_to_the_addressor():
         patch("codebase.managers.review_addressor.CommentsAddressorManager.address_comments", address),
     ):
         result = await address_mr_comments_task.func(
+            _CONTEXT,
             repo_id="group/repo",
             merge_request_id=7,
             mention_comment_id="d1",
@@ -89,7 +105,9 @@ async def test_address_mr_comments_hands_the_merge_request_to_the_addressor():
         "mention_comment_id": "d1",
         "thread_id": "t-7",
         "sandbox_env_id": "e",
+        "run_id": "run-1",
     }
+    run_lookup.assert_awaited_once_with("tr-1")
 
 
 class TestAddressIssueTaskRef:
@@ -112,6 +130,7 @@ class TestAddressIssueTaskRef:
             patch("codebase.managers.issue_addressor.IssueAddressorManager.address_issue", addressed),
         ):
             await address_issue_task.func(
+                _CONTEXT,
                 repo_id="group/repo",
                 issue_iid=10,
                 mention_comment_id="d1",
@@ -137,7 +156,7 @@ class TestAddressIssueTaskRef:
         addressed = await self._addressed(session_ref="fix/10", ref="release/1.2")
         assert addressed.await_args.kwargs["ref"] == "release/1.2"
 
-    async def test_the_task_hands_the_issue_to_the_addressor(self):
+    async def test_the_task_hands_the_issue_and_its_run_to_the_addressor(self, run_lookup):
         addressed = await self._addressed(session_ref="")
         assert addressed.await_args.kwargs == {
             "repo_id": "group/repo",
@@ -146,7 +165,9 @@ class TestAddressIssueTaskRef:
             "ref": None,
             "thread_id": "t-1",
             "sandbox_env_id": "e",
+            "run_id": "run-1",
         }
+        run_lookup.assert_awaited_once_with("tr-1")
 
 
 async def test_setup_webhooks_cron_task_calls_command():

@@ -15,7 +15,7 @@
         <h1 class="truncate text-2xl font-bold tracking-tight">{{ artifact.title }}</h1>
         <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-gray-500">
             <span>{{ artifact.filename }}</span>
-            <span>&middot; {{ artifact.kind_label }}</span>
+            <span>&middot; {{ artifact.kind.label }}</span>
             <span>&middot; {{ artifact.size|filesizeformat }}</span>
             <span>&middot; {{ artifact.created_at|naturaltime }}</span>
             <span>&middot; <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
@@ -61,7 +61,7 @@
     {# endpoint repeats the same sandbox in its Content-Security-Policy for direct opens. #}
     <iframe src="{{ artifact.get_raw_url }}"
             title="{{ artifact.title }}"
-            sandbox="allow-scripts allow-popups"
+            sandbox="{{ sandbox }}"
             referrerpolicy="no-referrer"
             loading="lazy"
             class="h-[calc(100vh-14rem)] min-h-[32rem] w-full rounded-2xl border border-white/[0.06] bg-white"></iframe>

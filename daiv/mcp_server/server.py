@@ -325,7 +325,7 @@ async def _build_job_response_dict(run: Run) -> dict:
         "result": run.result_summary or None,
         "merge_request_url": run.merge_request_web_url or None,
         "artifacts": [artifact.model_dump() for artifact in artifacts],
-        **({"artifacts_error": artifacts_error} if artifacts_error else {}),
+        "artifacts_error": artifacts_error,
         "error": error,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,

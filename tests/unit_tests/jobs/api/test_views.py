@@ -11,6 +11,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
 from daiv.api import api
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 @pytest.fixture
@@ -536,16 +537,13 @@ async def test_submit_job_with_malformed_reference_is_422(authenticated_client: 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_lists_artifacts(authenticated_client: TestAsyncClient):
     from django.contrib.sites.models import Site
-    from django.core.files.base import ContentFile
 
     from asgiref.sync import sync_to_async
-    from sessions.models import RunArtifact
 
     await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
     user = await User.objects.aget(username="testuser")
     run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Report published")
-    artifact = RunArtifact(run=run, title="Audit", filename="audit.html", content_type="text/html", size=8)
-    await sync_to_async(artifact.file.save)("audit.html", ContentFile(b"<p>x</p>"), save=True)
+    artifact = await sync_to_async(make_artifact)(run, filename="audit.html", content=b"<p>x</p>", title="Audit")
 
     response = await authenticated_client.get(f"/jobs/{run.id}")
 

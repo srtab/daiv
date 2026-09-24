@@ -18,9 +18,7 @@ Server-rendered: the list reflects the page load; a live chat turn shows the pub
                 <a href="{{ artifact.get_absolute_url }}"
                    class="min-w-0 flex-1 truncate text-[14px] font-medium text-white hover:text-violet-200"
                    title="{{ artifact.filename }}">{{ artifact.title }}</a>
-                <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 font-mono text-[12px] text-gray-400">
-                    {{ artifact.kind_label }}
-                </span>
+                <span class="meta-pill">{{ artifact.kind.label }}</span>
                 <span class="font-mono text-[12px] text-gray-500 tabular-nums">{{ artifact.size|filesizeformat }}</span>
                 <a href="{{ artifact.get_download_url }}"
                    class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"

@@ -433,10 +433,11 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
         return f"daiv-{repo_slug}-{date_str}.md"
 
 
-# The same sandbox tokens as the viewer iframe. connect-src 'none' stops fetch/XHR/WebSocket, but https:
-# subresources (scripts, styles, images, fonts, media) still load, so a report can reach third-party hosts.
+ARTIFACT_SANDBOX = "allow-scripts allow-popups"
+# connect-src 'none' stops fetch/XHR/WebSocket, but https: subresources (scripts, styles, images, fonts,
+# media) still load, so a report can reach third-party hosts.
 ARTIFACT_CONTENT_SECURITY_POLICY = (
-    "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' https:; "
+    f"sandbox {ARTIFACT_SANDBOX}; default-src 'none'; script-src 'unsafe-inline' https:; "
     "style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; "
     "media-src data: blob: https:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 )
@@ -498,7 +499,13 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
         if inline_text and not too_large and not unavailable:
             with artifact.file.open("rb") as fh:
                 text = fh.read().decode("utf-8", errors="replace")
-        ctx.update({"kind": artifact.kind, "text": text, "too_large": too_large, "unavailable": unavailable})
+        ctx.update({
+            "kind": artifact.kind,
+            "text": text,
+            "too_large": too_large,
+            "unavailable": unavailable,
+            "sandbox": ARTIFACT_SANDBOX,
+        })
         return ctx
 
 

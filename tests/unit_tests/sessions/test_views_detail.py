@@ -12,6 +12,8 @@ from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from tests.unit_tests.sessions.conftest import make_artifact
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -788,30 +790,11 @@ def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(m
     assert 'ref: "main"' in resp.content.decode()
 
 
-def _create_artifact(run: Run, *, filename: str, content: bytes = b"x", title: str = ""):
-    from django.core.files.base import ContentFile
-
-    from sessions.artifacts import guess_content_type
-    from sessions.models import RunArtifact
-
-    artifact = RunArtifact(
-        run=run,
-        title=title or filename,
-        filename=filename,
-        content_type=guess_content_type(filename),
-        size=len(content),
-    )
-    artifact.file.save(filename, ContentFile(content), save=True)
-    return artifact
-
-
 @pytest.mark.django_db
 def test_detail_lists_the_sessions_artifacts(member_client, member_user):
     session = _create_session(user=member_user)
-    artifact = _create_artifact(
-        _create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit"
-    )
-    _create_artifact(_create_run(_create_session(user=member_user)), filename="other.md")
+    artifact = make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
+    make_artifact(_create_run(_create_session(user=member_user)), filename="other.md")
 
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))

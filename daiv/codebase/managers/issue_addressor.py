@@ -53,6 +53,7 @@ class IssueAddressorManager(BaseManager):
         ref: str | None = None,
         thread_id: str | None = None,
         sandbox_env_id: str | None = None,
+        run_id: str | None = None,
     ) -> AgentResult | None:
         """
         Address the issue.
@@ -64,6 +65,7 @@ class IssueAddressorManager(BaseManager):
             ref: The branch to clone; ``None`` for the repository default.
             thread_id: The session's thread id; ``None`` computes the deterministic one.
             sandbox_env_id: The sandbox environment the callback selected.
+            run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
@@ -71,14 +73,14 @@ class IssueAddressorManager(BaseManager):
         manager = cls(repo_id=repo_id, issue=issue, mention_comment_id=mention_comment_id, thread_id=thread_id)
 
         try:
-            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id)
+            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id)
         except AgentConfigurationError:
             return None
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
 
-    async def _address_issue(self, *, ref: str | None, sandbox_env_id: str | None) -> AgentResult:
+    async def _address_issue(self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None) -> AgentResult:
         message, triggered_by = self._input_message()
         outcome = await execute_run(
             RunSpec(
@@ -93,6 +95,7 @@ class IssueAddressorManager(BaseManager):
                 fallback_ref_on_missing=True,
                 use_max=self.issue.has_max_label(),
                 sandbox_env_id=sandbox_env_id,
+                run_id=run_id,
                 persist_ref=True,
                 arm_watch=True,
                 recover_draft=True,

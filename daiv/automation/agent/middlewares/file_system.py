@@ -17,6 +17,9 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBackend
 from deepagents.backends.protocol import (
     FILE_NOT_FOUND,
+    INVALID_PATH,
+    IS_DIRECTORY,
+    PERMISSION_DENIED,
     BackendProtocol,
     EditResult,
     FileData,
@@ -47,6 +50,7 @@ from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRIT
 from langchain_core.messages import ToolMessage
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
+from core.constants import SANDBOX_DOWNLOAD_MAX_BYTES
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
     EgressConfigRequest,
@@ -646,10 +650,6 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, stripped = self._get_backend_and_key(virtual_path)
         return await cast("DAIVBackendProtocol", backend).stat_mode(stripped)
 
-    def route(self, virtual_path: str) -> tuple[BackendProtocol, str]:
-        """The backend that owns ``virtual_path`` and the key that backend knows it by."""
-        return self._get_backend_and_key(virtual_path)
-
     def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
         """Return the underlying backend that owns ``virtual_path``.
 
@@ -765,9 +765,8 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
 
 
 DOWNLOAD_TOO_LARGE = "file_too_large"
-_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 _DOWNLOAD_MARKER = "__DAIV_DOWNLOAD__"
-_DOWNLOAD_EXIT_ERRORS = {3: "is_directory", 4: FILE_NOT_FOUND, 5: "permission_denied", 6: DOWNLOAD_TOO_LARGE}
+_DOWNLOAD_EXIT_ERRORS = {3: IS_DIRECTORY, 4: FILE_NOT_FOUND, 5: PERMISSION_DENIED, 6: DOWNLOAD_TOO_LARGE}
 _SANDBOX_TIMEOUT_EXIT = 124
 
 
@@ -811,7 +810,8 @@ def _download_response(path: str, result: RunCommandResult | None) -> FileDownlo
     return FileDownloadResponse(path=path, error=error)
 
 
-def _is_workspace_path(path: str) -> bool:
+def is_workspace_path(path: str) -> bool:
+    """Whether ``path`` is absolute, free of ``..`` segments and strictly inside ``/workspace``."""
     pure = PurePosixPath(path)
     return ".." not in pure.parts and PurePosixPath(WORKSPACE_PATH) in pure.parents
 
@@ -1154,13 +1154,13 @@ class SandboxFileBackend(BackendProtocol):
         return out
 
     async def adownload_files(
-        self, paths: list[str], *, max_bytes: int = _DOWNLOAD_MAX_BYTES
+        self, paths: list[str], *, max_bytes: int = SANDBOX_DOWNLOAD_MAX_BYTES
     ) -> list[FileDownloadResponse]:
         # Not ``fs_read``: it pages text through a 2000-line / 512 KB window and rewrites line endings.
         # ``run_commands`` output is never truncated, and base64 carries the bytes through it unchanged.
         targets = {i: self._abs(path) for i, path in enumerate(paths)}
         commands = {
-            i: _download_command(target, max_bytes) for i, target in targets.items() if _is_workspace_path(target)
+            i: _download_command(target, max_bytes) for i, target in targets.items() if is_workspace_path(target)
         }
         results: dict[int, RunCommandResult] = {}
         if commands:
@@ -1169,7 +1169,7 @@ class SandboxFileBackend(BackendProtocol):
         return [
             _download_response(path, results.get(i))
             if i in commands
-            else FileDownloadResponse(path=path, error="invalid_path")
+            else FileDownloadResponse(path=path, error=INVALID_PATH)
             for i, path in enumerate(paths)
         ]
 

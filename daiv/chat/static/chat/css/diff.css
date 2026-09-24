@@ -193,13 +193,15 @@
   line-height: 1.5;
 }
 
-.chat-search__item {
+.chat-search__item,
+.chat-artifact {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.chat-search__item .chat-tool__link {
+.chat-search__item .chat-tool__link,
+.chat-artifact > .chat-tool__link:first-child {
   font-weight: 500;
   color: #c4b5fd;
 }
@@ -209,7 +211,8 @@
   color: #fbbf24;
 }
 
-.chat-search__host {
+.chat-search__host,
+.chat-artifact__meta {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px;
   color: #64748b;
@@ -220,20 +223,6 @@
 }
 
 .chat-artifact {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   font-size: 13px;
   line-height: 1.5;
-}
-
-.chat-artifact > .chat-tool__link:first-child {
-  font-weight: 500;
-  color: #c4b5fd;
-}
-
-.chat-artifact__meta {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  color: #64748b;
 }

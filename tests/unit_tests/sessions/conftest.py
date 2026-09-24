@@ -1,14 +1,31 @@
 import uuid
 
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.artifacts import guess_content_type
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, WatchState
 
 from accounts.models import User
 from codebase.base import Job, Pipeline
 from core.site_settings import site_settings
+
+
+def make_artifact(
+    run: Run, *, filename: str = "report.md", content: bytes = b"# Report", title: str = ""
+) -> RunArtifact:
+    """A ``RunArtifact`` whose bytes are in the default storage, shaped as ``astore_artifact`` stores it. SYNC ONLY."""
+    artifact = RunArtifact(
+        run=run,
+        title=title or filename,
+        filename=filename,
+        content_type=guess_content_type(filename),
+        size=len(content),
+    )
+    artifact.file.save(filename, ContentFile(content), save=True)
+    return artifact
 
 
 @pytest.fixture

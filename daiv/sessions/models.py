@@ -631,7 +631,3 @@ class RunArtifact(models.Model):
     @property
     def kind(self) -> ArtifactKind:
         return artifact_kind(self.content_type)
-
-    @property
-    def kind_label(self) -> str:
-        return str(self.kind.label)

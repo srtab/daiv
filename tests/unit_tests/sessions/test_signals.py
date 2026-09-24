@@ -8,6 +8,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import run_finished
 
 from accounts.models import User
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -541,16 +542,6 @@ def test_classify_origins_excludes_chat_and_pipeline_webhook():
     }
 
 
-def _stored_artifact(run):
-    from django.core.files.base import ContentFile
-
-    from sessions.models import RunArtifact
-
-    artifact = RunArtifact(run=run, title="r", filename="r.md", content_type="text/markdown", size=3)
-    artifact.file.save("r.md", ContentFile(b"# r"), save=True)
-    return artifact
-
-
 @pytest.mark.django_db
 def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_capture_on_commit_callbacks):
     from django.core.files.storage import default_storage
@@ -558,7 +549,7 @@ def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_ca
     from sessions.models import RunArtifact
 
     run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
-    artifact = _stored_artifact(run)
+    artifact = make_artifact(run)
     name = artifact.file.name
 
     with django_capture_on_commit_callbacks() as callbacks:
@@ -575,7 +566,7 @@ def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_ca
 def test_artifact_file_delete_failure_is_logged(django_capture_on_commit_callbacks, caplog):
     from sessions.models import RunArtifact
 
-    artifact = _stored_artifact(_create_run(session=_make_session(), status=RunStatus.SUCCESSFUL))
+    artifact = make_artifact(_create_run(session=_make_session(), status=RunStatus.SUCCESSFUL))
 
     with (
         patch.object(artifact.file.storage, "delete", side_effect=OSError("disk gone")),
@@ -585,15 +576,3 @@ def test_artifact_file_delete_failure_is_logged(django_capture_on_commit_callbac
 
     assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
     assert "Failed to delete artifact file" in caplog.text
-
-
-@pytest.mark.django_db
-def test_task_signals_bind_and_clear_the_active_task_result():
-    from sessions import artifacts
-
-    task_result = MagicMock(id="3b1f6c1e-0000-4000-8000-000000000001")
-
-    task_started.send(sender=object, task_result=task_result)
-    assert artifacts._active_task_result_id.get() == task_result.id
-    task_finished.send(sender=object, task_result=task_result)
-    assert artifacts._active_task_result_id.get() is None

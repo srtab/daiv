@@ -309,13 +309,12 @@ def test_artifact_upload_to_is_unique_per_row_and_keeps_extension():
     assert artifact_upload_to(artifact, "noext") == f"artifacts/{run.pk}/{artifact.pk}"
 
 
-def test_artifact_kind_and_label_follow_content_type():
+def test_artifact_kind_follows_content_type():
     from sessions.artifacts import ArtifactKind
 
     run = _mk_run(_mk_session())
     assert _mk_artifact(run, content_type="text/html").kind == ArtifactKind.HTML
-    assert _mk_artifact(run, content_type="text/html").kind_label == "HTML"
-    assert _mk_artifact(run, content_type="application/pdf").kind_label == "File"
+    assert _mk_artifact(run, content_type="application/pdf").kind == ArtifactKind.OTHER
 
 
 def test_artifact_urls_are_scoped_to_the_session():

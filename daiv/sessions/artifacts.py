@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Iterator
 
+    from django.core.files.storage import Storage
+
     from sessions.models import Run, RunArtifact
 
 logger = logging.getLogger("daiv.sessions")
@@ -96,7 +98,6 @@ _IMAGE_CONTENT_TYPES = frozenset({"image/svg+xml", "image/png", "image/jpeg", "i
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
 _active_run_id: ContextVar[str | None] = ContextVar("sessions_active_run_id", default=None)
-_active_task_result_id: ContextVar[str | None] = ContextVar("sessions_active_task_result_id", default=None)
 
 
 def guess_content_type(filename: str) -> str:
@@ -121,8 +122,11 @@ def artifact_kind(content_type: str) -> ArtifactKind:
 
 
 @contextmanager
-def bind_active_run(run_id: str | uuid.UUID) -> Iterator[None]:
-    """Name the ``Run`` the code inside executes, for :func:`aresolve_active_run`."""
+def bind_active_run(run_id: str | uuid.UUID | None) -> Iterator[None]:
+    """Name the ``Run`` the code inside executes, for :func:`aresolve_active_run`; ``None`` binds nothing."""
+    if not run_id:
+        yield
+        return
     token = _active_run_id.set(str(run_id))
     try:
         yield
@@ -130,32 +134,19 @@ def bind_active_run(run_id: str | uuid.UUID) -> Iterator[None]:
         _active_run_id.reset(token)
 
 
-def bind_active_task_result(task_result_id: str | uuid.UUID | None) -> None:
-    """Record the task the worker thread is executing; ``None`` clears it once the task finishes."""
-    _active_task_result_id.set(str(task_result_id) if task_result_id else None)
-
-
 async def aresolve_active_run(thread_id: str) -> Run | None:
-    """The run executing on ``thread_id`` right now.
+    """The run executing on ``thread_id`` right now: the one its entry point bound, if it is on that thread.
 
-    Chat turns and jobs bind their run id, and a webhook run is found through the task the worker is
-    executing. Anything unbound falls back to the thread's newest RUNNING row, else its newest READY one.
+    Unbound code gets ``None`` rather than a guess, since a RUNNING row on the thread may be a run
+    still waiting on the session lock.
     """
-    from sessions.models import Run, RunStatus
+    from sessions.models import Run
 
-    runs = Run.objects.filter(session_id=thread_id)
-    if run_id := _active_run_id.get():
-        if (run := await runs.filter(pk=run_id).afirst()) is None:
-            logger.error("Bound run %s is not on thread %s", run_id, thread_id)
-        return run
-    if (task_result_id := _active_task_result_id.get()) and (
-        run := await runs.filter(task_result_id=task_result_id).afirst()
-    ):
-        return run
-    for status in (RunStatus.RUNNING, RunStatus.READY):
-        if run := await runs.filter(status=status).order_by("-created_at").afirst():
-            return run
-    return None
+    if not (run_id := _active_run_id.get()):
+        return None
+    if (run := await Run.objects.filter(session_id=thread_id, pk=run_id).afirst()) is None:
+        logger.error("Bound run %s is not on thread %s", run_id, thread_id)
+    return run
 
 
 async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str = "") -> RunArtifact:
@@ -182,8 +173,8 @@ def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> Run
         content_type=guess_content_type(safe_name),
         size=len(content),
     )
-    writing = False
     try:
+        artifact.file.save(safe_name, ContentFile(content), save=False)
         with transaction.atomic():
             # Parallel tool calls in one model turn publish concurrently; the lock serialises the budget check.
             Run.objects.select_for_update().only("pk").get(pk=run.pk)
@@ -191,22 +182,19 @@ def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> Run
                 raise ArtifactError(
                     f"This run already published {settings.ARTIFACTS_PER_RUN_MAX} artifacts, the maximum."
                 )
-            writing = True
-            artifact.file.save(safe_name, ContentFile(content), save=False)
             artifact.save()
     except BaseException:
-        if writing:
-            _discard_file(artifact, safe_name)
+        name = artifact.file.name or artifact.file.field.generate_filename(artifact, safe_name)
+        delete_stored_file(artifact.file.storage, name)
         raise
     return artifact
 
 
-def _discard_file(artifact: RunArtifact, safe_name: str) -> None:
-    name = artifact.file.name or artifact.file.field.generate_filename(artifact, safe_name)
+def delete_stored_file(storage: Storage, name: str) -> None:
     try:
-        artifact.file.storage.delete(name)
+        storage.delete(name)
     except Exception:
-        logger.exception("Failed to discard artifact file %s", name)
+        logger.exception("Failed to delete artifact file %s", name)
 
 
 def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:

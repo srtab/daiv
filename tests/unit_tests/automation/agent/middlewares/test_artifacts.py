@@ -71,11 +71,17 @@ def _session_with_running_run_sync() -> tuple[Session, Run]:
 _session_with_running_run = sync_to_async(_session_with_running_run_sync)
 
 
-def _tool(backend) -> callable:
-    middleware = ArtifactsMiddleware(backend=backend)
+def _tool(backend, sandbox_backend=None, *, run: Run | None = None) -> callable:
+    """The tool's coroutine, called as the entry point executing ``run`` would call it."""
+    middleware = ArtifactsMiddleware(backend=backend, sandbox_backend=sandbox_backend)
     (tool,) = middleware.tools
     assert tool.name == PUBLISH_ARTIFACT_TOOL_NAME
-    return tool.coroutine
+
+    async def _call(**kwargs) -> str:
+        with bind_active_run(run.pk if run is not None else None):
+            return await tool.coroutine(**kwargs)
+
+    return _call
 
 
 def test_tool_call_schema_hides_runtime_and_makes_title_optional():
@@ -109,7 +115,7 @@ async def test_publish_stores_artifact_and_returns_urls():
     session, run = await _session_with_running_run()
     backend = _FakeBackend({"/workspace/tmp/audit.html": b"<h1>Audit</h1>"})
 
-    result = await _tool(backend)(
+    result = await _tool(backend, run=run)(
         path=" /workspace/tmp/audit.html ", runtime=_runtime(session.thread_id), title="Audit"
     )
 
@@ -126,10 +132,10 @@ async def test_publish_stores_artifact_and_returns_urls():
 
 
 async def test_publish_rejects_path_outside_workspace_without_touching_backend():
-    session, _run = await _session_with_running_run()
+    session, run = await _session_with_running_run()
     backend = _FakeBackend({"/etc/passwd": b"root"})
 
-    result = await _tool(backend)(path="/etc/passwd", runtime=_runtime(session.thread_id))
+    result = await _tool(backend, run=run)(path="/etc/passwd", runtime=_runtime(session.thread_id))
 
     assert result.startswith("Error publishing artifact:")
     assert "outside /workspace" in result
@@ -163,7 +169,7 @@ async def test_publish_attaches_to_the_bound_run_not_a_newer_waiting_one():
 async def test_publish_missing_file_tells_agent_to_write_it_first():
     session, run = await _session_with_running_run()
 
-    result = await _tool(_FakeBackend())(path="/workspace/tmp/missing.md", runtime=_runtime(session.thread_id))
+    result = await _tool(_FakeBackend(), run=run)(path="/workspace/tmp/missing.md", runtime=_runtime(session.thread_id))
 
     assert "does not exist" in result
     assert not await RunArtifact.objects.filter(run=run).aexists()
@@ -179,19 +185,21 @@ async def test_publish_missing_file_tells_agent_to_write_it_first():
     ],
 )
 async def test_publish_download_errors_carry_actionable_hints(error, hint):
-    session, _run = await _session_with_running_run()
+    session, run = await _session_with_running_run()
 
-    result = await _tool(_FakeBackend(error=error))(path="/workspace/tmp/reports", runtime=_runtime(session.thread_id))
+    result = await _tool(_FakeBackend(error=error), run=run)(
+        path="/workspace/tmp/reports", runtime=_runtime(session.thread_id)
+    )
 
     assert hint in result
 
 
 async def test_publish_transport_failure_is_a_soft_error():
-    session, _run = await _session_with_running_run()
+    session, run = await _session_with_running_run()
     backend = Mock()
     backend.adownload_files = AsyncMock(side_effect=httpx.ConnectError("boom"))
 
-    result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+    result = await _tool(backend, run=run)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
 
     assert result.startswith("Error publishing artifact '/workspace/tmp/r.md'")
     assert "retry" in result
@@ -208,7 +216,7 @@ async def test_publish_unexpected_failure_is_logged_and_returned_not_raised(capl
         patcher = patch("automation.agent.middlewares.artifacts.astore_artifact", side_effect=OSError("disk full"))
 
     with patcher:
-        result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+        result = await _tool(backend, run=run)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
 
     assert result.startswith("Error publishing artifact '/workspace/tmp/r.md': DAIV could not store the file")
     assert "unexpected failure publishing" in caplog.text
@@ -220,7 +228,7 @@ async def test_publish_returns_a_flagged_relative_url_when_absolute_urls_fail(ca
     backend = _FakeBackend({"/workspace/tmp/r.md": b"# r"})
 
     with patch("automation.agent.middlewares.artifacts.serialize_artifact", side_effect=RuntimeError("no site")):
-        result = await _tool(backend)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
+        result = await _tool(backend, run=run)(path="/workspace/tmp/r.md", runtime=_runtime(session.thread_id))
 
     payload = json.loads(result)
     artifact = await RunArtifact.objects.aget(run=run)
@@ -234,7 +242,7 @@ async def test_publish_empty_file_is_rejected_by_store():
     session, run = await _session_with_running_run()
     backend = _FakeBackend({"/workspace/tmp/empty.md": b""})
 
-    result = await _tool(backend)(path="/workspace/tmp/empty.md", runtime=_runtime(session.thread_id))
+    result = await _tool(backend, run=run)(path="/workspace/tmp/empty.md", runtime=_runtime(session.thread_id))
 
     assert "is empty" in result
     assert not await RunArtifact.objects.filter(run=run).aexists()
@@ -266,7 +274,7 @@ async def test_publish_through_the_sandbox_refuses_oversized_files_before_transf
     sandbox.bind_session("sid")
     backend = DAIVCompositeBackend(default=sandbox, routes={}, artifacts_root="/workspace")
 
-    result = await _tool(backend)(path="/workspace/tmp/huge.log", runtime=_runtime(session.thread_id))
+    result = await _tool(backend, sandbox, run=run)(path="/workspace/tmp/huge.log", runtime=_runtime(session.thread_id))
 
     (command,) = client.run_commands.call_args.args[1].commands
     assert "-gt 1234 ]" in command
