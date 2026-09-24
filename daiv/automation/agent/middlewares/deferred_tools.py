@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
+from automation.agent.deferred.coercion import decode_stringified_args
 from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.prompt import build_deferred_tools_block
@@ -15,8 +16,9 @@ from automation.agent.deferred.state import DeferredToolsState
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
-    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain.agents.middleware.types import ModelRequest, ModelResponse, ToolCallRequest
     from langchain_core.tools import BaseTool
+    from langgraph.types import Command
 
 logger = logging.getLogger("daiv.tools")
 
@@ -154,6 +156,30 @@ class DeferredToolsMiddleware(AgentMiddleware):
         response = await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
         self._inject_corrective_messages(response, loaded_names)
         return response
+
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+    ) -> ToolMessage | Command:
+        """Decode stringified args on deferred-tool calls before they execute.
+
+        Frozen-array models call deferred tools that aren't in the API ``tools`` array, so the provider
+        can't type their arguments and may send them as strings, which strict MCP servers reject. Runs
+        for every model; non-string values and calls to always-loaded tools pass through unchanged, and
+        any decoding failure passes the original args through.
+        """
+        name = request.tool_call["name"]
+        args = request.tool_call["args"]
+        entry = self._get_index().get(name)
+        decoded: dict[str, Any] = {}
+        if entry is not None and entry.openai_schema is not None:
+            try:
+                decoded = decode_stringified_args(args, entry.openai_schema["function"]["parameters"])
+            except Exception:
+                logger.exception("deferred-tools: arg decoding failed for %s; args passed through as-is", name)
+        if decoded:
+            logger.debug("deferred-tools: decoded stringified args %s for %s", sorted(decoded), name)
+            request = request.override(tool_call={**request.tool_call, "args": {**args, **decoded}})
+        return await handler(request)
 
     def _inject_corrective_messages(self, response: ModelResponse, loaded_names: set[str]) -> None:
         # Without this, the tool node emits a generic "unknown tool" error and the model often retries blindly.
