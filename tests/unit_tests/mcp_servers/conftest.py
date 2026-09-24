@@ -64,3 +64,18 @@ def _no_network_tool_sync(monkeypatch):
     from mcp_servers import services
 
     monkeypatch.setattr(services, "sync_discovered_tools", lambda server: {"ok": True, "count": 0})
+
+
+@pytest.fixture(autouse=True)
+def _no_dns_resolution(monkeypatch):
+    """Stub the SSRF validator's DNS resolver so form/view tests never make a real
+    DNS lookup. ``is_internal_network_target`` still resolves IP literals and the
+    ``localhost`` name directly (no DNS), so those cases stay deterministic; any other
+    hostname returns no addresses → treated as "not confirmed internal" (reachability
+    still fails loudly at connection time, per ``validate_http_url``).
+
+    A test that asserts the hostname-resolves-to-private path monkeypatches
+    ``mcp_servers.validators._resolve_host_ips`` itself — that per-test patch wins."""
+    from mcp_servers import validators
+
+    monkeypatch.setattr(validators, "_resolve_host_ips", lambda host: [])
