@@ -1,0 +1,35 @@
+{% load i18n icon_tags %}
+{% comment %}
+Files the agent published from this session's runs (``RunArtifact``). Server-rendered: the list
+reflects the page load, while a live chat turn shows the publish in its tool-call card.
+{% endcomment %}
+<section class="mt-4 overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+         aria-labelledby="session-artifacts-heading">
+    <div class="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+        {% icon "clipboard-document" "h-4 w-4 shrink-0 text-gray-400" %}
+        <h2 id="session-artifacts-heading"
+            class="font-mono text-[12px] font-semibold tracking-[0.14em] text-gray-400 uppercase">
+            {% translate "Artifacts" %}
+        </h2>
+        <span class="font-mono text-[12px] text-gray-500 tabular-nums">{{ artifacts|length }}</span>
+    </div>
+    <ul class="divide-y divide-white/[0.06]">
+        {% for artifact in artifacts %}
+            <li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+                <a href="{{ artifact.get_absolute_url }}"
+                   class="min-w-0 flex-1 truncate text-[14px] font-medium text-white hover:text-violet-200"
+                   title="{{ artifact.filename }}">{{ artifact.title }}</a>
+                <span class="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-0.5 font-mono text-[12px] text-gray-400">
+                    {{ artifact.kind_label }}
+                </span>
+                <span class="font-mono text-[12px] text-gray-500 tabular-nums">{{ artifact.size|filesizeformat }}</span>
+                <a href="{{ artifact.get_download_url }}"
+                   class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+                   title="{% translate 'Download' %}">
+                    {% icon "arrow-down-tray" "h-4 w-4" %}
+                    <span class="sr-only">{% translate "Download" %}</span>
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+</section>

@@ -37,7 +37,7 @@ make makemessages && make compilemessages
 
 ## Repo map (only what's non-obvious)
 
-- `daiv/automation/` — LangGraph/deepagents agent: tools (`agent/tools/`), skills (`agent/skills/`), deferred tools (`agent/deferred/`), middleware (`agent/middlewares/`)
+- `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`)
 - `daiv/codebase/` — GitLab/GitHub clients (`clients/`), webhooks, `.daiv.yml` repo config
 - `daiv/mcp_server/` + `daiv/jobs/` — MCP sub-app (`submit_job`/`get_job_status`) + `run_job_task` (MCP + webhooks)
 - `daiv/core/` — sandbox client, Redis, shared constants
@@ -60,13 +60,14 @@ make makemessages && make compilemessages
 - **Django** — test settings module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is auto-set in tests.
 - **Views by content type** — HTML = CBVs in `daiv/<app>/views.py`; JSON = a django-ninja `Router` in `daiv/<app>/api/views.py` (or `api/router.py`), registered in `daiv/daiv/api.py`. Filtered lists use `django_filters.FilterSet` + `FilterView(strict=False)`, not hand-rolled `request.GET`/`Paginator`.
 - **Dependency upgrade blockers** (re-verify first): **redis 8.x is now UNBLOCKED** — as of `redisvl 0.27.1` (transitive, via `langgraph-checkpoint-redis==0.5.2`, which caps `redis>=5.2.1`/`redisvl<1.0.0`) the redis cap is `redis<9.0,>=6.3.0,!=8.0.0`, so `redis 8.1.0` resolves; `uv lock --upgrade` bumps `redisvl 0.26.0 -> 0.27.1` automatically. The code is already forward-compatible: `daiv/core/redis.py` explicitly passes `socket_timeout=None` on the async client and documents the redis-py 8.0 default change, and no `setex`/`can_read_destructive`/`protocol=` usage exists (RESP3 default preserves legacy shapes). Safe to bump the direct `redis` pin. **mcp 2.x still BLOCKED** by `langchain-mcp-adapters==0.3.2` (latest; pins `mcp<2.0.0` and imports removed `mcp.server.fastmcp.tools`/`utilities` + `mcp.shared.session`, and exposes `MultiServerMCPClient` used by `automation/agent/mcp/toolkits.py` + `mcp_servers/services.py`). mcp 2.x also renames `mcp.server.fastmcp.FastMCP -> mcp.server.mcpserver.MCPServer` (used in `mcp_server/server.py`); `mcp.server.auth.settings.AuthSettings` and `mcp.server.transport_security.TransportSecuritySettings` import paths are **unchanged**. Also: **django-tasks-db must stay at 0.12.0** — 0.13.0 removed its `django-tasks` dependency entirely (it now uses Django 6.1's built-in `django.tasks`), but the repo registers tasks via the third-party `django_tasks` package (`from django_tasks import task`, ~9 files) and `from django.tasks.backends.immediate import ImmediateBackend` (`core/backends/immediate.py`), so `DBTaskResult.task`'s `isinstance(task, Task)` would raise `SuspiciousOperation`; 0.13.0 is only safe after migrating the repo to `django.tasks` built-ins and dropping the `django-tasks` direct dep. Deps are `==`-pinned, so `uv lock --upgrade --dry-run` shows only transitive updates — check the PyPI JSON API per direct dep.
+- **Run artifacts** — `sessions.RunArtifact` bytes live in the default file storage (`MEDIA_ROOT`, shared web/worker volume); `content_type` comes from the extension (`sessions/artifacts.py`), never sniffed, and the raw endpoint always sends the `sandbox` CSP — keep both when adding viewer kinds. The tool finds its run via `aresolve_active_run(thread_id)` (RUNNING/READY row), not the session lock holder id, which differs per origin.
 - **Detailed behaviour lives in module docstrings**, not here — e.g. `automation/agent/chat_models.py`, `core/ui_events.py`, `chat/api/relay.py`, `sessions/pipeline_watch/`. Read the relevant docstring before changing that area.
 
 ## Where changes usually go
 
 | Change type | Start here |
 |---|---|
-| New agent tool | `daiv/automation/agent/tools/` |
+| New agent tool | a middleware in `daiv/automation/agent/middlewares/` exposing `self.tools` (see `web_fetch.py`, `artifacts.py`); registered in `graph.py` — deferred unless added to `ALWAYS_LOADED_TOOLS` |
 | New built-in skill | `daiv/automation/agent/skills/<name>/` (`SKILL.md` + optional `scripts/`, `examples/`) |
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | MCP tool | `daiv/mcp_server/server.py` |

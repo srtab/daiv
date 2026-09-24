@@ -6,7 +6,7 @@ from django.db import models
 
 if TYPE_CHECKING:
     from accounts.models import User
-    from sessions.models import Run, RunEnvelope, Session
+    from sessions.models import Run, RunArtifact, RunEnvelope, Session
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -132,3 +132,13 @@ class RunEnvelopeManager(models.Manager["RunEnvelope"]):
         ``None``.
         """
         return self.filter(run=run).first()
+
+
+class RunArtifactManager(models.Manager["RunArtifact"]):
+    def visible_to(self, user: User) -> models.QuerySet[RunArtifact]:
+        """Artifacts of the runs the user may view. SYNC ONLY, like :meth:`RunManager.visible_to`."""
+        from sessions.models import Run
+
+        if user.is_admin:
+            return self.all()
+        return self.filter(run__in=Run.objects.visible_to(user))

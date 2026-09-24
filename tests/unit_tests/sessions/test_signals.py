@@ -539,3 +539,43 @@ def test_classify_origins_excludes_chat_and_pipeline_webhook():
         SessionOrigin.CHAT,
         SessionOrigin.PIPELINE_WEBHOOK,
     }
+
+
+# ---------------------------------------------------------------------------
+# RunArtifact file cleanup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_deleting_run_removes_artifact_rows_and_stored_files():
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from sessions.models import RunArtifact
+
+    run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
+    artifact = RunArtifact(run=run, title="r", filename="r.md", content_type="text/markdown", size=3)
+    artifact.file.save("r.md", ContentFile(b"# r"), save=True)
+    name = artifact.file.name
+    assert default_storage.exists(name)
+
+    run.delete()
+
+    assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
+    assert not default_storage.exists(name)
+
+
+@pytest.mark.django_db
+def test_artifact_delete_survives_storage_failure():
+    from django.core.files.base import ContentFile
+
+    from sessions.models import RunArtifact
+
+    run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
+    artifact = RunArtifact(run=run, title="r", filename="r.md", content_type="text/markdown", size=3)
+    artifact.file.save("r.md", ContentFile(b"# r"), save=True)
+
+    with patch("django.db.models.fields.files.FieldFile.delete", side_effect=OSError("disk gone")):
+        artifact.delete()
+
+    assert not RunArtifact.objects.filter(pk=artifact.pk).exists()

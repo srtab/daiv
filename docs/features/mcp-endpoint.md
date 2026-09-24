@@ -77,7 +77,7 @@ url = "https://daiv.example.com/mcp/"
 | Tool | Description |
 |------|-------------|
 | `submit_job` | Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a `batch_id` and a `jobs` list, or set `wait=True` to block until every job in the batch completes (up to 10 minutes total). |
-| `get_job_status` | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion. |
+| `get_job_status` | Get the status and result of a previously submitted job, plus the `artifacts` it published (reports and other files, with viewer and download URLs — see [Artifacts](sessions.md#artifacts)). Also supports `wait=True` to block until completion. |
 | `list_repositories` | Discover repositories accessible to DAIV, optionally filtered by `search` (partial name match) or `topics`. Served from DAIV's local repository catalog — a periodically synced mirror — not a live platform call. Supports `limit` (default 20, max 50) and `cursor`, ordered by slug — a `search` matching more repositories than `limit` is still fully reachable by paging. |
 | `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones), ordered by scope then name. Supports `limit` (default 20, max 50) and `cursor`; use a returned `name` or `id` as `submit_job`'s `environment` argument. |
 | `get_environment` | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes. |

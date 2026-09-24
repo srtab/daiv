@@ -54,12 +54,25 @@ class JobSubmitResponse(Schema):
     failed: list[JobSubmitFailureItem]
 
 
+class JobArtifactItem(Schema):
+    id: str
+    title: str
+    filename: str
+    content_type: str
+    size: int
+    url: str
+    download_url: str
+
+
 class JobStatusResponse(Schema):
     job_id: str
     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "FAILED"]
     thread_id: str | None = None
     result: str | None = None
     merge_request_url: str | None = None
+    artifacts: list[JobArtifactItem] = Field(
+        default_factory=list, description="Files the agent published from this run, with viewer and download URLs."
+    )
     error: str | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None

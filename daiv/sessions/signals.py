@@ -5,7 +5,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import Signal, receiver
 
 from asgiref.sync import async_to_sync
@@ -303,3 +303,14 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
         classify_run_task.enqueue(str(run.pk))
     except Exception:
         logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)
+
+
+@receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")
+def delete_artifact_file(sender: type, instance: Any, **kwargs: Any) -> None:
+    """Remove the stored bytes when an artifact row goes (Django never deletes FileField content itself)."""
+    if not instance.file:
+        return
+    try:
+        instance.file.delete(save=False)
+    except Exception:
+        logger.exception("Failed to delete artifact file %s", instance.file.name)

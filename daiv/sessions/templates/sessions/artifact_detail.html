@@ -1,0 +1,74 @@
+{% extends "base_app.html" %}
+{% load humanize i18n icon_tags markdown_tags %}
+
+{% block title %}{{ artifact.title }} — {% translate "Artifacts" %} — DAIV{% endblock %}
+
+{% block container_width %}{% if kind == "html" %}max-w-screen-2xl{% else %}max-w-4xl{% endif %}{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="truncate text-2xl font-bold tracking-tight">{{ artifact.title }}</h1>
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-gray-500">
+            <span>{{ artifact.filename }}</span>
+            <span>&middot; {{ artifact.kind_label }}</span>
+            <span>&middot; {{ artifact.size|filesizeformat }}</span>
+            <span>&middot; {{ artifact.created_at|naturaltime }}</span>
+            <span>&middot; <a href="{% url 'session_detail' thread_id=session.thread_id %}#run-{{ artifact.run_id }}"
+                             class="text-violet-300 hover:text-violet-200">{% translate "View run" %}</a></span>
+        </div>
+    </div>
+    <div class="page-header__actions flex items-center gap-2">
+        {% if kind != "other" %}
+        <a href="{{ raw_url }}" target="_blank" rel="noopener noreferrer"
+           class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "link" "h-4 w-4 shrink-0" %}
+            {% translate "Open raw" %}
+        </a>
+        {% endif %}
+        <a href="{{ download_url }}"
+           class="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
+            {% translate "Download" %}
+        </a>
+    </div>
+</div>
+
+<section class="animate-fade-up mt-6" style="animation-delay: 100ms">
+    {% if kind == "markdown" %}
+    <div class="prose-dark rounded-2xl border border-white/[0.06] bg-black/30 p-6">
+        {{ text|render_markdown }}
+    </div>
+    {% elif kind == "html" %}
+    {# The frame gets no ``allow-same-origin``: the report runs in an opaque origin and the raw #}
+    {# endpoint repeats the same sandbox in its Content-Security-Policy for direct opens. #}
+    <iframe src="{{ raw_url }}"
+            title="{{ artifact.title }}"
+            sandbox="allow-scripts allow-popups"
+            referrerpolicy="no-referrer"
+            loading="lazy"
+            class="h-[calc(100vh-14rem)] min-h-[32rem] w-full rounded-2xl border border-white/[0.06] bg-white"></iframe>
+    {% elif kind == "image" %}
+    <div class="flex justify-center rounded-2xl border border-white/[0.06] bg-black/30 p-6">
+        <img src="{{ raw_url }}" alt="{{ artifact.title }}" class="max-w-full rounded-xl">
+    </div>
+    {% elif kind == "text" %}
+    <pre class="overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/30 p-6 font-mono text-[13px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ text }}</pre>
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            {% icon "arrow-down-tray" "h-6 w-6 text-gray-400" %}
+        </div>
+        <p class="text-[15px] text-gray-300">{% translate "This file type is not previewed in the browser." %}</p>
+        <p class="mt-1.5 font-mono text-[13px] text-gray-500">{{ artifact.content_type }}</p>
+        <a href="{{ download_url }}" class="btn-primary mt-5 inline-flex items-center gap-2">
+            {% icon "arrow-down-tray" "h-4 w-4" %}{% translate "Download" %}
+        </a>
+    </div>
+    {% endif %}
+</section>
+{% endblock app_content %}

@@ -531,3 +531,44 @@ async def test_submit_job_with_malformed_reference_is_422(authenticated_client: 
     body = _single_repo_body(references=[{"key": "bad key"}])
     response = await authenticated_client.post("/jobs", json=body)
     assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_lists_artifacts(authenticated_client: TestAsyncClient):
+    from django.contrib.sites.models import Site
+    from django.core.files.base import ContentFile
+
+    from asgiref.sync import sync_to_async
+    from sessions.models import RunArtifact
+
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Report published")
+    artifact = RunArtifact(run=run, title="Audit", filename="audit.html", content_type="text/html", size=6)
+    await sync_to_async(artifact.file.save)("audit.html", ContentFile(b"<p>x</p>"), save=True)
+
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["artifacts"] == [
+        {
+            "id": str(artifact.pk),
+            "title": "Audit",
+            "filename": "audit.html",
+            "content_type": "text/html",
+            "size": 6,
+            "url": f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/",
+            "download_url": (
+                f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/raw/?download=1"
+            ),
+        }
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_without_artifacts_returns_empty_list(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="RUNNING")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+    assert response.json()["artifacts"] == []

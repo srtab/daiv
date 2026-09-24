@@ -130,6 +130,17 @@ GET /api/jobs/{job_id}
   "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
   "result": "Here are the Python files...",
   "merge_request_url": null,
+  "artifacts": [
+    {
+      "id": "3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70",
+      "title": "Dependency audit",
+      "filename": "dependency-audit.html",
+      "content_type": "text/html",
+      "size": 48213,
+      "url": "https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/",
+      "download_url": "https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/raw/?download=1"
+    }
+  ],
   "error": null,
   "created_at": "2026-03-27T18:22:39.012Z",
   "started_at": "2026-03-27T18:22:39.401Z",
@@ -138,6 +149,8 @@ GET /api/jobs/{job_id}
 ```
 
 `merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
+
+`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`) and a direct download (`download_url`); both require a signed-in DAIV user who can see the run. The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`.
 
 **Status values:**
 

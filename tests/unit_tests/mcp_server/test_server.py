@@ -811,3 +811,37 @@ async def test_list_repositories_unauthenticated_rejected():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
         result = await list_repositories()
     assert "error" in result
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_lists_artifacts(_default_mcp_user):
+    from django.contrib.sites.models import Site
+    from django.core.files.base import ContentFile
+
+    from asgiref.sync import sync_to_async
+    from sessions.models import RunArtifact
+
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="group/project", user=_default_mcp_user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="group/project",
+        user=_default_mcp_user,
+        status=RunStatus.SUCCESSFUL,
+        result_summary="Report published",
+    )
+    artifact = RunArtifact(run=run, title="Audit", filename="audit.md", content_type="text/markdown", size=3)
+    await sync_to_async(artifact.file.save)("audit.md", ContentFile(b"# a"), save=True)
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["status"] == "SUCCESSFUL"
+    assert data["result"] == "Report published"
+    assert [a["id"] for a in data["artifacts"]] == [str(artifact.pk)]
+    assert data["artifacts"][0]["url"] == (
+        f"https://daiv.example.com/dashboard/sessions/{session.thread_id}/artifacts/{artifact.pk}/"
+    )
+    assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")

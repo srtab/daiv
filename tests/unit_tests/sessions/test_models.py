@@ -290,3 +290,57 @@ def test_run_defaults_to_classify_eligible():
     """New runs are classify-eligible by default so the reclassify backstop stays a catch-all."""
     run = _mk_run(_mk_session(), status=RunStatus.SUCCESSFUL)
     assert run.classify_eligible is True
+
+
+# ---------------------------------------------------------------------------
+# RunArtifact
+# ---------------------------------------------------------------------------
+
+
+def _mk_artifact(run: Run, **kwargs):
+    from sessions.models import RunArtifact
+
+    defaults = {"title": "Report", "filename": "report.md", "content_type": "text/markdown", "size": 3}
+    defaults.update(kwargs)
+    return RunArtifact(run=run, **defaults)
+
+
+def test_artifact_upload_to_is_unique_per_row_and_keeps_extension():
+    from sessions.models import artifact_upload_to
+
+    run = _mk_run(_mk_session())
+    artifact = _mk_artifact(run)
+    assert artifact_upload_to(artifact, "/workspace/tmp/Report.MD") == f"artifacts/{run.pk}/{artifact.pk}.md"
+    assert artifact_upload_to(artifact, "noext") == f"artifacts/{run.pk}/{artifact.pk}"
+
+
+def test_artifact_kind_and_label_follow_content_type():
+    from sessions.artifacts import ArtifactKind
+
+    run = _mk_run(_mk_session())
+    assert _mk_artifact(run, content_type="text/html").kind == ArtifactKind.HTML
+    assert _mk_artifact(run, content_type="text/html").kind_label == "HTML"
+    assert _mk_artifact(run, content_type="application/pdf").kind_label == "File"
+
+
+def test_artifact_urls_are_scoped_to_the_session():
+    run = _mk_run(_mk_session())
+    artifact = _mk_artifact(run)
+    artifact.save()
+    base = f"/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/"
+    assert artifact.get_absolute_url() == base
+    assert artifact.get_raw_url() == f"{base}raw/"
+    assert artifact.get_download_url() == f"{base}raw/?download=1"
+    assert str(artifact) == f"report.md (text/markdown) for run {run.pk}"
+
+
+def test_artifact_visible_to_follows_run_visibility(admin_user, member_user, other_user):
+    from sessions.models import RunArtifact
+
+    mine = _mk_artifact(_mk_run(_mk_session(user=member_user), user=member_user))
+    mine.save()
+    theirs = _mk_artifact(_mk_run(_mk_session(user=other_user), user=other_user))
+    theirs.save()
+
+    assert set(RunArtifact.objects.visible_to(member_user)) == {mine}
+    assert set(RunArtifact.objects.visible_to(admin_user)) == {mine, theirs}

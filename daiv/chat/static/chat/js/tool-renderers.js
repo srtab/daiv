@@ -414,6 +414,34 @@
     };
   };
 
+  // publish_artifact returns JSON ({"status":"published","url":...}) on success and an
+  // "Error publishing artifact..." string otherwise.
+  const parseArtifactResult = (result) => {
+    try {
+      const parsed = JSON.parse(String(result ?? ""));
+      return parsed && typeof parsed === "object" && parsed.url ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const formatBytes = (n) => {
+    const size = Number(n);
+    if (!Number.isFinite(size)) return "";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const sigPublishArtifact = (args, result, argsStr) => {
+    const path = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
+    const parsed = parseArtifactResult(result);
+    const badges = [];
+    if (parsed) badges.push(badge(parsed.content_type || "published", "success"));
+    else if (result && ERROR_PREFIX_RE.test(String(result).trim())) badges.push(badge("error", "danger"));
+    return { label: "publish_artifact", path: truncate(parsed?.title || path, 84), badges };
+  };
+
   const SIGNATURE_BY_TOOL = {
     read_file: sigReadFile,
     write_file: sigWriteFile,
@@ -428,6 +456,7 @@
     web_search: sigWebSearch,
     gitlab: sigGitlab,
     gh: sigGh,
+    publish_artifact: sigPublishArtifact,
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {
@@ -708,6 +737,18 @@
     return block("Shell", bashRunBlock(command, text, null));
   };
 
+  const publishArtifactBody = (argsStr, result) => {
+    const parsed = parseArtifactResult(result);
+    if (!parsed) return genericBody(argsStr, result);
+    const meta = [parsed.filename, parsed.content_type, formatBytes(parsed.size)].filter(Boolean).join(" · ");
+    const download = parsed.download_url ? externalLink(parsed.download_url, "Download") : "";
+    return block(
+      "Artifact",
+      `<div class="chat-artifact">${externalLink(parsed.url, parsed.title || parsed.filename || parsed.url)}` +
+        `<div class="chat-artifact__meta">${escapeHtml(meta)}</div>${download}</div>`,
+    );
+  };
+
   const BODY_BY_TOOL = {
     read_file: (_args, result) => {
       const text = String(result ?? "");
@@ -734,6 +775,7 @@
     web_search: (args, result) => webSearchBody(args, result),
     gitlab: (args, result) => cliBody("gitlab", args, result),
     gh: (args, result) => cliBody("gh", args, result),
+    publish_artifact: (args, result) => publishArtifactBody(args, result),
   };
 
   window.toolBodyHTML = (name, argsStr, result, status) => {

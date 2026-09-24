@@ -218,3 +218,22 @@
 .chat-search__snippet {
   color: #94a3b8;
 }
+
+.chat-artifact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-artifact > .chat-tool__link:first-child {
+  font-weight: 500;
+  color: #c4b5fd;
+}
+
+.chat-artifact__meta {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: #64748b;
+}

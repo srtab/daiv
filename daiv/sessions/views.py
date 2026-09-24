@@ -12,12 +12,14 @@ from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, HttpResponseBase
-from django.shortcuts import redirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -26,7 +28,7 @@ from mcp_servers.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
-from accounts.mixins import BreadcrumbMixin
+from accounts.mixins import Breadcrumb, BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
@@ -34,11 +36,12 @@ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessD
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
+from sessions.artifacts import ArtifactKind
 from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.transcript import annotate_transcript
@@ -304,6 +307,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "thread_ref": "",
                 "diff_stats": None,
                 "runs": [],
+                "artifacts": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
                 "context_usage": None,
@@ -346,6 +350,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["context_usage"] = hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
+        ctx["artifacts"] = list(RunArtifact.objects.filter(run__in=runs).select_related("run"))
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a
         # chat run (holder id == AG-UI run id). Background holders don't publish to
@@ -426,6 +431,88 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
         repo_slug = slugify(run.repo_id.replace("/", "-")) or "unknown"
         date_str = run.created_at.strftime("%Y-%m-%d")
         return f"daiv-{repo_slug}-{date_str}.md"
+
+
+# Agent-authored HTML runs in an opaque origin (``sandbox``) with no outbound fetches, embedded or
+# opened directly; ``frame-ancestors`` lets only DAIV's own viewer page frame it.
+ARTIFACT_CONTENT_SECURITY_POLICY = (
+    "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' https:; "
+    "style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; "
+    "media-src data: blob: https:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+)
+# Markdown/text bodies above this are not rendered inline (the page would stall); the viewer offers the file instead.
+ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
+
+
+class RunArtifactMixin(LoginRequiredMixin):
+    """Scopes an artifact lookup to the URL's session and to the runs the viewer may see."""
+
+    model = RunArtifact
+
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return (
+            RunArtifact.objects
+            .visible_to(self.request.user)
+            .filter(run__session_id=self.kwargs["thread_id"])
+            .select_related("run", "run__session")
+        )
+
+
+class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
+    """Render one artifact: Markdown and text inline, HTML and images through the sandboxed raw endpoint."""
+
+    template_name = "sessions/artifact_detail.html"
+    context_object_name = "artifact"
+
+    def get_breadcrumbs(self) -> list[Breadcrumb]:
+        session = self.object.run.session
+        return [
+            {"label": str(_("Sessions")), "url": reverse("session_list")},
+            {
+                "label": session.title or session.repo_id,
+                "url": reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+            },
+            {"label": self.object.title, "url": None},
+        ]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        ctx = super().get_context_data(**kwargs)
+        artifact: RunArtifact = self.object
+        kind = artifact.kind
+        text = None
+        if kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT):
+            if artifact.size <= ARTIFACT_INLINE_TEXT_MAX_BYTES:
+                with artifact.file.open("rb") as fh:
+                    text = fh.read().decode("utf-8", errors="replace")
+            else:
+                kind = ArtifactKind.OTHER
+        ctx.update({
+            "kind": kind,
+            "text": text,
+            "raw_url": artifact.get_raw_url(),
+            "download_url": artifact.get_download_url(),
+            "session": artifact.run.session,
+        })
+        return ctx
+
+
+@method_decorator(xframe_options_sameorigin, name="dispatch")
+class RunArtifactRawView(RunArtifactMixin, View):
+    """Stream the stored bytes as their declared type; ``?download=1`` forces an attachment."""
+
+    def get(self, request, *args, **kwargs):
+        artifact = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
+        response = FileResponse(
+            artifact.file.open("rb"),
+            content_type=artifact.content_type,
+            as_attachment=request.GET.get("download") == "1",
+            filename=artifact.filename,
+        )
+        response["Content-Security-Policy"] = ARTIFACT_CONTENT_SECURITY_POLICY
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "private, no-store"
+        return response
 
 
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
