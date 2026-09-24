@@ -98,10 +98,14 @@ class TestReviewAfterRunMatrix:
             return_value={"messages": [AIMessage(content="done")]},
             state_values={"merge_request": _merge_request(source_branch="daiv/published"), "published": True},
         )
+        merge_request = _merge_request()
 
         with addressor_run(agent, ctx=_ctx()) as run:
-            await _address(thread_id=session.thread_id)
+            await _address(merge_request=merge_request, thread_id=session.thread_id)
 
+        assert run.context_kwargs["ref"] == "feature"
+        assert run.context_kwargs["merge_request"] is merge_request
+        assert run.context_kwargs["fallback_ref_on_missing"] is False
         assert (await Session.objects.aget(thread_id=session.thread_id)).ref == "feature"
         run.persist.assert_not_awaited()
         assert run.armed == []

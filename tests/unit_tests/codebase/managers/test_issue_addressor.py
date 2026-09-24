@@ -148,10 +148,14 @@ class TestIssueAfterRunMatrix:
             return_value={"messages": [AIMessage(content="done")]},
             state_values={"merge_request": mr, "published": True},
         )
+        issue = _issue(labels=[BOT_LABEL])
 
         with addressor_run(agent, ctx=_ctx()) as run:
-            await _address(thread_id="t-issue")
+            await _address(issue=issue, ref="fix/42", thread_id="t-issue")
 
+        assert run.context_kwargs["fallback_ref_on_missing"] is True
+        assert run.context_kwargs["issue"] is issue
+        assert run.context_kwargs["ref"] == "fix/42"
         run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr)
         assert run.armed == [
             {"repo_id": "owner/repo", "run_id": None, "merge_request": mr, "published": True, "user_id": None}
