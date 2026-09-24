@@ -1532,7 +1532,7 @@ class TestPublishDiffStats:
 
 class TestEffectiveMergeRequest:
     """The single decision behind every publish target: ``GitMiddleware`` for the turn-end publish
-    and ``BaseManager._recover_draft`` for the post-crash draft."""
+    and ``sessions.executor.recovery.recover_draft`` for the post-crash draft."""
 
     def test_prefers_the_context_mr(self):
         """MR-scope runs clone the MR's own source branch, so the context MR is authoritative even

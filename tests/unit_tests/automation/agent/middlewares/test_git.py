@@ -950,7 +950,7 @@ def test_state_merge_request_raises_on_degraded_dict(caplog):
 
 
 class TestAgentSummaryReachesThePublisher:
-    """The transcript is only readable here — ``BaseManager._recover_draft`` publishes from a
+    """The transcript is only readable here — ``sessions.executor.recovery.recover_draft`` publishes from a
     persisted checkpoint, where ``messages`` lives in a ``DeltaChannel`` and needs
     ``aresolve_thread_messages`` to reconstruct. So this hook is the one path that can supply it."""
 

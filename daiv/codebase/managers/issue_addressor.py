@@ -4,23 +4,22 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.pipeline_watch.service import PipelineWatch
+from sessions.executor.run import execute_run
+from sessions.executor.spec import RunHooks, RunSpec
 
-from automation.agent.graph import create_daiv_agent
-from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
-from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
 from codebase.utils import resolve_thread_id
-from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
 
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from langgraph.types import StateSnapshot
+    from sessions.executor.spec import RunOutcome
+
     from automation.agent.results import AgentResult
     from codebase.base import Issue
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.managers")
 
@@ -31,173 +30,115 @@ ADDRESS_ISSUE_PROMPT = "Address the issue #{issue_iid}."
 
 class IssueAddressorManager(BaseManager):
     """
-    Manages the issue processing and addressing workflow.
+    Runs the agent on an issue and answers on it.
     """
 
     def __init__(
-        self,
-        *,
-        issue: Issue,
-        mention_comment_id: str | None = None,
-        runtime_ctx: RuntimeCtx,
-        thread_id: str | None = None,
+        self, *, repo_id: str, issue: Issue, mention_comment_id: str | None = None, thread_id: str | None = None
     ):
         super().__init__(
-            runtime_ctx=runtime_ctx,
-            thread_id=resolve_thread_id(
-                thread_id, repo_slug=runtime_ctx.repository.slug, scope=Scope.ISSUE, entity_iid=issue.iid
-            ),
+            repo_id=repo_id,
+            thread_id=resolve_thread_id(thread_id, repo_slug=repo_id, scope=Scope.ISSUE, entity_iid=issue.iid),
+            mention_comment_id=mention_comment_id,
         )
         self.issue = issue
-        self.mention_comment_id = mention_comment_id
 
     @classmethod
     async def address_issue(
         cls,
         *,
+        repo_id: str,
         issue: Issue,
         mention_comment_id: str | None = None,
-        runtime_ctx: RuntimeCtx,
+        ref: str | None = None,
         thread_id: str | None = None,
-    ) -> AgentResult:
+        sandbox_env_id: str | None = None,
+    ) -> AgentResult | None:
         """
         Address the issue.
 
         Args:
-            issue (Issue): The issue object.
-            mention_comment_id (str | None): The mention comment id. Defaults to None.
-            runtime_ctx (RuntimeCtx): The runtime context.
+            repo_id: The repository slug.
+            issue: The issue object.
+            mention_comment_id: The discussion that mentioned the bot, or ``None`` for a label trigger.
+            ref: The branch to clone; ``None`` for the repository default.
+            thread_id: The session's thread id; ``None`` computes the deterministic one.
+            sandbox_env_id: The sandbox environment the callback selected.
 
         Returns:
-            An :class:`AgentResult` dict with the agent response and code_changes flag.
+            An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
         """
-        manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx, thread_id=thread_id)
+        manager = cls(repo_id=repo_id, issue=issue, mention_comment_id=mention_comment_id, thread_id=thread_id)
 
         try:
-            return await manager._address_issue()
+            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id)
+        except AgentConfigurationError:
+            return None
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
 
-    async def _address_issue(self) -> AgentResult:
-        """
-        Process the issue by addressing it with the appropriate actions.
-        """
-        # Local: keeps this module off the codebase -> sessions -> jobs.tasks import chain.
-        from sessions.services import apersist_session_ref
-
-        messages = []
-        triggered_by = self.issue.author.username
-
-        if self.mention_comment_id:
-            # The issue was triggered by a mention in a comment, so we need to add the comment to the messages.
-            mention_comment = self.client.get_issue_comment(
-                self.ctx.repository.slug, self.issue.iid, self.mention_comment_id
-            )
-            latest_comment = mention_comment.notes[-1]
-            triggered_by = latest_comment.author.username
-            messages.append(
-                HumanMessage(name=latest_comment.author.username, id=latest_comment.id, content=latest_comment.body)
-            )
-        else:
-            # The issue was triggered by the bot label, so we need to request the agent to address it.
-            message_content = (
-                ADDRESS_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
-                if self.issue.has_auto_label()
-                else PLAN_ISSUE_PROMPT.format(issue_iid=self.issue.iid)
-            )
-            messages.append(
-                HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
-            )
-
-        async with open_checkpointer() as checkpointer:
-            try:
-                agent_kwargs = get_daiv_agent_kwargs(
-                    model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
-                )
-            except AgentConfigurationError as err:
-                logger.warning("issue_addressor: %s", err)
-                self._leave_comment(
-                    f"@{self.issue.author.username} I can't run yet: {err}",
-                    reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
-                )
-                return
-            daiv_agent = await create_daiv_agent(
-                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
-            )
-            agent_config = build_langsmith_config(
-                self.ctx,
+    async def _address_issue(self, *, ref: str | None, sandbox_env_id: str | None) -> AgentResult:
+        message, triggered_by = self._input_message()
+        outcome = await execute_run(
+            RunSpec(
+                thread_id=self.thread_id,
+                repo_id=self.repo_id,
+                scope=Scope.ISSUE,
+                input_messages=(message,),
                 trigger="mention" if self.mention_comment_id else "label",
-                model=agent_kwargs["model_names"][0],
-                thinking_level=agent_kwargs["thinking_level"],
-                agent_name=daiv_agent.get_name(),
-                configurable={"thread_id": self.thread_id},
+                lock=await self._lock_policy(),
+                ref=ref,
+                issue=self.issue,
+                fallback_ref_on_missing=True,
+                use_max=self.issue.has_max_label(),
+                sandbox_env_id=sandbox_env_id,
+                persist_ref=True,
+                arm_watch=True,
+                recover_draft=True,
                 extra_metadata={
                     "author": self.issue.author.username,
                     "triggered_by": triggered_by,
                     "issue_id": self.issue.iid,
                     "labels": [label.lower() for label in self.issue.labels],
                 },
+            ),
+            RunHooks(on_success=self._on_success, on_failure=self._on_failure),
+        )
+        return outcome.agent_result
+
+    def _input_message(self) -> tuple[HumanMessage, str]:
+        """The turn's message and who triggered it: the mention comment, or the prompt the bot label implies."""
+        if self.mention_comment_id:
+            comment = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id).notes[-1]
+            return (
+                HumanMessage(name=comment.author.username, id=comment.id, content=comment.body),
+                comment.author.username,
             )
-            try:
-                with track_usage_metadata() as usage_handler:
-                    result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
-            except Exception:
-                draft_published = await self._recover_draft(
-                    daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
+        prompt = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
+        return (
+            HumanMessage(
+                name=self.issue.author.username, id=str(self.issue.iid), content=prompt.format(issue_iid=self.issue.iid)
+            ),
+            self.issue.author.username,
+        )
+
+    async def _on_success(self, outcome: RunOutcome) -> None:
+        if response := outcome.response_text.strip():
+            self._leave_comment(response)
+        else:
+            logger.warning("Agent returned empty response for issue %d", self.issue.iid)
+            self._add_unable_to_address_issue_note()
+
+    async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, AgentConfigurationError):
+            logger.warning("issue_addressor: %s", exc)
+            if self._claim_unable_note():
+                self._leave_comment(
+                    f"@{self.issue.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
                 )
-                self._add_unable_to_address_issue_note(draft_published=draft_published)
-                raise
-            else:
-                response_text = ""
-                if (
-                    result
-                    and "messages" in result
-                    and result["messages"]
-                    and (response_text := extract_text_content(result["messages"][-1].content).strip())
-                ):
-                    self._leave_comment(response_text)
-                else:
-                    logger.warning(
-                        "Agent returned empty response for issue %d (result keys: %s)",
-                        self.issue.iid,
-                        list(result.keys()) if result else None,
-                    )
-                    self._add_unable_to_address_issue_note()
-
-                # Read once and share: the ref sync and the watch both need the published branch
-                # off the checkpoint, and ``_build_agent_result`` would otherwise read it again.
-                snapshot = await self._safe_get_state(daiv_agent, agent_config)
-
-                # The branch this run published to becomes the branch the session works on, so the
-                # next webhook turn clones it instead of the default branch and adds onto the same
-                # MR. Best-effort: a cosmetic pointer must never fail a run that already published
-                # and already answered — that would post an "unexpected error" note over real work.
-                try:
-                    await apersist_session_ref(
-                        thread_id=self.thread_id,
-                        current_ref=self.ctx.repo.ref,
-                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
-                    )
-                except Exception:
-                    logger.exception("issue_addressor: failed to persist session ref for thread_id=%s", self.thread_id)
-
-                try:
-                    await PipelineWatch(self.ctx.repository.slug).aarm_after_run(
-                        merge_request=snapshot.values.get("merge_request") if snapshot else None,
-                        published=bool(snapshot.values.get("published")) if snapshot else False,
-                        user_id=self.ctx.acting_user_id,
-                    )
-                except Exception:
-                    logger.exception("issue_addressor: failed to arm pipeline watch for issue %s", self.issue.iid)
-
-                return await self._build_agent_result(
-                    daiv_agent,
-                    agent_config,
-                    response=response_text,
-                    usage=build_usage_summary(usage_handler).to_dict(),
-                    snapshot=snapshot,
-                )
+            return
+        self._add_unable_to_address_issue_note(draft_published=draft_published)
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
         """
@@ -210,14 +151,13 @@ class IssueAddressorManager(BaseManager):
                 "codebase/unable_address_issue.txt",
                 {
                     "bot_name": BOT_NAME,
-                    "bot_username": self.ctx.bot_username,
+                    "bot_username": self.client.current_user.username,
                     "draft_published": draft_published,
-                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
-                    "is_github": self.ctx.git_platform == GitPlatform.GITHUB,
+                    "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
+                    "is_github": self.client.git_platform == GitPlatform.GITHUB,
                 },
             ),
-            # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
-            reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
+            reply_to_id=self.reply_to_id,
         )
 
     def _leave_comment(self, body: str, reply_to_id: str | None = None):
@@ -228,4 +168,4 @@ class IssueAddressorManager(BaseManager):
             body: The body of the comment.
             reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
         """
-        return self.client.create_issue_comment(self.ctx.repository.slug, self.issue.iid, body, reply_to_id=reply_to_id)
+        return self.client.create_issue_comment(self.repo_id, self.issue.iid, body, reply_to_id=reply_to_id)

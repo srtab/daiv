@@ -1,128 +1,57 @@
-import json
 import logging
-from typing import TYPE_CHECKING, Any
+import uuid
+from typing import TYPE_CHECKING
 
-from langgraph.store.memory import InMemoryStore
-from redis.exceptions import RedisError
+from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.models import Session
 
-from automation.agent.middlewares.file_system import SandboxFileBackend
-from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
-from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
-from codebase.utils import get_repo_ref
-from core.sandbox.client import get_run_sandbox_client
 
 if TYPE_CHECKING:
-    from langchain.agents import CompiledAgent
-    from langchain_core.runnables import RunnableConfig
-
-    from codebase.context import RuntimeCtx
+    from sessions.executor.lock import LockPolicy
 
 logger = logging.getLogger("daiv.managers")
 
 
 class BaseManager:
     """
-    Base class for all managers.
+    Base class for the webhook managers: each builds one agent run's ``RunSpec`` and posts its outcome back on
+    the issue or merge request.
     """
-
-    _comment_id: str | None = None
-    """ The comment ID where DAIV comments are stored. """
 
     _unable_note_posted: bool = False
     """ Backing flag for :meth:`_claim_unable_note`; see that method for the rationale. """
 
-    def __init__(self, *, runtime_ctx: RuntimeCtx, thread_id: str):
-        self.ctx = runtime_ctx
+    def __init__(self, *, repo_id: str, thread_id: str, mention_comment_id: str | None = None):
+        self.repo_id = repo_id
         self.thread_id = thread_id
+        self.mention_comment_id = mention_comment_id
         self.client = RepoClient.create_instance()
-        self.store = InMemoryStore()
+
+    @property
+    def reply_to_id(self) -> str | None:
+        """The mention a failure comment answers under; GitHub can't reply to a comment, so only GitLab gets one."""
+        return self.mention_comment_id if self.client.git_platform == GitPlatform.GITLAB else None
 
     def _claim_unable_note(self) -> bool:
-        """Idempotency guard for the "unable to address" note.
+        """Idempotency guard for failure comments ("unable to address" and "can't run yet").
 
-        The note is posted from two stacked handlers: an inner one (wrapping the agent
-        invocation, with draft-aware context) that re-raises, and a catch-all in the
-        ``address_*`` entry point that also fires for failures *before* the agent ran.
-        When the agent invocation itself fails, both would post — so the note method calls
-        this first. Returns ``True`` the first time (caller posts the note, the inner
-        draft-aware one winning) and ``False`` on every later call (caller skips).
+        Two handlers can post one: the run's ``on_failure`` hook, which knows whether a draft was published, and
+        the catch-all in the ``address_*`` entry point, which also covers failures before the run starts
+        (fetching the mention comment). When the run itself fails, both fire, the hook first. Returns ``True``
+        the first time (caller posts) and ``False`` on every later call (caller skips).
         """
         if self._unable_note_posted:
             return False
         self._unable_note_posted = True
         return True
 
-    async def _recover_draft(
-        self, agent: CompiledAgent, config: RunnableConfig, *, entity_label: str, entity_id: int | str
-    ) -> bool:
-        """
-        Attempt to publish a draft MR from the agent's persisted state after an unexpected error.
-
-        Returns:
-            Whether a draft merge request was successfully published.
-        """
-        try:
-            snapshot = await agent.aget_state(config=config)
-            # ``strict=False``: raising here would land in this method's own catch-all and discard
-            # the work this last attempt exists to save.
-            snapshot_mr = effective_merge_request(
-                context_mr=self.ctx.merge_request,
-                state_mr=checkpointed_merge_request(snapshot.values, strict=False),
-                current_ref=get_repo_ref(self.ctx.gitrepo),
-            )
-
-            # Sandbox-mode publish runs git through the run's bound backend. Recovery runs in the same
-            # run scope as the agent (client still open), but doesn't hold the agent's backend instance,
-            # so it reconstructs the bound handle from the run-scoped client + the persisted session id.
-            sandbox_backend = None
-            if self.ctx.sandbox is not None and self.ctx.sandbox.enabled and (sid := snapshot.values.get("session_id")):
-                sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
-                sandbox_backend.bind_session(sid)
-
-            publisher = GitChangePublisher(self.ctx, sandbox_backend=sandbox_backend, thread_id=self.thread_id)
-            outcome = await publisher.publish(
-                merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
-            )
-
-            if outcome.merge_request is not None:
-                update_values: dict[str, Any] = {"merge_request": outcome.merge_request}
-                if outcome.protected_branch_fallback_source:
-                    update_values["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
-                await agent.aupdate_state(config=config, values=update_values)
-                return True
-        except Exception:
-            logger.exception("Recovery failed after agent error for %s %s", entity_label, entity_id)
-
-        return False
-
-    async def _safe_get_state(self, agent: CompiledAgent, config: RunnableConfig):
-        """Read the agent's persisted state, or ``None`` on transport/serialization failure.
-
-        ``None`` is what ``_build_agent_result`` reads as "the read already failed"; raising
-        instead would discard a run whose comment and merge request have already landed.
-        """
-        try:
-            return await agent.aget_state(config=config)
-        except RedisError, OSError, json.JSONDecodeError:
-            logger.warning("Failed to read agent state for thread %s", self.thread_id, exc_info=True)
-            return None
-
-    @staticmethod
-    async def _build_agent_result(
-        agent: CompiledAgent,
-        config: RunnableConfig,
-        *,
-        response: str,
-        usage: dict[str, Any] | None = None,
-        snapshot: Any = NO_SNAPSHOT,
-    ) -> AgentResult:
-        """
-        Build a standardized :class:`AgentResult` from the agent's persisted state.
-
-        ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
-        We read it from the persisted checkpoint instead. Pass ``snapshot`` to
-        reuse a pre-fetched state and skip the extra Redis read; pass ``None``
-        explicitly to signal the read already failed (no retry).
-        """
-        return await build_agent_result(agent, config, response=response, usage=usage, snapshot=snapshot)
+    async def _lock_policy(self) -> LockPolicy:
+        """Wait for the session's slot, or run unlocked on a thread's first turn: the callback creates the
+        ``Session`` row just after enqueueing this run, so the row may not exist yet, and then nothing else can
+        hold the slot either."""
+        if await Session.objects.filter(pk=self.thread_id).aexists():
+            return Wait(holder_id=f"webhook-{uuid.uuid4().hex}", timeout_s=LOCK_WAIT_TIMEOUT_S)
+        logger.warning("webhook run: no session row for thread_id=%s; running without lock", self.thread_id)
+        return NoLock()
