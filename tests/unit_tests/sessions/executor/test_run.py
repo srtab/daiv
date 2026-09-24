@@ -481,15 +481,17 @@ class TestRefFallback:
 
 
 async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_failure():
-    agent = _agent(state={"merge_request": MR})
+    agent = _agent(state={"merge_request": None})
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     on_failure = AsyncMock()
     spec = _spec(recover_draft=True)
+    recovered_state = MagicMock(values={"merge_request": MR})
 
     with agent_stack(agent) as stack:
 
         async def _recover(*_args, **_kwargs):
             stack.events.append("draft recovered")
+            agent.aget_state.return_value = recovered_state
             return True
 
         with (
@@ -501,9 +503,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
     recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=spec.thread_id)
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
-    on_failure.assert_awaited_once_with(
-        agent.ainvoke.side_effect, draft_published=True, snapshot=agent.aget_state.return_value
-    )
+    on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
 
 
 async def test_a_setup_error_skips_draft_recovery():

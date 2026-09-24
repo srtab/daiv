@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -148,10 +148,21 @@ class TestReviewAfterRunMatrix:
         """The footer comes from the checkpoint re-read after recovery, which may have swapped to a fresh MR."""
         agent = addressor_agent(
             side_effect=RuntimeError("boom"),
-            state_values={"protected_branch_fallback_source": "feature", "merge_request": _merge_request(200)},
+            state_values={"merge_request": _merge_request(source_branch="daiv/published")},
+        )
+        recovered_state = SimpleNamespace(
+            values={"protected_branch_fallback_source": "feature", "merge_request": _merge_request(200)}
         )
 
-        with addressor_run(agent, ctx=_ctx(), draft_published=True), pytest.raises(RuntimeError, match="boom"):
+        async def _recover(*_args, **_kwargs):
+            agent.aget_state.return_value = recovered_state
+            return True
+
+        with (
+            addressor_run(agent, ctx=_ctx(), stub_recovery=False),
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
             await _address()
 
         [note] = mention.create_merge_request_comment.call_args_list

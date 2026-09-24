@@ -71,8 +71,8 @@ class TestIssueAddressorPersistsSessionRef:
         assert persist.await_args.kwargs["merge_request"] is None
 
     async def test_a_failed_pointer_write_does_not_fail_the_run(self, stub_base_init, caplog):
-        """The run already published and already answered the user. A cosmetic pointer must never turn that into a
-        failed run — the issue would get an "unexpected error" note for work that actually landed."""
+        """The agent finished and its work already landed, before the ref sync runs. A cosmetic pointer must never
+        turn that into a failed run — the issue would get an "unexpected error" note for work that actually landed."""
         with caplog.at_level("ERROR"):
             persist, result, _ = await _run(
                 published_mr=_mr(source_branch="fix/10"), cloned_ref="master", persist_raises=True

@@ -226,7 +226,7 @@ async def address_issue_task(
         mention_comment_id (str | None): The mention comment id. Defaults to None.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
-            the addressor recomputes it from the runtime context.
+            the manager computes the deterministic id from the repository and the issue iid.
         sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
@@ -396,7 +396,7 @@ async def address_mr_comments_task(
         merge_request_id (int): The merge request id.
         mention_comment_id (str): The mention comment id.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
-            the addressor recomputes it from the runtime context.
+            the manager computes the deterministic id from the repository and the merge request iid.
         sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately

@@ -39,9 +39,9 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
     async def _persist_ref(**_kwargs):
         stack.events.append("ref synced")
 
-    async def _build_result(*_args, **_kwargs):
+    async def _build_result(*_args, **kwargs):
         stack.events.append("result built")
-        return {"response": "done"}
+        return {"response": kwargs["response"]}
 
     class _Watch(watch_recorder(stack.armed)):
         async def aarm_after_run(self, **kwargs):
