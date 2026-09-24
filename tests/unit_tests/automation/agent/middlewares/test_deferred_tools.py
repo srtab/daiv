@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from langchain_core.tools import StructuredTool
+from pydantic.errors import PydanticInvalidForJsonSchema
 
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 
@@ -573,3 +575,107 @@ class TestModelNameGating:
         with caplog.at_level(logging.WARNING, logger="daiv.tools"):
             assert mw_module._is_frozen(MagicMock()) is False
         assert "no str name attribute" in caplog.text
+
+
+class TestDeferredToolsMiddlewareArgCoercion:
+    @staticmethod
+    def _mcp_tool(name: str) -> StructuredTool:
+        return StructuredTool(
+            name=name,
+            description="List incidents.",
+            args_schema={
+                "type": "object",
+                "properties": {"monitorId": {"type": "integer"}, "timeRange": {"type": "string"}},
+                "required": ["monitorId"],
+            },
+        )
+
+    @staticmethod
+    async def _middleware_with_index(*tools: StructuredTool, always_loaded: set[str] = frozenset()):
+        middleware = DeferredToolsMiddleware(always_loaded=always_loaded, extra_tools=list(tools))
+        await middleware.awrap_model_call(_request(), AsyncMock(return_value=MagicMock()))
+        return middleware
+
+    @staticmethod
+    async def _run_tool_call(middleware: DeferredToolsMiddleware, tool: StructuredTool, args: dict) -> dict:
+        from langgraph.prebuilt.tool_node import ToolCallRequest
+
+        handler = AsyncMock()
+        request = ToolCallRequest(
+            tool_call={"name": tool.name, "args": args, "id": "call_1", "type": "tool_call"},
+            tool=tool,
+            state={},
+            runtime=None,
+        )
+        await middleware.awrap_tool_call(request, handler)
+        return handler.await_args.args[0].tool_call["args"]
+
+    async def test_deferred_tool_call_gets_stringified_args_decoded(self):
+        tool = self._mcp_tool("uptimerobot_list-incidents")
+        middleware = await self._middleware_with_index(tool)
+        original = {"monitorId": "784007076", "timeRange": "30"}
+
+        args = await self._run_tool_call(middleware, tool, original)
+
+        assert args == {"monitorId": 784007076, "timeRange": "30"}
+        assert original == {"monitorId": "784007076", "timeRange": "30"}
+
+    async def test_pydantic_tool_call_gets_stringified_list_decoded(self):
+        from pydantic import BaseModel, Field
+
+        class _Args(BaseModel):
+            urls: list[str] = Field(description="URLs to fetch.")
+            max_length: int | None = Field(default=None, description="Max characters.")
+
+        tool = StructuredTool.from_function(
+            func=lambda **kwargs: "ok", name="web_fetch", description="Fetch URLs.", args_schema=_Args
+        )
+        middleware = await self._middleware_with_index(tool)
+
+        args = await self._run_tool_call(middleware, tool, {"urls": '["a", "b"]', "max_length": "500"})
+
+        assert args == {"urls": ["a", "b"], "max_length": 500}
+
+    async def test_always_loaded_tool_call_args_untouched(self):
+        tool = self._mcp_tool("read_file")
+        middleware = await self._middleware_with_index(tool, always_loaded={"read_file"})
+
+        args = await self._run_tool_call(middleware, tool, {"monitorId": "7"})
+
+        assert args == {"monitorId": "7"}
+
+    async def test_tool_call_before_index_is_built_passes_through(self):
+        tool = self._mcp_tool("uptimerobot_list-incidents")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[tool])
+
+        args = await self._run_tool_call(middleware, tool, {"monitorId": "7"})
+
+        assert args == {"monitorId": "7"}
+
+    @pytest.mark.parametrize("error", [PydanticInvalidForJsonSchema("no schema"), RuntimeError("boom")])
+    async def test_schema_conversion_failure_passes_through(self, monkeypatch, error):
+        from automation.agent.deferred import index as index_module
+
+        tool = self._mcp_tool("uptimerobot_list-incidents")
+        middleware = await self._middleware_with_index(tool)
+        monkeypatch.setattr(index_module, "convert_to_openai_tool", MagicMock(side_effect=error))
+
+        args = await self._run_tool_call(middleware, tool, {"monitorId": "7"})
+
+        assert args == {"monitorId": "7"}
+
+    async def test_decoding_failure_passes_original_args_through(self, monkeypatch, caplog):
+        import logging
+
+        from automation.agent.middlewares import deferred_tools as mw_module
+
+        tool = self._mcp_tool("uptimerobot_list-incidents")
+        middleware = await self._middleware_with_index(tool)
+        monkeypatch.setattr(mw_module, "decode_stringified_args", MagicMock(side_effect=RuntimeError("boom")))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+            args = await self._run_tool_call(middleware, tool, {"monitorId": "7"})
+
+        assert args == {"monitorId": "7"}
+        errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("uptimerobot_list-incidents" in message for message in errors)

@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic.errors import PydanticInvalidForJsonSchema
 from rank_bm25 import BM25Plus
 
@@ -32,6 +34,22 @@ class ToolEntry:
     tool: BaseTool
     indexed_text: str
     summary: str
+
+    @cached_property
+    def openai_schema(self) -> dict | None:
+        """The tool's OpenAI-format schema as ``tool_search`` shows it to the model, or ``None`` when it can't
+        be built.
+
+        Non-serializable arg types (e.g. ``git.Repo``) are a known degradation and warn, since on a frozen
+        model that tool is then uncallable; any other conversion fault is unexpected and logs at error level.
+        """
+        try:
+            return convert_to_openai_tool(self.tool)
+        except PydanticInvalidForJsonSchema:
+            logger.warning("deferred-index: no JSON schema for %s; tool_search embeds its summary only", self.name)
+        except Exception:
+            logger.exception("deferred-index: unexpected schema-conversion failure for %s", self.name)
+        return None
 
 
 class DeferredToolsIndex:

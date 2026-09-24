@@ -240,7 +240,7 @@ class TestToolSearchSchemaDelivery:
         # logs at error level (unlike the known git.Repo case, which warns).
         import logging
 
-        from automation.agent.deferred import search_tool as search_tool_module
+        from automation.agent.deferred import index as index_module
 
         good = StructuredTool.from_function(func=lambda ticket: "ok", name="good_tool", description="Converts fine.")
         bad = StructuredTool.from_function(
@@ -248,14 +248,14 @@ class TestToolSearchSchemaDelivery:
         )
         index = DeferredToolsIndex([good, bad])
 
-        real = search_tool_module.convert_to_openai_tool
+        real = index_module.convert_to_openai_tool
 
         def _flaky(tool):
             if tool.name == "explodes":
                 raise ValueError("simulated non-pydantic conversion fault")
             return real(tool)
 
-        monkeypatch.setattr(search_tool_module, "convert_to_openai_tool", _flaky)
+        monkeypatch.setattr(index_module, "convert_to_openai_tool", _flaky)
         tool_search = make_tool_search(lambda: index, top_k_default=5, top_k_max=10)
 
         with caplog.at_level(logging.ERROR, logger="daiv.tools"):
