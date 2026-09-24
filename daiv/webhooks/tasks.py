@@ -2,6 +2,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from django_tasks import task
+from sessions.services import aget_session_ref
 
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError
@@ -49,8 +50,6 @@ async def address_issue_task(
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
-    from sessions.services import aget_session_ref
-
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
     client = RepoClient.create_instance()

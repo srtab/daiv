@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from webhooks.tasks import address_issue_task, address_mr_comments_task
+
 from codebase.base import MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
 
@@ -19,8 +21,6 @@ def _mr(*, merged: bool) -> MergeRequest:
 
 
 async def test_address_mr_comments_skips_when_merged():
-    from webhooks.tasks import address_mr_comments_task
-
     client = MagicMock()
     client.get_merge_request.return_value = _mr(merged=True)
 
@@ -37,8 +37,6 @@ async def test_address_mr_comments_skips_when_merged():
 
 
 async def test_address_mr_comments_skips_when_branch_gone():
-    from webhooks.tasks import address_mr_comments_task
-
     client = MagicMock()
     client.get_merge_request.return_value = _mr(merged=False)
 
@@ -57,8 +55,6 @@ async def test_address_mr_comments_skips_when_branch_gone():
 
 
 async def test_address_mr_comments_hands_the_merge_request_to_the_addressor():
-    from webhooks.tasks import address_mr_comments_task
-
     client = MagicMock()
     merge_request = _mr(merged=False)
     client.get_merge_request.return_value = merge_request
@@ -95,14 +91,12 @@ class TestAddressIssueTaskRef:
 
     @staticmethod
     async def _addressed(*, session_ref: str, ref: str | None = None) -> AsyncMock:
-        from webhooks.tasks import address_issue_task
-
         client = MagicMock()
         client.get_issue.return_value = MagicMock()
         addressed = AsyncMock(return_value={"response": "", "code_changes": False})
         with (
             patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-            patch("sessions.services.aget_session_ref", AsyncMock(return_value=session_ref)),
+            patch("webhooks.tasks.aget_session_ref", AsyncMock(return_value=session_ref)),
             patch("webhooks.managers.issue_addressor.IssueAddressorManager.address_issue", addressed),
         ):
             await address_issue_task.func(

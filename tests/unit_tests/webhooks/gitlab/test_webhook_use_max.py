@@ -1,8 +1,6 @@
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, Session
 from webhooks.gitlab.callbacks import IssueCallback, NoteCallback
 from webhooks.gitlab.models import (
@@ -18,6 +16,7 @@ from webhooks.gitlab.models import (
 )
 
 from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 # ---------------------------------------------------------------------------
 # Unit truth table for ``has_max_label()`` (label-matching logic).
@@ -64,21 +63,6 @@ def test_merge_request_has_max_label_false_when_absent():
 # ---------------------------------------------------------------------------
 
 
-async def _make_db_task_result() -> uuid.UUID:
-    task_id = uuid.uuid4()
-    await DBTaskResult.objects.acreate(
-        id=task_id,
-        status="READY",
-        task_path="webhooks.tasks.address_issue_task",
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after=get_date_max(),
-        return_value={},
-    )
-    return task_id
-
-
 class _StubClient:
     current_user = MagicMock(id=1, username="daiv")
 
@@ -107,7 +91,7 @@ def _stub_gitlab(monkeypatch):
 async def test_issue_callback_persists_agent_model(_stub_gitlab, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     callback = IssueCallback(
         object_kind="issue",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
@@ -145,7 +129,7 @@ async def test_issue_callback_persists_agent_model(_stub_gitlab, labels, expect_
 async def test_note_callback_on_mr_persists_agent_model(_stub_gitlab, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     callback = NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
@@ -185,7 +169,7 @@ async def test_note_callback_on_mr_persists_agent_model(_stub_gitlab, labels, ex
 async def test_note_callback_on_issue_persists_agent_model(_stub_gitlab, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     callback = NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
@@ -229,7 +213,7 @@ async def test_two_issue_events_share_one_session(_stub_gitlab):
     thread_id = compute_thread_id(repo_slug=repo, scope=Scope.ISSUE, entity_iid=issue_iid)
 
     for _n in range(2):
-        task_id = await _make_db_task_result()
+        task_id = await make_db_task_result()
         callback = IssueCallback(
             object_kind="issue",
             project=Project(id=1, path_with_namespace=repo, default_branch="main"),

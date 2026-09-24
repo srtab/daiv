@@ -1,13 +1,12 @@
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, Session
 from webhooks.github.callbacks import IssueCallback, IssueCommentCallback
 from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
 
 from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 # ---------------------------------------------------------------------------
 # Unit truth table for ``has_max_label()``.
@@ -59,21 +58,6 @@ def test_pull_request_has_max_label_false_when_absent():
 # ---------------------------------------------------------------------------
 
 
-async def _make_db_task_result() -> uuid.UUID:
-    task_id = uuid.uuid4()
-    await DBTaskResult.objects.acreate(
-        id=task_id,
-        status="READY",
-        task_path="webhooks.tasks.address_issue_task",
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after=get_date_max(),
-        return_value={},
-    )
-    return task_id
-
-
 class _StubClient:
     current_user = MagicMock(id=999, username="daiv")
 
@@ -102,7 +86,7 @@ def _stub_github(monkeypatch):
 async def test_issue_callback_persists_agent_model(_stub_github, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     callback = IssueCallback(
         action="opened",
         repository=Repository(id=1, full_name="acme/repo", default_branch="main"),
@@ -130,7 +114,7 @@ async def test_issue_callback_persists_agent_model(_stub_github, labels, expect_
 async def test_issue_comment_callback_persists_agent_model(_stub_github, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     callback = IssueCommentCallback(
         action="created",
         repository=Repository(id=1, full_name="acme/repo", default_branch="main"),
@@ -159,7 +143,7 @@ async def test_issue_comment_callback_persists_agent_model(_stub_github, labels,
 async def test_pr_comment_callback_persists_agent_model(_stub_github, labels, expect_max_model):
     from core.site_settings import site_settings
 
-    task_id = await _make_db_task_result()
+    task_id = await make_db_task_result()
     # GitHub webhooks treat PR comments as Issue comments, so ``issue`` here carries the PR-stub dict.
     pr_stub_issue = _issue(labels, pull_request={"url": "https://example/pr/1"})
     callback = IssueCommentCallback(
@@ -194,7 +178,7 @@ async def test_two_issue_events_share_one_session(_stub_github):
     thread_id = compute_thread_id(repo_slug=repo, scope=Scope.ISSUE, entity_iid=issue_number)
 
     for _n in range(2):
-        task_id = await _make_db_task_result()
+        task_id = await make_db_task_result()
         callback = IssueCallback(
             action="opened",
             repository=Repository(id=1, full_name=repo, default_branch="main"),

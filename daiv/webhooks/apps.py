@@ -1,5 +1,3 @@
-from importlib import import_module
-
 from django.apps import AppConfig
 
 
@@ -11,5 +9,5 @@ class WebhooksConfig(AppConfig):
     def ready(self):
         """Register the platform callback views onto ``codebase.api.router``, which keeps the webhook URLs at
         ``/api/codebase/callbacks/{gitlab,github}``."""
-        for platform in ("github", "gitlab"):
-            import_module(f"webhooks.{platform}.views")
+        import webhooks.github.views  # noqa: F401
+        import webhooks.gitlab.views  # noqa: F401
