@@ -5,7 +5,10 @@ does the rest. The order inside a run, and why each step sits where it does:
    heartbeats it, so a chat turn and a job on one session take turns instead of overlapping. A ``Wait``
    that gives up raises ``lock.SessionLockTimeoutError``, which reaches ``hooks.on_failure`` like any
    other failure, so the trigger can tell its user.
-2. ``set_runtime_ctx`` clones the repository and opens the sandbox client; the checkpointer opens.
+2. ``set_runtime_ctx`` clones the repository and opens the sandbox client; the checkpointer opens. If
+   the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
+   ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask
+   for a branch that is gone; a failed re-pin is logged.
 3. The model is resolved. For a spec with ``run_id`` it is recorded on the ``Run`` and its session
    before the invoke, so a run that fails mid-way still shows what it ran with.
 4. The agent is built and invoked.

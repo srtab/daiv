@@ -90,12 +90,14 @@ def _agent_stack(agent, *, context=None, resolve=None):
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
+        patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
     ):
         stack.create_agent = create_agent
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist
+        stack.reset = reset
         yield stack
 
 
@@ -120,6 +122,9 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "repo_id": "owner/repo",
         "scope": Scope.GLOBAL,
         "ref": "feat/x",
+        "issue": None,
+        "merge_request": None,
+        "fallback_ref_on_missing": False,
         "sandbox_env_id": "env-1",
         "acting_user_id": 7,
         "mcp_overrides": {"sentry": "off"},
@@ -439,3 +444,74 @@ async def test_the_ref_sync_compares_against_the_ref_the_clone_landed_on():
         await execute_run(spec)
 
     stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="master", merge_request=MR)
+
+
+async def test_it_hands_the_webhook_context_to_the_clone():
+    issue, merge_request = MagicMock(), MagicMock()
+
+    with _agent_stack(_agent()) as stack:
+        await execute_run(_spec(issue=issue, merge_request=merge_request, fallback_ref_on_missing=True))
+
+    assert stack.context_kwargs["issue"] is issue
+    assert stack.context_kwargs["merge_request"] is merge_request
+    assert stack.context_kwargs["fallback_ref_on_missing"] is True
+
+
+@pytest.mark.parametrize(("use_max", "extra"), [(True, {"use_max": True}), (False, {})], ids=["max", "default"])
+async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
+    with _agent_stack(_agent()) as stack:
+        await execute_run(_spec(use_max=use_max))
+
+    assert stack.resolve.call_args.kwargs == {
+        "model_config": stack.ctx.config.models.agent,
+        "agent_model": None,
+        "agent_thinking_level": None,
+        **extra,
+    }
+
+
+class TestRefFallback:
+    """The clone degraded off a vanished branch (its MR merged and deleted): the session is re-pinned to where it
+    landed, so the next turn doesn't ask for a branch that is gone. Moved from ``address_issue_task``'s tests."""
+
+    @staticmethod
+    async def _run(
+        *, ref: str | None, cloned_ref: str, fallback: bool = True, reset_error: Exception | None = None
+    ) -> SimpleNamespace:
+        agent = _agent()
+        spec = _spec(ref=ref, fallback_ref_on_missing=fallback)
+        with _agent_stack(agent) as stack:
+            stack.ctx.repo.ref = cloned_ref
+            stack.reset.side_effect = reset_error
+            await execute_run(spec)
+        return SimpleNamespace(reset=stack.reset, spec=spec, agent=agent)
+
+    async def test_a_vanished_branch_re_pins_the_session(self):
+        run = await self._run(ref="fix/10", cloned_ref="master")
+
+        run.reset.assert_awaited_once_with(thread_id=run.spec.thread_id, new_ref="master")
+
+    async def test_a_clone_that_landed_on_the_asked_ref_leaves_the_session_alone(self):
+        run = await self._run(ref="fix/10", cloned_ref="fix/10")
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_first_turn_never_pins_the_default_branch_onto_the_session(self):
+        """A first turn asks for no ref, so the default branch it lands on is not a working branch."""
+        run = await self._run(ref=None, cloned_ref="master")
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_spec_without_fallback_never_re_pins(self):
+        run = await self._run(ref="fix/10", cloned_ref="master", fallback=False)
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_failed_re_pin_still_runs_the_turn(self, caplog):
+        """The fallback clone already succeeded, so a failed write to a cosmetic pointer must not abort the run."""
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            run = await self._run(ref="fix/10", cloned_ref="master", reset_error=RuntimeError("db down"))
+
+        run.reset.assert_awaited_once()
+        run.agent.ainvoke.assert_awaited_once()
+        assert "failed to reset session ref" in caplog.text

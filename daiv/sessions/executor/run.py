@@ -78,6 +78,9 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
             repo_id=spec.repo_id,
             scope=spec.scope,
             ref=spec.ref,
+            issue=spec.issue,
+            merge_request=spec.merge_request,
+            fallback_ref_on_missing=spec.fallback_ref_on_missing,
             sandbox_env_id=spec.sandbox_env_id,
             acting_user_id=spec.acting_user_id,
             mcp_overrides=spec.mcp_overrides,
@@ -85,10 +88,13 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
         ) as ctx,
         open_checkpointer() as checkpointer,
     ):
+        if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            await _repin_fallback_ref(spec.thread_id, ctx.repo.ref)
         agent_kwargs = get_daiv_agent_kwargs(
             model_config=ctx.config.models.agent,
             agent_model=spec.agent_model,
             agent_thinking_level=spec.agent_thinking_level,
+            **({"use_max": True} if spec.use_max else {}),
         )
         model = agent_kwargs["model_names"][0]
         await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
@@ -103,6 +109,17 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
             configurable={"thread_id": spec.thread_id},
         )
         yield _AgentRun(ctx=ctx, agent=agent, config=config)
+
+
+async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
+    """Point the session at the branch the clone fell back to, so the next turn doesn't ask for a branch that is
+    gone. Best-effort: the fallback clone already succeeded, so a failed write must not abort the run."""
+    from sessions.services import areset_session_ref  # sessions.services imports jobs.tasks, which imports us
+
+    try:
+        await areset_session_ref(thread_id=thread_id, new_ref=new_ref)
+    except Exception:
+        logger.exception("executor: failed to reset session ref for thread_id=%s", thread_id)
 
 
 async def _after_run(

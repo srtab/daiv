@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.results import AgentResult
-    from codebase.base import Scope
+    from codebase.base import Issue, MergeRequest, Scope
     from codebase.references import ExternalRef
     from sessions.executor.lock import LockPolicy
 
@@ -19,7 +19,9 @@ class RunSpec:
 
     ``persist_ref`` and ``arm_watch`` are opt-in because each writes state outside the checkpoint: the
     session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
-    resolved model is recorded on, together with its session.
+    resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
+    degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
+    ``use_max`` picks the site's max model (the ``daiv-max`` label).
     """
 
     thread_id: str
@@ -29,8 +31,12 @@ class RunSpec:
     trigger: str
     lock: LockPolicy
     ref: str | None = None
+    issue: Issue | None = None
+    merge_request: MergeRequest | None = None
+    fallback_ref_on_missing: bool = False
     agent_model: str | None = None
     agent_thinking_level: str | None = None
+    use_max: bool = False
     sandbox_env_id: str | None = None
     acting_user_id: int | None = None
     mcp_overrides: dict[str, str] = field(default_factory=dict)
