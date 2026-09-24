@@ -148,7 +148,7 @@ class IssueAddressorManager(BaseManager):
             return
         self._leave_comment(
             render_to_string(
-                "codebase/unable_address_issue.txt",
+                "webhooks/unable_address_issue.txt",
                 {
                     "bot_name": BOT_NAME,
                     "bot_username": self.client.current_user.username,

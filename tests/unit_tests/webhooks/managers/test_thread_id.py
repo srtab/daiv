@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from webhooks.managers.issue_addressor import IssueAddressorManager
+from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from codebase.base import Issue, MergeRequest, Scope, User
-from codebase.managers.issue_addressor import IssueAddressorManager
-from codebase.managers.review_addressor import CommentsAddressorManager
 from codebase.utils import compute_thread_id
 
 _AUTHOR = User(id=1, username="alice")

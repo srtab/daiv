@@ -9,10 +9,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage
+from webhooks.managers.issue_addressor import IssueAddressorManager
 
 from codebase.base import Issue, User
-from codebase.managers.issue_addressor import IssueAddressorManager
-from tests.unit_tests.codebase.managers.conftest import addressor_agent, addressor_run
+from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run
 
 _AUTHOR = User(id=1, username="alice")
 

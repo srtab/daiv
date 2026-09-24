@@ -69,7 +69,7 @@ async def _make_db_task_result() -> uuid.UUID:
     await DBTaskResult.objects.acreate(
         id=task_id,
         status="READY",
-        task_path="codebase.tasks.address_issue_task",
+        task_path="webhooks.tasks.address_issue_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",

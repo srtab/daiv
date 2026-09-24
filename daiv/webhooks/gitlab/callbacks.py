@@ -15,10 +15,10 @@ from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 from webhooks.callbacks import BaseCallback
+from webhooks.tasks import address_issue_task, address_mr_comments_task
 
 from .models import (  # noqa: TC001
     Issue,

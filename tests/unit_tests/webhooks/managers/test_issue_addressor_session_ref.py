@@ -1,6 +1,6 @@
 """``Session.ref`` is what carries an issue session's working branch across webhook turns.
 
-The read side lives in ``address_issue_task`` (see ``tests/unit_tests/codebase/test_tasks.py``); this pins the
+The read side lives in ``address_issue_task`` (see ``tests/unit_tests/webhooks/test_tasks.py``); this pins the
 write side for issue runs — the executor moving the pointer onto the branch the run published to, on the same
 terms as job runs.
 """
@@ -11,10 +11,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage
+from webhooks.managers.issue_addressor import IssueAddressorManager
 
 from codebase.base import Issue, MergeRequest, User
-from codebase.managers.issue_addressor import IssueAddressorManager
-from tests.unit_tests.codebase.managers.conftest import addressor_agent, addressor_run
+from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run
 
 _AUTHOR = User(id=1, username="alice")
 

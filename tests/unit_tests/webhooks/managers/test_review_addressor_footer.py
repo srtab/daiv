@@ -10,8 +10,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from webhooks.managers.review_addressor import CommentsAddressorManager
+
 from codebase.base import GitPlatform, MergeRequest, User
-from codebase.managers.review_addressor import CommentsAddressorManager
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -83,7 +84,7 @@ class TestRenderProtectedBranchFooter:
         MR-scope state, not a partial checkpoint, so render must stay silent (no warning)."""
         manager = _make_manager()
         snapshot = SimpleNamespace(values={"merge_request": _new_mr_value()})
-        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+        with patch("webhooks.managers.review_addressor.logger") as mock_logger:
             assert manager._render_protected_branch_footer(snapshot) is None
         mock_logger.warning.assert_not_called()
 
@@ -91,7 +92,7 @@ class TestRenderProtectedBranchFooter:
         """A fallback source with no MR is genuinely partial/raced; surface it to the operator."""
         manager = _make_manager()
         snapshot = SimpleNamespace(values={"protected_branch_fallback_source": "feature"})
-        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+        with patch("webhooks.managers.review_addressor.logger") as mock_logger:
             assert manager._render_protected_branch_footer(snapshot) is None
         mock_logger.warning.assert_called_once()
 
@@ -99,7 +100,7 @@ class TestRenderProtectedBranchFooter:
         """An empty source-branch is the no-fallback signal; no footer and no warning."""
         manager = _make_manager()
         snapshot = SimpleNamespace(values={"protected_branch_fallback_source": "", "merge_request": _new_mr_value()})
-        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+        with patch("webhooks.managers.review_addressor.logger") as mock_logger:
             assert manager._render_protected_branch_footer(snapshot) is None
         mock_logger.warning.assert_not_called()
 

@@ -9,13 +9,13 @@ from langchain_core.messages import AIMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
+from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
-from codebase.managers.review_addressor import CommentsAddressorManager
-from tests.unit_tests.codebase.managers.conftest import addressor_agent, addressor_run, clone_raising
 from tests.unit_tests.sessions.conftest import active_holder
+from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
 
 _AUTHOR = User(id=1, username="alice")
 _UNABLE = "An unexpected error occurred while working on this merge request."
@@ -209,7 +209,7 @@ class TestReviewAfterRunMatrix:
 
         with (
             addressor_run(addressor_agent(), real_lock=True) as run,
-            patch("codebase.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("webhooks.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):

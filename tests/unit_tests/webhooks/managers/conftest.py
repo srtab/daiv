@@ -8,18 +8,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sessions.executor.lock import NoLock
+from webhooks.managers.base import BaseManager
 
 from codebase.base import GitPlatform
-from codebase.managers.base import BaseManager
 from tests.unit_tests.sessions.executor.conftest import agent_stack
-
-if TYPE_CHECKING:
-    from codebase.base import MergeRequest
 
 
 def stub_client() -> MagicMock:
@@ -59,22 +55,6 @@ def clone_raising(exc: Exception) -> MagicMock:
     entered = MagicMock()
     entered.__aenter__ = AsyncMock(side_effect=exc)
     return MagicMock(return_value=entered)
-
-
-def publisher_through_backend(created: list, *, publishes: MergeRequest):
-    """A ``GitChangePublisher`` stand-in that pushes through whatever backend it is handed."""
-
-    class _Publisher:
-        def __init__(self, ctx, *, sandbox_backend, thread_id):
-            self.sandbox_backend = sandbox_backend
-            created.append(self)
-
-        async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
-            self.target = (merge_request, as_draft)
-            await self.sandbox_backend.run_commands(["git push origin HEAD"], fail_fast=True)
-            return SimpleNamespace(merge_request=publishes, protected_branch_fallback_source=None)
-
-    return _Publisher
 
 
 def addressor_agent(*, state_values: dict | None = None, **ainvoke) -> MagicMock:

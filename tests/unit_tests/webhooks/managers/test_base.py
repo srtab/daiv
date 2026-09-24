@@ -1,9 +1,9 @@
 import pytest
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
 from sessions.models import Session, SessionOrigin
+from webhooks.managers.issue_addressor import IssueAddressorManager
 
 from codebase.base import Issue, User
-from codebase.managers.issue_addressor import IssueAddressorManager
 
 
 def _manager(thread_id: str) -> IssueAddressorManager:

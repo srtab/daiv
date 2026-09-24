@@ -9,23 +9,19 @@ from langchain_core.messages import AIMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
+from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
 from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Issue, MergeRequest, User
-from codebase.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
 from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.codebase.managers.conftest import (
-    addressor_agent,
-    addressor_run,
-    clone_raising,
-    publisher_through_backend,
-)
 from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
 from tests.unit_tests.sessions.conftest import active_holder
+from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
+from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
 
 _AUTHOR = User(id=1, username="alice")
 _UNABLE = "An unexpected error occurred while working on this issue."
@@ -242,7 +238,7 @@ class TestIssueAfterRunMatrix:
 
         with (
             addressor_run(addressor_agent(), real_lock=True) as run,
-            patch("codebase.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("webhooks.managers.base.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):
