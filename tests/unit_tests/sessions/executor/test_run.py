@@ -699,6 +699,23 @@ class TestStreamRun:
 
         heartbeat.assert_not_awaited()
 
+    async def test_a_failed_stream_close_is_logged_not_raised(self, caplog):
+        async def _factory(_run):
+            try:
+                yield "a"
+            except GeneratorExit:
+                raise RuntimeError("close failed") from None
+
+        with (
+            agent_stack(_agent()),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+            pytest.raises(RunStoppedError),
+        ):
+            await _drain(_spec(lock=NoLock()), _factory, should_stop=AsyncMock(return_value=True))
+
+        assert "failed to close the stream" in caplog.text
+
     async def test_a_stream_heartbeats_between_its_events_not_in_the_background(self):
         loops: list[tuple] = []
 

@@ -105,7 +105,7 @@ async def _supervised(
     """Yield ``events``, checking the slot and then ``should_stop`` at most every ``STREAM_HEARTBEAT_INTERVAL_S``.
 
     A lost slot wins over a stop request: another holder owns the checkpoint now. Either one raises and closes
-    ``events``, which is what stops the graph run inside it; an error while closing is swallowed so it can't mask
+    ``events``, which is what stops the graph run inside it; an error while closing is logged, never raised over
     why the stream stopped.
     """
     last_check = time.monotonic()
@@ -121,8 +121,10 @@ async def _supervised(
             if await should_stop():
                 raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
     finally:
-        with contextlib.suppress(Exception):
+        try:
             await events.aclose()
+        except Exception:
+            logger.exception("executor: failed to close the stream for thread_id=%s", thread_id)
 
 
 async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
