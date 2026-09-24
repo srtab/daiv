@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import pytest
 
 from automation.agent.deferred.coercion import decode_stringified_args
@@ -60,10 +62,6 @@ class TestDecodeStringifiedArgs:
             pytest.param({"ratio": "1e400"}, id="float-overflow"),
             pytest.param({"monitorIds": "[NaN]"}, id="nested-nan"),
             pytest.param({"monitorId": "1" * 5000, "monitorIds": "1" * 5000}, id="int-too-long"),
-            pytest.param(
-                {"monitorId": "[" * 100_000 + "]" * 100_000, "monitorIds": "[" * 100_000 + "]" * 100_000},
-                id="too-deeply-nested",
-            ),
             pytest.param({"mode": "1", "window": "24", "unknown": "5"}, id="untyped-or-unknown-property"),
             pytest.param({"monitorId": 784007076, "monitorIds": [11], "includeResolved": False}, id="already-typed"),
         ],
@@ -78,6 +76,13 @@ class TestDecodeStringifiedArgs:
         schema = {"type": "object", "properties": {"n": prop}}
 
         assert decode_stringified_args({"n": "5"}, schema) == {}
+
+    def test_keeps_value_when_decoding_exceeds_the_stack(self, monkeypatch):
+        from automation.agent.deferred import coercion
+
+        monkeypatch.setattr(coercion.json, "loads", MagicMock(side_effect=RecursionError))
+
+        assert decode_stringified_args({"monitorIds": "[[[1]]]"}, _SCHEMA) == {}
 
     def test_keeps_args_when_properties_is_not_a_mapping(self):
         assert decode_stringified_args({"n": "5"}, {"type": "object", "properties": ["n"]}) == {}
