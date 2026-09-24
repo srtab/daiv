@@ -23,7 +23,7 @@ print("OFFENDERS:" + ",".join(offenders))
 
 
 def test_django_setup_does_not_load_agent_stack():
-    """Guards the lazy-import seams (jobs/codebase/memory/titling tasks, repo_config,
+    """Guards the lazy-import seams (jobs/webhooks/memory/titling tasks, repo_config,
     automation.agent.__getattr__): a new module-level import of the agent stack from any
     eagerly-imported module (models, apps, signals, api views) regresses every process
     back to ~+160MB RSS and shows up here as a non-empty offender list.

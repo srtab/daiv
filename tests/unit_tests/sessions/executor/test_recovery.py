@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, Mock, patch
 from sessions.executor.recovery import recover_draft
 
 from codebase.base import MergeRequest, User
-from tests.unit_tests.codebase.managers.conftest import publisher_through_backend
 from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
+from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 
 _AUTHOR = User(id=1, username="alice")
 

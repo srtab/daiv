@@ -38,7 +38,8 @@ make makemessages && make compilemessages
 ## Repo map (only what's non-obvious)
 
 - `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`)
-- `daiv/codebase/` — GitLab/GitHub clients (`clients/`), webhooks, `.daiv.yml` repo config
+- `daiv/codebase/` — GitLab/GitHub clients (`clients/`), `.daiv.yml` repo config
+- `daiv/webhooks/` — GitLab/GitHub webhook callbacks, the `address_*` tasks and the issue/MR addressors; the views register onto `codebase.api.router` in `WebhooksConfig.ready()`, so the URLs stay `/api/codebase/callbacks/{gitlab,github}`
 - `daiv/mcp_server/` + `daiv/jobs/` — MCP sub-app (`submit_job`/`get_job_status`) + `run_job_task` (MCP + webhooks)
 - `daiv/core/` — sandbox client, Redis, shared constants
 - `daiv/daiv/settings/components/` — split settings; `common.py` has `INSTALLED_APPS`
@@ -71,5 +72,6 @@ make makemessages && make compilemessages
 | New built-in skill | `daiv/automation/agent/skills/<name>/` (`SKILL.md` + optional `scripts/`, `examples/`) |
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | MCP tool | `daiv/mcp_server/server.py` |
+| Webhook event handling | `daiv/webhooks/<platform>/callbacks.py` |
 | Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`) |
 | LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/automation/agent/constants.py` |

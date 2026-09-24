@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests.unit_tests.sessions.conftest import watch_recorder
+
+if TYPE_CHECKING:
+    from codebase.base import MergeRequest
 
 AGENT_KWARGS = {"model_names": ["claude-4-7-opus", "fallback"], "thinking_level": "medium"}
 
@@ -67,3 +73,19 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         stack.persist = persist
         stack.reset = reset
         yield stack
+
+
+def publisher_through_backend(created: list, *, publishes: MergeRequest):
+    """A ``GitChangePublisher`` stand-in that pushes through whatever backend it is handed."""
+
+    class _Publisher:
+        def __init__(self, ctx, *, sandbox_backend, thread_id):
+            self.sandbox_backend = sandbox_backend
+            created.append(self)
+
+        async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
+            self.target = (merge_request, as_draft)
+            await self.sandbox_backend.run_commands(["git push origin HEAD"], fail_fast=True)
+            return SimpleNamespace(merge_request=publishes, protected_branch_fallback_source=None)
+
+    return _Publisher
