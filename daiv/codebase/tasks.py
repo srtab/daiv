@@ -10,10 +10,9 @@ from django_tasks import task
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 
-from codebase.base import GitPlatform, Scope
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
 from core.utils import locked_task
 
@@ -217,7 +216,7 @@ async def address_issue_task(
     ref: str | None = None,
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
-) -> AgentResult:
+) -> AgentResult | None:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
 
@@ -227,43 +226,30 @@ async def address_issue_task(
         mention_comment_id (str | None): The mention comment id. Defaults to None.
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
-            the addressor recomputes it from the runtime context.
+            the manager computes the deterministic id from the repository and the issue iid.
         sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
             falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
     # Local: keeps this module off the codebase -> sessions -> jobs.tasks import chain.
-    from sessions.services import aget_session_ref, areset_session_ref
+    from sessions.services import aget_session_ref
 
     from codebase.managers.issue_addressor import IssueAddressorManager
 
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)
-    # Unguarded on purpose, unlike the re-pin below: degrading a failed read to "" re-clones the
-    # default branch, which is the exact loss ``Session.ref`` exists to prevent.
+    # Unguarded on purpose: degrading a failed read to "" re-clones the default branch, which is the exact loss
+    # ``Session.ref`` exists to prevent.
     effective_ref = ref or (await aget_session_ref(thread_id=thread_id) if thread_id else "")
-    async with set_runtime_ctx(
-        repo_id,
-        scope=Scope.ISSUE,
-        ref=effective_ref or None,
+    return await IssueAddressorManager.address_issue(
+        repo_id=repo_id,
         issue=issue,
+        mention_comment_id=mention_comment_id,
+        ref=effective_ref or None,
+        thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
-        fallback_ref_on_missing=True,
-    ) as runtime_ctx:
-        # A merged-and-deleted branch degrades to the default branch; re-pin so the next turn
-        # doesn't ask for a branch that is gone. Only what we asked for can be stale — a first
-        # turn asked for nothing, so the default branch it landed on is no working branch.
-        if thread_id and effective_ref and runtime_ctx.repo.ref != effective_ref:
-            try:
-                await areset_session_ref(thread_id=thread_id, new_ref=runtime_ctx.repo.ref)
-            except Exception:
-                # The fallback clone already succeeded and nothing has posted to the issue yet, so
-                # raising here would abort a viable run in silence — the note lives in the manager.
-                logger.exception("address_issue_task: failed to reset session ref for thread_id=%s", thread_id)
-        return await IssueAddressorManager.address_issue(
-            issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx, thread_id=thread_id
-        )
+    )
 
 
 @task(dedup=True)
@@ -410,7 +396,7 @@ async def address_mr_comments_task(
         merge_request_id (int): The merge request id.
         mention_comment_id (str): The mention comment id.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
-            the addressor recomputes it from the runtime context.
+            the manager computes the deterministic id from the repository and the merge request iid.
         sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
             When ``None``, ``set_runtime_ctx`` auto-resolves via
             :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
@@ -432,19 +418,13 @@ async def address_mr_comments_task(
         return _mr_comment_skip_result(response, merge_request)
 
     try:
-        async with set_runtime_ctx(
-            repo_id,
-            scope=Scope.MERGE_REQUEST,
-            ref=merge_request.source_branch,
+        return await CommentsAddressorManager.address_comments(
+            repo_id=repo_id,
             merge_request=merge_request,
+            mention_comment_id=mention_comment_id,
+            thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
-        ) as runtime_ctx:
-            return await CommentsAddressorManager.address_comments(
-                merge_request=merge_request,
-                mention_comment_id=mention_comment_id,
-                runtime_ctx=runtime_ctx,
-                thread_id=thread_id,
-            )
+        )
     except CloneRefNotFoundError:
         response = (
             f"The source branch `{merge_request.source_branch}` for this merge request no longer "

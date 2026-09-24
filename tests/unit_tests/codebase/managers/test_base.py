@@ -1,78 +1,50 @@
-from __future__ import annotations
+import pytest
+from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
+from sessions.models import Session, SessionOrigin
 
-from unittest.mock import AsyncMock, Mock, patch
-
-from codebase.base import Issue, MergeRequest, User
+from codebase.base import Issue, User
 from codebase.managers.issue_addressor import IssueAddressorManager
-from tests.unit_tests.codebase.managers.conftest import publisher_through_backend
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
-
-_AUTHOR = User(id=1, username="alice")
-
-_DRAFT_MR = MergeRequest(
-    repo_id="owner/repo",
-    merge_request_id=7,
-    source_branch="daiv/issue-10",
-    target_branch="main",
-    title="t",
-    description="d",
-    author=_AUTHOR,
-    draft=True,
-)
 
 
-def _sandbox_ctx() -> Mock:
-    ctx = Mock()
-    ctx.repository = Mock(slug="owner/repo")
-    ctx.merge_request = None
-    ctx.gitrepo = Mock()
-    ctx.sandbox = sandbox_runtime()
-    return ctx
-
-
-async def _recover(client: FakeSandboxClient, session_id: str, *, publisher) -> tuple:
-    manager = IssueAddressorManager(
-        issue=Issue(id=1, iid=10, title="t", author=_AUTHOR), runtime_ctx=_sandbox_ctx(), thread_id="t-1"
+def _manager(thread_id: str) -> IssueAddressorManager:
+    return IssueAddressorManager(
+        repo_id="owner/repo",
+        issue=Issue(id=1, iid=42, title="t", author=User(id=1, username="alice")),
+        thread_id=thread_id,
     )
-    agent = Mock()
-    agent.aget_state = AsyncMock(return_value=Mock(values={"merge_request": None, "session_id": session_id}))
-    agent.aupdate_state = AsyncMock()
-    with (
-        bound_run_sandbox_client(client),
-        patch("codebase.managers.base.GitChangePublisher", publisher),
-        patch("codebase.managers.base.get_repo_ref", return_value="daiv/issue-10"),
-    ):
-        published = await manager._recover_draft(agent, {}, entity_label="issue", entity_id=10)
-    return published, agent
 
 
-class TestRecoverDraftInSandboxMode:
-    async def test_it_publishes_a_draft_through_the_live_session(self, stub_base_init):
-        """B7: recovery publishes through the run's live session, without reopening or closing it."""
-        client = FakeSandboxClient.opened()
-        session_id = client.add_running_session("sess-1")
-        created: list = []
+@pytest.mark.django_db(transaction=True)
+class TestLockPolicy:
+    async def test_it_waits_for_the_slot_of_an_existing_session(self, stub_base_init):
+        await Session.objects.acreate(thread_id="t-1", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo")
 
-        published, agent = await _recover(
-            client, session_id, publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
-        )
+        policy = await _manager("t-1")._lock_policy()
 
-        assert published is True
-        assert created[0].target == (None, True)
-        assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
-        assert client.method_names() == ["run_commands"]
-        agent.aupdate_state.assert_awaited_once_with(config={}, values={"merge_request": _DRAFT_MR})
+        assert isinstance(policy, Wait)
+        assert policy.holder_id.startswith("webhook-")
+        assert policy.timeout_s == LOCK_WAIT_TIMEOUT_S
 
-    async def test_a_failed_publish_reports_no_draft(self, stub_base_init, caplog):
-        """B7: a publish that raises is logged and reported as no draft, never re-raised."""
-        client = FakeSandboxClient.opened()
-        session_id = client.add_running_session("sess-1")
-        publisher = Mock()
-        publisher.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
+    async def test_every_run_holds_the_slot_under_its_own_id(self, stub_base_init):
+        await Session.objects.acreate(thread_id="t-1", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo")
 
-        with caplog.at_level("ERROR", logger="daiv.managers"):
-            published, agent = await _recover(client, session_id, publisher=publisher)
+        first, second = await _manager("t-1")._lock_policy(), await _manager("t-1")._lock_policy()
 
-        assert published is False
-        agent.aupdate_state.assert_not_awaited()
-        assert "Recovery failed after agent error for issue 10" in caplog.text
+        assert first.holder_id != second.holder_id
+
+    async def test_a_first_turn_without_a_session_row_runs_unlocked(self, stub_base_init, caplog):
+        """The callback creates the row just after enqueueing the run, so the first turn may beat it; nothing else
+        can hold that thread's slot yet."""
+        with caplog.at_level("WARNING", logger="daiv.managers"):
+            policy = await _manager("t-new")._lock_policy()
+
+        assert policy == NoLock()
+        assert "no session row" in caplog.text
+
+
+class TestClaimUnableNote:
+    def test_only_the_first_claim_posts(self, stub_base_init):
+        manager = _manager("t-1")
+
+        assert manager._claim_unable_note() is True
+        assert manager._claim_unable_note() is False

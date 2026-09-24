@@ -1,12 +1,14 @@
 import asyncio
+import json
 import uuid
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
-from sessions.executor.lock import NoLock, Wait
+from redis.exceptions import RedisError
+from sessions.executor.lock import NoLock, SessionLockTimeoutError, Wait
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -14,9 +16,9 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Scope
 from codebase.references import ExternalRef
-from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
+from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
+from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack
 
-AGENT_KWARGS = {"model_names": ["claude-4-7-opus", "fallback"], "thinking_level": "medium"}
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
 
@@ -41,62 +43,6 @@ def _agent(*, messages: list | None = None, state: dict | None = None) -> AsyncM
     return agent
 
 
-@contextmanager
-def _agent_stack(agent, *, context=None, resolve=None):
-    """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw."""
-    stack = SimpleNamespace(
-        events=[],
-        context_kwargs={},
-        ctx=MagicMock(),
-        checkpointer=object(),
-        armed=[],
-        resolve=resolve or MagicMock(return_value=AGENT_KWARGS),
-    )
-
-    @asynccontextmanager
-    async def _set_runtime_ctx(**kwargs):
-        stack.context_kwargs.update(kwargs)
-        stack.events.append("context entered")
-        try:
-            yield stack.ctx
-        finally:
-            stack.events.append("context exited")
-
-    @asynccontextmanager
-    async def _open_checkpointer():
-        yield stack.checkpointer
-
-    async def _persist_ref(**_kwargs):
-        stack.events.append("ref synced")
-
-    async def _build_result(*_args, **_kwargs):
-        stack.events.append("result built")
-        return {"response": "done"}
-
-    class _Watch(watch_recorder(stack.armed)):
-        async def aarm_after_run(self, **kwargs):
-            stack.events.append("watch armed")
-            await super().aarm_after_run(**kwargs)
-
-    with (
-        patch("codebase.context.set_runtime_ctx", context or _set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer", _open_checkpointer),
-        patch("automation.agent.utils.get_daiv_agent_kwargs", stack.resolve),
-        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
-        patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
-        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.executor.run.PipelineWatch", _Watch),
-    ):
-        stack.create_agent = create_agent
-        stack.langsmith = langsmith
-        stack.build_result = build_result
-        stack.persist = persist
-        yield stack
-
-
 async def test_it_builds_the_context_and_the_agent_from_the_spec():
     agent = _agent()
     refs = (ExternalRef(key="PROJ-1", provider="jira"),)
@@ -111,13 +57,16 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         extra_metadata={"ref": "feat/x"},
     )
 
-    with _agent_stack(agent) as stack:
+    with agent_stack(agent) as stack:
         await execute_run(spec)
 
     assert stack.context_kwargs == {
         "repo_id": "owner/repo",
         "scope": Scope.GLOBAL,
         "ref": "feat/x",
+        "issue": None,
+        "merge_request": None,
+        "fallback_ref_on_missing": False,
         "sandbox_env_id": "env-1",
         "acting_user_id": 7,
         "mcp_overrides": {"sentry": "off"},
@@ -145,7 +94,7 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     on_success = AsyncMock()
     on_failure = AsyncMock()
 
-    with _agent_stack(agent) as stack:
+    with agent_stack(agent) as stack:
         outcome = await execute_run(_spec(), RunHooks(on_success=on_success, on_failure=on_failure))
 
     assert outcome.response_text == "done"
@@ -165,7 +114,7 @@ async def test_the_steps_run_in_order_inside_the_slot():
     agent = _agent(state={"merge_request": MR, "published": True})
     spec = _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
 
-    with _agent_stack(agent) as stack:
+    with agent_stack(agent) as stack:
 
         async def _invoke(*_args, **_kwargs):
             stack.events.append(f"invoked holding {await active_holder(thread_id)}")
@@ -212,15 +161,21 @@ async def test_a_raising_agent_still_runs_every_finally_step():
     on_success = AsyncMock()
     spec = _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
 
-    with _agent_stack(agent) as stack, patch("sessions.executor.lock._heartbeat_loop", _heartbeat_loop):
+    with agent_stack(agent) as stack, patch("sessions.executor.lock._heartbeat_loop", _heartbeat_loop):
 
-        async def _on_failure(exc, *, draft_published):
-            stack.events.append(f"on_failure {exc} draft={draft_published} holding {await active_holder(thread_id)}")
+        async def _on_failure(exc, *, draft_published, snapshot):
+            stack.events.append(
+                f"on_failure {exc} draft={draft_published} snapshot={snapshot} holding {await active_holder(thread_id)}"
+            )
 
         with pytest.raises(RuntimeError, match="agent blew up"):
             await execute_run(spec, RunHooks(on_success=on_success, on_failure=_on_failure))
 
-    assert stack.events == ["context entered", "context exited", "on_failure agent blew up draft=False holding run-1"]
+    assert stack.events == [
+        "context entered",
+        "context exited",
+        "on_failure agent blew up draft=False snapshot=None holding run-1",
+    ]
     assert heartbeat_cancelled == [True]
     assert await active_holder(thread_id) is None
     agent.aget_state.assert_not_awaited()
@@ -238,7 +193,7 @@ async def test_a_failing_context_exit_still_frees_the_slot():
         yield MagicMock()
         raise OSError("clone cleanup failed")
 
-    with _agent_stack(_agent(), context=_context), pytest.raises(OSError, match="clone cleanup failed"):
+    with agent_stack(_agent(), context=_context), pytest.raises(OSError, match="clone cleanup failed"):
         await execute_run(_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)))
 
     assert await active_holder(thread_id) is None
@@ -248,18 +203,18 @@ async def test_an_agent_configuration_error_reaches_on_failure_before_any_agent_
     error = AgentConfigurationError("no default model configured")
     on_failure = AsyncMock()
 
-    with _agent_stack(_agent(), resolve=MagicMock(side_effect=error)) as stack, pytest.raises(AgentConfigurationError):
+    with agent_stack(_agent(), resolve=MagicMock(side_effect=error)) as stack, pytest.raises(AgentConfigurationError):
         await execute_run(_spec(), RunHooks(on_failure=on_failure))
 
     stack.create_agent.assert_not_awaited()
-    on_failure.assert_awaited_once_with(error, draft_published=False)
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
 async def test_an_agent_that_returns_no_messages_fails_the_run():
     agent = _agent(messages=[])
     on_failure = AsyncMock()
 
-    with _agent_stack(agent), pytest.raises(ValueError, match="no messages"):
+    with agent_stack(agent), pytest.raises(ValueError, match="no messages"):
         await execute_run(_spec(), RunHooks(on_failure=on_failure))
 
     agent.aget_state.assert_not_awaited()
@@ -270,7 +225,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
     spec = _spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7)
 
     with (
-        _agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
+        agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
         patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
     ):
         await execute_run(spec)
@@ -283,7 +238,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
 
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
 async def test_the_ref_sync_and_the_watch_each_run_only_when_asked(persist_ref, arm_watch):
-    with _agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack:
+    with agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack:
         await execute_run(_spec(persist_ref=persist_ref, arm_watch=arm_watch))
 
     assert stack.persist.await_count == int(persist_ref)
@@ -305,7 +260,7 @@ async def test_a_run_records_the_model_it_resolved(error):
     agent = _agent()
     agent.ainvoke.side_effect = error
 
-    with _agent_stack(agent), pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext():
+    with agent_stack(agent), pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext():
         await execute_run(_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     await session.arefresh_from_db()
@@ -318,7 +273,7 @@ async def test_a_run_records_the_model_it_resolved(error):
 async def test_a_spec_without_a_run_leaves_the_session_model_alone():
     thread_id = await amake_job_session()
 
-    with _agent_stack(_agent()):
+    with agent_stack(_agent()):
         await execute_run(_spec(thread_id=thread_id))
 
     assert (await Session.objects.aget(thread_id=thread_id)).agent_model == ""
@@ -329,7 +284,7 @@ async def test_a_db_error_during_model_persist_is_swallowed(caplog):
     session, run = await _job_run()
 
     with (
-        _agent_stack(_agent()),
+        agent_stack(_agent()),
         patch.object(Run.objects, "filter", side_effect=RuntimeError("db connection failed")),
         caplog.at_level("ERROR", logger="daiv.sessions"),
     ):
@@ -344,7 +299,7 @@ async def test_a_failing_on_failure_hook_does_not_mask_the_run_error(caplog):
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
 
     with (
-        _agent_stack(agent),
+        agent_stack(agent),
         caplog.at_level("ERROR", logger="daiv.sessions"),
         pytest.raises(RuntimeError, match="agent blew up"),
     ):
@@ -356,9 +311,230 @@ async def test_a_failing_on_failure_hook_does_not_mask_the_run_error(caplog):
 async def test_a_failing_on_success_hook_propagates_without_calling_on_failure():
     on_failure = AsyncMock()
 
-    with _agent_stack(_agent()), pytest.raises(OSError, match="platform down"):
+    with agent_stack(_agent()), pytest.raises(OSError, match="platform down"):
         await execute_run(
             _spec(), RunHooks(on_success=AsyncMock(side_effect=OSError("platform down")), on_failure=on_failure)
         )
 
     on_failure.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_lock_that_never_frees_reaches_on_failure():
+    """The trigger hears about a run that gave up waiting, so it can tell its user instead of going quiet."""
+    thread_id = await amake_job_session(active_run_id="chat-run")
+    on_failure = AsyncMock()
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+        pytest.raises(SessionLockTimeoutError, match="not released within"),
+    ):
+        await execute_run(
+            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05)), RunHooks(on_failure=on_failure)
+        )
+
+    [exc] = on_failure.await_args.args
+    assert isinstance(exc, SessionLockTimeoutError)
+    assert on_failure.await_args.kwargs == {"draft_published": False, "snapshot": None}
+    assert stack.events == []
+    stack.create_agent.assert_not_awaited()
+    assert await active_holder(thread_id) == "chat-run"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_non_timeout_lock_error_reaches_on_failure_without_entering_the_context():
+    thread_id = await amake_job_session()
+    on_failure = AsyncMock()
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.lock.SessionLock.try_claim", AsyncMock(side_effect=RuntimeError("db down"))),
+        pytest.raises(RuntimeError, match="db down"),
+    ):
+        await execute_run(
+            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), RunHooks(on_failure=on_failure)
+        )
+
+    [exc] = on_failure.await_args.args
+    assert isinstance(exc, RuntimeError)
+    assert on_failure.await_args.kwargs == {"draft_published": False, "snapshot": None}
+    assert stack.events == []
+    stack.create_agent.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RedisError("connection refused"), OSError("network unreachable"), json.JSONDecodeError("bad", "<doc>", 0)],
+    ids=["redis", "os", "json"],
+)
+async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
+    """The agent already finished, so the hook, the ref sync and the watch still run, without a checkpoint."""
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=error)
+    on_success = AsyncMock()
+
+    with agent_stack(agent) as stack, caplog.at_level("WARNING", logger="daiv.sessions"):
+        outcome = await execute_run(_spec(persist_ref=True, arm_watch=True), RunHooks(on_success=on_success))
+
+    assert outcome.snapshot is None
+    on_success.assert_awaited_once_with(outcome)
+    stack.persist.assert_awaited_once_with(thread_id=ANY, current_ref="main", merge_request=None)
+    assert stack.armed == [
+        {"repo_id": "owner/repo", "run_id": None, "merge_request": None, "published": False, "user_id": None}
+    ]
+    assert stack.build_result.await_args.kwargs["snapshot"] is None
+    assert "failed to read agent state" in caplog.text
+
+
+async def test_a_checkpoint_read_that_fails_for_another_reason_fails_the_run():
+    """Only transport and serialization errors degrade; a programming error still surfaces."""
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
+    on_failure = AsyncMock()
+
+    with agent_stack(agent), pytest.raises(KeyError):
+        await execute_run(_spec(), RunHooks(on_failure=on_failure))
+
+    on_failure.assert_awaited_once()
+
+
+async def test_the_ref_sync_compares_against_the_ref_the_clone_landed_on():
+    spec = _spec(ref=None, persist_ref=True)
+
+    with agent_stack(_agent(state={"merge_request": MR})) as stack:
+        stack.ctx.repo.ref = "master"
+        await execute_run(spec)
+
+    stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="master", merge_request=MR)
+
+
+async def test_it_hands_the_webhook_context_to_the_clone():
+    issue, merge_request = MagicMock(), MagicMock()
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(_spec(issue=issue, merge_request=merge_request, fallback_ref_on_missing=True))
+
+    assert stack.context_kwargs["issue"] is issue
+    assert stack.context_kwargs["merge_request"] is merge_request
+    assert stack.context_kwargs["fallback_ref_on_missing"] is True
+
+
+@pytest.mark.parametrize(("use_max", "extra"), [(True, {"use_max": True}), (False, {})], ids=["max", "default"])
+async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
+    with agent_stack(_agent()) as stack:
+        await execute_run(_spec(use_max=use_max))
+
+    assert stack.resolve.call_args.kwargs == {
+        "model_config": stack.ctx.config.models.agent,
+        "agent_model": None,
+        "agent_thinking_level": None,
+        **extra,
+    }
+
+
+class TestRefFallback:
+    """The clone degraded off a vanished branch (its MR merged and deleted): the session is re-pinned to where it
+    landed, so the next turn doesn't ask for a branch that is gone. Moved from ``address_issue_task``'s tests."""
+
+    @staticmethod
+    async def _run(
+        *, ref: str | None, cloned_ref: str, fallback: bool = True, reset_error: Exception | None = None
+    ) -> SimpleNamespace:
+        agent = _agent()
+        spec = _spec(ref=ref, fallback_ref_on_missing=fallback)
+        with agent_stack(agent) as stack:
+            stack.ctx.repo.ref = cloned_ref
+            stack.reset.side_effect = reset_error
+            await execute_run(spec)
+        return SimpleNamespace(reset=stack.reset, spec=spec, agent=agent)
+
+    async def test_a_vanished_branch_re_pins_the_session(self):
+        run = await self._run(ref="fix/10", cloned_ref="master")
+
+        run.reset.assert_awaited_once_with(thread_id=run.spec.thread_id, new_ref="master")
+
+    async def test_a_clone_that_landed_on_the_asked_ref_leaves_the_session_alone(self):
+        run = await self._run(ref="fix/10", cloned_ref="fix/10")
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_first_turn_never_pins_the_default_branch_onto_the_session(self):
+        """A first turn asks for no ref, so the default branch it lands on is not a working branch."""
+        run = await self._run(ref=None, cloned_ref="master")
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_spec_without_fallback_never_re_pins(self):
+        run = await self._run(ref="fix/10", cloned_ref="master", fallback=False)
+
+        run.reset.assert_not_awaited()
+
+    async def test_a_failed_re_pin_still_runs_the_turn(self, caplog):
+        """The fallback clone already succeeded, so a failed write to a cosmetic pointer must not abort the run."""
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            run = await self._run(ref="fix/10", cloned_ref="master", reset_error=RuntimeError("db down"))
+
+        run.reset.assert_awaited_once()
+        run.agent.ainvoke.assert_awaited_once()
+        assert "failed to reset session ref" in caplog.text
+
+
+async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_failure():
+    agent = _agent(state={"merge_request": None})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    on_failure = AsyncMock()
+    spec = _spec(recover_draft=True)
+    recovered_state = MagicMock(values={"merge_request": MR})
+
+    with agent_stack(agent) as stack:
+
+        async def _recover(*_args, **_kwargs):
+            stack.events.append("draft recovered")
+            agent.aget_state.return_value = recovered_state
+            return True
+
+        with (
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)) as recover,
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await execute_run(spec, RunHooks(on_failure=on_failure))
+
+    recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=spec.thread_id)
+    assert stack.events == ["context entered", "draft recovered", "context exited"]
+    agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
+    on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
+
+
+async def test_a_setup_error_skips_draft_recovery():
+    error = AgentConfigurationError("no default model configured")
+    on_failure = AsyncMock()
+
+    with (
+        agent_stack(_agent(), resolve=MagicMock(side_effect=error)),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock()) as recover,
+        pytest.raises(AgentConfigurationError),
+    ):
+        await execute_run(_spec(recover_draft=True), RunHooks(on_failure=on_failure))
+
+    recover.assert_not_awaited()
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
+
+
+async def test_a_post_recovery_snapshot_read_that_fails_does_not_replace_the_agents_error(caplog):
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
+    on_failure = AsyncMock()
+    spec = _spec(recover_draft=True)
+
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=True)),
+        caplog.at_level("WARNING", logger="daiv.sessions"),
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        await execute_run(spec, RunHooks(on_failure=on_failure))
+
+    on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=None)
+    assert "failed to read agent state" in caplog.text

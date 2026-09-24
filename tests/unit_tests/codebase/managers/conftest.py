@@ -1,58 +1,64 @@
 """Shared scaffolding for the manager tests.
 
-``BaseManager.__init__`` builds a ``RepoClient`` and a store, so every test that drives a manager
-method has to stub it out. One stub here rather than one per module, so a new ``__init__``
-dependency is a single edit.
+``BaseManager.__init__`` builds a ``RepoClient``, so every test that drives a manager stubs it out. One stub here
+rather than one per module, so a new ``__init__`` dependency is a single edit.
 """
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sessions.executor.lock import NoLock
 
+from codebase.base import GitPlatform
 from codebase.managers.base import BaseManager
+from tests.unit_tests.sessions.executor.conftest import agent_stack
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 
-def _stub_init(client: MagicMock | None = None):
-    def _init(self, *, runtime_ctx, thread_id):
-        self.ctx = runtime_ctx
+def stub_client() -> MagicMock:
+    """A ``RepoClient`` stand-in on GitLab whose bot is ``daiv-bot``."""
+    client = MagicMock()
+    client.git_platform = GitPlatform.GITLAB
+    client.current_user.username = "daiv-bot"
+    return client
+
+
+def _stub_init(client: MagicMock):
+    def _init(self, *, repo_id, thread_id, mention_comment_id=None):
+        self.repo_id = repo_id
         self.thread_id = thread_id
-        self.client = client if client is not None else MagicMock()
-        self.store = MagicMock()
-        self.git_manager = MagicMock()
+        self.mention_comment_id = mention_comment_id
+        self.client = client
 
     return _init
 
 
 @pytest.fixture
 def stub_base_init():
-    with patch.object(BaseManager, "__init__", _stub_init()):
+    with patch.object(BaseManager, "__init__", _stub_init(stub_client())):
         yield
-
-
-@asynccontextmanager
-async def open_noop_checkpointer():
-    yield MagicMock()
-
-
-@pytest.fixture
-def noop_checkpointer():
-    return open_noop_checkpointer
 
 
 @pytest.fixture
 def captured_client():
     """Stub ``BaseManager.__init__`` so every manager instance shares one client mock the test can inspect."""
-    client = MagicMock()
+    client = stub_client()
     with patch.object(BaseManager, "__init__", _stub_init(client)):
         yield client
+
+
+def clone_raising(exc: Exception) -> MagicMock:
+    """A ``set_runtime_ctx`` stand-in whose clone fails with ``exc``."""
+    entered = MagicMock()
+    entered.__aenter__ = AsyncMock(side_effect=exc)
+    return MagicMock(return_value=entered)
 
 
 def publisher_through_backend(created: list, *, publishes: MergeRequest):
@@ -82,34 +88,33 @@ def addressor_agent(*, state_values: dict | None = None, **ainvoke) -> MagicMock
 
 @contextmanager
 def addressor_run(
-    manager_cls: type[BaseManager],
     agent: MagicMock,
     *,
     draft_published: bool = False,
     kwargs_error: Exception | None = None,
     stub_recovery: bool = True,
+    real_lock: bool = False,
+    ctx=None,
+    context=None,
+    resolve=None,
 ):
-    """Stub everything around ``agent`` in a ``manager_cls`` run; yield the ``create`` and ``recover`` mocks.
+    """Stub the executor around ``agent`` for one manager run; yield the ``agent_stack`` namespace plus ``recover``.
 
-    ``stub_recovery=False`` keeps the real draft recovery, and ``recover`` is then ``None``.
+    ``stub_recovery=False`` keeps the real draft recovery (``recover`` is then ``None``). ``real_lock`` keeps the
+    real session-row check and lock; otherwise the run is unlocked and needs no database.
     """
-    module = manager_cls.__module__
+    resolve = resolve or MagicMock(
+        return_value={"model_names": ["m"], "thinking_level": "medium"}, side_effect=kwargs_error
+    )
     recovery = (
-        patch.object(manager_cls, "_recover_draft", AsyncMock(return_value=draft_published))
+        patch("sessions.executor.run.recover_draft", AsyncMock(return_value=draft_published))
         if stub_recovery
         else nullcontext()
     )
     with (
-        patch(f"{module}.open_checkpointer", open_noop_checkpointer),
-        patch(
-            f"{module}.get_daiv_agent_kwargs",
-            return_value={"model_names": ["m"], "thinking_level": "medium"},
-            side_effect=kwargs_error,
-        ),
-        patch(f"{module}.create_daiv_agent", AsyncMock(return_value=agent)) as create,
-        patch(f"{module}.build_langsmith_config", return_value={}),
-        patch(f"{module}.track_usage_metadata", MagicMock()),
+        agent_stack(agent, ctx=ctx, context=context, resolve=resolve) as stack,
+        nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         recovery as recover,
-        patch.object(BaseManager, "_build_agent_result", AsyncMock(return_value={})),
     ):
-        yield SimpleNamespace(create=create, recover=recover)
+        stack.recover = recover
+        yield stack

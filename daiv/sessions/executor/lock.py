@@ -41,6 +41,10 @@ class NoLock:
 LockPolicy = Wait | Held | NoLock
 
 
+class SessionLockTimeoutError(TimeoutError):
+    """``Wait`` gave up: the slot's holder kept it past ``timeout_s``."""
+
+
 @asynccontextmanager
 async def hold_session_lock(policy: LockPolicy, thread_id: str) -> AsyncIterator[None]:
     """Hold ``thread_id``'s execution slot for the body under ``policy``, heartbeating it, then release it.
@@ -67,20 +71,31 @@ async def hold_session_lock(policy: LockPolicy, thread_id: str) -> AsyncIterator
 async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | None:
     """Return the holder id that now holds the slot, or ``None`` to run unlocked.
 
-    ``Wait`` raises ``TimeoutError`` if the slot never frees within ``timeout_s``. Takeover needs the holder's
-    last heartbeat to be ``STALE_RUN_MINUTES`` old, so with ``timeout_s`` at that length (``LOCK_WAIT_TIMEOUT_S``)
-    a waiter that started before a crashed holder's last heartbeat times out before it can take over.
+    ``Wait`` raises ``SessionLockTimeoutError`` if the slot never frees within ``timeout_s``. Takeover needs
+    the holder's last heartbeat to be ``STALE_RUN_MINUTES`` old, so with ``timeout_s`` at that length
+    (``LOCK_WAIT_TIMEOUT_S``) a waiter that started before a crashed holder's last heartbeat times out before
+    it can take over.
     """
     if isinstance(policy, NoLock):
         return None
     if isinstance(policy, Held):
         return policy.holder_id
-    deadline = time.monotonic() + policy.timeout_s
+    start = time.monotonic()
+    deadline = start + policy.timeout_s
+    polled = False
     while time.monotonic() < deadline:
         if await SessionLock.try_claim(thread_id, policy.holder_id):
+            if polled:
+                logger.info(
+                    "executor: waited %.0fs for session lock thread_id=%s holder=%s",
+                    time.monotonic() - start,
+                    thread_id,
+                    policy.holder_id,
+                )
             return policy.holder_id
+        polled = True
         await asyncio.sleep(LOCK_POLL_INTERVAL_S)
-    raise TimeoutError(f"session lock for thread_id={thread_id} not released within {policy.timeout_s}s")
+    raise SessionLockTimeoutError(f"session lock for thread_id={thread_id} not released within {policy.timeout_s}s")
 
 
 async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:

@@ -30,19 +30,16 @@ def stale_cutoff(now: datetime | None = None) -> datetime:
 class SessionLock:
     """Unified execution slot for a session.
 
-    Holders are chat turns (holder_id = the AG-UI run_id) and background jobs
-    routed through ``run_job_task`` (holder_id = str(Run.pk)). Exactly one such
-    holder executes against a thread's checkpoint at a time — this closes the
-    historical race where a chat continuation and a ``run_job_task`` run on the
-    same thread ran concurrently.
+    Holders are chat turns (holder_id = the AG-UI run_id), background jobs
+    routed through ``run_job_task`` (holder_id = str(Run.pk)) and webhook
+    runs (holder_id = ``webhook-<uuid4 hex>``). Exactly one such holder
+    executes against a thread's checkpoint at a time.
 
-    Not covered: webhook addressors (issue/MR) call ``create_daiv_agent``
-    directly and never route through this lock, so they are not mutually
-    excluded with chat/job holders. Stale takeover (below) guards only the DB
-    slot, not the in-flight work: a holder that stalls past ``STALE_RUN_MINUTES``
-    can be superseded while its own graph invocation is still running (there is
-    no fencing token). The generous window makes that rare, and a takeover logs
-    a warning so it is observable.
+    Stale takeover (below) guards only the DB slot, not the in-flight work: a
+    holder that stalls past ``STALE_RUN_MINUTES`` can be superseded while its
+    own graph invocation is still running (there is no fencing token). The
+    generous window makes that rare, and a takeover logs a warning so it is
+    observable.
     """
 
     @staticmethod

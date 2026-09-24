@@ -6,12 +6,11 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
+from sessions.executor.run import execute_run
+from sessions.executor.spec import RunHooks, RunSpec
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
-from automation.agent.graph import create_daiv_agent
-from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
-from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import (
     GitPlatform,
@@ -22,15 +21,17 @@ from codebase.base import (
     NotePositionType,
     Scope,
 )
+from codebase.exceptions import CloneRefNotFoundError
 from codebase.utils import resolve_thread_id
-from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
 
 from .base import BaseManager
 
 if TYPE_CHECKING:
+    from langgraph.types import StateSnapshot
+    from sessions.executor.spec import RunOutcome
+
     from automation.agent.results import AgentResult
-    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.agents")
 
@@ -195,157 +196,107 @@ class NoteProcessor:
 
 class CommentsAddressorManager(BaseManager):
     """
-    Manages the comments addressing process.
+    Runs the agent on a merge request comment that mentions DAIV and answers on the merge request.
 
-    Deliberately does **not** arm the CI watch: this pushes to a merge request someone else may
-    own. Pinned by ``test_every_publishing_seam_that_should_arm_does``.
+    Deliberately does **not** arm the CI watch (``arm_watch=False``): this pushes to a merge request someone
+    else may own. Pinned by ``test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch``.
     """
 
     def __init__(
-        self,
-        *,
-        merge_request: MergeRequest,
-        mention_comment_id: str,
-        runtime_ctx: RuntimeCtx,
-        thread_id: str | None = None,
+        self, *, repo_id: str, merge_request: MergeRequest, mention_comment_id: str, thread_id: str | None = None
     ):
         super().__init__(
-            runtime_ctx=runtime_ctx,
+            repo_id=repo_id,
             thread_id=resolve_thread_id(
-                thread_id,
-                repo_slug=runtime_ctx.repository.slug,
-                scope=Scope.MERGE_REQUEST,
-                entity_iid=merge_request.merge_request_id,
+                thread_id, repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request.merge_request_id
             ),
+            mention_comment_id=mention_comment_id,
         )
         self.merge_request = merge_request
-        self.mention_comment_id = mention_comment_id
 
     @classmethod
     async def address_comments(
         cls,
         *,
+        repo_id: str,
         merge_request: MergeRequest,
         mention_comment_id: str,
-        runtime_ctx: RuntimeCtx,
         thread_id: str | None = None,
+        sandbox_env_id: str | None = None,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
         Args:
-            merge_request (MergeRequest): The merge request.
-            mention_comment_id (str): The mention comment id.
-            runtime_ctx (RuntimeCtx): The runtime context.
+            repo_id: The repository slug.
+            merge_request: The merge request.
+            mention_comment_id: The mention comment id.
+            thread_id: The session's thread id; ``None`` computes the deterministic one.
+            sandbox_env_id: The sandbox environment the callback selected.
 
         Returns:
-            An :class:`AgentResult` dict with the agent response and code_changes flag.
+            An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
+            raises ``CloneRefNotFoundError`` for the task to answer.
         """
         manager = cls(
-            merge_request=merge_request,
-            mention_comment_id=mention_comment_id,
-            runtime_ctx=runtime_ctx,
-            thread_id=thread_id,
+            repo_id=repo_id, merge_request=merge_request, mention_comment_id=mention_comment_id, thread_id=thread_id
         )
 
         try:
-            return await manager._address_comments()
-        except AgentConfigurationError as err:
-            logger.warning("review_addressor: %s", err)
-            manager._leave_comment(
-                f"@{manager.merge_request.author.username} I can't run yet: {err}",
-                reply_to_id=manager.mention_comment_id if manager.ctx.git_platform == GitPlatform.GITLAB else None,
-            )
+            return await manager._address_comments(sandbox_env_id=sandbox_env_id)
+        except CloneRefNotFoundError:
             raise
         except Exception:
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self) -> AgentResult:
-        """
-        Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
-        """
-        mention_comment = self.client.get_merge_request_comment(
-            self.ctx.repository.slug, self.merge_request.merge_request_id, self.mention_comment_id
-        )
-
-        async with open_checkpointer() as checkpointer:
-            agent_kwargs = get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent)
-            daiv_agent = await create_daiv_agent(
-                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
-            )
-            agent_config = build_langsmith_config(
-                self.ctx,
+    async def _address_comments(self, *, sandbox_env_id: str | None) -> AgentResult:
+        note = self.client.get_merge_request_comment(
+            self.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
+        ).notes[0]
+        outcome = await execute_run(
+            RunSpec(
+                thread_id=self.thread_id,
+                repo_id=self.repo_id,
+                scope=Scope.MERGE_REQUEST,
+                input_messages=(HumanMessage(name=note.author.username, id=note.id, content=note.body),),
                 trigger="mention",
-                model=agent_kwargs["model_names"][0],
-                thinking_level=agent_kwargs["thinking_level"],
-                agent_name=daiv_agent.get_name(),
-                configurable={"thread_id": self.thread_id},
+                lock=await self._lock_policy(),
+                ref=self.merge_request.source_branch,
+                merge_request=self.merge_request,
+                sandbox_env_id=sandbox_env_id,
+                recover_draft=True,
                 extra_metadata={
                     "author": self.merge_request.author.username,
-                    "triggered_by": mention_comment.notes[0].author.username,
+                    "triggered_by": note.author.username,
                     "merge_request_id": self.merge_request.merge_request_id,
                 },
-            )
-            try:
-                with track_usage_metadata() as usage_handler:
-                    result = await daiv_agent.ainvoke(
-                        {
-                            "messages": [
-                                HumanMessage(
-                                    name=mention_comment.notes[0].author.username,
-                                    id=mention_comment.notes[0].id,
-                                    content=mention_comment.notes[0].body,
-                                )
-                            ]
-                        },
-                        config=agent_config,
-                        context=self.ctx,
-                    )
-            except Exception:
-                draft_published = await self._recover_draft(
-                    daiv_agent,
-                    agent_config,
-                    entity_label="merge request",
-                    entity_id=self.merge_request.merge_request_id,
-                )
-                # _recover_draft may have updated state with the recovered MR, so
-                # re-read here rather than reusing a pre-recovery snapshot.
-                fallback_footer = self._render_protected_branch_footer(
-                    await self._safe_get_state(daiv_agent, agent_config)
-                )
-                self._add_unable_to_address_review_note(
-                    draft_published=draft_published, fallback_footer=fallback_footer
-                )
-                raise
-            else:
-                response_text = ""
-                # Read the snapshot once so the fallback footer and AgentResult share
-                # the same checkpoint read instead of round-tripping Redis twice.
-                snapshot = await self._safe_get_state(daiv_agent, agent_config)
-                fallback_footer = self._render_protected_branch_footer(snapshot)
-                if (
-                    result
-                    and "messages" in result
-                    and result["messages"]
-                    and (response_text := extract_text_content(result["messages"][-1].content).strip())
-                ):
-                    self._leave_comment(self._append_footer(response_text, fallback_footer))
-                else:
-                    logger.warning(
-                        "Agent returned empty response for merge request %d (result keys: %s)",
-                        self.merge_request.merge_request_id,
-                        list(result.keys()) if result else None,
-                    )
-                    self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
+            ),
+            RunHooks(on_success=self._on_success, on_failure=self._on_failure),
+        )
+        return outcome.agent_result
 
-                return await self._build_agent_result(
-                    daiv_agent,
-                    agent_config,
-                    response=response_text,
-                    usage=build_usage_summary(usage_handler).to_dict(),
-                    snapshot=snapshot,
+    async def _on_success(self, outcome: RunOutcome) -> None:
+        fallback_footer = self._render_protected_branch_footer(outcome.snapshot)
+        if response := outcome.response_text.strip():
+            self._leave_comment(self._append_footer(response, fallback_footer))
+        else:
+            logger.warning("Agent returned empty response for merge request %d", self.merge_request.merge_request_id)
+            self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
+
+    async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, CloneRefNotFoundError):
+            return
+        if isinstance(exc, AgentConfigurationError):
+            logger.warning("review_addressor: %s", exc)
+            if self._claim_unable_note():
+                self._leave_comment(
+                    f"@{self.merge_request.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
                 )
+            return
+        self._add_unable_to_address_review_note(
+            draft_published=draft_published, fallback_footer=self._render_protected_branch_footer(snapshot)
+        )
 
     def _render_protected_branch_footer(self, snapshot) -> str | None:
         """
@@ -383,7 +334,7 @@ class CommentsAddressorManager(BaseManager):
                 "source_branch": source_branch,
                 "new_merge_request_url": new_mr.web_url,
                 "new_merge_request_id": new_mr.merge_request_id,
-                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )
 
@@ -408,16 +359,12 @@ class CommentsAddressorManager(BaseManager):
             "codebase/unable_address_review.txt",
             {
                 "bot_name": BOT_NAME,
-                "bot_username": self.ctx.bot_username,
+                "bot_username": self.client.current_user.username,
                 "draft_published": draft_published,
-                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )
-        self._leave_comment(
-            self._append_footer(body, fallback_footer),
-            # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
-            reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
-        )
+        self._leave_comment(self._append_footer(body, fallback_footer), reply_to_id=self.reply_to_id)
 
     def _leave_comment(self, body: str, reply_to_id: str | None = None):
         """
@@ -428,5 +375,5 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.ctx.repository.slug, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
+            self.repo_id, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
         )

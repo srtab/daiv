@@ -322,13 +322,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
 
         runs = list(session.runs.order_by("created_at"))
         non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
-        # A live holder — a chat stream or ``run_job_task`` — bumps the session
-        # heartbeat (``last_active_at``) every ~60s, so the session is only really in
-        # flight while that heartbeat is fresh. A holder stranded past
-        # ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead: falling
-        # through to "not in flight" surfaces the expired banner instead of pinning
-        # the view on a permanent "working" state. This reuses the staleness signal
-        # ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
+        # A live holder — a chat stream, ``run_job_task``, or a webhook run — bumps
+        # the session heartbeat (``last_active_at``) every ~60s, so the session is
+        # only really in flight while that heartbeat is fresh. A holder stranded
+        # past ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead:
+        # falling through to "not in flight" surfaces the expired banner instead of
+        # pinning the view on a permanent "working" state. This reuses the
+        # staleness signal ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
         is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
 
         # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means

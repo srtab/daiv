@@ -1,9 +1,13 @@
+import json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from redis.exceptions import RedisError
+
 from sessions.executor.lock import hold_session_lock
+from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, Session
 from sessions.pipeline_watch.service import PipelineWatch
@@ -13,6 +17,7 @@ if TYPE_CHECKING:
 
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+    from langgraph.types import StateSnapshot
 
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from codebase.context import RuntimeCtx
@@ -24,15 +29,27 @@ logger = logging.getLogger("daiv.sessions")
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
-    async with hold_session_lock(spec.lock, spec.thread_id):
-        try:
-            outcome = await _invoke(spec)
-        except Exception as exc:
+    entered = False
+    try:
+        async with hold_session_lock(spec.lock, spec.thread_id):
+            entered = True
+            return await _run_in_slot(spec, hooks)
+    except Exception as exc:
+        if not entered:
             await _notify_failure(hooks, exc)
-            raise
-        if hooks.on_success is not None:
-            await hooks.on_success(outcome)
-        return outcome
+        raise
+
+
+async def _run_in_slot(spec: RunSpec, hooks: RunHooks) -> RunOutcome:
+    recovery = _Recovery()
+    try:
+        outcome = await _invoke(spec, recovery)
+    except Exception as exc:
+        await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
+        raise
+    if hooks.on_success is not None:
+        await hooks.on_success(outcome)
+    return outcome
 
 
 @dataclass(frozen=True)
@@ -42,14 +59,28 @@ class _AgentRun:
     config: RunnableConfig
 
 
-async def _invoke(spec: RunSpec) -> RunOutcome:
+@dataclass
+class _Recovery:
+    """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
+
+    draft_published: bool = False
+    snapshot: StateSnapshot | None = None
+
+
+async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
     from automation.agent.usage_tracking import track_usage_metadata
 
     async with _agent_run(spec) as run:
-        with track_usage_metadata() as usage_handler:
-            result = await run.agent.ainvoke(
-                {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
-            )
+        try:
+            with track_usage_metadata() as usage_handler:
+                result = await run.agent.ainvoke(
+                    {"messages": list(spec.input_messages)}, config=run.config, context=run.ctx
+                )
+        except Exception:
+            if spec.recover_draft:
+                recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
+                recovery.snapshot = await _read_snapshot_after_recovery(run, spec.thread_id)
+            raise
         return await _after_run(spec, run, result, usage_handler)
 
 
@@ -66,6 +97,9 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
             repo_id=spec.repo_id,
             scope=spec.scope,
             ref=spec.ref,
+            issue=spec.issue,
+            merge_request=spec.merge_request,
+            fallback_ref_on_missing=spec.fallback_ref_on_missing,
             sandbox_env_id=spec.sandbox_env_id,
             acting_user_id=spec.acting_user_id,
             mcp_overrides=spec.mcp_overrides,
@@ -73,10 +107,13 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
         ) as ctx,
         open_checkpointer() as checkpointer,
     ):
+        if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            await _repin_fallback_ref(spec.thread_id, ctx.repo.ref)
         agent_kwargs = get_daiv_agent_kwargs(
             model_config=ctx.config.models.agent,
             agent_model=spec.agent_model,
             agent_thinking_level=spec.agent_thinking_level,
+            **({"use_max": True} if spec.use_max else {}),
         )
         model = agent_kwargs["model_names"][0]
         await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
@@ -93,6 +130,17 @@ async def _agent_run(spec: RunSpec) -> AsyncIterator[_AgentRun]:
         yield _AgentRun(ctx=ctx, agent=agent, config=config)
 
 
+async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
+    """Point the session at the branch the clone fell back to, so the next turn doesn't ask for a branch that is
+    gone. Best-effort: the fallback clone already succeeded, so a failed write must not abort the run."""
+    from sessions.services import areset_session_ref  # sessions.services imports jobs.tasks, which imports us
+
+    try:
+        await areset_session_ref(thread_id=thread_id, new_ref=new_ref)
+    except Exception:
+        logger.exception("executor: failed to reset session ref for thread_id=%s", thread_id)
+
+
 async def _after_run(
     spec: RunSpec, run: _AgentRun, result: dict[str, Any], usage_handler: CostAwareUsageMetadataCallbackHandler
 ) -> RunOutcome:
@@ -106,12 +154,13 @@ async def _after_run(
         raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
     response_text = extract_text_content(messages[-1].content)
 
-    snapshot = await run.agent.aget_state(config=run.config)
-    merge_request = snapshot.values.get("merge_request")
+    snapshot = await _read_snapshot(run, spec.thread_id)
+    values = snapshot.values if snapshot is not None else {}
+    merge_request = values.get("merge_request")
     if spec.persist_ref:
         try:
             await apersist_session_ref(
-                thread_id=spec.thread_id, current_ref=spec.ref or "", merge_request=merge_request
+                thread_id=spec.thread_id, current_ref=run.ctx.repo.ref, merge_request=merge_request
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", spec.thread_id)
@@ -120,7 +169,7 @@ async def _after_run(
             await PipelineWatch(spec.repo_id).aarm_after_run(
                 run_id=spec.run_id,
                 merge_request=merge_request,
-                published=bool(snapshot.values.get("published")),
+                published=bool(values.get("published")),
                 user_id=spec.acting_user_id,
             )
         except Exception:
@@ -134,6 +183,28 @@ async def _after_run(
         snapshot=snapshot,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+
+
+async def _read_snapshot(run: _AgentRun, thread_id: str) -> StateSnapshot | None:
+    """Read the run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the agent
+    already finished, so a Redis blip must not fail the run."""
+    try:
+        return await run.agent.aget_state(config=run.config)
+    except RedisError, OSError, json.JSONDecodeError:
+        logger.warning("executor: failed to read agent state for thread_id=%s", thread_id, exc_info=True)
+        return None
+
+
+async def _read_snapshot_after_recovery(run: _AgentRun, thread_id: str) -> StateSnapshot | None:
+    """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
+    error is what must reach ``on_failure``, not this one."""
+    try:
+        return await _read_snapshot(run, thread_id)
+    except Exception:
+        logger.warning(
+            "executor: failed to read agent state after draft recovery for thread_id=%s", thread_id, exc_info=True
+        )
+        return None
 
 
 async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: str) -> None:
@@ -150,10 +221,12 @@ async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: 
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
 
 
-async def _notify_failure(hooks: RunHooks, exc: Exception) -> None:
+async def _notify_failure(
+    hooks: RunHooks, exc: Exception, *, draft_published: bool = False, snapshot: StateSnapshot | None = None
+) -> None:
     if hooks.on_failure is None:
         return
     try:
-        await hooks.on_failure(exc, draft_published=False)
+        await hooks.on_failure(exc, draft_published=draft_published, snapshot=snapshot)
     except Exception:
         logger.exception("executor: on_failure hook failed while handling %s", type(exc).__name__)
