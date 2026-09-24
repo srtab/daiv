@@ -1,5 +1,5 @@
 from ninja import Router
 
-# The GitLab/GitHub webhook callbacks live on this router — they register onto it from
-# ``codebase/clients/<platform>/api/views.py``, imported by ``CodebaseConfig.ready()``.
+# The GitLab/GitHub webhook callbacks live on this router. They register onto it from
+# ``webhooks/<platform>/views.py``, imported by ``WebhooksConfig.ready()``.
 router = Router(tags=["codebase"])

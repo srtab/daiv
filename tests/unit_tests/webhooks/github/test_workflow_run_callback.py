@@ -1,7 +1,7 @@
 import pytest
+from webhooks.github.callbacks import WorkflowRunCallback
+from webhooks.github.models import Repository, WorkflowRun
 
-from codebase.clients.github.api.callbacks import WorkflowRunCallback
-from codebase.clients.github.api.models import Repository, WorkflowRun
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.sessions.conftest import amake_watched_session
 
@@ -13,9 +13,7 @@ def repo_config():
 
 @pytest.fixture
 def monkeypatch_dependencies(monkeypatch, repo_config):
-    monkeypatch.setattr(
-        "codebase.clients.github.api.callbacks.RepositoryConfig.get_config", lambda *a, **kw: repo_config
-    )
+    monkeypatch.setattr("webhooks.github.callbacks.RepositoryConfig.get_config", lambda *a, **kw: repo_config)
 
 
 def make_callback(

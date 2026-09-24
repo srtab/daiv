@@ -1,4 +1,4 @@
-from codebase.clients.github.api.models import Issue, Label
+from webhooks.github.models import Issue, Label
 
 
 class TestGitHubIssueIsDaiv:

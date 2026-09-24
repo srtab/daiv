@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 from ninja.testing import TestAsyncClient
+from webhooks.gitlab.callbacks import PushCallback
+from webhooks.gitlab.models import Project
 
-from codebase.clients.gitlab.api.callbacks import PushCallback
-from codebase.clients.gitlab.api.models import Project
 from daiv.api import api
 
 

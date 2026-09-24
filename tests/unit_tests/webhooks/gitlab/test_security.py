@@ -4,8 +4,7 @@ from django.http import HttpRequest
 
 import pytest
 from pydantic import SecretStr
-
-from codebase.clients.gitlab.api.security import validate_gitlab_webhook
+from webhooks.gitlab.security import validate_gitlab_webhook
 
 
 @pytest.fixture
@@ -28,7 +27,7 @@ def mock_request():
 def test_validate_gitlab_webhook(mock_request, secret_configured, token_header, expected_result):
     """Test GitLab webhook validation with various scenarios."""
     # Setup
-    with patch("codebase.clients.gitlab.api.security.settings") as mock_settings:
+    with patch("webhooks.gitlab.security.settings") as mock_settings:
         mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if token_header:
@@ -48,7 +47,7 @@ def test_a_non_ascii_token_is_rejected_rather_than_raising(mock_request):
     reach Django latin-1-decoded — so comparing as ``str`` turns an attacker-supplied byte into a
     500 (and a Sentry event) on an unauthenticated endpoint instead of the intended 401.
     """
-    with patch("codebase.clients.gitlab.api.security.settings") as mock_settings:
+    with patch("webhooks.gitlab.security.settings") as mock_settings:
         mock_settings.GITLAB_WEBHOOK_SECRET = SecretStr("test_secret")
         mock_request.headers["X-Gitlab-Token"] = b"\xe9".decode("latin-1")
 

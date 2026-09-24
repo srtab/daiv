@@ -1,7 +1,7 @@
 import pytest
+from webhooks.gitlab.callbacks import PipelineCallback
+from webhooks.gitlab.models import PipelineEvent, Project, User
 
-from codebase.clients.gitlab.api.callbacks import PipelineCallback
-from codebase.clients.gitlab.api.models import PipelineEvent, Project, User
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.sessions.conftest import amake_watched_session
 
@@ -23,10 +23,8 @@ def repo_config():
 
 @pytest.fixture
 def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
-    monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.RepoClient.create_instance", lambda: stub_client)
-    monkeypatch.setattr(
-        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *a, **kw: repo_config
-    )
+    monkeypatch.setattr("webhooks.gitlab.callbacks.RepoClient.create_instance", lambda: stub_client)
+    monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *a, **kw: repo_config)
 
 
 def make_callback(status: str, *, user_id: int = 10, ref: str = "daiv/branch") -> PipelineCallback:

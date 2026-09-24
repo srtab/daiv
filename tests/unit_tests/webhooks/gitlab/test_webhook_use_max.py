@@ -4,9 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, Session
-
-from codebase.clients.gitlab.api.callbacks import IssueCallback, NoteCallback
-from codebase.clients.gitlab.api.models import (
+from webhooks.gitlab.callbacks import IssueCallback, NoteCallback
+from webhooks.gitlab.models import (
     Issue,
     IssueAction,
     Label,
@@ -17,6 +16,7 @@ from codebase.clients.gitlab.api.models import (
     Project,
     User,
 )
+
 from codebase.repo_config import RepositoryConfig
 
 # ---------------------------------------------------------------------------
@@ -94,11 +94,9 @@ class _StubClient:
 
 @pytest.fixture
 def _stub_gitlab(monkeypatch):
-    monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.RepoClient.create_instance", lambda: _StubClient())
-    monkeypatch.setattr(
-        "codebase.clients.gitlab.api.callbacks.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig()
-    )
-    monkeypatch.setattr("codebase.clients.gitlab.api.callbacks.resolve_user", AsyncMock(return_value=None))
+    monkeypatch.setattr("webhooks.gitlab.callbacks.RepoClient.create_instance", lambda: _StubClient())
+    monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *_a, **_kw: RepositoryConfig())
+    monkeypatch.setattr("webhooks.gitlab.callbacks.resolve_user", AsyncMock(return_value=None))
 
 
 @pytest.mark.asyncio
@@ -126,7 +124,7 @@ async def test_issue_callback_persists_agent_model(_stub_gitlab, labels, expect_
             type="Issue",
         ),
     )
-    with patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task:
+    with patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task:
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
@@ -166,8 +164,8 @@ async def test_note_callback_on_mr_persists_agent_model(_stub_gitlab, labels, ex
         ),
     )
     with (
-        patch("codebase.clients.gitlab.api.callbacks.address_mr_comments_task") as mock_task,
-        patch("codebase.clients.gitlab.api.callbacks.note_mentions_daiv", return_value=True),
+        patch("webhooks.gitlab.callbacks.address_mr_comments_task") as mock_task,
+        patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
@@ -206,8 +204,8 @@ async def test_note_callback_on_issue_persists_agent_model(_stub_gitlab, labels,
         ),
     )
     with (
-        patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-        patch("codebase.clients.gitlab.api.callbacks.note_mentions_daiv", return_value=True),
+        patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
+        patch("webhooks.gitlab.callbacks.note_mentions_daiv", return_value=True),
     ):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
@@ -248,7 +246,7 @@ async def test_two_issue_events_share_one_session(_stub_gitlab):
                 type="Issue",
             ),
         )
-        with patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task:
+        with patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
             await callback.process_callback()
 

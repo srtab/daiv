@@ -1,9 +1,9 @@
 import logging
 
-from codebase.api.callbacks import UnprocessableEntityResponse
 from codebase.api.router import router
 from codebase.base import GitPlatform
 from codebase.conf import settings
+from webhooks.callbacks import UnprocessableEntityResponse
 
 from .callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PipelineCallback, PushCallback  # noqa: TC001
 from .security import validate_gitlab_webhook

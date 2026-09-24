@@ -4,8 +4,7 @@ from django.http import HttpRequest
 
 import pytest
 from pydantic import SecretStr
-
-from codebase.clients.github.api.security import validate_github_webhook
+from webhooks.github.security import validate_github_webhook
 
 
 @pytest.fixture
@@ -29,7 +28,7 @@ def mock_request():
 def test_validate_github_webhook(mock_request, secret_configured, signature_header, valid_signature, expected_result):
     """Test GitHub webhook validation with various scenarios."""
     # Setup
-    with patch("codebase.clients.github.api.security.settings") as mock_settings:
+    with patch("webhooks.github.security.settings") as mock_settings:
         mock_settings.GITHUB_WEBHOOK_SECRET = SecretStr("test_secret") if secret_configured else None
 
         if signature_header:
@@ -59,7 +58,7 @@ def test_a_non_ascii_signature_is_rejected_rather_than_raising(mock_request):
     non-ASCII, and ``hmac.compare_digest`` raises ``TypeError`` comparing that as ``str`` — a 500
     on an unauthenticated endpoint instead of the intended 401.
     """
-    with patch("codebase.clients.github.api.security.settings") as mock_settings:
+    with patch("webhooks.github.security.settings") as mock_settings:
         mock_settings.GITHUB_WEBHOOK_SECRET = SecretStr("test_secret")
         mock_request.headers["X-Hub-Signature-256"] = "sha256=" + b"\xe9".decode("latin-1")
 

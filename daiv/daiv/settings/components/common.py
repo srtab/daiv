@@ -27,6 +27,7 @@ LOCAL_APPS = [
     "sessions",
     "skills",
     "slash_commands",
+    "webhooks",
 ]
 
 THIRD_PARTY_APPS = [

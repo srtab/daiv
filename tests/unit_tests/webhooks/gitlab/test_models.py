@@ -1,4 +1,4 @@
-from codebase.clients.gitlab.api.models import Issue, Label, MergeRequest
+from webhooks.gitlab.models import Issue, Label, MergeRequest
 
 
 class TestGitLabIssueIsDaiv:
