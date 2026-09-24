@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sessions.executor.lock import Held, NoLock, Wait, hold_session_lock
+from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock
 from sessions.locks import SessionLock
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
@@ -46,7 +46,7 @@ class TestWait:
 
         with (
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
-            pytest.raises(TimeoutError, match="not released within"),
+            pytest.raises(SessionLockTimeoutError, match="not released within"),
         ):
             async with hold_session_lock(Wait(holder_id="run-1", timeout_s=0.05), thread_id):
                 await body()

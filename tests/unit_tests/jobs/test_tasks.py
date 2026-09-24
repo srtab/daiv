@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 from contextlib import asynccontextmanager, contextmanager, nullcontext, suppress
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -324,7 +325,9 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
     ):
-        rc_ctx.return_value.__aenter__.return_value = MagicMock(config=MagicMock(models=MagicMock(agent=object())))
+        rc_ctx.return_value.__aenter__.return_value = MagicMock(
+            config=MagicMock(models=MagicMock(agent=object())), repo=SimpleNamespace(ref="main")
+        )
         yield rc_ctx
 
 

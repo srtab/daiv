@@ -43,26 +43,28 @@ class RunSpec:
 
 @dataclass(frozen=True, kw_only=True)
 class RunOutcome:
+    """``snapshot`` is ``None`` when the post-run checkpoint read failed; the run itself still succeeded."""
+
     agent_result: AgentResult
     response_text: str
-    snapshot: StateSnapshot
+    snapshot: StateSnapshot | None
 
 
 class FailureHook(Protocol):
-    """``draft_published`` says whether the executor's draft recovery published a draft after the error; with
-    no recovery step yet, it is always ``False``."""
+    """``draft_published`` says whether draft recovery published a draft after the error, and ``snapshot`` is the
+    state it re-read afterwards; ``False`` and ``None`` when no recovery ran."""
 
-    async def __call__(self, exc: Exception, /, *, draft_published: bool) -> None: ...
+    async def __call__(self, exc: Exception, /, *, draft_published: bool, snapshot: StateSnapshot | None) -> None: ...
 
 
 @dataclass(frozen=True, kw_only=True)
 class RunHooks:
     """Trigger callbacks, awaited after the run's context closes and while the session slot is still held.
 
-    ``on_failure`` sees every ``Exception`` raised after the slot is claimed, from setup through closing the
-    context (a cancellation skips it), and the executor re-raises once it returns. An error ``on_failure``
-    raises is logged; it never replaces the run's own. An error from ``on_success`` propagates as-is and never
-    reaches ``on_failure``.
+    ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation skips
+    it), and the executor re-raises once it returns. For a ``SessionLockTimeoutError`` it runs without the slot,
+    which was never claimed. An error ``on_failure`` raises is logged; it never replaces the run's own. An error
+    from ``on_success`` propagates as-is and never reaches ``on_failure``.
     """
 
     on_success: Callable[[RunOutcome], Awaitable[None]] | None = None

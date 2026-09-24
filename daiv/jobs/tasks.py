@@ -10,6 +10,8 @@ from sessions.models import Session
 from codebase.base import Scope
 
 if TYPE_CHECKING:
+    from langgraph.types import StateSnapshot
+
     from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.jobs")
@@ -66,7 +68,7 @@ async def run_job_task(
         lock = Wait(holder_id=run_id or f"job-{thread_id[:8]}", timeout_s=LOCK_WAIT_TIMEOUT_S)
         mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
 
-    async def _log_failure(exc: Exception, *, draft_published: bool) -> None:
+    async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         logger.error(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )

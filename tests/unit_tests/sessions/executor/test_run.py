@@ -1,12 +1,14 @@
 import asyncio
+import json
 import uuid
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
-from sessions.executor.lock import NoLock, Wait
+from redis.exceptions import RedisError
+from sessions.executor.lock import NoLock, SessionLockTimeoutError, Wait
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -47,7 +49,7 @@ def _agent_stack(agent, *, context=None, resolve=None):
     stack = SimpleNamespace(
         events=[],
         context_kwargs={},
-        ctx=MagicMock(),
+        ctx=MagicMock(repo=SimpleNamespace(ref="main")),
         checkpointer=object(),
         armed=[],
         resolve=resolve or MagicMock(return_value=AGENT_KWARGS),
@@ -214,13 +216,19 @@ async def test_a_raising_agent_still_runs_every_finally_step():
 
     with _agent_stack(agent) as stack, patch("sessions.executor.lock._heartbeat_loop", _heartbeat_loop):
 
-        async def _on_failure(exc, *, draft_published):
-            stack.events.append(f"on_failure {exc} draft={draft_published} holding {await active_holder(thread_id)}")
+        async def _on_failure(exc, *, draft_published, snapshot):
+            stack.events.append(
+                f"on_failure {exc} draft={draft_published} snapshot={snapshot} holding {await active_holder(thread_id)}"
+            )
 
         with pytest.raises(RuntimeError, match="agent blew up"):
             await execute_run(spec, RunHooks(on_success=on_success, on_failure=_on_failure))
 
-    assert stack.events == ["context entered", "context exited", "on_failure agent blew up draft=False holding run-1"]
+    assert stack.events == [
+        "context entered",
+        "context exited",
+        "on_failure agent blew up draft=False snapshot=None holding run-1",
+    ]
     assert heartbeat_cancelled == [True]
     assert await active_holder(thread_id) is None
     agent.aget_state.assert_not_awaited()
@@ -252,7 +260,7 @@ async def test_an_agent_configuration_error_reaches_on_failure_before_any_agent_
         await execute_run(_spec(), RunHooks(on_failure=on_failure))
 
     stack.create_agent.assert_not_awaited()
-    on_failure.assert_awaited_once_with(error, draft_published=False)
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
 async def test_an_agent_that_returns_no_messages_fails_the_run():
@@ -362,3 +370,72 @@ async def test_a_failing_on_success_hook_propagates_without_calling_on_failure()
         )
 
     on_failure.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_lock_that_never_frees_reaches_on_failure():
+    """The trigger hears about a run that gave up waiting, so it can tell its user instead of going quiet."""
+    thread_id = await amake_job_session(active_run_id="chat-run")
+    on_failure = AsyncMock()
+
+    with (
+        _agent_stack(_agent()) as stack,
+        patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+        pytest.raises(SessionLockTimeoutError, match="not released within"),
+    ):
+        await execute_run(
+            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05)), RunHooks(on_failure=on_failure)
+        )
+
+    [exc] = on_failure.await_args.args
+    assert isinstance(exc, SessionLockTimeoutError)
+    assert on_failure.await_args.kwargs == {"draft_published": False, "snapshot": None}
+    assert stack.events == []
+    stack.create_agent.assert_not_awaited()
+    assert await active_holder(thread_id) == "chat-run"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RedisError("connection refused"), OSError("network unreachable"), json.JSONDecodeError("bad", "<doc>", 0)],
+    ids=["redis", "os", "json"],
+)
+async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
+    """The agent already finished, so the hook, the ref sync and the watch still run, without a checkpoint."""
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=error)
+    on_success = AsyncMock()
+
+    with _agent_stack(agent) as stack, caplog.at_level("WARNING", logger="daiv.sessions"):
+        outcome = await execute_run(_spec(persist_ref=True, arm_watch=True), RunHooks(on_success=on_success))
+
+    assert outcome.snapshot is None
+    on_success.assert_awaited_once_with(outcome)
+    stack.persist.assert_awaited_once_with(thread_id=ANY, current_ref="main", merge_request=None)
+    assert stack.armed == [
+        {"repo_id": "owner/repo", "run_id": None, "merge_request": None, "published": False, "user_id": None}
+    ]
+    assert stack.build_result.await_args.kwargs["snapshot"] is None
+    assert "failed to read agent state" in caplog.text
+
+
+async def test_a_checkpoint_read_that_fails_for_another_reason_fails_the_run():
+    """Only transport and serialization errors degrade; a programming error still surfaces."""
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
+    on_failure = AsyncMock()
+
+    with _agent_stack(agent), pytest.raises(KeyError):
+        await execute_run(_spec(), RunHooks(on_failure=on_failure))
+
+    on_failure.assert_awaited_once()
+
+
+async def test_the_ref_sync_compares_against_the_ref_the_clone_landed_on():
+    spec = _spec(ref=None, persist_ref=True)
+
+    with _agent_stack(_agent(state={"merge_request": MR})) as stack:
+        stack.ctx.repo.ref = "master"
+        await execute_run(spec)
+
+    stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="master", merge_request=MR)
