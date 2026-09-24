@@ -5,13 +5,7 @@ from codebase.base import GitPlatform
 from codebase.conf import settings
 from webhooks.callbacks import UnprocessableEntityResponse
 
-from .callbacks import (  # noqa: TC001
-    IssueCallback,
-    IssueCommentCallback,
-    PullRequestCallback,
-    PushCallback,
-    WorkflowRunCallback,
-)
+from .callbacks import IssueCallback, IssueCommentCallback, PullRequestCallback, PushCallback, WorkflowRunCallback  # noqa: TC001
 from .security import validate_github_webhook
 
 logger = logging.getLogger("daiv.webhooks")
