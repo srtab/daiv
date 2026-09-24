@@ -40,6 +40,37 @@ class TestWait:
 
         assert attempts == [False, True]
 
+    async def test_it_logs_the_wait_once_a_claim_succeeds_after_polling(self, caplog):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+        real_try_claim = SessionLock.try_claim
+
+        async def _try_claim(thread_id, holder_id):
+            claimed = await real_try_claim(thread_id, holder_id)
+            if not claimed:
+                await SessionLock.release(thread_id, "chat-run")
+            return claimed
+
+        with (
+            patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+            patch("sessions.executor.lock.SessionLock.try_claim", _try_claim),
+            caplog.at_level("INFO", logger="daiv.sessions"),
+        ):
+            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=5), thread_id):
+                pass
+
+        assert f"thread_id={thread_id}" in caplog.text
+        assert "run-1" in caplog.text
+        assert "waited" in caplog.text
+
+    async def test_an_immediate_claim_logs_no_wait(self, caplog):
+        thread_id = await amake_job_session()
+
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            async with hold_session_lock(Wait(holder_id="run-1", timeout_s=1), thread_id):
+                pass
+
+        assert "waited" not in caplog.text
+
     async def test_it_times_out_when_the_slot_never_frees(self):
         thread_id = await amake_job_session(active_run_id="chat-run")
         body = AsyncMock()

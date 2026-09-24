@@ -342,6 +342,27 @@ async def test_a_lock_that_never_frees_reaches_on_failure():
     assert await active_holder(thread_id) == "chat-run"
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_non_timeout_lock_error_reaches_on_failure_without_entering_the_context():
+    thread_id = await amake_job_session()
+    on_failure = AsyncMock()
+
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.lock.SessionLock.try_claim", AsyncMock(side_effect=RuntimeError("db down"))),
+        pytest.raises(RuntimeError, match="db down"),
+    ):
+        await execute_run(
+            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), RunHooks(on_failure=on_failure)
+        )
+
+    [exc] = on_failure.await_args.args
+    assert isinstance(exc, RuntimeError)
+    assert on_failure.await_args.kwargs == {"draft_published": False, "snapshot": None}
+    assert stack.events == []
+    stack.create_agent.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     "error",
     [RedisError("connection refused"), OSError("network unreachable"), json.JSONDecodeError("bad", "<doc>", 0)],
@@ -498,3 +519,22 @@ async def test_a_setup_error_skips_draft_recovery():
 
     recover.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
+
+
+async def test_a_post_recovery_snapshot_read_that_fails_does_not_replace_the_agents_error(caplog):
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
+    on_failure = AsyncMock()
+    spec = _spec(recover_draft=True)
+
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=True)),
+        caplog.at_level("WARNING", logger="daiv.sessions"),
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        await execute_run(spec, RunHooks(on_failure=on_failure))
+
+    on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=None)
+    assert "failed to read agent state" in caplog.text

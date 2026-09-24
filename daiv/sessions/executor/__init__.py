@@ -2,9 +2,10 @@
 does the rest. The order inside a run, and why each step sits where it does:
 
 1. ``lock.hold_session_lock`` claims the session's execution slot under the spec's ``LockPolicy`` and
-   heartbeats it, so a chat turn and a job on one session take turns instead of overlapping. A ``Wait``
-   that gives up raises ``lock.SessionLockTimeoutError``, which reaches ``hooks.on_failure`` like any
-   other failure, so the trigger can tell its user.
+   heartbeats it, so a chat turn and a job on one session take turns instead of overlapping. Any error
+   here — a ``Wait`` that gives up (``lock.SessionLockTimeoutError``) or another failure inside the
+   claim — reaches ``hooks.on_failure`` without the slot, which was never claimed, so the trigger can
+   tell its user.
 2. ``set_runtime_ctx`` clones the repository and opens the sandbox client; the checkpointer opens. If
    the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
    ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask

@@ -80,10 +80,20 @@ async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | Non
         return None
     if isinstance(policy, Held):
         return policy.holder_id
-    deadline = time.monotonic() + policy.timeout_s
+    start = time.monotonic()
+    deadline = start + policy.timeout_s
+    polled = False
     while time.monotonic() < deadline:
         if await SessionLock.try_claim(thread_id, policy.holder_id):
+            if polled:
+                logger.info(
+                    "executor: waited %.0fs for session lock thread_id=%s holder=%s",
+                    time.monotonic() - start,
+                    thread_id,
+                    policy.holder_id,
+                )
             return policy.holder_id
+        polled = True
         await asyncio.sleep(LOCK_POLL_INTERVAL_S)
     raise SessionLockTimeoutError(f"session lock for thread_id={thread_id} not released within {policy.timeout_s}s")
 

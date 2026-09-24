@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
 
-from sessions.executor.lock import SessionLockTimeoutError, hold_session_lock
+from sessions.executor.lock import hold_session_lock
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.models import Run, Session
@@ -29,11 +29,14 @@ logger = logging.getLogger("daiv.sessions")
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
+    entered = False
     try:
         async with hold_session_lock(spec.lock, spec.thread_id):
+            entered = True
             return await _run_in_slot(spec, hooks)
-    except SessionLockTimeoutError as exc:
-        await _notify_failure(hooks, exc)
+    except Exception as exc:
+        if not entered:
+            await _notify_failure(hooks, exc)
         raise
 
 
@@ -76,7 +79,7 @@ async def _invoke(spec: RunSpec, recovery: _Recovery) -> RunOutcome:
         except Exception:
             if spec.recover_draft:
                 recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
-                recovery.snapshot = await _read_snapshot(run, spec.thread_id)
+                recovery.snapshot = await _read_snapshot_after_recovery(run, spec.thread_id)
             raise
         return await _after_run(spec, run, result, usage_handler)
 
@@ -189,6 +192,18 @@ async def _read_snapshot(run: _AgentRun, thread_id: str) -> StateSnapshot | None
         return await run.agent.aget_state(config=run.config)
     except RedisError, OSError, json.JSONDecodeError:
         logger.warning("executor: failed to read agent state for thread_id=%s", thread_id, exc_info=True)
+        return None
+
+
+async def _read_snapshot_after_recovery(run: _AgentRun, thread_id: str) -> StateSnapshot | None:
+    """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
+    error is what must reach ``on_failure``, not this one."""
+    try:
+        return await _read_snapshot(run, thread_id)
+    except Exception:
+        logger.warning(
+            "executor: failed to read agent state after draft recovery for thread_id=%s", thread_id, exc_info=True
+        )
         return None
 
 

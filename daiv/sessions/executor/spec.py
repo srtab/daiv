@@ -70,9 +70,10 @@ class RunHooks:
     """Trigger callbacks, awaited after the run's context closes and while the session slot is still held.
 
     ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation skips
-    it), and the executor re-raises once it returns. For a ``SessionLockTimeoutError`` it runs without the slot,
-    which was never claimed. An error ``on_failure`` raises is logged; it never replaces the run's own. An error
-    from ``on_success`` propagates as-is and never reaches ``on_failure``.
+    it), and the executor re-raises once it returns. Any lock-step error — a ``SessionLockTimeoutError`` or
+    another failure inside the claim — runs without the slot, which was never claimed. An error ``on_failure``
+    raises is logged; it never replaces the run's own. An error from ``on_success`` propagates as-is and never
+    reaches ``on_failure``.
     """
 
     on_success: Callable[[RunOutcome], Awaitable[None]] | None = None
