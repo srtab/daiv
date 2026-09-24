@@ -15,7 +15,9 @@
     String(s ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
 
   const parseArgs = (argsStr) => {
     if (!argsStr) return {};
@@ -625,10 +627,22 @@
   };
 
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
-  // usual reverse-tabnabbing reasons.
+  // usual reverse-tabnabbing reasons. Only http(s) URLs earn an anchor — a
+  // `javascript:` / `data:` URL is rendered as plain escaped text so it can
+  // never become a clickable script sink.
   const externalLink = (url, label) => {
-    const safeHref = escapeHtml(String(url));
-    const safeLabel = escapeHtml(label != null ? String(label) : String(url));
+    const str = String(url ?? "");
+    let scheme = "";
+    try {
+      scheme = new URL(str).protocol;
+    } catch {
+      scheme = "";
+    }
+    const safeLabel = escapeHtml(label != null ? String(label) : str);
+    if (scheme !== "http:" && scheme !== "https:") {
+      return `<span class="chat-tool__link">${safeLabel}</span>`;
+    }
+    const safeHref = escapeHtml(str);
     return `<a class="chat-tool__link" href="${safeHref}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
   };
 
@@ -738,15 +752,27 @@
 
   window.toolBodyHTML = (name, argsStr, result, status) => {
     if (status === "running" && !result && !argsStr) return "";
+    let html = "";
     const fn = BODY_BY_TOOL[name];
     if (fn) {
       try {
-        const out = fn(argsStr, result);
-        if (out) return out;
+        html = fn(argsStr, result);
       } catch (err) {
         console.warn("chat-tool-renderers: body builder failed, falling back", err);
       }
     }
-    return genericBody(argsStr, result);
+    if (!html) html = genericBody(argsStr, result);
+    // DOMPurify is the final security boundary, the same way renderMarkdown applies
+    // it — tool bodies feed straight into `x-html` (raw innerHTML), so a stray
+    // unescaped field must not survive to the DOM. Falls back to the built HTML
+    // only when DOMPurify is unavailable (it always is in the browser).
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === "function") {
+      return window.DOMPurify.sanitize(html, {
+        USE_PROFILES: { html: true },
+        ADD_ATTR: ["target", "rel", "class"],
+        FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed"],
+      });
+    }
+    return html;
   };
 })();
