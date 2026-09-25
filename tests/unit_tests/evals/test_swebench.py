@@ -1,4 +1,6 @@
+import annotationlib
 import asyncio
+import inspect
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -8,8 +10,15 @@ from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
 from automation.agent import ThinkingLevel
+from automation.agent.graph import create_daiv_agent
 from codebase.base import GitPlatform, Scope
+from codebase.clients import RepoClient
+from codebase.context import set_runtime_ctx
 from evals import swebench
+
+# Captured before the autouse ``mock_repo_client`` fixture replaces ``RepoClient.create_instance``,
+# so the option-pinning test below still calls the real one.
+_real_create_instance = RepoClient.create_instance
 
 ITEM = {
     "instance_id": "owner__repo-1",
@@ -108,3 +117,26 @@ async def test_an_eval_stopped_mid_instance_still_writes_its_predictions(tmp_pat
         ("owner__repo-1", "diff"),
         ("owner__repo-2", ""),
     ]
+
+
+def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_accept():
+    spec = swebench._run_spec(ITEM, ["model-a"])
+
+    agent_sig = inspect.signature(create_daiv_agent, annotation_format=annotationlib.Format.FORWARDREF)
+    agent_sig.bind(ctx=None, checkpointer=None, model_names=[], thinking_level=None, **spec.agent_options)
+
+    ctx_sig = inspect.signature(set_runtime_ctx, annotation_format=annotationlib.Format.FORWARDREF)
+    explicit_params = set(ctx_sig.parameters) - {"kwargs"}
+    ctx_kwargs = {k: v for k, v in spec.context_options.items() if k in explicit_params}
+    client_kwargs = {k: v for k, v in spec.context_options.items() if k not in explicit_params}
+    ctx_sig.bind(spec.repo_id, scope=spec.scope, **ctx_kwargs)
+    _real_create_instance(**client_kwargs)
+
+
+def test_a_message_with_hints_includes_the_hints_section():
+    item = ITEM | {"hints_text": "Check the parser's empty-input branch."}
+
+    message = swebench._human_message(item)
+
+    assert "## Hints" in message
+    assert "Check the parser's empty-input branch." in message
