@@ -18,7 +18,7 @@ from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
 from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
+from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
@@ -34,7 +34,7 @@ def _ctx() -> SimpleNamespace:
 
 def _sandbox_ctx() -> SimpleNamespace:
     """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_runtime())
+    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec())
 
 
 def _issue(*, labels: list[str]) -> Issue:

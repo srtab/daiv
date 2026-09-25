@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
+from sandbox_envs.spec import SandboxEnvOverride
 
 if TYPE_CHECKING:
     from sessions.services import RepoTarget
@@ -19,23 +20,10 @@ if TYPE_CHECKING:
     from codebase.base import Repository
     from codebase.clients import RepoClient
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
     from core.sandbox.schemas import EgressConfigRequest
+    from sandbox_envs.spec import SandboxSpec
 
 logger = logging.getLogger("daiv.sandbox_envs")
-
-
-@dataclass(frozen=True)
-class SandboxEnvOverride:
-    """A resolved sandbox-env view with secrets decrypted. Carries env data
-    between the services layer (where it is built by :func:`row_to_override`)
-    and :func:`merge_sandbox_runtime` / :func:`set_runtime_ctx`."""
-
-    base_image: str | None
-    memory_bytes: int | None
-    cpus: float | None
-    env_vars: dict[str, str]
-    egress: EgressConfigRequest | None = None
 
 
 def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
@@ -160,10 +148,10 @@ def refresh_platform_egress(
 
 
 def augment_sandbox_with_platform_egress(
-    sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
-) -> SandboxRuntime:
+    sandbox: SandboxSpec, repo_client: RepoClient, repository: Repository
+) -> SandboxSpec:
     """Layer the git-platform allow-rule + credential onto ``sandbox.egress``. Returns a new
-    ``SandboxRuntime`` (frozen); the platform contribution is resolved per run via ``repo_client`` and
+    ``SandboxSpec`` (frozen); the platform contribution is resolved per run via ``repo_client`` and
     never stored.
 
     A network-on env (``egress`` already set) always has the rule layered on top of its policy. A
@@ -351,48 +339,6 @@ async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironmen
             if repo_id in (env.repo_ids or []):
                 return env
     return await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
-
-
-def merge_sandbox_runtime(
-    *, per_run: SandboxEnvOverride | None, global_default: SandboxEnvOverride | None
-) -> SandboxRuntime:
-    """Resolve the effective sandbox runtime from a per-run env + GLOBAL default.
-
-    For each resource field (``base_image``, ``memory_bytes``, ``cpus``): the
-    per-run env wins when its value is non-None; otherwise the GLOBAL default
-    wins; otherwise the field's runtime default applies.
-
-    ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
-    ``egress`` is taken from the effective env as-is (see inline comment).
-    ``command_policy`` defaults to an empty policy; built-in safety rules in
-    :mod:`core.sandbox.command_policy` still apply.
-    """
-    from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
-    def pick(field: str, runtime_default):
-        if per_run is not None:
-            v = getattr(per_run, field)
-            if v is not None:
-                return v
-        if global_default is not None:
-            v = getattr(global_default, field)
-            if v is not None:
-                return v
-        return runtime_default
-
-    return SandboxRuntime(
-        base_image=pick("base_image", None),
-        memory_bytes=pick("memory_bytes", None),
-        cpus=pick("cpus", None),
-        # Network is explicit per env (no inherit): take the effective env's egress as-is. A per-run env
-        # that is Off (egress=None) must NOT inherit the global default's policy, so this is not pick().
-        egress=(
-            per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
-        ),
-        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
-        command_policy=SandboxCommandPolicy(),
-    )
 
 
 def build_env_trigger(env: SandboxEnvironment, action: Literal["created", "updated", "deleted"]) -> dict:

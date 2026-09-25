@@ -47,12 +47,13 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
     return config
 
 
-def _make_sandbox_runtime(disallow=(), allow=(), egress: EgressConfigRequest | None = None):
-    """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
-    from codebase.context import SandboxRuntime
+def _make_sandbox_spec(disallow=(), allow=(), egress: EgressConfigRequest | None = None):
+    """Build a ``SandboxSpec`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
+    from sandbox_envs.spec import SandboxSpec
+
     from core.sandbox.command_policy import SandboxCommandPolicy
 
-    return SandboxRuntime(
+    return SandboxSpec(
         base_image="python:3.12",
         memory_bytes=None,
         cpus=None,
@@ -67,7 +68,7 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigReq
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
     runtime.context.config = _make_sandbox_config_mock()
-    runtime.context.sandbox = _make_sandbox_runtime(egress=egress)
+    runtime.context.sandbox = _make_sandbox_spec(egress=egress)
     return runtime
 
 
@@ -80,7 +81,7 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
         context=Mock(
             gitrepo=repo,
             config=_make_sandbox_config_mock(disallow=disallow, allow=allow),
-            sandbox=_make_sandbox_runtime(disallow=disallow, allow=allow),
+            sandbox=_make_sandbox_spec(disallow=disallow, allow=allow),
         ),
         config={},
         stream_writer=Mock(),
@@ -688,7 +689,8 @@ class TestSandboxMiddleware:
 
     async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
         """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
-        from codebase.context import SandboxRuntime
+        from sandbox_envs.spec import SandboxSpec
+
         from core.sandbox.command_policy import SandboxCommandPolicy
         from core.sandbox.schemas import StartSessionRequest
 
@@ -708,7 +710,7 @@ class TestSandboxMiddleware:
         runtime.context.config.sandbox.memory_bytes = None
         runtime.context.config.sandbox.cpus = None
         egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
-        runtime.context.sandbox = SandboxRuntime(
+        runtime.context.sandbox = SandboxSpec(
             base_image="alpine:test",
             egress=egress,
             memory_bytes=1_234,
@@ -747,9 +749,9 @@ class TestSandboxMiddleware:
     async def test_check_command_policy_reads_from_ctx_sandbox(self, tmp_path: Path):
         """_check_command_policy must pull ``command_policy`` from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
         from langchain.tools import ToolRuntime
+        from sandbox_envs.spec import SandboxSpec
 
         from automation.agent.middlewares.sandbox import _check_command_policy
-        from codebase.context import SandboxRuntime
         from core.sandbox.command_policy import SandboxCommandPolicy
 
         repo_dir = tmp_path / "repo"
@@ -766,7 +768,7 @@ class TestSandboxMiddleware:
         context.config.sandbox.command_policy = Mock()
         context.config.sandbox.command_policy.disallow = ()
         context.config.sandbox.command_policy.allow = ()
-        context.sandbox = SandboxRuntime(
+        context.sandbox = SandboxSpec(
             base_image="alpine:test",
             memory_bytes=None,
             cpus=None,

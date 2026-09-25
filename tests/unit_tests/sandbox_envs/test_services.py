@@ -2,22 +2,18 @@ from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import (
-    SandboxEnvOverride,
-    alist_visible_environments,
-    build_env_trigger,
-    get_global_default,
-    resolve_sandbox_env,
-)
+from sandbox_envs.services import alist_visible_environments, build_env_trigger, get_global_default, resolve_sandbox_env
+from sandbox_envs.spec import SandboxEnvOverride
 
 from accounts.models import User
 
 
-def _sandbox_runtime(*, base_image="python:3.12", egress=None):
-    from codebase.context import SandboxRuntime
+def _sandbox_spec(*, base_image="python:3.12", egress=None):
+    from sandbox_envs.spec import SandboxSpec
+
     from core.sandbox.command_policy import SandboxCommandPolicy
 
-    return SandboxRuntime(
+    return SandboxSpec(
         base_image=base_image,
         memory_bytes=None,
         cpus=None,
@@ -37,7 +33,7 @@ def test_augment_opens_network_off_env_when_push_credentialed():
 
     # DAIV pushes from inside the sandbox, so a network-off env (egress=None) that holds a real push
     # credential is opened into a minimal deny-all + git-platform triad rather than left isolated.
-    sb = _sandbox_runtime(egress=None)
+    sb = _sandbox_spec(egress=None)
     client = Mock()
     client.get_git_egress_credential.return_value = GitEgressCredential(
         host="gitlab.example.com", value=SecretStr("Basic abc")
@@ -59,7 +55,7 @@ def test_augment_keeps_network_off_isolated_without_push_token():
 
     # A host-only credential (no token, e.g. the SWE eval platform) has nothing to push, so a
     # network-off env stays fully isolated — never forcing the egress proxy onto token-less runs.
-    sb = _sandbox_runtime(egress=None)
+    sb = _sandbox_spec(egress=None)
     client = Mock()
     client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
     out = augment_sandbox_with_platform_egress(sb, client, Mock())
@@ -72,7 +68,7 @@ def test_augment_keeps_network_off_isolated_without_credential():
     from sandbox_envs.services import augment_sandbox_with_platform_egress
 
     # No derivable credential (degenerate clone URL) on a network-off env: stay isolated.
-    sb = _sandbox_runtime(egress=None)
+    sb = _sandbox_spec(egress=None)
     client = Mock()
     client.get_git_egress_credential.return_value = None
     out = augment_sandbox_with_platform_egress(sb, client, Mock())
@@ -87,7 +83,7 @@ def test_augment_skips_when_sandbox_disabled():
     from core.sandbox.schemas import EgressConfigRequest
 
     # Networked (egress set) but sandbox disabled (base_image=None → enabled == False): still a skip.
-    sb = _sandbox_runtime(base_image=None, egress=EgressConfigRequest())
+    sb = _sandbox_spec(base_image=None, egress=EgressConfigRequest())
     client = Mock()
     out = augment_sandbox_with_platform_egress(sb, client, Mock())
     assert out is sb
@@ -103,7 +99,7 @@ def test_augment_adds_platform_egress_when_network_on():
     from codebase.clients.base import GitEgressCredential
     from core.sandbox.schemas import EgressConfigRequest
 
-    sb = _sandbox_runtime(egress=EgressConfigRequest())
+    sb = _sandbox_spec(egress=EgressConfigRequest())
     client = Mock()
     client.get_git_egress_credential.return_value = GitEgressCredential(
         host="gitlab.example.com", value=SecretStr("Basic abc")
@@ -557,81 +553,6 @@ def test_site_settings_has_no_sandbox_resource_fields():
     assert "sandbox_timeout" in site_settings.FIELD_DEFAULTS
 
 
-@pytest.mark.django_db
-class TestMergeSandboxRuntime:
-    def test_per_run_env_supplies_fields_when_set(self):
-        from pydantic import SecretStr
-        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
-
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-        egress_on = EgressConfigRequest(
-            policy=EgressPolicy(rules=[EgressRule(host="per-run.example", inject="t")]),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
-        )
-        per_run = SandboxEnvOverride(
-            base_image="python:3.14", memory_bytes=2 * 2**30, cpus=2.0, env_vars={"K": "v"}, egress=egress_on
-        )
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=None
-        )
-        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
-        assert runtime.base_image == "python:3.14"
-        # per-run egress takes precedence; network is on (egress is not None)
-        assert runtime.egress is not None
-        assert runtime.egress.policy.rules[0].host == "per-run.example"
-        assert runtime.memory_bytes == 2 * 2**30
-        assert runtime.cpus == 2.0
-        assert runtime.env_vars == {"G": "g", "K": "v"}
-
-    def test_per_run_off_blocks_global_egress_inheritance(self):
-        from pydantic import SecretStr
-        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
-
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-        egress_global = EgressConfigRequest(
-            policy=EgressPolicy(rules=[EgressRule(host="global.example", inject="t")]),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
-        )
-        per_run = SandboxEnvOverride(base_image=None, memory_bytes=None, cpus=None, env_vars={"K": "v"}, egress=None)
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=egress_global
-        )
-        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
-        assert runtime.base_image == "python:3.12"
-        # per-run has no egress (off); global_default's egress is NOT inherited
-        # (network is per-env, not fallthrough — per-run off beats global on)
-        assert runtime.egress is None
-        assert runtime.memory_bytes == 1 * 2**30
-        assert runtime.cpus == 1.0
-        assert runtime.env_vars == {"G": "g", "K": "v"}
-
-    def test_per_run_env_vars_shadow_global_on_key_collision(self):
-        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
-
-        per_run = SandboxEnvOverride(
-            base_image=None, memory_bytes=None, cpus=None, env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"}
-        )
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12",
-            memory_bytes=None,
-            cpus=None,
-            env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"},
-        )
-        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
-        assert runtime.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
-
-    def test_command_policy_defaults_empty(self):
-        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
-
-        from core.sandbox.command_policy import SandboxCommandPolicy
-
-        per_run = SandboxEnvOverride(base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={})
-        runtime = merge_sandbox_runtime(per_run=per_run, global_default=None)
-        assert runtime.command_policy == SandboxCommandPolicy()
-
-
 @pytest.mark.django_db(transaction=True)
 class TestAresolveRepoEnvs:
     """Direct coverage for aresolve_repo_envs precedence + edge cases.
@@ -772,20 +693,6 @@ def test_build_env_trigger_deleted_uses_action_key(global_env):
     assert "env-deleted" in build_env_trigger(global_env, "deleted")
 
 
-def _egress_request(host: str):
-    from pydantic import SecretStr
-
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-    return EgressConfigRequest(
-        policy=EgressPolicy(rules=[EgressRule(host=host, inject="t")]),
-        secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
-    )
-
-
-# _override was the old scaffolding helper (used network_enabled); replaced by _ov defined below.
-
-
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_row_to_override_builds_egress():
@@ -904,75 +811,6 @@ async def test_row_to_override_drops_env_vars_on_decryption_error(mocker):
     mocker.patch.object(type(env), "env_vars", new_callable=lambda: property(fget=_raise))
     override = row_to_override(env)
     assert override.env_vars == {}
-
-
-def test_merge_prefers_per_run_egress():
-    from sandbox_envs.services import merge_sandbox_runtime
-
-    rt = merge_sandbox_runtime(
-        per_run=_ov(egress=_egress_request("per-run.example")),
-        global_default=_ov(egress=_egress_request("global.example")),
-    )
-    assert rt.egress.policy.rules[0].host == "per-run.example"
-
-
-def test_merge_egress_is_none_when_neither_side_has_it():
-    from sandbox_envs.services import merge_sandbox_runtime
-
-    # Egress is opt-in: no policy on either side must never materialize one (it would otherwise
-    # silently apply an unintended network posture).
-    rt = merge_sandbox_runtime(per_run=_ov(egress=None), global_default=_ov(egress=None))
-    assert rt.egress is None
-
-
-# ---------------------------------------------------------------------------
-# B3 tests — network_enabled removed from SandboxEnvOverride / SandboxRuntime
-# ---------------------------------------------------------------------------
-
-from sandbox_envs.services import merge_sandbox_runtime  # noqa: E402
-
-
-@pytest.fixture
-def make_egress():
-    """Return a factory that builds an EgressConfigRequest for a single host."""
-
-    def _factory(hosts: list[str]):
-        from pydantic import SecretStr
-
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-        rules = [EgressRule(host=h, inject="t") for h in hosts]
-        return EgressConfigRequest(
-            policy=EgressPolicy(rules=rules),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
-        )
-
-    return _factory
-
-
-def _ov(**kw):
-    base = {"base_image": None, "memory_bytes": None, "cpus": None, "env_vars": {}, "egress": None}
-    base.update(kw)
-    return SandboxEnvOverride(**base)
-
-
-def test_sandbox_env_override_has_no_network_enabled():
-    assert not hasattr(_ov(), "network_enabled")
-
-
-def test_merge_takes_per_run_egress_off_even_when_global_has_policy(make_egress):
-    # per-run env explicitly Off (egress=None) must NOT inherit the global default's policy.
-    per_run = _ov(egress=None)
-    global_default = _ov(egress=make_egress(["github.com"]))
-    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
-    assert rt.egress is None
-    assert not hasattr(rt, "network_enabled")
-
-
-def test_merge_falls_back_to_global_egress_when_no_per_run():
-    eg = object()
-    rt = merge_sandbox_runtime(per_run=None, global_default=_ov(egress=eg))
-    assert rt.egress is eg
 
 
 @pytest.mark.django_db(transaction=True)

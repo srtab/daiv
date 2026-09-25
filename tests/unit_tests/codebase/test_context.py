@@ -12,7 +12,7 @@ from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
 from core.sandbox.client import _run_sandbox_client, get_run_sandbox_client
 from core.sandbox.schemas import EgressSecret
-from tests.unit_tests.conftest import FakeSandboxClient, sandbox_runtime
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ def _context_deps(repo_client, sandbox):
         ),
         patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
         patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
         patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
     )
 
@@ -196,9 +196,10 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
     """Network-on integration seam: set_runtime_ctx must resolve the repo's git-platform credential
     via the client and land its allow-rule first on ``ctx.sandbox.egress`` (the only place all the
     unit-tested egress pieces are wired together). Guards against the augmentation line being dropped
-    or reordered before merge_sandbox_runtime — a regression every isolated unit test would miss."""
+    or reordered before merge_sandbox_spec — a regression every isolated unit test would miss."""
+    from sandbox_envs.spec import SandboxSpec
+
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
     from core.sandbox.command_policy import SandboxCommandPolicy
     from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
     from core.sandbox.schemas import EgressConfigRequest
@@ -213,9 +214,9 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
         token="tok",  # noqa: S106
     )
 
-    # A real (frozen) SandboxRuntime with a networked egress policy (egress is not None == network on);
+    # A real (frozen) SandboxSpec with a networked egress policy (egress is not None == network on);
     # augment_sandbox_with_platform_egress prepends the git-platform rule via dataclasses.replace().
-    sandbox = SandboxRuntime(
+    sandbox = SandboxSpec(
         base_image="python:3.12",
         memory_bytes=None,
         cpus=None,
@@ -236,7 +237,7 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
         ),
         patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
         patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
         patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
     ):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
@@ -254,8 +255,9 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
     The egress proxy overrides Authorization on every platform request, so a credential captured before
     a self-healing clone would pin the sidecar to the stale token the clone just discarded — breaking
     the in-sandbox push. Asserts clone happens before credential resolution."""
+    from sandbox_envs.spec import SandboxSpec
+
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
     from core.sandbox.command_policy import SandboxCommandPolicy
 
     calls: list[str] = []
@@ -277,7 +279,7 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
     repo_client.get_git_egress_credential.side_effect = _cred
 
     # Network-off env (egress=None): a push token still opens it for the git platform host.
-    sandbox = SandboxRuntime(
+    sandbox = SandboxSpec(
         base_image="python:3.12",
         memory_bytes=None,
         cpus=None,
@@ -298,7 +300,7 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
         ),
         patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
         patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
         patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
     ):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
@@ -316,7 +318,7 @@ def _network_off_run(credential: GitEgressCredential, working_dir: str):
     repo_client.get_git_egress_credential.return_value = credential
 
     with ExitStack() as stack:
-        for deps_patch in _context_deps(repo_client, sandbox_runtime()):
+        for deps_patch in _context_deps(repo_client, sandbox_spec()):
             stack.enter_context(deps_patch)
         stack.enter_context(patch("codebase.context.DAIVSandboxClient", FakeSandboxClient))
         yield

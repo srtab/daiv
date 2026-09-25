@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
+from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
@@ -13,38 +14,12 @@ from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
-from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Sequence
 
 
 logger = logging.getLogger("daiv.codebase")
-
-
-@dataclass(frozen=True)
-class SandboxRuntime:
-    """Effective sandbox configuration for the current run.
-
-    Built by :func:`sandbox_envs.services.merge_sandbox_runtime` (invoked from
-    :func:`set_runtime_ctx`) from two inputs: the per-run env (either picked
-    explicitly via ``sandbox_env_id`` or auto-resolved from the repo via
-    :func:`sandbox_envs.services.resolve_env_for_run`) and the GLOBAL default
-    env. ``command_policy`` is currently always the empty default; per-env
-    policies are a future iteration.
-    """
-
-    base_image: str | None
-    memory_bytes: int | None
-    cpus: float | None
-    env_vars: dict[str, str]
-    command_policy: SandboxCommandPolicy
-    egress: EgressConfigRequest | None = None
-
-    @property
-    def enabled(self) -> bool:
-        return self.base_image is not None
 
 
 @dataclass(frozen=True)
@@ -81,7 +56,7 @@ class RuntimeCtx:
 
     bot_username: str
     repos: tuple[RepoHandle, ...] = ()
-    sandbox: SandboxRuntime | None = None
+    sandbox: SandboxSpec | None = None
     """The effective sandbox configuration for the current run"""
     scope: Scope | None = None
     issue: Issue | None = None
@@ -209,11 +184,11 @@ async def set_runtime_ctx(
     from sandbox_envs.services import (
         augment_sandbox_with_platform_egress,
         get_global_default,
-        merge_sandbox_runtime,
         resolve_env_for_run,
         resolve_sandbox_env,
         row_to_override,
     )
+    from sandbox_envs.spec import merge_sandbox_spec
 
     repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
@@ -228,7 +203,7 @@ async def set_runtime_ctx(
         auto_env = await resolve_env_for_run(user=None, repo_id=repo_id)
         per_run = row_to_override(auto_env) if auto_env is not None else None
     global_default = await get_global_default()
-    sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+    sandbox = merge_sandbox_spec(per_run=per_run, global_default=global_default)
 
     # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
     # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening

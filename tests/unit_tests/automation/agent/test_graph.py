@@ -10,7 +10,7 @@ from deepagents.backends.protocol import BackendProtocol
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, SandboxFileBackend
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
+from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -35,7 +35,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
 async def _build(*, base_image: str | None) -> SimpleNamespace:
     """Build the agent with its collaborators stubbed and return the stubs plus the run's client."""
     run_client = FakeSandboxClient.opened()
-    sandbox = sandbox_runtime(base_image=base_image)
+    sandbox = sandbox_spec(base_image=base_image)
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))

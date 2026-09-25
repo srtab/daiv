@@ -73,7 +73,7 @@ class SandboxCommandPolicy:
     (``DEFAULT_DISALLOW_RULES``) override both.
 
     Defaults to empty — no per-env policy configured. This is the runtime
-    fallback used by every ``SandboxRuntime`` until per-env policies are
+    fallback used by every ``SandboxSpec`` until per-env policies are
     re-introduced.
     """
 
