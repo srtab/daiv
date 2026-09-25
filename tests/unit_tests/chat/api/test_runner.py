@@ -62,6 +62,24 @@ async def test_run_to_relay_publishes_sentinel_even_when_stream_raises(fake_redi
     assert entries[-1][1] == {"end": "1"}
 
 
+async def test_run_to_relay_closes_the_stream_when_a_publish_fails(fake_redis):
+    """Closed in this task, before ``run_to_relay`` returns: left to asyncio's finalizer, the streamer's
+    ``finally`` (finalize the Run, release the slot) runs in another context, or never."""
+    closed: list[bool] = []
+
+    async def _events():
+        try:
+            yield CustomEvent(type=EventType.CUSTOM, name="first", value=1)
+            yield CustomEvent(type=EventType.CUSTOM, name="second", value=2)
+        finally:
+            closed.append(True)
+
+    with patch("chat.api.runner._publish", new=AsyncMock(side_effect=RuntimeError("relay down"))):
+        await runner.run_to_relay(_stub_streamer(_events))
+
+    assert closed == [True]
+
+
 async def test_spawn_run_registers_and_prunes_task(fake_redis):
     async def _events():
         yield CustomEvent(type=EventType.CUSTOM, name="only", value=1)
