@@ -19,6 +19,7 @@ from automation.agent.middlewares.sandbox import (
     _run_bash_commands,
 )
 from core.conf import settings as core_settings
+from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import (
     EgressConfigRequest,
     EgressPolicy,
@@ -69,6 +70,7 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigReq
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
     runtime.context.config = _make_sandbox_config_mock()
     runtime.context.sandbox = _make_sandbox_spec(egress=egress)
+    runtime.context.sandbox_egress = egress
     return runtime
 
 
@@ -106,6 +108,7 @@ def _make_runtime() -> MagicMock:
     sb.cpus = 1
     sb.env_vars = None
     sb.egress = None
+    runtime.context.sandbox_egress = None
     runtime.context.gitrepo.working_dir = "/tmp/repo"  # noqa: S108
     return runtime
 
@@ -502,14 +505,31 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = MagicMock()  # run has an egress config (network-on)
+        runtime.context.sandbox_egress = MagicMock()  # run has an egress config (network-on)
 
         result = await mw.abefore_agent({"session_id": "sess-prev"}, runtime)
 
         assert result == {"session_id": "sess-prev"}
-        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox.egress)
+        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox_egress)
         client.start_session.assert_not_awaited()  # warm reuse — no recreate
         assert sandbox_backend._session_id == "sess-prev"
+
+    async def test_abefore_agent_refreshes_a_network_off_env_opened_for_the_git_host(self):
+        """A network-off env opened for the git host (a push token) still gets that token refreshed on reuse."""
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.update_egress = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        runtime = _make_runtime()  # ctx.sandbox.egress is None: the env itself is network-off
+        runtime.context.sandbox_egress = with_platform_credential(
+            None, "github.com", "Authorization", SecretStr("Basic tok")
+        )
+
+        await mw.abefore_agent({"session_id": "sess-prev"}, runtime)
+
+        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox_egress)
 
     @pytest.mark.parametrize("refresh_error", ["http_status", "transport"])
     async def test_abefore_agent_recreates_when_egress_refresh_fails(self, refresh_error):
@@ -531,7 +551,7 @@ class TestSandboxMiddleware:
         )
 
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = EgressConfigRequest()  # non-None so refresh is attempted
+        runtime.context.sandbox_egress = EgressConfigRequest()  # non-None so refresh is attempted
 
         with (
             patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
@@ -552,7 +572,7 @@ class TestSandboxMiddleware:
         sandbox_backend = SandboxFileBackend(client=client)
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
-        # _make_runtime() sets sandbox.egress = None by default.
+        # _make_runtime() sets sandbox_egress = None by default.
         result = await mw.abefore_agent({"session_id": "sess-prev"}, _make_runtime())
 
         assert result == {"session_id": "sess-prev"}
@@ -688,7 +708,8 @@ class TestSandboxMiddleware:
         assert SANDBOX_SYSTEM_PROMPT in seen_prompt
 
     async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
-        """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
+        """abefore_agent must build StartSessionRequest from ``ctx.sandbox`` and ``ctx.sandbox_egress``,
+        not ``ctx.config.sandbox``."""
         from sandbox_envs.spec import SandboxSpec
 
         from core.sandbox.command_policy import SandboxCommandPolicy
@@ -712,12 +733,12 @@ class TestSandboxMiddleware:
         egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
         runtime.context.sandbox = SandboxSpec(
             base_image="alpine:test",
-            egress=egress,
             memory_bytes=1_234,
             cpus=2.5,
             env_vars={"X": "y"},
             command_policy=SandboxCommandPolicy(),
         )
+        runtime.context.sandbox_egress = egress
 
         captured: dict = {}
 
@@ -843,8 +864,8 @@ class TestSandboxEgress:
 
     def _runtime_with_egress(self):
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
-        return runtime, runtime.context.sandbox.egress
+        runtime.context.sandbox_egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
+        return runtime, runtime.context.sandbox_egress
 
     async def test_no_configure_egress_on_fresh_create(self):
         """Egress is attached at start_session time (via egress= field); configure_egress is never called."""

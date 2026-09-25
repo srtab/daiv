@@ -549,7 +549,7 @@ class SandboxMiddleware(AgentMiddleware):
             # (expired after a day-plus). Push this run's fresh credential before binding; if that
             # can't be applied (older sandbox / transport error), recreate the session instead so the
             # run never reaches publish with a stale token.
-            if await self._arefresh_egress(client, prior_session_id, runtime.context.sandbox.egress):
+            if await self._arefresh_egress(client, prior_session_id, runtime.context.sandbox_egress):
                 self._bind_session(prior_session_id)
                 logger.info("Reusing warm sandbox session %s", prior_session_id)
                 return {"session_id": prior_session_id}
@@ -571,7 +571,7 @@ class SandboxMiddleware(AgentMiddleware):
             session_id = await client.start_session(
                 StartSessionRequest(
                     base_image=sb.base_image,
-                    egress=sb.egress,
+                    egress=runtime.context.sandbox_egress,
                     memory_bytes=sb.memory_bytes,
                     cpus=sb.cpus,
                     environment=sb.env_vars or None,

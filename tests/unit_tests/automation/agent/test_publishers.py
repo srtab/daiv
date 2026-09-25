@@ -7,7 +7,6 @@ from django.contrib.sites.models import Site
 
 import pytest
 from git import GitCommandError
-from sandbox_envs.services import apply_platform_egress
 
 from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
@@ -35,6 +34,7 @@ from codebase.clients.base import GitAuthEnv, GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, StartSessionRequest
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import FakeSandboxClient
@@ -147,7 +147,7 @@ def _make_sandbox_publisher(*, egress="default"):
     publisher = _make_publisher()
     publisher.sandbox_backend = Mock()
     publisher.sandbox_backend.refresh_egress = AsyncMock()
-    publisher.ctx.sandbox.egress = EgressConfigRequest() if egress == "default" else egress
+    publisher.ctx.sandbox_egress = EgressConfigRequest() if egress == "default" else egress
     return publisher
 
 
@@ -801,7 +801,7 @@ class TestPublishSandboxEgressRefresh:
         # Pin the wiring, not just the call: a wrong argument (e.g. `sandbox` instead of
         # `sandbox.egress`) would be swallowed by the best-effort except in production and silently
         # disable the feature on every publish, while a mock with a fixed return stays green.
-        remint.assert_called_once_with(publisher.ctx.sandbox.egress, publisher.client, publisher.ctx.repository)
+        remint.assert_called_once_with(publisher.ctx.sandbox_egress, publisher.client, publisher.ctx.repository)
         publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(fresh)
         assert order == ["refresh", "snapshot"]
 
@@ -839,7 +839,7 @@ class TestPublishSandboxEgressRefresh:
         # refresh_platform_egress returns the same object when there is no token to rotate (no
         # proxy, token-less platform, or an identical re-mint — e.g. GitLab's day-cached token).
         monkeypatch.setattr(
-            "sandbox_envs.services.refresh_platform_egress", Mock(return_value=publisher.ctx.sandbox.egress)
+            "sandbox_envs.services.refresh_platform_egress", Mock(return_value=publisher.ctx.sandbox_egress)
         )
 
         await publisher._refresh_sandbox_egress()
@@ -871,11 +871,12 @@ def _injected_values(egress: EgressConfigRequest) -> list[str]:
 
 async def _publish_on_a_live_session(client: FakeSandboxClient, *, remint: Mock) -> str:
     """Publish through a real backend bound to a fake session started with the turn-start token."""
-    turn_start = apply_platform_egress(None, _platform_credential("turn-start"))
+    credential = _platform_credential("turn-start")
+    turn_start = with_platform_credential(None, credential.host, credential.header, credential.value)
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
     publisher.sandbox_backend = SandboxFileBackend(client=client, session_id=session_id)
-    publisher.ctx.sandbox.egress = turn_start
+    publisher.ctx.sandbox_egress = turn_start
     publisher.client.get_git_egress_credential = remint
 
     await publisher.publish(merge_request=None)

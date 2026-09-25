@@ -400,12 +400,14 @@ class GitChangePublisher(ChangePublisher):
         if backend is None or sandbox is None:  # pragma: no cover - only called in sandbox mode
             return
         try:
-            egress = await sync_to_async(refresh_platform_egress)(sandbox.egress, self.client, self.ctx.repository)
+            egress = await sync_to_async(refresh_platform_egress)(
+                self.ctx.sandbox_egress, self.client, self.ctx.repository
+            )
             # refresh_platform_egress returns the *input* object when there was nothing to swap in
             # (no proxy, token-less platform, or an unchanged token) — so identity means "nothing to
             # deliver". The explicit `is None` also narrows the `EgressConfigRequest | None` return for
             # the type checker before the non-null refresh_egress call below.
-            if egress is None or egress is sandbox.egress:
+            if egress is None or egress is self.ctx.sandbox_egress:
                 return
             await backend.refresh_egress(egress)
             logger.info("Refreshed the sandbox egress token for %s before publish", self.ctx.repository.slug)

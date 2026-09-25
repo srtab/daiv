@@ -14,6 +14,8 @@ from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.egress import with_platform_credential
+from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Sequence
@@ -58,6 +60,9 @@ class RuntimeCtx:
     repos: tuple[RepoHandle, ...] = ()
     sandbox: SandboxSpec | None = None
     """The effective sandbox configuration for the current run"""
+    sandbox_egress: EgressConfigRequest | None = None
+    """The egress config the run's sandbox is provisioned with: ``sandbox.egress`` plus the git-platform
+    rule and credential (see :func:`_run_egress`). ``None`` means no network."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -140,6 +145,21 @@ def _load_repo_with_optional_fallback(
         cm.__exit__(*sys.exc_info())
 
 
+def _run_egress(sandbox: SandboxSpec, repo_client: RepoClient, repository: Repository) -> EgressConfigRequest | None:
+    """The egress config the run's sandbox starts with: the environment's policy plus the git-platform rule.
+
+    DAIV pushes from inside the sandbox, so a network-off environment is still opened to the git host
+    when the run holds a push token. Without one (e.g. evals' token-less platform) it stays isolated:
+    there is nothing to push, and opening it would force the egress proxy onto hermetic runs.
+    """
+    if not sandbox.enabled:
+        return None
+    credential = repo_client.get_git_egress_credential(repository)
+    if credential is None or (sandbox.egress is None and credential.value is None):
+        return sandbox.egress
+    return with_platform_credential(sandbox.egress, credential.host, credential.header, credential.value)
+
+
 @asynccontextmanager
 async def set_runtime_ctx(
     repo_id: str,
@@ -181,13 +201,7 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    from sandbox_envs.services import (
-        augment_sandbox_with_platform_egress,
-        get_global_default,
-        resolve_env_for_run,
-        resolve_sandbox_env,
-        row_to_override,
-    )
+    from sandbox_envs.services import get_global_default, resolve_env_for_run, resolve_sandbox_env, row_to_override
     from sandbox_envs.spec import merge_sandbox_spec
 
     repo_client = RepoClient.create_instance(**kwargs)
@@ -221,13 +235,9 @@ async def set_runtime_ctx(
         with _load_repo_with_optional_fallback(
             repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
         ) as (repo, effective_ref):
-            # Always reach + authenticate the repo's git platform for git-over-HTTPS in the sandbox — DAIV
-            # pushes from inside the sandbox, so even a network-off env is opened for the platform host when
-            # a token can be minted. Runtime-only (never stored on the env); a no-op only when the sandbox is
-            # disabled, or when network is off and no platform token is available (e.g. eval runs).
-            # Resolved AFTER the clone so it sees any token the clone's self-heal re-minted (a pre-clone
-            # credential would pin the egress proxy to the stale token the clone just discarded).
-            sandbox = augment_sandbox_with_platform_egress(sandbox, repo_client, repository)
+            # After the clone, so the credential is any token the clone's self-heal re-minted, not the
+            # stale one it discarded (the egress proxy overrides Authorization on every platform request).
+            sandbox_egress = _run_egress(sandbox, repo_client, repository)
             handle = RepoHandle(
                 repo_id=repo_id,
                 git_platform=repo_client.git_platform,
@@ -240,6 +250,7 @@ async def set_runtime_ctx(
                 bot_username=repo_client.current_user.username,
                 repos=(handle,),
                 sandbox=sandbox,
+                sandbox_egress=sandbox_egress,
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,

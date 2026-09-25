@@ -8,192 +8,19 @@ from sandbox_envs.spec import SandboxEnvOverride
 from accounts.models import User
 
 
-def _sandbox_spec(*, base_image="python:3.12", egress=None):
-    from sandbox_envs.spec import SandboxSpec
-
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
-    return SandboxSpec(
-        base_image=base_image,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=egress,
-    )
-
-
-def test_augment_opens_network_off_env_when_push_credentialed():
-    from unittest.mock import Mock
-
-    from pydantic import SecretStr
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, augment_sandbox_with_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-
-    # DAIV pushes from inside the sandbox, so a network-off env (egress=None) that holds a real push
-    # credential is opened into a minimal deny-all + git-platform triad rather than left isolated.
-    sb = _sandbox_spec(egress=None)
-    client = Mock()
-    client.get_git_egress_credential.return_value = GitEgressCredential(
-        host="gitlab.example.com", value=SecretStr("Basic abc")
-    )
-    out = augment_sandbox_with_platform_egress(sb, client, Mock())
-
-    assert out.egress is not None
-    assert out.egress.policy.default == "deny"
-    assert out.egress.policy.rules[0].host == "gitlab.example.com"
-    assert PLATFORM_EGRESS_SECRET_NAME in out.egress.secrets
-
-
-def test_augment_keeps_network_off_isolated_without_push_token():
-    from unittest.mock import Mock
-
-    from sandbox_envs.services import augment_sandbox_with_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-
-    # A host-only credential (no token, e.g. the SWE eval platform) has nothing to push, so a
-    # network-off env stays fully isolated — never forcing the egress proxy onto token-less runs.
-    sb = _sandbox_spec(egress=None)
-    client = Mock()
-    client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
-    out = augment_sandbox_with_platform_egress(sb, client, Mock())
-    assert out is sb
-
-
-def test_augment_keeps_network_off_isolated_without_credential():
-    from unittest.mock import Mock
-
-    from sandbox_envs.services import augment_sandbox_with_platform_egress
-
-    # No derivable credential (degenerate clone URL) on a network-off env: stay isolated.
-    sb = _sandbox_spec(egress=None)
-    client = Mock()
-    client.get_git_egress_credential.return_value = None
-    out = augment_sandbox_with_platform_egress(sb, client, Mock())
-    assert out is sb
-
-
-def test_augment_skips_when_sandbox_disabled():
-    from unittest.mock import Mock
-
-    from sandbox_envs.services import augment_sandbox_with_platform_egress
-
-    from core.sandbox.schemas import EgressConfigRequest
-
-    # Networked (egress set) but sandbox disabled (base_image=None → enabled == False): still a skip.
-    sb = _sandbox_spec(base_image=None, egress=EgressConfigRequest())
-    client = Mock()
-    out = augment_sandbox_with_platform_egress(sb, client, Mock())
-    assert out is sb
-    client.get_git_egress_credential.assert_not_called()
-
-
-def test_augment_adds_platform_egress_when_network_on():
-    from unittest.mock import Mock
-
-    from pydantic import SecretStr
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, augment_sandbox_with_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-    from core.sandbox.schemas import EgressConfigRequest
-
-    sb = _sandbox_spec(egress=EgressConfigRequest())
-    client = Mock()
-    client.get_git_egress_credential.return_value = GitEgressCredential(
-        host="gitlab.example.com", value=SecretStr("Basic abc")
-    )
-    repo = Mock()
-
-    out = augment_sandbox_with_platform_egress(sb, client, repo)
-
-    client.get_git_egress_credential.assert_called_once_with(repo)
-    assert out.egress.policy.rules[0].host == "gitlab.example.com"
-    assert PLATFORM_EGRESS_SECRET_NAME in out.egress.secrets
-
-
-def test_apply_platform_egress_returns_unchanged_when_no_credential():
-    from sandbox_envs.services import apply_platform_egress
-
-    from core.sandbox.schemas import EgressConfigRequest
-
-    egress = EgressConfigRequest()
-    assert apply_platform_egress(egress, None) is egress
-
-
-def test_apply_platform_egress_builds_deny_all_base_and_injects():
-    from pydantic import SecretStr
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-
-    cred = GitEgressCredential(host="gitlab.example.com", value=SecretStr("Basic abc"))
-    result = apply_platform_egress(None, cred)
-
-    assert result.policy.default == "deny"
-    assert result.policy.intercept == "all"
-    rule = result.policy.rules[0]
-    assert rule.host == "gitlab.example.com"
-    assert rule.methods == ["*"]
-    assert rule.inject == PLATFORM_EGRESS_SECRET_NAME
-    secret = result.secrets[PLATFORM_EGRESS_SECRET_NAME]
-    assert secret.header == "Authorization"
-    assert secret.value.get_secret_value() == "Basic abc"
-
-
-def test_apply_platform_egress_preserves_env_policy_and_prepends():
-    from pydantic import SecretStr
-    from sandbox_envs.services import apply_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-    env = EgressConfigRequest(
-        policy=EgressPolicy(
-            default="deny",
-            intercept="credentialed",
-            rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")],
-        ),
-        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
-    )
-    cred = GitEgressCredential(host="github.com", value=SecretStr("Basic xyz"))
-    result = apply_platform_egress(env, cred)
-
-    assert result.policy.intercept == "credentialed"  # env knob preserved
-    assert [r.host for r in result.policy.rules] == ["github.com", "api.openai.com"]  # prepended
-    assert set(result.secrets) == {"s1", "__daiv_git_platform__"}
-
-
-def test_apply_platform_egress_reachability_only_when_no_token():
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
-
-    from codebase.clients.base import GitEgressCredential
-
-    cred = GitEgressCredential(host="gitlab.example.com", value=None)
-    result = apply_platform_egress(None, cred)
-
-    assert result.policy.rules[0].host == "gitlab.example.com"
-    assert result.policy.rules[0].inject is None
-    assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
-
-
 def _augmented_egress(token: str | None, *, host: str = "github.com"):
-    """A turn-start augmented config, as ``augment_sandbox_with_platform_egress`` builds it: an env
-    rule (``api.openai.com`` + secret ``s1``) with the platform rule for ``token`` layered on top
-    (host-only — ``inject=None``, no platform secret — when ``token`` is ``None``)."""
+    """A turn-start config as ``set_runtime_ctx`` provisions it: an env rule (``api.openai.com`` + secret
+    ``s1``) behind the platform rule for ``token`` (host-only when ``token`` is ``None``)."""
     from pydantic import SecretStr
-    from sandbox_envs.services import apply_platform_egress
 
-    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.egress import with_platform_credential
     from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
     env = EgressConfigRequest(
         policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
         secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
     )
-    credential = GitEgressCredential(host=host, value=SecretStr(token) if token is not None else None)
-    return apply_platform_egress(env, credential)
+    return with_platform_credential(env, host, "Authorization", SecretStr(token) if token is not None else None)
 
 
 def test_refresh_platform_egress_swaps_token_without_duplicating_rule():

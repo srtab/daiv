@@ -19,9 +19,7 @@ if TYPE_CHECKING:
 
     from codebase.base import Repository
     from codebase.clients import RepoClient
-    from codebase.clients.base import GitEgressCredential
     from core.sandbox.schemas import EgressConfigRequest
-    from sandbox_envs.spec import SandboxSpec
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -71,48 +69,17 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
     )
 
 
-def apply_platform_egress(
-    egress: EgressConfigRequest | None, credential: GitEgressCredential | None
-) -> EgressConfigRequest | None:
-    """Prepend the DAIV-managed git-platform allow-rule (and add its credential) to ``egress``.
-
-    Runtime-only — the result is provisioned to the sidecar but never stored on the environment.
-    The rule is **prepended** so it wins under the sidecar's first-match (always reachable;
-    credentialed when the credential carries a token). ``credential is None`` → ``egress`` unchanged.
-    With no base policy, the base is a
-    deny-all (``default="deny"``, ``intercept="all"``); an existing policy's ``default``/``intercept``
-    and rules are preserved. The secret is added (overwriting any same-named user key) only when the
-    credential carries a token; otherwise the rule is reachability-only (``inject=None``)."""
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-    if credential is None:
-        return egress
-
-    base_policy = egress.policy if egress is not None else EgressPolicy()
-    secrets = dict(egress.secrets) if egress is not None else {}
-
-    inject = None
-    if credential.value is not None:
-        inject = PLATFORM_EGRESS_SECRET_NAME
-        secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
-
-    platform_rule = EgressRule(host=credential.host, methods=["*"], inject=inject)
-    policy = base_policy.model_copy(update={"rules": [platform_rule, *base_policy.rules]})
-    return EgressConfigRequest(policy=policy, secrets=secrets)
-
-
 def refresh_platform_egress(
     egress: EgressConfigRequest | None, repo_client: RepoClient, repository: Repository
 ) -> EgressConfigRequest | None:
-    """Re-mint the git-platform token and swap it into an already-augmented egress config.
+    """Re-mint the git-platform token and swap it into an already-provisioned egress config.
 
-    Turn start builds ``ctx.sandbox.egress`` via :func:`augment_sandbox_with_platform_egress`, which
+    ``set_runtime_ctx`` builds ``ctx.sandbox_egress`` via :func:`codebase.context._run_egress`, which
     embeds a short-lived platform token under the reserved ``PLATFORM_EGRESS_SECRET_NAME`` secret. A
     turn that outlives that token's TTL (GitHub installation tokens live 1h) would fail the in-sandbox
     publish push, so the publisher re-mints right before publishing. This replaces **only** that
     secret's value — the allow-rule (host, methods, inject reference) and every other secret are
-    untouched — so the result carries no duplicate platform rule, unlike naively re-running
-    :func:`apply_platform_egress` on an already-augmented config (which prepends a second rule).
+    untouched — so the result carries no duplicate platform rule.
 
     Returns ``egress`` **unchanged** (same object, so the caller's identity check skips the sidecar
     delivery) when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a
@@ -145,29 +112,6 @@ def refresh_platform_egress(
     secrets = dict(egress.secrets)
     secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
     return EgressConfigRequest(policy=egress.policy, secrets=secrets)
-
-
-def augment_sandbox_with_platform_egress(
-    sandbox: SandboxSpec, repo_client: RepoClient, repository: Repository
-) -> SandboxSpec:
-    """Layer the git-platform allow-rule + credential onto ``sandbox.egress``. Returns a new
-    ``SandboxSpec`` (frozen); the platform contribution is resolved per run via ``repo_client`` and
-    never stored.
-
-    A network-on env (``egress`` already set) always has the rule layered on top of its policy. A
-    network-off env (``egress is None``) is normally fully isolated — but DAIV runs git, *including the
-    publish push/ls-remote against ``origin``*, from inside the sandbox. So when the run holds a real
-    push credential (a token), a network-off env is still opened into a minimal deny-all base carrying
-    only the git-platform rule, so DAIV can always reach the repo to publish. A host-only credential
-    (no token, e.g. the SWE eval platform) leaves a network-off env isolated: there is nothing to push,
-    and opening a triad would needlessly force the egress proxy onto token-less / eval runs and break
-    their hermeticity. No-op when the sandbox is disabled."""
-    if not sandbox.enabled:
-        return sandbox
-    credential = repo_client.get_git_egress_credential(repository)
-    if sandbox.egress is None and (credential is None or credential.value is None):
-        return sandbox
-    return replace(sandbox, egress=apply_platform_egress(sandbox.egress, credential))
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
