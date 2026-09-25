@@ -209,7 +209,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
 
-    thread_id = spec.thread_id or str(uuid.uuid4())
+    thread_id = spec.thread_id if spec.thread_id is not None else str(uuid.uuid4())
     checkpoints = open_checkpointer() if spec.thread_id is not None else nullcontext(InMemorySaver())
     async with (
         set_runtime_ctx(
