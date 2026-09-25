@@ -195,7 +195,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=run.thread_id)
-    recovery.snapshot = await _read_snapshot_after_recovery(run, run.thread_id)
+    recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
 @asynccontextmanager
@@ -209,8 +209,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
 
-    thread_id = spec.thread_id if spec.thread_id is not None else str(uuid.uuid4())
-    checkpoints = open_checkpointer() if spec.thread_id is not None else nullcontext(InMemorySaver())
+    if spec.thread_id is None:
+        thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
+    else:
+        thread_id, checkpoints = spec.thread_id, open_checkpointer()
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
@@ -276,7 +278,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     from automation.agent.utils import extract_text_content
     from sessions.services import apersist_session_ref  # sessions.services imports jobs.tasks, which imports us
 
-    snapshot = await _read_snapshot(run, run.thread_id)
+    snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     if response_text is None:
         messages = values.get("messages") or []
@@ -306,7 +308,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
     """Read the finished run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the
     agent already finished, so a Redis blip must not fail the run. The checkpointer's index search re-raises a
     Redis error as ``RedisSearchError``."""
@@ -316,19 +318,19 @@ async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
         logger.exception(
             "executor: failed to read the finished run's checkpoint for thread_id=%s; its merge request is lost to "
             "the result, the ref sync and the CI watch",
-            thread_id,
+            run.thread_id,
         )
         return None
 
 
-async def _read_snapshot_after_recovery(run: AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
     """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
     error is what must reach ``on_failure``, not this one."""
     try:
         return await run.agent.aget_state(config=run.config)
     except Exception:
         logger.warning(
-            "executor: failed to read agent state after draft recovery for thread_id=%s", thread_id, exc_info=True
+            "executor: failed to read agent state after draft recovery for thread_id=%s", run.thread_id, exc_info=True
         )
         return None
 

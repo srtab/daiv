@@ -1,16 +1,35 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.messages import HumanMessage
+from sessions.executor.lock import NoLock
+from sessions.executor.spec import RunSpec
+
+from codebase.base import Scope
 from tests.unit_tests.sessions.conftest import watch_recorder
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest
 
 AGENT_KWARGS = {"model_names": ["claude-4-7-opus", "fallback"], "thinking_level": "medium"}
+
+
+def make_spec(**overrides) -> RunSpec:
+    fields = {
+        "thread_id": str(uuid.uuid4()),
+        "repo_id": "owner/repo",
+        "scope": Scope.GLOBAL,
+        "input_messages": (HumanMessage(content="hi"),),
+        "trigger": "job",
+        "lock": NoLock(),
+        "ref": "main",
+    }
+    return RunSpec(**(fields | overrides))
 
 
 @contextmanager

@@ -1,25 +1,11 @@
 import pytest
-from langchain_core.messages import HumanMessage
-from sessions.executor.lock import Held, NoLock, Wait
-from sessions.executor.spec import RunSpec
+from sessions.executor.lock import Held, Wait
 
-from codebase.base import Scope
+from tests.unit_tests.sessions.executor.conftest import make_spec
 
 
-def _one_shot(**overrides) -> RunSpec:
-    fields = {
-        "thread_id": None,
-        "repo_id": "owner/repo",
-        "scope": Scope.GLOBAL,
-        "input_messages": (HumanMessage(content="hi"),),
-        "trigger": "eval",
-        "lock": NoLock(),
-    }
-    return RunSpec(**(fields | overrides))
-
-
-def test_a_one_shot_run_needs_no_session():
-    assert _one_shot().thread_id is None
+def test_a_one_shot_run_without_session_switches_builds():
+    make_spec(thread_id=None)
 
 
 @pytest.mark.parametrize(
@@ -37,4 +23,16 @@ def test_a_one_shot_run_needs_no_session():
 )
 def test_a_one_shot_run_refuses_what_needs_a_session(overrides):
     with pytest.raises(ValueError, match="one-shot run"):
-        _one_shot(**overrides)
+        make_spec(thread_id=None, **overrides)
+
+
+def test_a_session_run_refuses_an_empty_thread_id():
+    """Every run on ``""`` would share one checkpoint and one lock."""
+    with pytest.raises(ValueError, match="non-empty thread_id"):
+        make_spec(thread_id="")
+
+
+@pytest.mark.parametrize("overrides", [{"agent_model": "other"}, {"use_max": True}], ids=["agent-model", "use-max"])
+def test_an_exact_model_chain_refuses_the_switches_it_would_ignore(overrides):
+    with pytest.raises(ValueError, match="model_names"):
+        make_spec(model_names=("model-a",), **overrides)

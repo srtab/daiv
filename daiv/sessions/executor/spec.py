@@ -27,12 +27,9 @@ class RunSpec:
     merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
     ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
 
-    ``thread_id`` is ``None`` for a one-shot run (evals): it has no ``Session`` row, so it runs with ``NoLock`` and
-    none of the switches that write to a session, and checkpoints in memory under a fresh thread.
-    ``model_names`` is an exact model chain, primary first, that replaces model resolution: ``agent_model``,
-    ``use_max`` and the repository's models are ignored, and ``agent_thinking_level`` is passed as given.
-    ``context_options`` and ``agent_options`` are extra keyword arguments for ``set_runtime_ctx`` and
-    ``create_daiv_agent``.
+    ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
+    ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
+    ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     """
 
     thread_id: str | None
@@ -62,6 +59,10 @@ class RunSpec:
     agent_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.thread_id == "":
+            raise ValueError("a session run needs a non-empty thread_id")
+        if self.model_names and (self.agent_model or self.use_max):
+            raise ValueError("model_names is the exact model chain; it takes neither agent_model nor use_max")
         if self.thread_id is None and (
             not isinstance(self.lock, NoLock)
             or self.run_id is not None
