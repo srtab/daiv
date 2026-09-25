@@ -33,33 +33,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _make_sandbox_config_mock(disallow=(), allow=()):
-    """Create a mock sandbox config with command policy."""
+def _make_sandbox_config_mock():
+    """Create a mock sandbox config."""
     config = Mock()
     config.sandbox = Mock()
     config.sandbox.base_image = "python:3.12"
     config.sandbox.network_enabled = False
     config.sandbox.memory_bytes = None
     config.sandbox.cpus = None
-    config.sandbox.command_policy = Mock()
-    config.sandbox.command_policy.disallow = disallow
-    config.sandbox.command_policy.allow = allow
     return config
 
 
-def _make_sandbox_runtime(disallow=(), allow=(), egress: EgressConfigRequest | None = None):
+def _make_sandbox_runtime(egress: EgressConfigRequest | None = None):
     """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
     from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
 
-    return SandboxRuntime(
-        base_image="python:3.12",
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(disallow=tuple(disallow), allow=tuple(allow)),
-        egress=egress,
-    )
+    return SandboxRuntime(base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigRequest | None = None) -> Mock:
@@ -71,17 +60,13 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigReq
     return runtime
 
 
-def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
+def _make_bash_runtime(repo: Repo) -> Mock:
     """Build a ToolRuntime-compatible mock for bash_tool tests."""
     from langchain.tools import ToolRuntime
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(
-            gitrepo=repo,
-            config=_make_sandbox_config_mock(disallow=disallow, allow=allow),
-            sandbox=_make_sandbox_runtime(disallow=disallow, allow=allow),
-        ),
+        context=Mock(gitrepo=repo, config=_make_sandbox_config_mock(), sandbox=_make_sandbox_runtime()),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",
@@ -190,12 +175,12 @@ class TestBashToolPolicyEnforcement:
     """
 
     async def _invoke(self, command: str, tmp_path: Path, extra_disallow=(), extra_allow=()):
-        """Run bash_tool with a fresh repo and configurable policy."""
+        """Run bash_tool with a fresh repo and the given global policy settings."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
 
-        runtime = _make_bash_runtime(repo, disallow=extra_disallow, allow=extra_allow)
+        runtime = _make_bash_runtime(repo)
         runtime.tool_call_id = "call_policy"
         runtime.state["session_id"] = "sess_policy"
 
@@ -205,8 +190,8 @@ class TestBashToolPolicyEnforcement:
         bash_tool = _bash_tool_with_fake_client(client)
 
         with (
-            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", ()),
-            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", ()),
+            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", tuple(extra_disallow)),
+            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", tuple(extra_allow)),
         ):
             output = await bash_tool.coroutine(command=command, runtime=runtime)
         return output, run_mock
@@ -304,20 +289,53 @@ class TestBashToolPolicyEnforcement:
         assert "parse" in output.lower()
         run_mock.assert_not_awaited()
 
-    # --- Repo-level policy ---
+    # --- Global policy settings ---
 
-    async def test_repo_disallow_blocks_custom_command(self, tmp_path: Path):
+    async def test_global_disallow_blocks_custom_command(self, tmp_path: Path):
         output, run_mock = await self._invoke("danger cmd", tmp_path, extra_disallow=("danger cmd",))
         assert output.startswith("error:")
-        assert "repo_disallow" in output
+        assert "global_disallow" in output
         run_mock.assert_not_awaited()
 
-    async def test_repo_allow_does_not_override_default_disallow(self, tmp_path: Path):
-        """Even if repo.allow contains 'git commit', it stays blocked."""
+    async def test_a_globally_denied_command_logs_global_disallow(self, tmp_path: Path, caplog):
+        with caplog.at_level("WARNING", logger="daiv.tools"):
+            _, run_mock = await self._invoke("danger cmd", tmp_path, extra_disallow=("danger cmd",))
+
+        run_mock.assert_not_awaited()
+        [record] = [r for r in caplog.records if getattr(r, "event", None) == "bash_policy_denied"]
+        assert record.reason_category == "global_disallow"
+        assert "reason=global_disallow" in record.getMessage()
+
+    async def test_global_allow_does_not_override_default_disallow(self, tmp_path: Path):
+        """Even if SANDBOX_COMMAND_POLICY_ALLOW contains 'git commit', it stays blocked."""
         output, run_mock = await self._invoke("git commit -m x", tmp_path, extra_allow=("git commit",))
         assert output.startswith("error:")
         assert "default_disallow" in output
         run_mock.assert_not_awaited()
+
+    async def test_global_allow_does_not_override_global_disallow(self, tmp_path: Path):
+        output, run_mock = await self._invoke(
+            "danger cmd --flag", tmp_path, extra_disallow=("danger cmd",), extra_allow=("danger cmd",)
+        )
+        assert output.startswith("error:")
+        assert "global_disallow" in output
+        run_mock.assert_not_awaited()
+
+    async def test_global_disallow_matches_case_and_short_flag_order(self, tmp_path: Path):
+        output, run_mock = await self._invoke("rm -fr /workspace/tmp/x", tmp_path, extra_disallow=("RM -RF",))
+        assert "global_disallow" in output
+        run_mock.assert_not_awaited()
+
+    async def test_global_disallow_in_a_chain_blocks_all(self, tmp_path: Path):
+        output, run_mock = await self._invoke(
+            "pytest tests && curl https://example.com", tmp_path, extra_disallow=("curl",)
+        )
+        assert "global_disallow" in output
+        run_mock.assert_not_awaited()
+
+    async def test_a_blank_global_disallow_entry_blocks_nothing(self, tmp_path: Path):
+        _, run_mock = await self._invoke("pytest tests/", tmp_path, extra_disallow=("", "   "))
+        run_mock.assert_awaited_once()
 
     # --- Denial message format ---
 
@@ -689,7 +707,6 @@ class TestSandboxMiddleware:
     async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
         """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
         from codebase.context import SandboxRuntime
-        from core.sandbox.command_policy import SandboxCommandPolicy
         from core.sandbox.schemas import StartSessionRequest
 
         repo_dir = tmp_path / "repoX"
@@ -709,12 +726,7 @@ class TestSandboxMiddleware:
         runtime.context.config.sandbox.cpus = None
         egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
         runtime.context.sandbox = SandboxRuntime(
-            base_image="alpine:test",
-            egress=egress,
-            memory_bytes=1_234,
-            cpus=2.5,
-            env_vars={"X": "y"},
-            command_policy=SandboxCommandPolicy(),
+            base_image="alpine:test", egress=egress, memory_bytes=1_234, cpus=2.5, env_vars={"X": "y"}
         )
 
         captured: dict = {}
@@ -743,55 +755,6 @@ class TestSandboxMiddleware:
         assert req.memory_bytes == 1_234
         assert req.cpus == 2.5
         assert req.environment == {"X": "y"}
-
-    async def test_check_command_policy_reads_from_ctx_sandbox(self, tmp_path: Path):
-        """_check_command_policy must pull ``command_policy`` from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
-        from langchain.tools import ToolRuntime
-
-        from automation.agent.middlewares.sandbox import _check_command_policy
-        from codebase.context import SandboxRuntime
-        from core.sandbox.command_policy import SandboxCommandPolicy
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
-
-        # ctx.sandbox is the authoritative source; ctx.config.sandbox would not match.
-        context = Mock(gitrepo=repo)
-        context.config = Mock()
-        context.config.sandbox = Mock()
-        # Make config.sandbox.command_policy look like a default-empty policy to prove
-        # the production code does NOT use it (the assertion below relies on a custom
-        # policy that lives only on ctx.sandbox).
-        context.config.sandbox.command_policy = Mock()
-        context.config.sandbox.command_policy.disallow = ()
-        context.config.sandbox.command_policy.allow = ()
-        context.sandbox = SandboxRuntime(
-            base_image="alpine:test",
-            memory_bytes=None,
-            cpus=None,
-            env_vars={},
-            command_policy=SandboxCommandPolicy(disallow=("custom-forbidden",)),
-        )
-
-        runtime = ToolRuntime(
-            state={"session_id": "sess_1"},
-            context=context,
-            config={},
-            stream_writer=Mock(),
-            tool_call_id="call_policy_ctx",
-            store=None,
-        )
-
-        with (
-            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", ()),
-            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", ()),
-        ):
-            result = _check_command_policy("custom-forbidden --really", runtime)
-
-        assert result is not None
-        assert result.startswith("error:")
-        assert "repo_disallow" in result
 
 
 def test_sandbox_prompt_uses_workspace_paths():

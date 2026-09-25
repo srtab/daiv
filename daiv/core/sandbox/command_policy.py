@@ -7,7 +7,7 @@ returns a :class:`PolicyResult` that indicates whether execution is permitted.
 
 Precedence: ``disallow`` rules override ``allow`` rules, which override the
 ``default_policy``.  Built-in disallow rules are always evaluated first and
-cannot be overridden by a repository's ``allow`` list.
+cannot be overridden by the ``allow`` list.
 """
 
 from __future__ import annotations
@@ -58,27 +58,8 @@ class DenialReason(StrEnum):
     """Machine-readable denial categories for telemetry and error messages."""
 
     DEFAULT_DISALLOW = "default_disallow"
-    REPO_DISALLOW = "repo_disallow"
     GLOBAL_DISALLOW = "global_disallow"
     PARSE_FAILURE = "parse_failure"
-
-
-@dataclass(frozen=True)
-class SandboxCommandPolicy:
-    """Effective bash command policy for the sandbox.
-
-    ``allow`` and ``disallow`` are tuples of space-separated command prefixes,
-    e.g. ``"rm -rf"`` matches any ``rm`` invocation whose first arg is ``-rf``.
-    ``disallow`` takes precedence over ``allow``; built-in safety rules
-    (``DEFAULT_DISALLOW_RULES``) override both.
-
-    Defaults to empty — no per-env policy configured. This is the runtime
-    fallback used by every ``SandboxRuntime`` until per-env policies are
-    re-introduced.
-    """
-
-    disallow: tuple[str, ...] = ()
-    allow: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -102,15 +83,15 @@ class PolicyResult:
 @dataclass
 class CommandPolicy:
     """
-    Effective policy built from all layers: built-in defaults, global settings,
-    and per-repository configuration.
+    Effective policy: the ``SANDBOX_COMMAND_POLICY_DISALLOW`` and
+    ``SANDBOX_COMMAND_POLICY_ALLOW`` settings as token tuples.
 
     ``disallow`` entries are tuples of normalized tokens (argv prefixes).
     ``allow`` entries follow the same format and whitelist otherwise-denied
     commands.
 
     Precedence: ``disallow > allow > default policy``.
-    Built-in ``DEFAULT_DISALLOW_RULES`` are applied *before* the user-provided
+    Built-in ``DEFAULT_DISALLOW_RULES`` are applied *before* the configured
     ``disallow`` list and cannot be overridden by ``allow``.
     """
 
@@ -199,13 +180,13 @@ def evaluate_command_policy(segments: list, policy: CommandPolicy) -> PolicyResu
 
     Precedence per segment:
     1. Built-in default disallow (cannot be whitelisted by ``allow``).
-    2. User ``disallow`` (cannot be overridden by ``allow``).
-    3. User ``allow`` (exempts from default policy only, not from 1 or 2).
+    2. Configured ``disallow`` (cannot be overridden by ``allow``).
+    3. Configured ``allow`` (exempts from default policy only, not from 1 or 2).
     4. Default policy → allow (all commands not in DEFAULT_DISALLOW_RULES pass).
 
     Args:
         segments: List of :class:`~core.sandbox.command_parser.ExecutableSegment`.
-        policy: The effective merged policy for this invocation.
+        policy: The effective policy for this invocation.
 
     Returns:
         :class:`PolicyResult` with ``allowed=True`` or details of the first
@@ -236,12 +217,12 @@ def _evaluate_segment(segment: object, policy: CommandPolicy) -> PolicyResult:
                 denied_segment=argv_str,
             )
 
-    # 2. Repo/user explicit disallow (cannot be overridden by allow)
+    # 2. Global disallow (cannot be overridden by allow)
     for rule in policy.disallow:
         if _argv_matches_rule(argv, rule):
             return PolicyResult(
                 allowed=False,
-                denial_reason=DenialReason.REPO_DISALLOW,
+                denial_reason=DenialReason.GLOBAL_DISALLOW,
                 matched_rule=_rule_repr(rule),
                 denied_segment=argv_str,
             )

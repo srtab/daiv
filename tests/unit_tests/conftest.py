@@ -22,7 +22,6 @@ from codebase.conf import settings as codebase_settings
 from codebase.context import SandboxRuntime
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
 from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -35,14 +34,7 @@ from core.sandbox.schemas import (
 def sandbox_runtime(
     *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None
 ) -> SandboxRuntime:
-    return SandboxRuntime(
-        base_image=base_image,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=egress,
-    )
+    return SandboxRuntime(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 @contextmanager

@@ -15,16 +15,8 @@ from accounts.models import User
 
 def _sandbox_runtime(*, base_image="python:3.12", egress=None):
     from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
 
-    return SandboxRuntime(
-        base_image=base_image,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=egress,
-    )
+    return SandboxRuntime(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 def test_augment_opens_network_off_env_when_push_credentialed():
@@ -621,15 +613,6 @@ class TestMergeSandboxRuntime:
         )
         runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
         assert runtime.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
-
-    def test_command_policy_defaults_empty(self):
-        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
-
-        from core.sandbox.command_policy import SandboxCommandPolicy
-
-        per_run = SandboxEnvOverride(base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={})
-        runtime = merge_sandbox_runtime(per_run=per_run, global_default=None)
-        assert runtime.command_policy == SandboxCommandPolicy()
 
 
 @pytest.mark.django_db(transaction=True)

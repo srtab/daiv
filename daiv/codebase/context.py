@@ -13,7 +13,6 @@ from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -31,15 +30,13 @@ class SandboxRuntime:
     :func:`set_runtime_ctx`) from two inputs: the per-run env (either picked
     explicitly via ``sandbox_env_id`` or auto-resolved from the repo via
     :func:`sandbox_envs.services.resolve_env_for_run`) and the GLOBAL default
-    env. ``command_policy`` is currently always the empty default; per-env
-    policies are a future iteration.
+    env.
     """
 
     base_image: str | None
     memory_bytes: int | None
     cpus: float | None
     env_vars: dict[str, str]
-    command_policy: SandboxCommandPolicy
     egress: EgressConfigRequest | None = None
 
     @property

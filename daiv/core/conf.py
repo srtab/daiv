@@ -27,8 +27,8 @@ class CoreSettings(BaseSettings):
     SANDBOX_COMMAND_POLICY_ALLOW: tuple[str, ...] = Field(
         default=(),
         description=(
-            "Global list of bash command prefixes that override the default disallow policy. "
-            "Repository-level disallow rules and built-in rules still take precedence."
+            "Global list of bash command prefixes to permit. "
+            "Built-in rules and SANDBOX_COMMAND_POLICY_DISALLOW still take precedence."
         ),
     )
 

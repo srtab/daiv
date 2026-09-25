@@ -83,14 +83,14 @@ class TestDefaultDisallowRules:
 class TestPrecedence:
     """Verify disallow > allow > default."""
 
-    def test_repo_disallow_blocks_otherwise_allowed(self):
+    def test_global_disallow_blocks_otherwise_allowed(self):
         policy = CommandPolicy(disallow=[("rm", "-rf")])
         segments = [_seg(("rm", "-rf", "/workspace/test"))]
         result = evaluate_command_policy(segments, policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
-    def test_repo_allow_does_not_override_default_disallow(self):
+    def test_allow_does_not_override_default_disallow(self):
         """Allow rules cannot whitelist built-in blocked commands."""
         policy = CommandPolicy(allow=[("git", "commit")])
         segments = [_seg(("git", "commit", "-m", "msg"))]
@@ -98,12 +98,12 @@ class TestPrecedence:
         assert not result.allowed
         assert result.denial_reason == DenialReason.DEFAULT_DISALLOW
 
-    def test_repo_allow_does_not_override_repo_disallow(self):
-        """Allow rules cannot override repo-level disallow rules."""
+    def test_allow_does_not_override_global_disallow(self):
+        """Allow rules cannot override global disallow rules."""
         policy = CommandPolicy(disallow=[("danger", "cmd")], allow=[("danger", "cmd")])
         result = evaluate_command_policy([_seg(("danger", "cmd", "--flag"))], policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
     def test_allow_exempts_from_default_policy(self):
         """An explicit allow rule lets otherwise-acceptable commands through."""
@@ -184,13 +184,13 @@ class TestFlagNormalization:
         policy = CommandPolicy(disallow=[("rm", "-rf", "/")])
         result = evaluate_command_policy([_seg(("rm", "-fr", "/"))], policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
     def test_short_flag_bundle_order_is_normalized_with_case(self):
         policy = CommandPolicy(disallow=[("mycmd", "-ab")])
         result = evaluate_command_policy([_seg(("mycmd", "-Ba"))], policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
     def test_long_options_are_not_reordered(self):
         policy = CommandPolicy(disallow=[("mycmd", "--ab")])
@@ -207,14 +207,14 @@ class TestFlagNormalization:
         policy = CommandPolicy(disallow=[("rm", "-rf")])
         result = evaluate_command_policy([_seg(("rm", "-rrf", "/"))], policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
     def test_duplicate_flags_in_rule_matches_single_occurrence(self):
         """Verify that rule -rrf matches command -rf."""
         policy = CommandPolicy(disallow=[("rm", "-rrf")])
         result = evaluate_command_policy([_seg(("rm", "-rf", "/"))], policy)
         assert not result.allowed
-        assert result.denial_reason == DenialReason.REPO_DISALLOW
+        assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
 
 class TestGlobalFlagsBeforeSubcommand:
@@ -258,11 +258,3 @@ class TestGlobalFlagsBeforeSubcommand:
     def test_safe_commands_with_global_flags_still_allowed(self, argv):
         result = evaluate_command_policy([_seg(argv)], CommandPolicy())
         assert result.allowed
-
-
-def test_sandbox_command_policy_defaults_to_empty():
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
-    policy = SandboxCommandPolicy()
-    assert policy.allow == ()
-    assert policy.disallow == ()

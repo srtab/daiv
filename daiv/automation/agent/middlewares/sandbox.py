@@ -166,18 +166,9 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     """
     tool_call_id = getattr(runtime, "tool_call_id", None)
 
-    # Build effective policy from global settings + repo config.
-    repo_policy = runtime.context.sandbox.command_policy
-
     policy = CommandPolicy(
-        disallow=[
-            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_DISALLOW],
-            *[parse_rule(r) for r in repo_policy.disallow],
-        ],
-        allow=[
-            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_ALLOW],
-            *[parse_rule(r) for r in repo_policy.allow],
-        ],
+        disallow=[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_DISALLOW],
+        allow=[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_ALLOW],
     )
 
     # Parse the command string.

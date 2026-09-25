@@ -365,11 +365,8 @@ def merge_sandbox_runtime(
 
     ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
     ``egress`` is taken from the effective env as-is (see inline comment).
-    ``command_policy`` defaults to an empty policy; built-in safety rules in
-    :mod:`core.sandbox.command_policy` still apply.
     """
     from codebase.context import SandboxRuntime
-    from core.sandbox.command_policy import SandboxCommandPolicy
 
     def pick(field: str, runtime_default):
         if per_run is not None:
@@ -392,7 +389,6 @@ def merge_sandbox_runtime(
             per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
         ),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
-        command_policy=SandboxCommandPolicy(),
     )
 
 
