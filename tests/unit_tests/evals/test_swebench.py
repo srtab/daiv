@@ -3,7 +3,7 @@ import asyncio
 import inspect
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sessions.executor.lock import NoLock
@@ -11,8 +11,10 @@ from sessions.executor.spec import RunOutcome
 
 from automation.agent import ThinkingLevel
 from automation.agent.graph import create_daiv_agent
+from automation.agent.validators import AgentOverrideError
 from codebase.base import GitPlatform, Scope
 from codebase.clients import RepoClient
+from codebase.clients.swe import SWERepoClient
 from codebase.context import set_runtime_ctx
 from evals import swebench
 
@@ -34,8 +36,12 @@ def _outcome(**values) -> RunOutcome:
     return RunOutcome(agent_result={}, response_text="done", snapshot=SimpleNamespace(values=values))
 
 
-async def _main(tmp_path, execute, items=(ITEM,)) -> list[dict]:
-    with patch("datasets.load_dataset", return_value=list(items)), patch.object(swebench, "execute_run", execute):
+async def _main(tmp_path, execute, items=(ITEM,), validate=None) -> list[dict]:
+    with (
+        patch("datasets.load_dataset", return_value=list(items)),
+        patch.object(swebench, "execute_run", execute),
+        patch.object(swebench, "validate_agent_override", validate or MagicMock()),
+    ):
         await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), ["model-a", "model-b"])
     return _written(tmp_path)
 
@@ -74,6 +80,17 @@ async def test_a_finished_run_predicts_the_patch_it_captured(tmp_path):
     ]
 
 
+async def test_a_model_the_site_cant_run_stops_the_eval_before_any_instance(tmp_path):
+    execute = AsyncMock()
+    validate = MagicMock(side_effect=AgentOverrideError("Unknown/Unsupported provider for model model-a"))
+
+    with pytest.raises(AgentOverrideError):
+        await _main(tmp_path, execute, validate=validate)
+
+    validate.assert_called_once_with("model-a", None)
+    execute.assert_not_awaited()
+
+
 async def test_a_failed_run_predicts_an_empty_patch_and_the_eval_goes_on(tmp_path, capsys):
     execute = AsyncMock(side_effect=[RuntimeError("clone failed"), _outcome(model_patch="diff")])
 
@@ -83,15 +100,32 @@ async def test_a_failed_run_predicts_an_empty_patch_and_the_eval_goes_on(tmp_pat
         ("owner__repo-1", ""),
         ("owner__repo-2", "diff"),
     ]
-    assert "[owner__repo-1] run failed:" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "[owner__repo-1] run failed:" in err
+    assert "1/2 instances failed: owner__repo-1" in err
 
 
-@pytest.mark.parametrize("snapshot", [SimpleNamespace(values={}), None], ids=["no-patch", "no-snapshot"])
-async def test_a_finished_run_without_a_captured_patch_ends_the_eval(tmp_path, snapshot):
-    """A finished run with no patch means the capture wiring drifted: fail loud, not a file of empty patches."""
+async def test_an_eval_where_every_instance_failed_exits_non_zero(tmp_path):
+    """The same setup error on every instance is a broken eval, not a batch of empty predictions."""
+    execute = AsyncMock(side_effect=RuntimeError("sandbox unavailable"))
+
+    with pytest.raises(SystemExit) as exit_info:
+        await _main(tmp_path, execute, items=(ITEM, SECOND))
+
+    assert exit_info.value.code == 1
+    assert [p["model_patch"] for p in _written(tmp_path)] == ["", ""]
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "cause"),
+    [(SimpleNamespace(values={}), "without a model_patch"), (None, "checkpoint could not be read")],
+    ids=["no-patch", "no-snapshot"],
+)
+async def test_a_finished_run_without_a_captured_patch_ends_the_eval(tmp_path, snapshot, cause):
+    """A finished run with no patch to read fails loud, naming the instance, instead of predicting ''."""
     outcome = RunOutcome(agent_result={}, response_text="done", snapshot=snapshot)
 
-    with pytest.raises(KeyError, match="model_patch"):
+    with pytest.raises(RuntimeError, match=rf"\[owner__repo-1\].*{cause}"):
         await _main(tmp_path, AsyncMock(return_value=outcome))
 
     assert _written(tmp_path) == []
@@ -103,7 +137,7 @@ async def test_a_dirty_workspace_is_reported_next_to_the_run(tmp_path, capsys):
     assert "[owner__repo-1] WARNING: workspace was dirty before the run" in capsys.readouterr().err
 
 
-async def test_an_eval_stopped_mid_instance_still_writes_its_predictions(tmp_path):
+async def test_an_eval_stopped_mid_instance_still_writes_its_predictions(tmp_path, capsys):
     """Ctrl-C under ``asyncio.run`` cancels ``main``: the finished instances and the interrupted one are kept."""
     execute = AsyncMock(side_effect=[_outcome(model_patch="diff"), asyncio.CancelledError()])
 
@@ -114,6 +148,33 @@ async def test_an_eval_stopped_mid_instance_still_writes_its_predictions(tmp_pat
         ("owner__repo-1", "diff"),
         ("owner__repo-2", ""),
     ]
+    assert "[owner__repo-2] interrupted" in capsys.readouterr().err
+
+
+async def test_a_cleanup_error_while_ctrl_c_unwinds_a_run_still_stops_the_eval(tmp_path):
+    started = asyncio.Event()
+    specs = []
+
+    async def execute(spec):
+        specs.append(spec)
+        if len(specs) > 1:
+            return _outcome(model_patch="diff")
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise OSError("clone cleanup failed") from None
+
+    eval_task = asyncio.create_task(_main(tmp_path, execute, items=(ITEM, SECOND)))
+    async with asyncio.timeout(5):
+        await started.wait()
+    eval_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await eval_task
+
+    assert len(specs) == 1
+    assert [(p["instance_id"], p["model_patch"]) for p in _written(tmp_path)] == [("owner__repo-1", "")]
 
 
 def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_accept():
@@ -127,7 +188,9 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     ctx_kwargs = {k: v for k, v in spec.context_options.items() if k in explicit_params}
     client_kwargs = {k: v for k, v in spec.context_options.items() if k not in explicit_params}
     ctx_sig.bind(spec.repo_id, scope=spec.scope, **ctx_kwargs)
-    _real_create_instance(**client_kwargs)
+    client = _real_create_instance(**client_kwargs)
+    assert isinstance(client, SWERepoClient)
+    assert client.repo_host == "github.com"
 
 
 def test_a_message_with_hints_includes_the_hints_section():

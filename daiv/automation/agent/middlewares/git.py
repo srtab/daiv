@@ -153,7 +153,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             turn-end publish is skipped.
         capture_patch: Whether to capture the run's working-tree diff (vs ``HEAD``) at turn end
             and expose it as ``model_patch`` in the output state. Used by eval harnesses to read
-            the patch from ``ainvoke``'s result; keep ``False`` for normal runs so potentially
+            the patch from the run's final state; keep ``False`` for normal runs so potentially
             large patches never stream through ``STATE_SNAPSHOT`` events.
         sandbox_backend: Run's bound :class:`SandboxFileBackend` injected by ``create_daiv_agent``;
             forwarded to :class:`GitChangePublisher` (and used for patch capture) so turn-end git

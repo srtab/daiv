@@ -12,16 +12,17 @@ from django.apps import apps
 from langchain_core.messages import HumanMessage
 
 # The first-party imports below define Django models at import time, so the app registry must be populated
-# before them. A test that imports this module has populated it already.
+# before them, once: under pytest a second setup re-applies the test LOGGING and disables existing loggers.
 if not apps.ready:
     django.setup()
 
 from sessions.executor.lock import NoLock  # noqa: E402
 from sessions.executor.run import execute_run  # noqa: E402
-from sessions.executor.spec import RunSpec  # noqa: E402
+from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
 
 from automation.agent import ThinkingLevel  # noqa: E402
 from automation.agent.constants import ModelName  # noqa: E402
+from automation.agent.validators import validate_agent_override  # noqa: E402
 from codebase.base import GitPlatform, Scope  # noqa: E402
 
 
@@ -33,6 +34,9 @@ async def main(
     instance_ids: list[str] | None = None,
     num_samples: int | None = None,
 ):
+    for model_name in model_names:
+        validate_agent_override(model_name, None)
+
     from datasets import load_dataset
 
     dataset = load_dataset(dataset_path, split=dataset_split)
@@ -47,38 +51,66 @@ async def main(
         dataset = dataset.take(num_samples)
 
     predictions = []
+    failed = []
 
     try:
         for item in dataset:
+            instance_id = item["instance_id"]
             outcome = None
             try:
-                outcome = await execute_run(_run_spec(item, model_names))
+                outcome = await _execute(_run_spec(item, model_names))
+            except asyncio.CancelledError:
+                print(f"[{instance_id}] interrupted", file=sys.stderr)  # noqa: T201
+                raise
             except Exception:
-                print(f"[{item['instance_id']}] run failed:", file=sys.stderr)  # noqa: T201
+                failed.append(instance_id)
+                print(f"[{instance_id}] run failed:", file=sys.stderr)  # noqa: T201
                 traceback.print_exc()
             finally:
-                snapshot = outcome.snapshot if outcome is not None else None
-                values = snapshot.values if snapshot is not None else {}
-                # GitMiddleware sets this when the workspace differed from HEAD before the run, so the patch
-                # includes changes the agent never made. Printed only: SWE-bench loaders may be strict about the schema.
-                if dirty := values.get("pre_run_dirty_files"):
-                    print(  # noqa: T201
-                        f"[{item['instance_id']}] WARNING: workspace was dirty before the run; "
-                        f"model_patch includes pre-existing changes to: {', '.join(dirty)}",
-                        file=sys.stderr,
-                    )
-                # A failed run records an empty patch; a finished run without model_patch means capture_patch
-                # wiring drifted, so the KeyError ends the eval.
                 predictions.append({
-                    "model_patch": values["model_patch"] if outcome is not None else "",
+                    "model_patch": _model_patch(instance_id, outcome),
                     "model_name_or_path": ", ".join(model_names),
-                    "instance_id": item["instance_id"],
+                    "instance_id": instance_id,
                 })
     finally:
         print(json.dumps(predictions, indent=2))  # noqa: T201
 
         with Path(output_path).open("w") as f:
             json.dump(predictions, f, indent=2)
+
+    if failed:
+        print(f"{len(failed)}/{len(predictions)} instances failed: {', '.join(failed)}", file=sys.stderr)  # noqa: T201
+        if len(failed) == len(predictions):
+            raise SystemExit(1)
+
+
+async def _execute(spec: RunSpec) -> RunOutcome:
+    """``execute_run``, except that a cleanup error raised while Ctrl-C unwinds the run still stops the eval."""
+    try:
+        return await execute_run(spec)
+    except Exception as exc:
+        if (task := asyncio.current_task()) is not None and task.cancelling():
+            raise asyncio.CancelledError from exc
+        raise
+
+
+def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
+    """A failed or interrupted run predicts no patch; a finished one that captured none means the eval is broken."""
+    if outcome is None:
+        return ""
+    if outcome.snapshot is None:
+        raise RuntimeError(f"[{instance_id}] finished, but its checkpoint could not be read")
+    values = outcome.snapshot.values
+    # Printed, not put in the prediction: SWE-bench loaders may be strict about its schema.
+    if dirty := values.get("pre_run_dirty_files"):
+        print(  # noqa: T201
+            f"[{instance_id}] WARNING: workspace was dirty before the run; "
+            f"model_patch includes pre-existing changes to: {', '.join(dirty)}",
+            file=sys.stderr,
+        )
+    if "model_patch" not in values:
+        raise RuntimeError(f"[{instance_id}] finished without a model_patch: the capture_patch wiring drifted")
+    return values["model_patch"]
 
 
 def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
@@ -96,8 +128,6 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         context_options={"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"},
         agent_options={
             "auto_commit_changes": False,
-            # On sandbox runs the edits live in the sandbox, not this clone, so capture_patch has
-            # GitMiddleware diff the authoritative workspace into model_patch.
             "capture_patch": True,
             "web_search_enabled": False,
             "web_fetch_enabled": False,
