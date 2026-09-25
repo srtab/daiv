@@ -29,6 +29,10 @@ class RunSpec:
 
     ``thread_id`` is ``None`` for a one-shot run (evals): it has no ``Session`` row, so it runs with ``NoLock`` and
     none of the switches that write to a session, and checkpoints in memory under a fresh thread.
+    ``model_names`` is an exact model chain, primary first, that replaces model resolution: ``agent_model``,
+    ``use_max`` and the repository's models are ignored, and ``agent_thinking_level`` is passed as given.
+    ``context_options`` and ``agent_options`` are extra keyword arguments for ``set_runtime_ctx`` and
+    ``create_daiv_agent``.
     """
 
     thread_id: str | None
@@ -53,6 +57,9 @@ class RunSpec:
     arm_watch: bool = False
     recover_draft: bool = False
     extra_metadata: dict[str, Any] = field(default_factory=dict)
+    model_names: tuple[str, ...] = ()
+    context_options: dict[str, Any] = field(default_factory=dict)
+    agent_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.thread_id is None and (

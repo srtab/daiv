@@ -223,6 +223,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             acting_user_id=spec.acting_user_id,
             mcp_overrides=spec.mcp_overrides,
             references=spec.references,
+            **spec.context_options,
         ) as ctx,
         checkpoints as checkpointer,
     ):
@@ -230,15 +231,19 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             await _repin_fallback_ref(thread_id, ctx.repo.ref)
         if hooks.on_context_ready is not None:
             await hooks.on_context_ready(ctx.repo.ref)
-        agent_kwargs = get_daiv_agent_kwargs(
-            model_config=ctx.config.models.agent,
-            agent_model=spec.agent_model,
-            agent_thinking_level=spec.agent_thinking_level,
-            **({"use_max": True} if spec.use_max else {}),
-        )
+        agent_kwargs: dict[str, Any]
+        if spec.model_names:
+            agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
+        else:
+            agent_kwargs = get_daiv_agent_kwargs(
+                model_config=ctx.config.models.agent,
+                agent_model=spec.agent_model,
+                agent_thinking_level=spec.agent_thinking_level,
+                **({"use_max": True} if spec.use_max else {}),
+            )
         model = agent_kwargs["model_names"][0]
         await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
-        agent = await create_daiv_agent(ctx=ctx, checkpointer=checkpointer, **agent_kwargs)
+        agent = await create_daiv_agent(ctx=ctx, checkpointer=checkpointer, **agent_kwargs, **spec.agent_options)
         config = build_langsmith_config(
             ctx,
             trigger=spec.trigger,

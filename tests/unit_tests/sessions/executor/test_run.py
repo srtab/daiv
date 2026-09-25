@@ -455,6 +455,32 @@ async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
     }
 
 
+async def test_an_exact_model_chain_replaces_model_resolution():
+    """The chain runs as given: nothing is appended, and the per-run override and the max model don't apply."""
+    spec = _spec(model_names=("model-a", "model-b"), agent_thinking_level="high", agent_model="other", use_max=True)
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    stack.resolve.assert_not_called()
+    stack.create_agent.assert_awaited_once_with(
+        ctx=stack.ctx, checkpointer=stack.checkpointer, model_names=["model-a", "model-b"], thinking_level="high"
+    )
+    assert stack.langsmith.call_args.kwargs["model"] == "model-a"
+
+
+async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
+    spec = _spec(context_options={"offline": True, "repo_host": "github.com"}, agent_options={"capture_patch": True})
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
+    stack.create_agent.assert_awaited_once_with(
+        ctx=stack.ctx, checkpointer=stack.checkpointer, **AGENT_KWARGS, capture_patch=True
+    )
+
+
 class TestRefFallback:
     """The clone degraded off a vanished branch (its MR merged and deleted): the session is re-pinned to where it
     landed, so the next turn doesn't ask for a branch that is gone. Moved from ``address_issue_task``'s tests."""
