@@ -22,6 +22,7 @@ from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import render_agent_context, render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, get_repo_branch, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.site_settings import site_settings
 from core.utils import build_absolute_url
 
@@ -383,9 +384,11 @@ class GitChangePublisher(ChangePublisher):
 
         Refreshing unconditionally before the first network op — rather than reacting to a failed
         one — keeps the recovery independent of git's auth-error wording, which varies by version and
-        transport. Delivery is skipped when there is nothing to refresh (no egress proxy, a
-        token-less/eval platform, or a re-mint that returned the same token — e.g. GitLab's
-        day-cached clone token).
+        transport. Nothing is minted when the session carries no platform token (no egress proxy, or a
+        token-less turn start, where no rule would inject one), and nothing is delivered when the
+        re-mint yields no token or the same one: GitLab's clone tokens are day-cached, so in practice
+        only GitHub's per-call installation tokens rotate. Each skip is debug-logged, so a publish
+        that later fails on auth shows which one fired.
 
         Only called in sandbox mode. Best-effort by design — the broad ``except`` is deliberate: the
         platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors the
@@ -393,29 +396,32 @@ class GitChangePublisher(ChangePublisher):
         publishing with the turn-start token (the pre-existing behavior). The stack trace is logged
         so a persistent refresh failure stays diagnosable.
         """
-        from sandbox_envs.services import refresh_platform_egress
-
         backend = self.sandbox_backend
-        sandbox = self.ctx.sandbox
-        if backend is None or sandbox is None:  # pragma: no cover - only called in sandbox mode
+        if backend is None:  # pragma: no cover - only called in sandbox mode
+            return
+        turn_start = self.ctx.sandbox_egress
+        slug = self.ctx.repository.slug
+        incumbent = turn_start.secrets.get(PLATFORM_EGRESS_SECRET_NAME) if turn_start is not None else None
+        if incumbent is None:
+            logger.debug("Not refreshing platform egress for %s: the session carries no platform token", slug)
             return
         try:
-            egress = await sync_to_async(refresh_platform_egress)(
-                self.ctx.sandbox_egress, self.client, self.ctx.repository
-            )
-            # refresh_platform_egress returns the *input* object when there was nothing to swap in
-            # (no proxy, token-less platform, or an unchanged token) — so identity means "nothing to
-            # deliver". The explicit `is None` also narrows the `EgressConfigRequest | None` return for
-            # the type checker before the non-null refresh_egress call below.
-            if egress is None or egress is self.ctx.sandbox_egress:
+            credential = await sync_to_async(self.client.get_git_egress_credential)(self.ctx.repository)
+            if credential is None or credential.value is None:
+                logger.debug("Not refreshing platform egress for %s: no token could be resolved", slug)
                 return
-            await backend.refresh_egress(egress)
-            logger.info("Refreshed the sandbox egress token for %s before publish", self.ctx.repository.slug)
+            if credential.value == incumbent.value:
+                logger.debug("Not refreshing platform egress for %s: re-mint returned the incumbent token", slug)
+                return
+            await backend.refresh_egress(
+                with_platform_credential(turn_start, credential.host, credential.header, credential.value)
+            )
+            logger.info("Refreshed the sandbox egress token for %s before publish", slug)
         except Exception:
             logger.exception(
                 "Could not refresh the sandbox egress token for %s before publish; proceeding with the "
                 "turn-start token",
-                self.ctx.repository.slug,
+                slug,
             )
 
     async def _trigger_service_account_pipeline(self, merge_request: MergeRequest, pushed_sha: str | None) -> None:

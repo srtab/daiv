@@ -10,16 +10,11 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync
 
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
 from sandbox_envs.spec import SandboxEnvOverride
 
 if TYPE_CHECKING:
     from sessions.services import RepoTarget
-
-    from codebase.base import Repository
-    from codebase.clients import RepoClient
-    from core.sandbox.schemas import EgressConfigRequest
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -67,51 +62,6 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         },
         egress=egress,
     )
-
-
-def refresh_platform_egress(
-    egress: EgressConfigRequest | None, repo_client: RepoClient, repository: Repository
-) -> EgressConfigRequest | None:
-    """Re-mint the git-platform token and swap it into an already-provisioned egress config.
-
-    ``set_runtime_ctx`` builds ``ctx.sandbox_egress`` via :func:`codebase.context._run_egress`, which
-    embeds a short-lived platform token under the reserved ``PLATFORM_EGRESS_SECRET_NAME`` secret. A
-    turn that outlives that token's TTL (GitHub installation tokens live 1h) would fail the in-sandbox
-    publish push, so the publisher re-mints right before publishing. This replaces **only** that
-    secret's value — the allow-rule (host, methods, inject reference) and every other secret are
-    untouched — so the result carries no duplicate platform rule.
-
-    Returns ``egress`` **unchanged** (same object, so the caller's identity check skips the sidecar
-    delivery) when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a
-    config that never carried the platform secret (e.g. turn start resolved a host-only credential,
-    so the rule was built with ``inject=None`` — a token minted now would sit in ``secrets``
-    unreferenced by any rule, never injected); a host-only / token-less credential (e.g. the SWE eval
-    platform) with no token to swap in; or a re-mint that yields the **same token** as the incumbent.
-    The last case is why the swap effectively fires only on platforms that mint a fresh token per
-    call (GitHub installation tokens): GitLab clone tokens are day-cached (see
-    ``gitlab/clone_tokens.py``) and are always served with >=24h of validity left, so no turn
-    outlives them — within the cache window a re-mint returns the byte-identical token and there is
-    nothing new to deliver. Each skip is debug-logged so a publish that later fails on auth stays
-    diagnosable (which skip fired, vs. a refresh that was delivered)."""
-    from core.sandbox.schemas import EgressConfigRequest, EgressSecret
-
-    if egress is None:
-        logger.debug("Not refreshing platform egress for %s: no egress proxy", repository.slug)
-        return egress
-    incumbent = egress.secrets.get(PLATFORM_EGRESS_SECRET_NAME)
-    if incumbent is None:
-        logger.debug("Not refreshing platform egress for %s: config carries no platform secret", repository.slug)
-        return egress
-    credential = repo_client.get_git_egress_credential(repository)
-    if credential is None or credential.value is None:
-        logger.debug("Not refreshing platform egress for %s: no token could be resolved", repository.slug)
-        return egress
-    if incumbent.value.get_secret_value() == credential.value.get_secret_value():
-        logger.debug("Not refreshing platform egress for %s: re-mint returned the incumbent token", repository.slug)
-        return egress
-    secrets = dict(egress.secrets)
-    secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
-    return EgressConfigRequest(policy=egress.policy, secrets=secrets)
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
