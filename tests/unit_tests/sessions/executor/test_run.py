@@ -7,6 +7,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
@@ -107,6 +108,19 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
+
+
+async def test_each_one_shot_run_checkpoints_in_memory_under_its_own_thread():
+    """A one-shot run has no session to resume: its checkpoint stays out of Redis and out of the next run's way."""
+    with agent_stack(_agent()) as stack:
+        await execute_run(_spec(thread_id=None))
+        await execute_run(_spec(thread_id=None))
+
+    savers = [call.kwargs["checkpointer"] for call in stack.create_agent.await_args_list]
+    threads = [call.kwargs["configurable"]["thread_id"] for call in stack.langsmith.call_args_list]
+    assert all(isinstance(saver, InMemorySaver) for saver in savers)
+    assert savers[0] is not savers[1]
+    assert len({uuid.UUID(thread) for thread in threads}) == 2
 
 
 @pytest.mark.django_db(transaction=True)

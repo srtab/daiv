@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sessions.executor.lock import NoLock
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -24,9 +26,12 @@ class RunSpec:
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
     merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
     ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
+
+    ``thread_id`` is ``None`` for a one-shot run (evals): it has no ``Session`` row, so it runs with ``NoLock`` and
+    none of the switches that write to a session, and checkpoints in memory under a fresh thread.
     """
 
-    thread_id: str
+    thread_id: str | None
     repo_id: str
     scope: Scope
     input_messages: tuple[BaseMessage, ...]
@@ -48,6 +53,17 @@ class RunSpec:
     arm_watch: bool = False
     recover_draft: bool = False
     extra_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.thread_id is None and (
+            not isinstance(self.lock, NoLock)
+            or self.run_id is not None
+            or self.persist_ref
+            or self.arm_watch
+            or self.recover_draft
+            or self.fallback_ref_on_missing
+        ):
+            raise ValueError("a one-shot run (thread_id=None) has no session to lock, record, sync, arm or recover")
 
 
 @dataclass(frozen=True, kw_only=True)
