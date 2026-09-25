@@ -43,11 +43,14 @@ These rules exist because DAIV manages git operations (commits, pushes, branches
 
 ### Global rules
 
-In addition to the built-in safety rules, operators can configure global allow and
-disallow command prefixes via the `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` and
-`DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` environment variables (see the
-[Environment Variables](../reference/env-variables.md) reference). Each entry is a
-space-separated prefix (for example, `curl wget` or `my-safe-tool`).
+In addition to the built-in safety rules, operators can block more commands with
+`DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` (see the
+[Environment Variables](../reference/env-variables.md) reference). The value is a JSON
+array, for example `["curl", "npm publish"]`: each entry is a command name followed by
+any arguments that must appear after it. Matching ignores case and the order of bundled
+short flags, so `rm -rf` also blocks `rm -fr`. `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` takes
+the same format, but it cannot override a built-in or configured disallow rule, and
+every other command is already allowed, so it currently has no effect.
 
 Per-repository (`.daiv.yml`) and per-environment command policies are a future
 iteration and are not yet available.
