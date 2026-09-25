@@ -108,7 +108,7 @@ Variables marked with:
     Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for server-side configuration of the sandbox service.
 
 !!! note "Command policy"
-    Both policy settings take a JSON array; a plain string such as `curl wget` (or an empty value) fails to parse and DAIV will not start. Each entry is a command name followed by any arguments that must appear after it, in order — `git push` also matches `git -C /workspace/repo push --force`. Built-in safety rules (blocking `git commit`, `git push`, etc.) always apply and cannot be overridden. `DISALLOW` adds rules on top of them. `ALLOW` cannot override a built-in or `DISALLOW` rule, and every other command is already allowed, so it currently has no effect. The policy is global: there is no per-repository or per-environment policy. See [Sandbox](../features/sandbox.md#global-rules).
+    Both policy settings take a JSON array; a plain string such as `curl wget` (or an empty value) fails to parse and DAIV will not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. Each entry is a command name followed by any arguments that must appear after it, in order — `git push` also matches `git -C /workspace/repo push --force`. Built-in safety rules (blocking `git commit`, `git push`, etc.) always apply and cannot be overridden. `DISALLOW` adds rules on top of them. `ALLOW` cannot override a built-in or `DISALLOW` rule, and every other command is already allowed, so it currently has no effect. The policy is global: there is no per-repository or per-environment policy. See [Sandbox](../features/sandbox.md#global-rules).
 
 ### Authentication
 

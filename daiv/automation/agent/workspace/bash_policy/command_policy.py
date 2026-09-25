@@ -5,9 +5,9 @@ Provides :func:`evaluate_command_policy` which, given an effective policy and a
 parsed list of :class:`~automation.agent.workspace.bash_policy.command_parser.ExecutableSegment` objects,
 returns a :class:`PolicyResult` that indicates whether execution is permitted.
 
-Precedence: ``disallow`` rules override ``allow`` rules, which override the
-``default_policy``.  Built-in disallow rules are always evaluated first and
-cannot be overridden by the ``allow`` list.
+Precedence: built-in disallow rules, then ``disallow``, then ``allow``, then the
+default, which allows.  ``allow`` never overrides a built-in or ``disallow``
+rule, so it cannot change an outcome.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from enum import StrEnum
 # ---------------------------------------------------------------------------
 
 #: Commands/subcommands that are always blocked regardless of configuration.
-#: Entries are tuples of normalized tokens that must match as a *prefix* of the
-#: command's argv.  E.g. ("git", "commit") matches ``git commit -m "msg"``.
+#: Entries are normalized tokens: the first must equal argv[0], the rest must
+#: appear in argv in order.  E.g. ("git", "commit") matches ``git -C /repo commit``.
 DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     # Git history mutation
     ("git", "commit"),
@@ -86,13 +86,10 @@ class CommandPolicy:
     Effective policy: the ``SANDBOX_COMMAND_POLICY_DISALLOW`` and
     ``SANDBOX_COMMAND_POLICY_ALLOW`` settings as token tuples.
 
-    ``disallow`` entries are tuples of normalized tokens (argv prefixes).
-    ``allow`` entries follow the same format and whitelist otherwise-denied
-    commands.
+    Entries are normalized token tuples, matched like ``DEFAULT_DISALLOW_RULES``.
 
-    Precedence: ``disallow > allow > default policy``.
-    Built-in ``DEFAULT_DISALLOW_RULES`` are applied *before* the configured
-    ``disallow`` list and cannot be overridden by ``allow``.
+    Precedence: ``DEFAULT_DISALLOW_RULES > disallow > allow > default``.  The
+    default allows, so ``allow`` never changes an outcome.
     """
 
     disallow: list[tuple[str, ...]] = field(default_factory=list)
