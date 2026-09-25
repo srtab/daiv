@@ -59,21 +59,16 @@ async def main(
             finally:
                 snapshot = outcome.snapshot if outcome is not None else None
                 values = snapshot.values if snapshot is not None else {}
-                # GitMiddleware sets this when the workspace differed from HEAD before the
-                # agent acted — the patch below is poisoned with changes the agent never
-                # made. Surface it next to the run so a bad grading batch is explainable
-                # without grepping server logs. (Kept out of the predictions file: SWE-bench
-                # loaders may be strict about its schema.)
+                # GitMiddleware sets this when the workspace differed from HEAD before the run, so the patch
+                # includes changes the agent never made. Printed only: SWE-bench loaders may be strict about the schema.
                 if dirty := values.get("pre_run_dirty_files"):
                     print(  # noqa: T201
                         f"[{item['instance_id']}] WARNING: workspace was dirty before the run; "
                         f"model_patch includes pre-existing changes to: {', '.join(dirty)}",
                         file=sys.stderr,
                     )
-                # A failed run degrades to an empty patch (the traceback above is the
-                # signal); a *successful* run missing the key means capture_patch wiring
-                # drifted — let the KeyError kill the eval rather than silently emit a
-                # predictions file full of empty patches.
+                # A failed run records an empty patch; a finished run without model_patch means capture_patch
+                # wiring drifted, so the KeyError ends the eval.
                 predictions.append({
                     "model_patch": values["model_patch"] if outcome is not None else "",
                     "model_name_or_path": ", ".join(model_names),
@@ -101,11 +96,8 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         context_options={"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"},
         agent_options={
             "auto_commit_changes": False,
-            # On sandbox-enabled runs the agent's edits live in the sandbox
-            # /workspace/repo, not in this local clone (it only seeds the session), so
-            # a local diff here would be empty. capture_patch makes GitMiddleware take
-            # the diff at turn end from whichever workspace is authoritative and expose
-            # it as `model_patch` in the output state.
+            # On sandbox runs the edits live in the sandbox, not this clone, so capture_patch has
+            # GitMiddleware diff the authoritative workspace into model_patch.
             "capture_patch": True,
             "web_search_enabled": False,
             "web_fetch_enabled": False,
