@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from ag_ui.core import RunAgentInput
     from sessions.executor.run import AgentRun
 
+    from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from codebase.context import RuntimeCtx
     from codebase.references import ExternalRef
 
@@ -226,7 +227,7 @@ class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
     chat_run: Run | None = None
-    agent_run: AgentRun | None = None
+    usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
 
@@ -294,12 +295,6 @@ class ChatRunStreamer:
                 )
             ) as stream:
                 async for event in stream:
-                    if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
-                        turn.add_text(getattr(event, "delta", None))
-                    elif event.type == EventType.RUN_ERROR:
-                        # Upstream's message can carry raw exception text: it streams live but never reaches
-                        # ``Run.error_message``, which the transcript renders verbatim on reload.
-                        turn.error = RUN_FAILED_MESSAGE
                     yield event
             finished = True
         except _ReportedRunError:
@@ -330,7 +325,7 @@ class ChatRunStreamer:
             turn.error = RUN_FAILED_MESSAGE
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
-            await self._end_turn(turn, succeeded=finished and turn.error is None)
+            await self._end_turn(turn, succeeded=finished)
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(
@@ -355,13 +350,6 @@ class ChatRunStreamer:
 
     async def _start_turn(self, turn: _Turn, ref: str) -> None:
         """Record the turn as a RUNNING ``Run`` on the ref the clone landed on."""
-        if ref != self.ref:
-            logger.warning(
-                "chat: ref %r no longer exists for thread_id=%s; fell back to default branch %r",
-                self.ref,
-                self.thread_id,
-                ref,
-            )
         turn.chat_run = await start_chat_run(
             session_id=self.thread_id,
             user_id=self.user_id,
@@ -373,8 +361,9 @@ class ChatRunStreamer:
 
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
         """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back, then the agent's events through
-        the subagent filter. Raises ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR."""
-        turn.agent_run = run
+        the subagent filter, recorded on ``turn``. Raises ``_ReportedRunError`` after the last event when one of them
+        was a RUN_ERROR."""
+        turn.usage = run.usage
         if run.ctx.repo.ref != self.ref:
             yield CustomEvent(
                 type=EventType.CUSTOM, name="ref_fallback", value={"requested": self.ref, "using": run.ctx.repo.ref}
@@ -386,12 +375,16 @@ class ChatRunStreamer:
             config={"recursion_limit": 500, **run.config},
             runtime_context=run.ctx,
         )
-        reported = False
         async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(self.input_data))) as events:
             async for event in events:
-                reported = reported or event.type == EventType.RUN_ERROR
+                if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
+                    turn.add_text(getattr(event, "delta", None))
+                elif event.type == EventType.RUN_ERROR:
+                    # Upstream's message can carry raw exception text: it streams live but never reaches
+                    # ``Run.error_message``, which the transcript renders verbatim on reload.
+                    turn.error = RUN_FAILED_MESSAGE
                 yield event
-        if reported:
+        if turn.error is not None:
             raise _ReportedRunError
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
@@ -402,7 +395,7 @@ class ChatRunStreamer:
                 await finalize_chat_run(
                     turn.chat_run.pk,
                     success=succeeded,
-                    usage=build_usage_summary(turn.agent_run.usage).to_dict() if turn.agent_run else None,
+                    usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,
                     error_message=turn.error or "",
                 )

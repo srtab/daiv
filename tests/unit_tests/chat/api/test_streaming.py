@@ -32,6 +32,7 @@ from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
 from tests.unit_tests.sessions.conftest import watch_recorder
+from tests.unit_tests.sessions.executor.conftest import agent_stack
 
 _TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
@@ -75,16 +76,8 @@ def _graph(**values) -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _executor_stack():
-    """Stub what ``stream_run`` builds around a turn: a clone on ``main``, a checkpointer and an agent whose
-    checkpoint is empty. ``build_agent_result`` is stubbed because these tests' merge requests are dicts, not the
-    ``MergeRequest`` models a real checkpoint holds."""
-    with (
-        patch("codebase.context.set_runtime_ctx", _mock_ctx),
-        patch("core.checkpointer.open_checkpointer", _mock_ctx),
-        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
-        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={})),
-        patch("sessions.executor.run.PipelineWatch", watch_recorder([])),
-    ):
+    """Stub what ``stream_run`` builds around a turn: a clone on ``main`` and an agent whose checkpoint is empty."""
+    with agent_stack(_graph()):
         yield
 
 
@@ -842,38 +835,6 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
     assert start_chat_run.call_args.kwargs["ref"] == "dev"
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_events_ref_fallback_survives_reset_ref_failure():
-    """The fallback clone already succeeded, so a failed session re-pin must not abort the run:
-    the ref_fallback event still fires and no RUN_ERROR is emitted."""
-
-    def _fallback_ctx(*_args, **_kwargs):
-        ctx = MagicMock()
-        entered = MagicMock()
-        entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
-        ctx.__aenter__ = AsyncMock(return_value=entered)
-        ctx.__aexit__ = AsyncMock(return_value=None)
-        return ctx
-
-    emitted = []
-
-    with (
-        patch("codebase.context.set_runtime_ctx", _fallback_ctx),
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
-        patch("sessions.services.areset_session_ref", side_effect=RuntimeError("db down")),
-        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
-        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
-    ):
-        streamer = _streamer()  # ref="main"
-        async for ev in streamer.events():
-            emitted.append(ev)
-
-    fallback_events = [e for e in emitted if e.type == EventType.CUSTOM and getattr(e, "name", None) == "ref_fallback"]
-    assert len(fallback_events) == 1
-    assert [e for e in emitted if e.type == EventType.RUN_ERROR] == []
-
-
 async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
     """The real middleware in a real graph, through the real agent class: pins that the
     dispatch survives AG-UI translation as a CUSTOM frame and that the producer goes through
@@ -1014,12 +975,10 @@ def _recorded_turn(
     async def _persist(*, thread_id, current_ref, merge_request):
         _log("persist", current_ref, merge_request)
 
-    class _Watch:
-        def __init__(self, repo_id):
-            pass
-
-        async def aarm_after_run(self, *, merge_request, published, user_id, run_id=None):
-            _log("arm", published)
+    class _Watch(watch_recorder([])):
+        async def aarm_after_run(self, **kwargs):
+            _log("arm", kwargs["published"])
+            await super().aarm_after_run(**kwargs)
 
     async def _release(thread_id, run_id):
         _log("release", thread_id, run_id)

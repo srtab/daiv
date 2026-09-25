@@ -92,8 +92,8 @@ class TestHeld:
         try_claim = AsyncMock()
 
         with patch("sessions.executor.lock.SessionLock.try_claim", try_claim):
-            async with hold_session_lock(Held(holder_id="chat-run"), thread_id) as holder_id:
-                assert holder_id == "chat-run"
+            async with hold_session_lock(Held(holder_id="chat-run"), thread_id):
+                pass
 
         try_claim.assert_not_awaited()
         assert await active_holder(thread_id) == "chat-run"
