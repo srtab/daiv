@@ -16,10 +16,8 @@ from tests.unit_tests.test_template_comments import DAIV_DIR
 
 MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
 
-# Every seam that finishes a publishing agent run, and whether it arms the watch. Discovered
-# from the source below rather than trusted, because a new seam that forgets to arm is
-# invisible: the feature just silently stops covering the merge requests it produces.
-ARMING_SEAMS = {"sessions/executor/run.py", "chat/api/streaming.py"}
+# The only module allowed to call ``aarm_after_run``; triggers opt in with ``RunSpec.arm_watch``.
+ARMING_SEAMS = {"sessions/executor/run.py"}
 
 
 class RecordingWatch(PipelineWatch):
@@ -129,8 +127,8 @@ async def test_the_fix_run_verdict_comes_from_the_run_row(stub_watch, django_use
 
 
 def test_every_publishing_seam_that_should_arm_does():
-    """Jobs and the issue addressor arm through the executor, chat through its stream. The review addressor runs
-    through the executor with ``arm_watch=False`` on purpose: it pushes to a merge request someone else may own, so
+    """Jobs, the issue addressor and chat arm through the executor. The review addressor runs through it with
+    ``arm_watch=False`` on purpose: it pushes to a merge request someone else may own, so
     babysitting its pipeline would put unrequested commits on their branch."""
     callers = {
         path.relative_to(DAIV_DIR).as_posix()

@@ -22,7 +22,8 @@ class RunSpec:
     resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
     degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
-    merge request from the checkpoint when the agent raises.
+    merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
+    ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
     """
 
     thread_id: str
@@ -51,7 +52,8 @@ class RunSpec:
 
 @dataclass(frozen=True, kw_only=True)
 class RunOutcome:
-    """``snapshot`` is ``None`` when the post-run checkpoint read failed; the run itself still succeeded."""
+    """``response_text`` is the agent's last message, read from the checkpoint for a stream. ``snapshot`` is ``None``
+    when the post-run checkpoint read failed; the run itself still succeeded."""
 
     agent_result: AgentResult
     response_text: str
@@ -67,14 +69,20 @@ class FailureHook(Protocol):
 
 @dataclass(frozen=True, kw_only=True)
 class RunHooks:
-    """Trigger callbacks, awaited after the run's context closes and while the session slot is still held.
+    """Trigger callbacks.
 
-    ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation skips
-    it), and the executor re-raises once it returns. Any lock-step error — a ``SessionLockTimeoutError`` or
+    ``on_context_ready(ref)`` is awaited inside the run once the clone is ready and any fallback re-pin is done,
+    before the model is resolved; ``ref`` is the ref the clone landed on. An error it raises fails the run as a
+    setup error.
+
+    ``on_success`` and ``on_failure`` are awaited after the run's context closes and while the session slot is still
+    held. ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation
+    skips it), and the executor re-raises once it returns. Any lock-step error — a ``SessionLockTimeoutError`` or
     another failure inside the claim — runs without the slot, which was never claimed. An error ``on_failure``
     raises is logged; it never replaces the run's own. An error from ``on_success`` propagates as-is and never
     reaches ``on_failure``.
     """
 
+    on_context_ready: Callable[[str], Awaitable[None]] | None = None
     on_success: Callable[[RunOutcome], Awaitable[None]] | None = None
     on_failure: FailureHook | None = None

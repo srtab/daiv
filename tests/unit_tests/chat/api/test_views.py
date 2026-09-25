@@ -50,13 +50,18 @@ def _mock_stream(*_args, **_kwargs):
     path without hitting Redis or cloning a repo.
     """
     inner = MagicMock()
-    # Mirror the requested ref so streaming.py's fallback-ref guard doesn't fire.
+    # Mirror the requested ref so the executor's fallback-ref guard (sessions.executor.run._agent_run) doesn't fire.
     if "ref" in _kwargs:
         inner.repo.ref = _kwargs["ref"]
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=inner)
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
+
+
+def _graph() -> MagicMock:
+    """The compiled agent; its finished-turn checkpoint read comes back empty."""
+    return MagicMock(aget_state=AsyncMock(return_value=None))
 
 
 @pytest.fixture
@@ -75,9 +80,9 @@ def patched_streamer():
         yield  # pragma: no cover
 
     with (
-        patch("chat.api.streaming.open_checkpointer", _mock_stream),
-        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
-        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("core.checkpointer.open_checkpointer", _mock_stream),
+        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
         patch("chat.api.views.ChatRunStreamer") as m_streamer_cls,
     ):
@@ -130,9 +135,9 @@ async def test_cross_user_thread_id_is_rejected(client: TestAsyncClient, authed)
 async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient, authed, fake_redis, captured_runs):
     _, raw, user = authed
     with (
-        patch("chat.api.streaming.open_checkpointer", _mock_stream),
-        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
-        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("core.checkpointer.open_checkpointer", _mock_stream),
+        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()
@@ -180,9 +185,9 @@ async def test_first_message_auto_resolves_user_env_onto_thread(
     )
 
     with (
-        patch("chat.api.streaming.open_checkpointer", _mock_stream),
-        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
-        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("core.checkpointer.open_checkpointer", _mock_stream),
+        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()
@@ -236,9 +241,9 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
     )
 
     with (
-        patch("chat.api.streaming.open_checkpointer", _mock_stream),
-        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
-        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("core.checkpointer.open_checkpointer", _mock_stream),
+        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()
@@ -359,9 +364,9 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-boom", user=user, repo_id="a/b", ref="main")
 
     with (
-        patch("chat.api.streaming.open_checkpointer", _mock_stream),
-        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
-        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("core.checkpointer.open_checkpointer", _mock_stream),
+        patch("codebase.context.set_runtime_ctx", _mock_stream),
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=_graph())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
     ):
         m_instance = MagicMock()

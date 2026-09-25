@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
-from automation.agent.results import AgentResult, parse_agent_result
+from automation.agent.results import AgentResult, build_agent_result, parse_agent_result
 
 
 class TestParseAgentResult:
@@ -124,3 +127,16 @@ class TestParseAgentResultUsageFields:
     def test_none_has_no_usage(self):
         result = parse_agent_result(None)
         assert result["usage"] is None
+
+
+class TestBuildAgentResult:
+    async def test_a_merge_request_that_did_not_revive_is_dropped_loudly(self, caplog):
+        envelope = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
+        snapshot = SimpleNamespace(values={"merge_request": envelope, "code_changes": True})
+
+        with caplog.at_level("ERROR"):
+            result = await build_agent_result(MagicMock(), {}, response="done", snapshot=snapshot)
+
+        assert (result["merge_request_id"], result["merge_request_web_url"]) == (None, None)
+        assert result["code_changes"] is True
+        assert "revived as dict" in caplog.text

@@ -100,9 +100,8 @@ class GitState(AgentState):
     """
     Whether *this turn* committed and pushed. Narrower than ``code_changes``, which stays true
     for a clean tree already on its merge request — so it cannot answer "did this turn push?",
-    which is what the CI watch arms on. Public on the output schema like ``merge_request``,
-    because the chat run reads it off the streamed ``STATE_SNAPSHOT``: its completion hook runs
-    after the checkpointer is closed and has no state read of its own.
+    which is what the CI watch arms on. The run executor reads it from the checkpoint once the
+    run finishes; chat's ``STATE_SNAPSHOT`` stream never carries it (``STREAMED_STATE_KEYS``).
     """
 
     diff_stats: NotRequired[dict[str, int]]

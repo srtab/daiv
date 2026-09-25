@@ -14,9 +14,10 @@ Contract:
   fall back to the liveness probe in ``_run_event_frames``), so readers can
   usually distinguish "run finished" from "writer died".
 * Cancel flag ``daiv:chat:run-cancel:{thread_id}:{run_id}`` — set by the cancel
-  endpoint, checked by ``ChatRunStreamer`` at the next event boundary once the
-  heartbeat interval elapses (a stalled, event-less run won't observe it until it
-  emits again; the local ``asyncio.Task`` cancel is what stops such a run promptly).
+  endpoint, checked by the executor's ``stream_run`` (``ChatRunStreamer`` passes it
+  as ``should_stop``) at the next event boundary once the stream heartbeat interval
+  elapses (a stalled, event-less run won't observe it until it emits again; the
+  local ``asyncio.Task`` cancel is what stops such a run promptly).
 
 Organization: a run's relay state (its event stream + cancel flag) is a single
 ``RunRelay`` object bound to ``(thread_id, run_id)`` — every operation for one run

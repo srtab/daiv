@@ -77,8 +77,8 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     thread_id, run_id = streamer.thread_id, streamer.run_id
     run_relay = relay.RunRelay(thread_id, run_id)
     try:
-        async with ThreadSensitiveContext():
-            async for event in streamer.events():
+        async with ThreadSensitiveContext(), contextlib.aclosing(streamer.events()) as events:
+            async for event in events:
                 await _publish(run_relay, event)
     except asyncio.CancelledError:
         # The cancelled streamer can't yield its own RUN_ERROR(run_cancelled); publish it

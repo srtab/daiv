@@ -75,13 +75,16 @@ async def build_agent_result(
     (so we don't silently retry it here and risk drifting from whatever the
     caller decided based on the same failure).
     """
+    # Imported here: sessions.models imports this module at django.setup(), and publishers loads the agent stack.
+    from automation.agent.publishers import checkpointed_merge_request
+
     if snapshot is NO_SNAPSHOT:
         snapshot = await agent.aget_state(config=config)
     if snapshot is None:
         return AgentResult(
             response=response, code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=usage
         )
-    mr = snapshot.values.get("merge_request")
+    mr = checkpointed_merge_request(snapshot.values, strict=False)
     return AgentResult(
         response=response,
         code_changes=bool(snapshot.values.get("code_changes")),
