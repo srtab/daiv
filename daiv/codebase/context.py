@@ -59,7 +59,8 @@ class RuntimeCtx:
     bot_username: str
     repos: tuple[RepoHandle, ...] = ()
     sandbox: SandboxSpec | None = None
-    """The effective sandbox configuration for the current run"""
+    """The environment's resolved sandbox spec; its ``egress`` is the environment's own policy.
+    The session is provisioned with :attr:`sandbox_egress`."""
     sandbox_egress: EgressConfigRequest | None = None
     """The egress config the run's sandbox is provisioned with: ``sandbox.egress`` plus the git-platform
     rule and credential (see :func:`_run_egress`). ``None`` means no network."""

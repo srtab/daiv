@@ -20,7 +20,7 @@ def with_platform_credential(
 
     Idempotent: a platform rule and secret already present are replaced, not duplicated, so applying
     a fresh token to a credentialed config swaps its secret. With no ``egress`` the base is a
-    deny-all policy; an existing policy keeps its ``default``, ``intercept`` and other rules. Without
+    deny-all policy; an existing policy keeps its ``default``, ``intercept`` and non-platform rules. Without
     a ``token`` the rule only makes the host reachable. ``egress`` is never mutated.
     """
     base_policy = egress.policy if egress is not None else EgressPolicy()
