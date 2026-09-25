@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock
+from sessions.executor.lock import Held, NoLock, SessionLockTimeoutError, Wait, hold_session_lock, still_held
 from sessions.locks import SessionLock
 
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
@@ -87,16 +87,16 @@ class TestWait:
 
 
 class TestHeld:
-    async def test_it_keeps_the_callers_claim_and_frees_it_after(self):
+    async def test_it_keeps_the_callers_claim_and_leaves_its_release_to_the_caller(self):
         thread_id = await amake_job_session(active_run_id="chat-run")
         try_claim = AsyncMock()
 
         with patch("sessions.executor.lock.SessionLock.try_claim", try_claim):
             async with hold_session_lock(Held(holder_id="chat-run"), thread_id):
-                assert await active_holder(thread_id) == "chat-run"
+                pass
 
         try_claim.assert_not_awaited()
-        assert await active_holder(thread_id) is None
+        assert await active_holder(thread_id) == "chat-run"
 
     async def test_it_heartbeats_the_callers_claim(self):
         thread_id = await amake_job_session(active_run_id="chat-run")
@@ -170,3 +170,54 @@ async def test_a_failed_release_is_logged_not_raised(caplog):
 
     release.assert_awaited_once_with(thread_id, "run-1")
     assert "failed to release session lock" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("policy", "active_run_id", "expected"),
+    [
+        (Wait(holder_id="run-1", timeout_s=1), None, "run-1"),
+        (Held(holder_id="chat-run"), "chat-run", "chat-run"),
+        (NoLock(), None, None),
+    ],
+    ids=["wait", "held", "no-lock"],
+)
+async def test_it_yields_the_holder_id(policy, active_run_id, expected):
+    thread_id = await amake_job_session(active_run_id=active_run_id)
+
+    async with hold_session_lock(policy, thread_id) as holder_id:
+        assert holder_id == expected
+
+
+async def test_a_body_that_heartbeats_itself_gets_no_background_heartbeat():
+    thread_id = await amake_job_session()
+    loops: list[tuple] = []
+
+    async def _loop(*args):
+        loops.append(args)
+
+    with patch("sessions.executor.lock._heartbeat_loop", _loop):
+        async with hold_session_lock(Wait(holder_id="run-1", timeout_s=1), thread_id, background_heartbeat=False):
+            await asyncio.sleep(0)
+
+    assert loops == []
+    assert await active_holder(thread_id) is None
+
+
+class TestStillHeld:
+    @pytest.mark.parametrize("verdict", [True, False])
+    async def test_it_reports_the_heartbeats_verdict(self, verdict):
+        heartbeat = AsyncMock(return_value=verdict)
+
+        with patch("sessions.executor.lock.SessionLock.heartbeat", heartbeat):
+            assert await still_held("t-1", "run-1") is verdict
+
+        heartbeat.assert_awaited_once_with("t-1", "run-1")
+
+    async def test_a_failed_heartbeat_is_logged_and_counts_as_held(self, caplog):
+        with (
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(side_effect=RuntimeError("db down"))),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            assert await still_held("t-1", "run-1") is True
+
+        assert "heartbeat failed" in caplog.text

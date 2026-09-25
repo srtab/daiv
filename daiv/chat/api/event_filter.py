@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from ag_ui.core.events import EventType, ToolCallArgsEvent, ToolCallEndEvent, ToolCallStartEvent
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable
+    from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 
     from ag_ui.core.events import BaseEvent
 
@@ -92,7 +92,7 @@ class SubagentEventFilter:
         self._natural_started: set[str] = set()
         self._natural_index: dict[str, int] = {}
 
-    async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncIterator[BaseEvent]:
+    async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncGenerator[BaseEvent]:
         async for event in stream:
             ns = self._checkpoint_ns(event)
             is_nested = "|" in ns

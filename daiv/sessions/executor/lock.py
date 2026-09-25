@@ -19,7 +19,7 @@ LOCK_HEARTBEAT_INTERVAL_S = 60.0
 
 @dataclass(frozen=True)
 class Wait:
-    """Claim the slot, polling until the current holder frees it."""
+    """Claim the slot, polling until the current holder frees it; the executor releases it after the run."""
 
     holder_id: str
     timeout_s: float
@@ -27,8 +27,8 @@ class Wait:
 
 @dataclass(frozen=True)
 class Held:
-    """The caller already claimed the slot (chat's view does, so it can answer 409): only heartbeat and
-    release it."""
+    """The caller already claimed the slot (chat's view does, so it can answer 409) and releases it: the executor
+    only heartbeats it. The release stays with the caller so it can record the turn's end first."""
 
     holder_id: str
 
@@ -45,27 +45,51 @@ class SessionLockTimeoutError(TimeoutError):
     """``Wait`` gave up: the slot's holder kept it past ``timeout_s``."""
 
 
-@asynccontextmanager
-async def hold_session_lock(policy: LockPolicy, thread_id: str) -> AsyncIterator[None]:
-    """Hold ``thread_id``'s execution slot for the body under ``policy``, heartbeating it, then release it.
+class SessionLockLostError(Exception):
+    """A stale takeover reassigned the slot while a stream held it."""
 
-    The heartbeat is cancelled and awaited before the release, so no heartbeat outlives the hold. A
-    failed release is logged, never raised over the body's own outcome.
+
+@asynccontextmanager
+async def hold_session_lock(
+    policy: LockPolicy, thread_id: str, *, background_heartbeat: bool = True
+) -> AsyncIterator[str | None]:
+    """Hold ``thread_id``'s execution slot for the body under ``policy`` and yield the holder id, ``None`` for
+    ``NoLock``.
+
+    With ``background_heartbeat`` a task heartbeats the slot until the body ends; ``stream_run`` turns it off and
+    beats between its events. The heartbeat is cancelled and awaited before a ``Wait`` claim is released, so no
+    heartbeat outlives the hold; a ``Held`` slot is left for its caller to release. A failed release is logged,
+    never raised over the body's own outcome.
     """
     holder_id = await _acquire_session_lock(policy, thread_id)
     if holder_id is None:
-        yield
+        yield None
         return
-    heartbeat = asyncio.create_task(_heartbeat_loop(thread_id, holder_id))
+    heartbeat = asyncio.create_task(_heartbeat_loop(thread_id, holder_id)) if background_heartbeat else None
     try:
-        yield
+        yield holder_id
     finally:
-        heartbeat.cancel()
-        await asyncio.gather(heartbeat, return_exceptions=True)
-        try:
-            await SessionLock.release(thread_id, holder_id)
-        except Exception:
-            logger.exception("executor: failed to release session lock for thread_id=%s", thread_id)
+        if heartbeat is not None:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+        if isinstance(policy, Wait):
+            try:
+                await SessionLock.release(thread_id, holder_id)
+            except Exception:
+                logger.exception("executor: failed to release session lock for thread_id=%s", thread_id)
+
+
+async def still_held(thread_id: str, holder_id: str) -> bool:
+    """Heartbeat the slot and say whether ``holder_id`` still holds it.
+
+    A heartbeat that fails (a DB hiccup) is logged and counts as held: only a definitive "not ours" may stop a live
+    run.
+    """
+    try:
+        return await SessionLock.heartbeat(thread_id, holder_id)
+    except Exception:
+        logger.exception("executor: heartbeat failed for thread_id=%s", thread_id)
+        return True
 
 
 async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | None:
@@ -101,14 +125,11 @@ async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | Non
 async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
     while True:
         await asyncio.sleep(LOCK_HEARTBEAT_INTERVAL_S)
-        try:
-            if not await SessionLock.heartbeat(thread_id, holder_id):
-                # A stale takeover reassigned the slot. The in-flight invocation can't be safely aborted.
-                logger.warning(
-                    "executor: lost session lock for thread_id=%s (holder=%s superseded); "
-                    "another holder may be running against the same checkpoint",
-                    thread_id,
-                    holder_id,
-                )
-        except Exception:
-            logger.exception("executor: heartbeat failed for thread_id=%s", thread_id)
+        if not await still_held(thread_id, holder_id):
+            # A stale takeover reassigned the slot. The in-flight invocation can't be safely aborted.
+            logger.warning(
+                "executor: lost session lock for thread_id=%s (holder=%s superseded); "
+                "another holder may be running against the same checkpoint",
+                thread_id,
+                holder_id,
+            )

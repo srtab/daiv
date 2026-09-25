@@ -1,5 +1,5 @@
-"""Verifies ``ChatRunStreamer`` threads ``sandbox_environment_id`` through
-``set_runtime_ctx`` as ``sandbox_env_id``. The runtime resolver consumes that
+"""Verifies ``ChatRunStreamer`` hands ``sandbox_environment_id`` to the executor, which threads it
+through ``set_runtime_ctx`` as ``sandbox_env_id``. The runtime resolver consumes that
 kwarg to load the per-run override row — if the streamer drops it, every chat
 run silently falls back to the global default."""
 
@@ -47,12 +47,12 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
         auto_resolved_env={"id": "env-uuid", "name": "Default", "scope": "global"},
     )
     with (
-        patch("chat.api.streaming.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("chat.api.streaming.open_checkpointer", _fake_open_checkpointer),
-        patch("chat.api.streaming.create_daiv_agent", MagicMock(return_value=MagicMock())),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
+        patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),
         patch("chat.api.streaming.SubagentEventFilter", MagicMock()),
-        patch("chat.api.streaming.build_langsmith_config", return_value={}),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
         suppress(Exception),
     ):
         async for event in streamer.events():
@@ -89,12 +89,12 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         auto_resolved_env=None,
     )
     with (
-        patch("chat.api.streaming.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("chat.api.streaming.open_checkpointer", _fake_open_checkpointer),
-        patch("chat.api.streaming.create_daiv_agent", MagicMock(return_value=MagicMock())),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
+        patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),
         patch("chat.api.streaming.SubagentEventFilter", MagicMock()),
-        patch("chat.api.streaming.build_langsmith_config", return_value={}),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
         suppress(Exception),
     ):
         async for event in streamer.events():
@@ -129,12 +129,12 @@ async def test_streamer_passes_env_id_into_set_runtime_ctx():
         sandbox_environment_id="env-uuid",
     )
     with (
-        patch("chat.api.streaming.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("chat.api.streaming.open_checkpointer", _fake_open_checkpointer),
-        patch("chat.api.streaming.create_daiv_agent", MagicMock(return_value=MagicMock())),
+        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
+        patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),
         patch("chat.api.streaming.SubagentEventFilter", MagicMock()),
-        patch("chat.api.streaming.build_langsmith_config", return_value={}),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
         suppress(Exception),
     ):
         async for _ in streamer.events():
