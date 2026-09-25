@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from core.sandbox.command_parser import ExecutableSegment
-from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
+from automation.agent.workspace.bash_policy.command_parser import ExecutableSegment
+from automation.agent.workspace.bash_policy.command_policy import (
+    CommandPolicy,
+    DenialReason,
+    evaluate_command_policy,
+    parse_rule,
+)
 
 
 def _seg(argv: tuple[str, ...]) -> ExecutableSegment:

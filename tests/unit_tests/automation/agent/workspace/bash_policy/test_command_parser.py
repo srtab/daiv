@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.sandbox.command_parser import CommandParseError, ExecutableSegment, parse_command
+from automation.agent.workspace.bash_policy.command_parser import CommandParseError, ExecutableSegment, parse_command
 
 
 class TestParseCommandBasic:

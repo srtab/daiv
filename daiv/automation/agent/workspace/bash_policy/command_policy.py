@@ -2,7 +2,7 @@
 Command-level policy evaluation for bash tool invocations.
 
 Provides :func:`evaluate_command_policy` which, given an effective policy and a
-parsed list of :class:`~core.sandbox.command_parser.ExecutableSegment` objects,
+parsed list of :class:`~automation.agent.workspace.bash_policy.command_parser.ExecutableSegment` objects,
 returns a :class:`PolicyResult` that indicates whether execution is permitted.
 
 Precedence: ``disallow`` rules override ``allow`` rules, which override the
@@ -185,7 +185,7 @@ def evaluate_command_policy(segments: list, policy: CommandPolicy) -> PolicyResu
     4. Default policy → allow (all commands not in DEFAULT_DISALLOW_RULES pass).
 
     Args:
-        segments: List of :class:`~core.sandbox.command_parser.ExecutableSegment`.
+        segments: List of :class:`~automation.agent.workspace.bash_policy.command_parser.ExecutableSegment`.
         policy: The effective policy for this invocation.
 
     Returns:

@@ -20,11 +20,16 @@ from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
 from automation.agent.utils import conversation_thread_id
+from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
+from automation.agent.workspace.bash_policy.command_policy import (
+    CommandPolicy,
+    DenialReason,
+    evaluate_command_policy,
+    parse_rule,
+)
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
-from core.sandbox.command_parser import CommandParseError, parse_command
-from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import EgressConfigRequest, RunCommandsResponse, StartSessionRequest
 from core.site_settings import site_settings
 
