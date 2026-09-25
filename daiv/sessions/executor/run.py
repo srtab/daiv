@@ -3,7 +3,8 @@ import contextlib
 import json
 import logging
 import time
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,7 @@ from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+    from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
@@ -39,12 +41,14 @@ class RunStoppedError(Exception):
 
 @dataclass(frozen=True)
 class AgentRun:
-    """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included."""
+    """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
+    ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run."""
 
     ctx: RuntimeCtx
     agent: CompiledAgent
     config: RunnableConfig
     usage: CostAwareUsageMetadataCallbackHandler
+    thread_id: str
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -52,7 +56,7 @@ async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcom
     hooks = hooks or RunHooks()
     entered = False
     try:
-        async with hold_session_lock(spec.lock, spec.thread_id):
+        async with _hold_slot(spec):
             entered = True
             return await _run_in_slot(spec, hooks)
     except Exception as exc:
@@ -79,14 +83,14 @@ async def stream_run(
     entered = False
     interrupted: BaseException | None = None
     try:
-        async with hold_session_lock(spec.lock, spec.thread_id, background_heartbeat=False) as holder_id:
+        async with _hold_slot(spec, background_heartbeat=False) as holder_id:
             entered = True
             recovery = _Recovery()
             try:
                 async with _agent_run(spec, hooks) as run:
                     try:
                         async with contextlib.aclosing(
-                            _supervised(stream(run), spec.thread_id, holder_id, should_stop)
+                            _supervised(stream(run), run.thread_id, holder_id, should_stop)
                         ) as events:
                             async for event in events:
                                 yield event
@@ -112,6 +116,13 @@ async def stream_run(
         if not entered:
             await _notify_failure(hooks, exc)
         raise
+
+
+def _hold_slot(spec: RunSpec, *, background_heartbeat: bool = True) -> AbstractAsyncContextManager[str | None]:
+    """Hold the session's slot under the spec's policy; a one-shot run has no session, so it holds nothing."""
+    if spec.thread_id is None:
+        return nullcontext()
+    return hold_session_lock(spec.lock, spec.thread_id, background_heartbeat=background_heartbeat)
 
 
 async def _supervised(
@@ -184,19 +195,25 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
-    recovery.snapshot = await _read_snapshot_after_recovery(run, spec.thread_id)
+    recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=run.thread_id)
+    recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
 @asynccontextmanager
 async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     # Imported here so django.setup(), which reaches this module via jobs.tasks, never loads the agent stack.
+    from langgraph.checkpoint.memory import InMemorySaver
+
     from automation.agent.graph import create_daiv_agent
     from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
 
+    if spec.thread_id is None:
+        thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
+    else:
+        thread_id, checkpoints = spec.thread_id, open_checkpointer()
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
@@ -209,22 +226,27 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             acting_user_id=spec.acting_user_id,
             mcp_overrides=spec.mcp_overrides,
             references=spec.references,
+            **spec.context_options,
         ) as ctx,
-        open_checkpointer() as checkpointer,
+        checkpoints as checkpointer,
     ):
         if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
-            await _repin_fallback_ref(spec.thread_id, ctx.repo.ref)
+            await _repin_fallback_ref(thread_id, ctx.repo.ref)
         if hooks.on_context_ready is not None:
             await hooks.on_context_ready(ctx.repo.ref)
-        agent_kwargs = get_daiv_agent_kwargs(
-            model_config=ctx.config.models.agent,
-            agent_model=spec.agent_model,
-            agent_thinking_level=spec.agent_thinking_level,
-            **({"use_max": True} if spec.use_max else {}),
-        )
+        agent_kwargs: dict[str, Any]
+        if spec.model_names:
+            agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
+        else:
+            agent_kwargs = get_daiv_agent_kwargs(
+                model_config=ctx.config.models.agent,
+                agent_model=spec.agent_model,
+                agent_thinking_level=spec.agent_thinking_level,
+                **({"use_max": True} if spec.use_max else {}),
+            )
         model = agent_kwargs["model_names"][0]
         await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
-        agent = await create_daiv_agent(ctx=ctx, checkpointer=checkpointer, **agent_kwargs)
+        agent = await create_daiv_agent(ctx=ctx, checkpointer=checkpointer, **agent_kwargs, **spec.agent_options)
         config = build_langsmith_config(
             ctx,
             trigger=spec.trigger,
@@ -232,10 +254,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             thinking_level=agent_kwargs["thinking_level"],
             agent_name=agent.get_name(),
             extra_metadata=spec.extra_metadata,
-            configurable={"thread_id": spec.thread_id},
+            configurable={"thread_id": thread_id},
         )
         with track_usage_metadata() as usage, bind_active_run(spec.run_id):
-            yield AgentRun(ctx=ctx, agent=agent, config=config, usage=usage)
+            yield AgentRun(ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id)
 
 
 async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
@@ -257,7 +279,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     from automation.agent.utils import extract_text_content
     from sessions.services import apersist_session_ref  # sessions.services imports jobs.tasks, which imports us
 
-    snapshot = await _read_snapshot(run, spec.thread_id)
+    snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     if response_text is None:
         messages = values.get("messages") or []
@@ -266,10 +288,10 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     if spec.persist_ref:
         try:
             await apersist_session_ref(
-                thread_id=spec.thread_id, current_ref=run.ctx.repo.ref, merge_request=merge_request
+                thread_id=run.thread_id, current_ref=run.ctx.repo.ref, merge_request=merge_request
             )
         except Exception:
-            logger.exception("executor: failed to persist session ref for thread_id=%s", spec.thread_id)
+            logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch:
         try:
             await PipelineWatch(spec.repo_id).aarm_after_run(
@@ -279,7 +301,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                 user_id=spec.acting_user_id,
             )
         except Exception:
-            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", spec.thread_id)
+            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
 
     agent_result = await build_agent_result(
         run.agent, run.config, response=response_text, usage=build_usage_summary(run.usage).to_dict(), snapshot=snapshot
@@ -287,7 +309,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
     """Read the finished run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the
     agent already finished, so a Redis blip must not fail the run. The checkpointer's index search re-raises a
     Redis error as ``RedisSearchError``."""
@@ -297,19 +319,19 @@ async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
         logger.exception(
             "executor: failed to read the finished run's checkpoint for thread_id=%s; its merge request is lost to "
             "the result, the ref sync and the CI watch",
-            thread_id,
+            run.thread_id,
         )
         return None
 
 
-async def _read_snapshot_after_recovery(run: AgentRun, thread_id: str) -> StateSnapshot | None:
+async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
     """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
     error is what must reach ``on_failure``, not this one."""
     try:
         return await run.agent.aget_state(config=run.config)
     except Exception:
         logger.warning(
-            "executor: failed to read agent state after draft recovery for thread_id=%s", thread_id, exc_info=True
+            "executor: failed to read agent state after draft recovery for thread_id=%s", run.thread_id, exc_info=True
         )
         return None
 

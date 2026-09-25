@@ -6,35 +6,22 @@ from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 from sessions.artifacts import aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
-from sessions.executor.spec import RunHooks, RunSpec
+from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Scope
 from codebase.references import ExternalRef
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack
+from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack, make_spec
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
-
-
-def _spec(**overrides) -> RunSpec:
-    fields = {
-        "thread_id": str(uuid.uuid4()),
-        "repo_id": "owner/repo",
-        "scope": Scope.GLOBAL,
-        "input_messages": (HumanMessage(content="hi"),),
-        "trigger": "job",
-        "lock": NoLock(),
-        "ref": "main",
-    }
-    return RunSpec(**(fields | overrides))
 
 
 def _agent(*, messages: list | None = None, state: dict | None = None) -> AsyncMock:
@@ -48,7 +35,7 @@ def _agent(*, messages: list | None = None, state: dict | None = None) -> AsyncM
 async def test_it_builds_the_context_and_the_agent_from_the_spec():
     agent = _agent()
     refs = (ExternalRef(key="PROJ-1", provider="jira"),)
-    spec = _spec(
+    spec = make_spec(
         ref="feat/x",
         agent_model="openrouter:z-ai/glm-5.2",
         agent_thinking_level="low",
@@ -97,7 +84,7 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     on_failure = AsyncMock()
 
     with agent_stack(agent) as stack:
-        outcome = await execute_run(_spec(), RunHooks(on_success=on_success, on_failure=on_failure))
+        outcome = await execute_run(make_spec(), RunHooks(on_success=on_success, on_failure=on_failure))
 
     assert outcome.response_text == "done"
     assert outcome.agent_result == {"response": "done"}
@@ -110,11 +97,24 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
     on_failure.assert_not_awaited()
 
 
+async def test_each_one_shot_run_checkpoints_in_memory_under_its_own_thread():
+    """A one-shot run has no session to resume: its checkpoint stays out of Redis and out of the next run's way."""
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(thread_id=None))
+        await execute_run(make_spec(thread_id=None))
+
+    savers = [call.kwargs["checkpointer"] for call in stack.create_agent.await_args_list]
+    threads = [call.kwargs["configurable"]["thread_id"] for call in stack.langsmith.call_args_list]
+    assert all(isinstance(saver, InMemorySaver) for saver in savers)
+    assert savers[0] is not savers[1]
+    assert len({uuid.UUID(thread) for thread in threads}) == 2
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_the_steps_run_in_order_inside_the_slot():
     thread_id = await amake_job_session()
     agent = _agent(state={"merge_request": MR, "published": True})
-    spec = _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
+    spec = make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
 
     with agent_stack(agent) as stack:
 
@@ -161,7 +161,7 @@ async def test_a_raising_agent_still_runs_every_finally_step():
     agent = _agent()
     agent.ainvoke = AsyncMock(side_effect=_invoke)
     on_success = AsyncMock()
-    spec = _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
+    spec = make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), persist_ref=True, arm_watch=True)
 
     with agent_stack(agent) as stack, patch("sessions.executor.lock._heartbeat_loop", _heartbeat_loop):
 
@@ -196,7 +196,7 @@ async def test_a_failing_context_exit_still_frees_the_slot():
         raise OSError("clone cleanup failed")
 
     with agent_stack(_agent(), context=_context), pytest.raises(OSError, match="clone cleanup failed"):
-        await execute_run(_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)))
+        await execute_run(make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)))
 
     assert await active_holder(thread_id) is None
 
@@ -206,7 +206,7 @@ async def test_an_agent_configuration_error_reaches_on_failure_before_any_agent_
     on_failure = AsyncMock()
 
     with agent_stack(_agent(), resolve=MagicMock(side_effect=error)) as stack, pytest.raises(AgentConfigurationError):
-        await execute_run(_spec(), RunHooks(on_failure=on_failure))
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure))
 
     stack.create_agent.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
@@ -217,14 +217,14 @@ async def test_an_agent_that_returns_no_messages_fails_the_run():
     on_failure = AsyncMock()
 
     with agent_stack(agent), pytest.raises(ValueError, match="no messages"):
-        await execute_run(_spec(), RunHooks(on_failure=on_failure))
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure))
 
     agent.aget_state.assert_not_awaited()
     on_failure.assert_awaited_once()
 
 
 async def test_the_ref_sync_and_the_watch_run_when_asked():
-    spec = _spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7)
+    spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7)
 
     with (
         agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
@@ -241,7 +241,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
 @pytest.mark.parametrize(("persist_ref", "arm_watch"), [(True, False), (False, True), (False, False)])
 async def test_the_ref_sync_and_the_watch_each_run_only_when_asked(persist_ref, arm_watch):
     with agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack:
-        await execute_run(_spec(persist_ref=persist_ref, arm_watch=arm_watch))
+        await execute_run(make_spec(persist_ref=persist_ref, arm_watch=arm_watch))
 
     assert stack.persist.await_count == int(persist_ref)
     assert len(stack.armed) == int(arm_watch)
@@ -263,7 +263,7 @@ async def test_a_run_records_the_model_it_resolved(error):
     agent.ainvoke.side_effect = error
 
     with agent_stack(agent), pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext():
-        await execute_run(_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     await session.arefresh_from_db()
     await run.arefresh_from_db()
@@ -283,7 +283,7 @@ async def test_the_agent_runs_with_the_specs_run_bound_for_artifacts():
 
     agent.ainvoke = AsyncMock(side_effect=_invoke)
     with agent_stack(agent):
-        await execute_run(_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     assert resolved == [run]
     assert await aresolve_active_run(session.thread_id) is None
@@ -294,7 +294,7 @@ async def test_a_spec_without_a_run_leaves_the_session_model_alone():
     thread_id = await amake_job_session()
 
     with agent_stack(_agent()):
-        await execute_run(_spec(thread_id=thread_id))
+        await execute_run(make_spec(thread_id=thread_id))
 
     assert (await Session.objects.aget(thread_id=thread_id)).agent_model == ""
 
@@ -308,7 +308,7 @@ async def test_a_db_error_during_model_persist_is_swallowed(caplog):
         patch.object(Run.objects, "filter", side_effect=RuntimeError("db connection failed")),
         caplog.at_level("ERROR", logger="daiv.sessions"),
     ):
-        outcome = await execute_run(_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+        outcome = await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     assert outcome.response_text == "done"
     assert "failed to persist resolved agent model" in caplog.text
@@ -323,7 +323,7 @@ async def test_a_failing_on_failure_hook_does_not_mask_the_run_error(caplog):
         caplog.at_level("ERROR", logger="daiv.sessions"),
         pytest.raises(RuntimeError, match="agent blew up"),
     ):
-        await execute_run(_spec(), RunHooks(on_failure=AsyncMock(side_effect=OSError("platform down"))))
+        await execute_run(make_spec(), RunHooks(on_failure=AsyncMock(side_effect=OSError("platform down"))))
 
     assert "on_failure hook failed" in caplog.text
 
@@ -333,7 +333,7 @@ async def test_a_failing_on_success_hook_propagates_without_calling_on_failure()
 
     with agent_stack(_agent()), pytest.raises(OSError, match="platform down"):
         await execute_run(
-            _spec(), RunHooks(on_success=AsyncMock(side_effect=OSError("platform down")), on_failure=on_failure)
+            make_spec(), RunHooks(on_success=AsyncMock(side_effect=OSError("platform down")), on_failure=on_failure)
         )
 
     on_failure.assert_not_awaited()
@@ -351,7 +351,8 @@ async def test_a_lock_that_never_frees_reaches_on_failure():
         pytest.raises(SessionLockTimeoutError, match="not released within"),
     ):
         await execute_run(
-            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05)), RunHooks(on_failure=on_failure)
+            make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05)),
+            RunHooks(on_failure=on_failure),
         )
 
     [exc] = on_failure.await_args.args
@@ -373,7 +374,7 @@ async def test_a_non_timeout_lock_error_reaches_on_failure_without_entering_the_
         pytest.raises(RuntimeError, match="db down"),
     ):
         await execute_run(
-            _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), RunHooks(on_failure=on_failure)
+            make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), RunHooks(on_failure=on_failure)
         )
 
     [exc] = on_failure.await_args.args
@@ -400,7 +401,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
     on_success = AsyncMock()
 
     with agent_stack(agent) as stack, caplog.at_level("WARNING", logger="daiv.sessions"):
-        outcome = await execute_run(_spec(persist_ref=True, arm_watch=True), RunHooks(on_success=on_success))
+        outcome = await execute_run(make_spec(persist_ref=True, arm_watch=True), RunHooks(on_success=on_success))
 
     assert outcome.snapshot is None
     on_success.assert_awaited_once_with(outcome)
@@ -421,13 +422,13 @@ async def test_a_checkpoint_read_that_fails_for_another_reason_fails_the_run():
     on_failure = AsyncMock()
 
     with agent_stack(agent), pytest.raises(KeyError):
-        await execute_run(_spec(), RunHooks(on_failure=on_failure))
+        await execute_run(make_spec(), RunHooks(on_failure=on_failure))
 
     on_failure.assert_awaited_once()
 
 
 async def test_the_ref_sync_compares_against_the_ref_the_clone_landed_on():
-    spec = _spec(ref=None, persist_ref=True)
+    spec = make_spec(ref=None, persist_ref=True)
 
     with agent_stack(_agent(state={"merge_request": MR})) as stack:
         stack.ctx.repo.ref = "master"
@@ -440,7 +441,7 @@ async def test_it_hands_the_webhook_context_to_the_clone():
     issue, merge_request = MagicMock(), MagicMock()
 
     with agent_stack(_agent()) as stack:
-        await execute_run(_spec(issue=issue, merge_request=merge_request, fallback_ref_on_missing=True))
+        await execute_run(make_spec(issue=issue, merge_request=merge_request, fallback_ref_on_missing=True))
 
     assert stack.context_kwargs["issue"] is issue
     assert stack.context_kwargs["merge_request"] is merge_request
@@ -450,7 +451,7 @@ async def test_it_hands_the_webhook_context_to_the_clone():
 @pytest.mark.parametrize(("use_max", "extra"), [(True, {"use_max": True}), (False, {})], ids=["max", "default"])
 async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
     with agent_stack(_agent()) as stack:
-        await execute_run(_spec(use_max=use_max))
+        await execute_run(make_spec(use_max=use_max))
 
     assert stack.resolve.call_args.kwargs == {
         "model_config": stack.ctx.config.models.agent,
@@ -458,6 +459,38 @@ async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
         "agent_thinking_level": None,
         **extra,
     }
+
+
+@pytest.mark.parametrize("thinking_level", ["high", None], ids=["high", "no-thinking"])
+async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
+    """The chain and its thinking level run as given: nothing is appended, and ``None`` isn't the site default."""
+    spec = make_spec(model_names=("model-a", "model-b"), agent_thinking_level=thinking_level)
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    stack.resolve.assert_not_called()
+    stack.create_agent.assert_awaited_once_with(
+        ctx=stack.ctx,
+        checkpointer=stack.checkpointer,
+        model_names=["model-a", "model-b"],
+        thinking_level=thinking_level,
+    )
+    assert stack.langsmith.call_args.kwargs["model"] == "model-a"
+
+
+async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
+    spec = make_spec(
+        context_options={"offline": True, "repo_host": "github.com"}, agent_options={"capture_patch": True}
+    )
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
+    stack.create_agent.assert_awaited_once_with(
+        ctx=stack.ctx, checkpointer=stack.checkpointer, **AGENT_KWARGS, capture_patch=True
+    )
 
 
 class TestRefFallback:
@@ -469,7 +502,7 @@ class TestRefFallback:
         *, ref: str | None, cloned_ref: str, fallback: bool = True, reset_error: Exception | None = None
     ) -> SimpleNamespace:
         agent = _agent()
-        spec = _spec(ref=ref, fallback_ref_on_missing=fallback)
+        spec = make_spec(ref=ref, fallback_ref_on_missing=fallback)
         with agent_stack(agent) as stack:
             stack.ctx.repo.ref = cloned_ref
             stack.reset.side_effect = reset_error
@@ -511,7 +544,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
     agent = _agent(state={"merge_request": None})
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     on_failure = AsyncMock()
-    spec = _spec(recover_draft=True)
+    spec = make_spec(recover_draft=True)
     recovered_state = MagicMock(values={"merge_request": MR})
 
     with agent_stack(agent) as stack:
@@ -542,7 +575,7 @@ async def test_a_setup_error_skips_draft_recovery():
         patch("sessions.executor.run.recover_draft", new=AsyncMock()) as recover,
         pytest.raises(AgentConfigurationError),
     ):
-        await execute_run(_spec(recover_draft=True), RunHooks(on_failure=on_failure))
+        await execute_run(make_spec(recover_draft=True), RunHooks(on_failure=on_failure))
 
     recover.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
@@ -553,7 +586,7 @@ async def test_a_post_recovery_snapshot_read_that_fails_does_not_replace_the_age
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
     on_failure = AsyncMock()
-    spec = _spec(recover_draft=True)
+    spec = make_spec(recover_draft=True)
 
     with (
         agent_stack(agent),
@@ -577,7 +610,7 @@ async def test_on_context_ready_sees_the_landed_ref_after_the_re_pin_and_before_
         stack.ctx.repo.ref = "master"
         stack.reset.side_effect = lambda **_kwargs: order.append("re-pinned")
         stack.resolve.side_effect = lambda **_kwargs: order.append("resolved") or AGENT_KWARGS
-        await execute_run(_spec(ref="fix/10", fallback_ref_on_missing=True), RunHooks(on_context_ready=_ready))
+        await execute_run(make_spec(ref="fix/10", fallback_ref_on_missing=True), RunHooks(on_context_ready=_ready))
 
     assert order == ["re-pinned", "ready on master", "resolved"]
 
@@ -587,7 +620,7 @@ async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_buil
     on_failure = AsyncMock()
 
     with agent_stack(_agent()) as stack, pytest.raises(RuntimeError, match="db down"):
-        await execute_run(_spec(), RunHooks(on_context_ready=AsyncMock(side_effect=error), on_failure=on_failure))
+        await execute_run(make_spec(), RunHooks(on_context_ready=AsyncMock(side_effect=error), on_failure=on_failure))
 
     stack.create_agent.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
@@ -632,7 +665,7 @@ class TestStreamRun:
         stream = _stream("a", "b")
         on_success = AsyncMock()
         should_stop = AsyncMock(return_value=False)
-        spec = _spec(input_messages=(), persist_ref=True, arm_watch=True)
+        spec = make_spec(input_messages=(), persist_ref=True, arm_watch=True)
 
         with agent_stack(agent) as stack:
             events = await _drain(spec, stream, RunHooks(on_success=on_success), should_stop=should_stop)
@@ -654,7 +687,7 @@ class TestStreamRun:
 
         with agent_stack(agent) as stack, pytest.raises(RuntimeError, match="agent blew up"):
             await _drain(
-                _spec(persist_ref=True, arm_watch=True), _stream("a", error=error), RunHooks(on_failure=on_failure)
+                make_spec(persist_ref=True, arm_watch=True), _stream("a", error=error), RunHooks(on_failure=on_failure)
             )
 
         on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
@@ -673,7 +706,7 @@ class TestStreamRun:
             patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=True)) as recover,
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
-            await _drain(_spec(recover_draft=True), _stream(error=error), RunHooks(on_failure=on_failure))
+            await _drain(make_spec(recover_draft=True), _stream(error=error), RunHooks(on_failure=on_failure))
 
         recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=ANY)
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
@@ -692,7 +725,7 @@ class TestStreamRun:
             patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
             pytest.raises(SessionLockLostError),
         ):
-            spec = _spec(thread_id=thread_id, lock=Held(holder_id="chat-run"), persist_ref=True)
+            spec = make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run"), persist_ref=True)
             async for event in stream_run(spec, stream, RunHooks(on_failure=on_failure), should_stop=should_stop):
                 seen.append(event)
 
@@ -713,7 +746,7 @@ class TestStreamRun:
             patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=True)),
             pytest.raises(RunStoppedError),
         ):
-            spec = _spec(lock=Held(holder_id="chat-run"), persist_ref=True)
+            spec = make_spec(lock=Held(holder_id="chat-run"), persist_ref=True)
             async for event in stream_run(spec, stream, should_stop=AsyncMock(return_value=True)):
                 seen.append(event)
 
@@ -730,7 +763,7 @@ class TestStreamRun:
             patch("sessions.executor.lock.SessionLock.heartbeat", heartbeat),
             pytest.raises(RunStoppedError),
         ):
-            await _drain(_spec(lock=NoLock()), _stream("a"), should_stop=AsyncMock(return_value=True))
+            await _drain(make_spec(lock=NoLock()), _stream("a"), should_stop=AsyncMock(return_value=True))
 
         heartbeat.assert_not_awaited()
 
@@ -747,7 +780,7 @@ class TestStreamRun:
             caplog.at_level("ERROR", logger="daiv.sessions"),
             pytest.raises(RunStoppedError),
         ):
-            await _drain(_spec(lock=NoLock()), _factory, should_stop=AsyncMock(return_value=True))
+            await _drain(make_spec(lock=NoLock()), _factory, should_stop=AsyncMock(return_value=True))
 
         assert "failed to close the stream" in caplog.text
 
@@ -762,7 +795,7 @@ class TestStreamRun:
             yield "a"
 
         with agent_stack(_agent()), patch("sessions.executor.lock._heartbeat_loop", _loop):
-            await _drain(_spec(lock=Held(holder_id="chat-run")), _suspending)
+            await _drain(make_spec(lock=Held(holder_id="chat-run")), _suspending)
 
         assert loops == []
 
@@ -772,7 +805,7 @@ class TestStreamRun:
 
         with agent_stack(_agent()) as stack:
             events = stream_run(
-                _spec(), stream, RunHooks(on_success=on_success, on_failure=on_failure), should_stop=AsyncMock()
+                make_spec(), stream, RunHooks(on_success=on_success, on_failure=on_failure), should_stop=AsyncMock()
             )
             assert await anext(events) == "a"
             await events.aclose()
@@ -787,7 +820,7 @@ class TestStreamRun:
 
         with agent_stack(_agent(), context=_context_failing_on_close), caplog.at_level("ERROR", logger="daiv.sessions"):
             events = stream_run(
-                _spec(),
+                make_spec(),
                 _stream("a", "b"),
                 RunHooks(on_success=on_success, on_failure=on_failure),
                 should_stop=AsyncMock(),
@@ -810,7 +843,7 @@ class TestStreamRun:
         on_failure = AsyncMock()
 
         with agent_stack(_agent(), context=_context_failing_on_close), caplog.at_level("ERROR", logger="daiv.sessions"):
-            task = asyncio.create_task(_drain(_spec(), _hanging, RunHooks(on_failure=on_failure)))
+            task = asyncio.create_task(_drain(make_spec(), _hanging, RunHooks(on_failure=on_failure)))
             await started.wait()
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -825,7 +858,7 @@ class TestStreamRun:
         on_success = AsyncMock()
 
         with agent_stack(agent) as stack:
-            await _drain(_spec(persist_ref=True, arm_watch=True), _stream("a"), RunHooks(on_success=on_success))
+            await _drain(make_spec(persist_ref=True, arm_watch=True), _stream("a"), RunHooks(on_success=on_success))
 
         [outcome] = on_success.await_args.args
         assert (outcome.snapshot, outcome.response_text) == (None, "")
@@ -843,7 +876,7 @@ class TestStreamRun:
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             pytest.raises(SessionLockTimeoutError),
         ):
-            spec = _spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05))
+            spec = make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=0.05))
             await _drain(spec, stream, RunHooks(on_failure=on_failure))
 
         assert isinstance(on_failure.await_args.args[0], SessionLockTimeoutError)
