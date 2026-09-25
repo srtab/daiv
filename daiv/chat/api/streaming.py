@@ -35,7 +35,7 @@ from . import relay
 from .event_filter import SubagentEventFilter
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from ag_ui.core import RunAgentInput
     from sessions.executor.run import AgentRun
@@ -277,7 +277,7 @@ class ChatRunStreamer:
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
-    async def events(self) -> AsyncIterator[BaseEvent]:
+    async def events(self) -> AsyncGenerator[BaseEvent]:
         turn = _Turn()
         run_relay = relay.RunRelay(self.thread_id, self.run_id)
         finished = False
@@ -314,8 +314,9 @@ class ChatRunStreamer:
         except RunStoppedError:
             turn.error = CANCELLED_BY_USER_MESSAGE
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled")
-        except asyncio.CancelledError:
-            # A local Stop or a shutdown: only a user Stop sets the cancel flag, so it decides the recorded reason.
+        except asyncio.CancelledError, GeneratorExit:
+            # A local Stop, a shutdown, or a reader that goes away: only a user Stop sets the cancel
+            # flag, so it decides the recorded reason.
             if turn.error is None:
                 turn.error = INTERRUPTED_MESSAGE
                 with contextlib.suppress(Exception):

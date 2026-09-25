@@ -1181,12 +1181,24 @@ class TestChatAfterRunMatrix:
         assert "failed to release run slot" in caplog.text
 
     async def test_a_reader_that_goes_away_mid_turn_still_ends_the_turn(self):
+        from core.constants import INTERRUPTED_MESSAGE
+
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])) as calls:
             events = _streamer().events()
             await anext(events)
             await events.aclose()
 
-        assert calls == [("start",), ("finalize", False, ""), _RELEASE]
+        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
+
+    async def test_a_reader_that_goes_away_with_the_cancel_flag_set_is_recorded_as_stopped(self):
+        from core.constants import CANCELLED_BY_USER_MESSAGE
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), cancel=True) as calls:
+            events = _streamer().events()
+            await anext(events)
+            await events.aclose()
+
+        assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
 
     async def test_a_turn_closed_before_the_run_starts_still_releases_the_slot(self):
         cloned: list[bool] = []
