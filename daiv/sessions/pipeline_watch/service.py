@@ -115,8 +115,8 @@ class PipelineWatch:
     ) -> None:
         """Point the CI watch at the merge request a finished run published, then evaluate at once.
 
-        Every seam that finishes a publishing run calls this — the run executor (jobs and the issue
-        addressor) and the chat stream — so the watch does not depend on which one ran. The immediate
+        Every trigger that finishes a publishing run reaches this through the run executor (jobs, the
+        issue addressor and chat), so the watch does not depend on which one ran. The immediate
         evaluation is load-bearing: the push happened during publish, so the pipeline event it
         triggered can arrive before this watch exists.
 

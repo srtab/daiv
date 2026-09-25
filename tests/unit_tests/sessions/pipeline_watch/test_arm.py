@@ -19,7 +19,7 @@ MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
 # Every seam that finishes a publishing agent run, and whether it arms the watch. Discovered
 # from the source below rather than trusted, because a new seam that forgets to arm is
 # invisible: the feature just silently stops covering the merge requests it produces.
-ARMING_SEAMS = {"sessions/executor/run.py", "chat/api/streaming.py"}
+ARMING_SEAMS = {"sessions/executor/run.py"}
 
 
 class RecordingWatch(PipelineWatch):
