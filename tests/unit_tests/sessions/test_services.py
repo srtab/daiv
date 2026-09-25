@@ -645,10 +645,8 @@ def _mr(branch: str) -> MergeRequest:
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("merge_request", [_mr("feature-y"), {"source_branch": "feature-y"}], ids=["model", "dict"])
-async def test_persist_session_ref_updates_when_branch_changed(merge_request):
-    # The two shapes the checkpoint can hold: a revived ``MergeRequest``, or a plain dict
-    # when the checkpointer didn't reconstruct it.
+async def test_persist_session_ref_updates_when_branch_changed():
+    merge_request = _mr("feature-y")
     await Session.objects.acreate(thread_id="t-ref-1", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
 
     await apersist_session_ref(thread_id="t-ref-1", current_ref="feature-x", merge_request=merge_request)
@@ -665,8 +663,9 @@ async def test_persist_session_ref_updates_when_branch_changed(merge_request):
         ("feature-x", None),
         ("main", {"source_branch": object()}),
         ("main", SimpleNamespace(source_branch="feature-y")),
+        ("main", {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}),
     ],
-    ids=["branch-unchanged", "nothing-published", "branch-not-a-string", "unknown-shape"],
+    ids=["branch-unchanged", "nothing-published", "branch-not-a-string", "unknown-shape", "did-not-revive"],
 )
 async def test_persist_session_ref_never_writes_without_a_new_branch(current_ref, merge_request):
     with patch("sessions.services.Session.objects.filter") as filter_mock:

@@ -8,6 +8,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import HumanMessage
 from redis.exceptions import RedisError
+from redisvl.exceptions import RedisSearchError
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
@@ -365,8 +366,13 @@ async def test_a_non_timeout_lock_error_reaches_on_failure_without_entering_the_
 
 @pytest.mark.parametrize(
     "error",
-    [RedisError("connection refused"), OSError("network unreachable"), json.JSONDecodeError("bad", "<doc>", 0)],
-    ids=["redis", "os", "json"],
+    [
+        RedisError("connection refused"),
+        OSError("network unreachable"),
+        json.JSONDecodeError("bad", "<doc>", 0),
+        RedisSearchError("Error while searching: connection refused"),
+    ],
+    ids=["redis", "os", "json", "redis-search"],
 )
 async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
     """The agent already finished, so the hook, the ref sync and the watch still run, without a checkpoint."""
@@ -384,7 +390,9 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
         {"repo_id": "owner/repo", "run_id": None, "merge_request": None, "published": False, "user_id": None}
     ]
     assert stack.build_result.await_args.kwargs["snapshot"] is None
-    assert "failed to read agent state" in caplog.text
+    [record] = caplog.records
+    assert (record.levelname, record.exc_info[1]) == ("ERROR", error)
+    assert "ref sync and the CI watch" in record.getMessage()
 
 
 async def test_a_checkpoint_read_that_fails_for_another_reason_fails_the_run():
@@ -586,6 +594,14 @@ def _stream(*events, error: Exception | None = None):
     return _factory
 
 
+@asynccontextmanager
+async def _context_failing_on_close(**_kwargs):
+    try:
+        yield MagicMock(repo=SimpleNamespace(ref="main"))
+    finally:
+        raise OSError("clone cleanup failed")
+
+
 async def _drain(spec, stream, hooks=None, *, should_stop=None) -> list:
     stop = should_stop or AsyncMock(return_value=False)
     return [event async for event in stream_run(spec, stream, hooks, should_stop=stop)]
@@ -745,6 +761,43 @@ class TestStreamRun:
         assert stream.closed
         assert stack.events == ["context entered", "context exited"]
         on_success.assert_not_awaited()
+        on_failure.assert_not_awaited()
+
+    async def test_a_context_that_fails_to_close_under_an_early_close_is_logged_not_raised(self, caplog):
+        on_success, on_failure = AsyncMock(), AsyncMock()
+
+        with agent_stack(_agent(), context=_context_failing_on_close), caplog.at_level("ERROR", logger="daiv.sessions"):
+            events = stream_run(
+                _spec(),
+                _stream("a", "b"),
+                RunHooks(on_success=on_success, on_failure=on_failure),
+                should_stop=AsyncMock(),
+            )
+            assert await anext(events) == "a"
+            await events.aclose()
+
+        assert "failed to close the run" in caplog.text
+        on_success.assert_not_awaited()
+        on_failure.assert_not_awaited()
+
+    async def test_a_cancellation_whose_context_fails_to_close_is_still_a_cancellation(self, caplog):
+        started = asyncio.Event()
+
+        async def _hanging(_run):
+            started.set()
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+
+        on_failure = AsyncMock()
+
+        with agent_stack(_agent(), context=_context_failing_on_close), caplog.at_level("ERROR", logger="daiv.sessions"):
+            task = asyncio.create_task(_drain(_spec(), _hanging, RunHooks(on_failure=on_failure)))
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert "failed to close the run" in caplog.text
         on_failure.assert_not_awaited()
 
     async def test_a_failed_checkpoint_read_still_finishes_the_stream(self):

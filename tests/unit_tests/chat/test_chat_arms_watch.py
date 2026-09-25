@@ -1,8 +1,7 @@
 """A chat turn that publishes a merge request must arm the CI watch.
 
-The executor arms it from the finished turn's checkpoint, as it does for every trigger. The AG-UI
-``STATE_SNAPSHOT`` stream can't stand in: the adapter filters each snapshot to ``STREAMED_STATE_KEYS``, which
-leaves ``published`` out, so a turn armed from the stream never armed at all.
+The executor arms it from the finished turn's checkpoint. The AG-UI ``STATE_SNAPSHOT`` stream can't stand in:
+the adapter filters each snapshot to ``STREAMED_STATE_KEYS``, which leaves ``published`` out.
 """
 
 from types import SimpleNamespace

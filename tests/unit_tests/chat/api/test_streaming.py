@@ -49,8 +49,7 @@ def _patch_run_lifecycle():
     with (
         patch("chat.api.streaming.start_chat_run", side_effect=_fake_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_fake_finalize),
-        # ``track_usage_metadata`` is a real contextmanager; keep it but with a no-op handler
-        # so ``build_usage_summary`` isn't exercised against a live callback here.
+        # Chat's own usage summary; the executor's ``_after_run`` still builds one from the live handler.
         patch("chat.api.streaming.build_usage_summary", return_value=MagicMock(to_dict=lambda: None)),
     ):
         yield
@@ -493,7 +492,7 @@ def test_streamer_post_init_rejects_run_id_mismatch():
 
 @pytest.mark.django_db(transaction=True)
 async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
-    """The cancel endpoint sets a Redis flag; the streamer polls it at heartbeat
+    """The cancel endpoint sets a Redis flag; the executor polls it at heartbeat
     cadence and must stop the run, surface a RUN_ERROR(code=run_cancelled) so
     stream observers see why, and finalize the Run FAILED with the user-facing
     stop message.
@@ -530,7 +529,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
     assert seen[0].type == EventType.STATE_SNAPSHOT
     assert seen[-1].type == EventType.RUN_ERROR
     assert seen[-1].code == "run_cancelled"
-    assert len(seen) == 2  # second snapshot suppressed by the break
+    assert len(seen) == 2  # the stop closed the stream before the second snapshot
     assert finalize_calls == [{"success": False, "error_message": "Stopped by user."}]
     assert release_calls == [("t-stream", "r-1")]
 
@@ -619,7 +618,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
     assert seen[0].type == EventType.STATE_SNAPSHOT
     assert seen[-1].type == EventType.RUN_ERROR
     assert seen[-1].code == "run_interrupted"
-    assert len(seen) == 2  # second snapshot suppressed by the break
+    assert len(seen) == 2  # the stop closed the stream before the second snapshot
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
 
 
@@ -923,9 +922,9 @@ async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_events_forwards_external_refs_to_the_runtime_ctx():
-    """A dropped or renamed ``references=`` at this call site is swallowed silently (the jobs
-    path has the same guard in test_context.py) — every chat-turn footer would vanish."""
+async def test_events_hands_the_turns_settings_to_the_executor():
+    """A setting ``_run_spec`` drops or renames is swallowed silently: the turn runs on defaults (every footer
+    vanishes without ``references``, the pinned model without ``agent_model``)."""
     refs = (ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),)
     captured = {}
 
@@ -933,21 +932,47 @@ async def test_events_forwards_external_refs_to_the_runtime_ctx():
         captured.update(kwargs)
         return _mock_ctx()
 
+    resolve = MagicMock(return_value={"model_names": ["m-1"], "thinking_level": "low"})
+    langsmith = MagicMock(return_value={})
     with (
         patch("codebase.context.set_runtime_ctx", _capture_ctx),
+        patch("automation.agent.utils.get_daiv_agent_kwargs", resolve),
+        patch("automation.agent.utils.build_langsmith_config", langsmith),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
-        input_data = SimpleNamespace(thread_id="t-stream", run_id="r-1")
         streamer = ChatRunStreamer(
-            repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data, external_refs=refs
+            repo_id="a/b",
+            ref="main",
+            thread_id="t-stream",
+            run_id="r-1",
+            input_data=SimpleNamespace(thread_id="t-stream", run_id="r-1"),
+            user_id=7,
+            sandbox_environment_id="env-1",
+            agent_model="openrouter:z-ai/glm-5.2",
+            agent_thinking_level="low",
+            mcp_overrides={"sentry": "off"},
+            external_refs=refs,
         )
         async for _ in streamer.events():
             pass
 
-    assert captured["references"] == refs
+    assert {key: captured[key] for key in ("sandbox_env_id", "acting_user_id", "mcp_overrides", "references")} == {
+        "sandbox_env_id": "env-1",
+        "acting_user_id": 7,
+        "mcp_overrides": {"sentry": "off"},
+        "references": refs,
+    }
+    assert (resolve.call_args.kwargs["agent_model"], resolve.call_args.kwargs["agent_thinking_level"]) == (
+        "openrouter:z-ai/glm-5.2",
+        "low",
+    )
+    assert (langsmith.call_args.kwargs["trigger"], langsmith.call_args.kwargs["extra_metadata"]) == (
+        "chat",
+        {"override_source": "explicit"},
+    )
 
 
 def _failing_ctx(*_args, **_kwargs):
@@ -1199,6 +1224,58 @@ class TestChatAfterRunMatrix:
             await events.aclose()
 
         assert calls == [("start",), ("finalize", False, CANCELLED_BY_USER_MESSAGE), _RELEASE]
+
+    async def test_the_stream_heartbeats_the_slot_the_view_claimed(self):
+        heartbeat = AsyncMock(return_value=True)
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=heartbeat):
+            async for _ in _streamer().events():
+                pass
+
+        heartbeat.assert_awaited_with("t-stream", "r-1")
+
+    async def test_the_turns_token_usage_reaches_its_run_row(self):
+        from automation.agent import usage_tracking
+
+        handlers, usages = [], []
+        track = usage_tracking.track_usage_metadata
+
+        @contextmanager
+        def _recording_track():
+            with track() as handler:
+                handlers.append(handler)
+                yield handler
+
+        async def _finalize(_run_pk, *, usage, **_kwargs):
+            usages.append(usage)
+
+        summary = MagicMock(return_value=MagicMock(to_dict=lambda: {"total_tokens": 12}))
+        with (
+            _recorded_turn(_mock_agent([_snapshot()])),
+            patch("automation.agent.usage_tracking.track_usage_metadata", _recording_track),
+            patch("chat.api.streaming.build_usage_summary", summary),
+            patch("chat.api.streaming.finalize_chat_run", side_effect=_finalize),
+        ):
+            async for _ in _streamer().events():
+                pass
+
+        summary.assert_called_once_with(handlers[0])
+        assert usages == [{"total_tokens": 12}]
+
+    async def test_a_reader_that_goes_away_while_the_clone_fails_to_close_still_ends_the_turn(self):
+        from core.constants import INTERRUPTED_MESSAGE
+
+        def _failing_close(*_args, **_kwargs):
+            ctx = _mock_ctx()
+            ctx.__aexit__ = AsyncMock(side_effect=OSError("clone cleanup failed"))
+            return ctx
+
+        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), runtime_ctx=_failing_close) as calls:
+            events = _streamer().events()
+            await anext(events)
+            await events.aclose()
+
+        assert calls == [("start",), ("finalize", False, INTERRUPTED_MESSAGE), _RELEASE]
 
     async def test_a_turn_closed_before_the_run_starts_still_releases_the_slot(self):
         cloned: list[bool] = []

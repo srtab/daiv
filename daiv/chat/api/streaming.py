@@ -243,9 +243,10 @@ class _ReportedRunError(Exception):
 
 @dataclass(frozen=True, kw_only=True)
 class ChatRunStreamer:
-    """SSE generator for one chat turn, run through the executor's ``stream_run``.
+    """AG-UI event generator for one chat turn, run through the executor's ``stream_run``; ``runner.run_to_relay``
+    publishes it.
 
-    Chat keeps what is its own: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
+    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
     clone is ready, finalized with token/cost usage), RUN_ERROR events with sanitized messages, and releasing the run
     slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running.
     """
@@ -394,7 +395,8 @@ class ChatRunStreamer:
             raise _ReportedRunError
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Finalize the ``Run`` row, then release the slot; each step is guarded so neither can skip the other."""
+        """Finalize the ``Run`` row, then release the slot; each failure is logged, never raised over how the turn
+        ended."""
         if turn.chat_run is not None:
             try:
                 await finalize_chat_run(

@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import json
 import logging
@@ -7,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
+from redisvl.exceptions import RedisSearchError
 
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
@@ -68,10 +70,13 @@ async def stream_run(
     """Run the agent once for ``spec`` and yield what ``stream`` makes of the built agent, as it comes.
 
     Consume it with ``contextlib.aclosing``: closing it early (a reader that went away) closes the stream and the
-    run's context, and skips both hooks. The package docstring lists the order of the steps.
+    run's context and skips ``on_success`` and ``on_failure``, as a cancellation mid-stream does; an error while the
+    context closes is logged, never raised over the close or the cancellation. The package docstring lists the
+    order of the steps.
     """
     hooks = hooks or RunHooks()
     entered = False
+    interrupted: BaseException | None = None
     try:
         async with hold_session_lock(spec.lock, spec.thread_id, background_heartbeat=False) as holder_id:
             entered = True
@@ -84,16 +89,25 @@ async def stream_run(
                         ) as events:
                             async for event in events:
                                 yield event
+                    except (GeneratorExit, asyncio.CancelledError) as exc:
+                        interrupted = exc
+                        raise
                     except Exception:
                         await _recover(spec, run, recovery)
                         raise
                     outcome = await _after_run(spec, run)
             except Exception as exc:
-                await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
+                if interrupted is None:
+                    await _notify_failure(
+                        hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot
+                    )
                 raise
             if hooks.on_success is not None:
                 await hooks.on_success(outcome)
     except Exception as exc:
+        if interrupted is not None:
+            logger.exception("executor: failed to close the run for thread_id=%s", spec.thread_id)
+            raise interrupted from None
         if not entered:
             await _notify_failure(hooks, exc)
         raise
@@ -165,8 +179,8 @@ async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> RunOut
 
 
 async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
-    """Publish a draft from the checkpoint after an agent error, if the spec asks for it, and re-read the checkpoint
-    for ``on_failure``. Runs while the clone and the sandbox are still open."""
+    """Publish a draft from the checkpoint after the agent or its stream raises, if the spec asks for it, and re-read
+    the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=spec.thread_id)
@@ -273,12 +287,17 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
 
 
 async def _read_snapshot(run: AgentRun, thread_id: str) -> StateSnapshot | None:
-    """Read the run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the agent
-    already finished, so a Redis blip must not fail the run."""
+    """Read the finished run's checkpoint, or ``None`` when a transport or serialization error breaks the read: the
+    agent already finished, so a Redis blip must not fail the run. The checkpointer's index search re-raises a
+    Redis error as ``RedisSearchError``."""
     try:
         return await run.agent.aget_state(config=run.config)
-    except RedisError, OSError, json.JSONDecodeError:
-        logger.warning("executor: failed to read agent state for thread_id=%s", thread_id, exc_info=True)
+    except RedisError, RedisSearchError, OSError, json.JSONDecodeError:
+        logger.exception(
+            "executor: failed to read the finished run's checkpoint for thread_id=%s; its merge request is lost to "
+            "the result, the ref sync and the CI watch",
+            thread_id,
+        )
         return None
 
 
@@ -286,7 +305,7 @@ async def _read_snapshot_after_recovery(run: AgentRun, thread_id: str) -> StateS
     """The re-read only feeds a failure-note footer, so any read error here is safe to swallow: the agent's own
     error is what must reach ``on_failure``, not this one."""
     try:
-        return await _read_snapshot(run, thread_id)
+        return await run.agent.aget_state(config=run.config)
     except Exception:
         logger.warning(
             "executor: failed to read agent state after draft recovery for thread_id=%s", thread_id, exc_info=True
