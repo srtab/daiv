@@ -9,7 +9,6 @@ from textwrap import dedent
 import django
 from django.apps import apps
 
-from datasets import load_dataset
 from langchain_core.messages import HumanMessage
 
 # The first-party imports below define Django models at import time, so the app registry must be populated
@@ -34,6 +33,8 @@ async def main(
     instance_ids: list[str] | None = None,
     num_samples: int | None = None,
 ):
+    from datasets import load_dataset
+
     dataset = load_dataset(dataset_path, split=dataset_split)
     if instance_ids:
         selected_instance_ids = set(instance_ids)

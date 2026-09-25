@@ -35,10 +35,7 @@ def _outcome(**values) -> RunOutcome:
 
 
 async def _main(tmp_path, execute, items=(ITEM,)) -> list[dict]:
-    with (
-        patch.object(swebench, "load_dataset", return_value=list(items)),
-        patch.object(swebench, "execute_run", execute),
-    ):
+    with patch("datasets.load_dataset", return_value=list(items)), patch.object(swebench, "execute_run", execute):
         await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), ["model-a", "model-b"])
     return _written(tmp_path)
 
