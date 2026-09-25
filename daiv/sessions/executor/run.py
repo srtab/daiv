@@ -105,8 +105,8 @@ async def _supervised(
     """Yield ``events``, checking the slot and then ``should_stop`` at most every ``STREAM_HEARTBEAT_INTERVAL_S``.
 
     A lost slot wins over a stop request: another holder owns the checkpoint now. Either one raises and closes
-    ``events``, which is what stops the graph run inside it; an error while closing is logged, never raised over
-    why the stream stopped.
+    ``events``, abandoning the graph run inside it; an error while closing is logged, never raised over why the
+    stream stopped.
     """
     last_check = time.monotonic()
     try:

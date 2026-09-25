@@ -132,8 +132,8 @@ async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_reques
     ``Session.ref`` is the branch a session is *working on*, not the one it started from —
     that stays on every ``Run.ref``, which nothing rewrites — so the composer pill and the
     session list keep agreeing with the merge request beside them. Normalizing through
-    ``mr_to_payload`` takes both shapes a caller can hold: a live ``MergeRequest`` (off the
-    checkpoint) and the dict an AG-UI snapshot carries.
+    ``mr_to_payload`` takes both shapes the checkpoint can hold: a live ``MergeRequest`` and a
+    plain dict when the checkpointer didn't reconstruct it.
     """
     new_ref = (mr_to_payload(merge_request) or {}).get("source_branch")
     if isinstance(new_ref, str) and new_ref and new_ref != current_ref:

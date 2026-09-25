@@ -14,11 +14,12 @@ step sits where it does:
 3. The model is resolved. For a spec with ``run_id`` it is recorded on the ``Run`` and its session before the
    invoke, so a run that fails mid-way still shows what it ran with.
 4. The agent is built and invoked, or handed to ``stream_run``'s stream factory, whose events are yielded as they
-   come. Every ``run.STREAM_HEARTBEAT_INTERVAL_S`` a stream heartbeats its slot and asks ``should_stop``: a slot a
-   stale takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and
-   either one closes the stream, which stops the graph run inside it. If the agent raises and the spec asks for it
-   (``recover_draft``), a draft merge request is published from its checkpoint while the clone and sandbox are
-   still open, and the checkpoint is read again for the failure hook. Setup errors skip this.
+   come. Between its events, at most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and
+   asks ``should_stop``: a slot a stale takeover reassigned raises ``lock.SessionLockLostError``, a stop request
+   ``run.RunStoppedError``, and either one closes the stream (the trigger's generator), abandoning the graph run
+   inside it. If the agent raises and the spec asks for it (``recover_draft``), a draft merge request is published
+   from its checkpoint while the clone and sandbox are still open, and the checkpoint is read again for the
+   failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None``, and a failed ref sync or watch arm is logged;
