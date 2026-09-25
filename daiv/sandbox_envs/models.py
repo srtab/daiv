@@ -339,11 +339,9 @@ class SandboxEnvironment(TimeStampedModel):
         except (PydanticValidationError, TypeError, ValueError) as err:
             raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
 
-        # The git-platform secret name is reserved: apply_platform_egress overwrites that key (and
-        # prepends a rule injecting it) at runtime, so a stored secret/inject of the same name would be
-        # silently displaced. Reject it at save time. Checked on the validated request so the rule/secret
-        # shape stays owned by from_stored rather than re-walked here.
-        from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+        # Reserved: with_platform_credential overwrites this secret at runtime, so a stored one would
+        # be silently displaced by DAIV's git-platform credential.
+        from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 
         if PLATFORM_EGRESS_SECRET_NAME in request.secrets or any(
             rule.inject == PLATFORM_EGRESS_SECRET_NAME for rule in request.policy.rules

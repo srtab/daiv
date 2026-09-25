@@ -197,11 +197,10 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
     via the client and land its allow-rule first on ``ctx.sandbox.egress`` (the only place all the
     unit-tested egress pieces are wired together). Guards against the augmentation line being dropped
     or reordered before merge_sandbox_runtime — a regression every isolated unit test would miss."""
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
-
     from codebase.clients.base import GitEgressCredential
     from codebase.context import SandboxRuntime
     from core.sandbox.command_policy import SandboxCommandPolicy
+    from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
     from core.sandbox.schemas import EgressConfigRequest
 
     repo_client = MagicMock()

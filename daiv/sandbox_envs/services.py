@@ -10,6 +10,7 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync
 
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
 
 if TYPE_CHECKING:
@@ -22,8 +23,6 @@ if TYPE_CHECKING:
     from core.sandbox.schemas import EgressConfigRequest
 
 logger = logging.getLogger("daiv.sandbox_envs")
-
-PLATFORM_EGRESS_SECRET_NAME = "__daiv_git_platform__"  # noqa: S105
 
 
 @dataclass(frozen=True)
