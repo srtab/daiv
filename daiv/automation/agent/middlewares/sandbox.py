@@ -20,11 +20,16 @@ from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
 from automation.agent.utils import conversation_thread_id
+from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
+from automation.agent.workspace.bash_policy.command_policy import (
+    CommandPolicy,
+    DenialReason,
+    evaluate_command_policy,
+    parse_rule,
+)
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
-from core.sandbox.command_parser import CommandParseError, parse_command
-from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import EgressConfigRequest, RunCommandsResponse, StartSessionRequest
 from core.site_settings import site_settings
 
@@ -166,18 +171,9 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     """
     tool_call_id = getattr(runtime, "tool_call_id", None)
 
-    # Build effective policy from global settings + repo config.
-    repo_policy = runtime.context.sandbox.command_policy
-
     policy = CommandPolicy(
-        disallow=[
-            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_DISALLOW],
-            *[parse_rule(r) for r in repo_policy.disallow],
-        ],
-        allow=[
-            *[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_ALLOW],
-            *[parse_rule(r) for r in repo_policy.allow],
-        ],
+        disallow=[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_DISALLOW],
+        allow=[parse_rule(r) for r in settings.SANDBOX_COMMAND_POLICY_ALLOW],
     )
 
     # Parse the command string.

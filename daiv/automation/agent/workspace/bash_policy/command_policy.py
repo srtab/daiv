@@ -2,12 +2,8 @@
 Command-level policy evaluation for bash tool invocations.
 
 Provides :func:`evaluate_command_policy` which, given an effective policy and a
-parsed list of :class:`~core.sandbox.command_parser.ExecutableSegment` objects,
+parsed list of :class:`~automation.agent.workspace.bash_policy.command_parser.ExecutableSegment` objects,
 returns a :class:`PolicyResult` that indicates whether execution is permitted.
-
-Precedence: ``disallow`` rules override ``allow`` rules, which override the
-``default_policy``.  Built-in disallow rules are always evaluated first and
-cannot be overridden by a repository's ``allow`` list.
 """
 
 from __future__ import annotations
@@ -19,9 +15,7 @@ from enum import StrEnum
 # Built-in safety defaults
 # ---------------------------------------------------------------------------
 
-#: Commands/subcommands that are always blocked regardless of configuration.
-#: Entries are tuples of normalized tokens that must match as a *prefix* of the
-#: command's argv.  E.g. ("git", "commit") matches ``git commit -m "msg"``.
+#: Always blocked; no setting can remove or override them.
 DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     # Git history mutation
     ("git", "commit"),
@@ -31,7 +25,7 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "reflog", "delete"),
     ("git", "filter-branch"),
     ("git", "filter-repo"),
-    # Git index / object manipulation (not in allowed whitelist)
+    # Git index / object manipulation
     ("git", "add"),
     ("git", "hash-object"),
     ("git", "update-index"),
@@ -58,27 +52,8 @@ class DenialReason(StrEnum):
     """Machine-readable denial categories for telemetry and error messages."""
 
     DEFAULT_DISALLOW = "default_disallow"
-    REPO_DISALLOW = "repo_disallow"
     GLOBAL_DISALLOW = "global_disallow"
     PARSE_FAILURE = "parse_failure"
-
-
-@dataclass(frozen=True)
-class SandboxCommandPolicy:
-    """Effective bash command policy for the sandbox.
-
-    ``allow`` and ``disallow`` are tuples of space-separated command prefixes,
-    e.g. ``"rm -rf"`` matches any ``rm`` invocation whose first arg is ``-rf``.
-    ``disallow`` takes precedence over ``allow``; built-in safety rules
-    (``DEFAULT_DISALLOW_RULES``) override both.
-
-    Defaults to empty — no per-env policy configured. This is the runtime
-    fallback used by every ``SandboxSpec`` until per-env policies are
-    re-introduced.
-    """
-
-    disallow: tuple[str, ...] = ()
-    allow: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -102,16 +77,9 @@ class PolicyResult:
 @dataclass
 class CommandPolicy:
     """
-    Effective policy built from all layers: built-in defaults, global settings,
-    and per-repository configuration.
-
-    ``disallow`` entries are tuples of normalized tokens (argv prefixes).
-    ``allow`` entries follow the same format and whitelist otherwise-denied
-    commands.
-
-    Precedence: ``disallow > allow > default policy``.
-    Built-in ``DEFAULT_DISALLOW_RULES`` are applied *before* the user-provided
-    ``disallow`` list and cannot be overridden by ``allow``.
+    Effective policy: the ``SANDBOX_COMMAND_POLICY_DISALLOW`` and
+    ``SANDBOX_COMMAND_POLICY_ALLOW`` settings as token tuples (see :func:`parse_rule`),
+    matched like ``DEFAULT_DISALLOW_RULES``.
     """
 
     disallow: list[tuple[str, ...]] = field(default_factory=list)
@@ -120,15 +88,15 @@ class CommandPolicy:
 
 def parse_rule(rule: str) -> tuple[str, ...]:
     """
-    Convert a space-separated rule string to a normalized token tuple.
+    Convert a space-separated rule string to a lowercased token tuple.
 
     Args:
-        rule: A space-separated command prefix, e.g. ``"git commit"``.
+        rule: A command name followed by arguments, e.g. ``"git commit"``.
 
     Returns:
         A tuple of lowercased tokens: ``("git", "commit")``.
     """
-    return tuple(t.lower() for t in rule.split() if t)
+    return tuple(t.lower() for t in rule.split())
 
 
 def _normalize_flag_token(token: str) -> str:
@@ -152,14 +120,14 @@ def _normalize_flag_token(token: str) -> str:
 
 
 def _normalize_argv_for_match(argv: tuple[str, ...]) -> tuple[str, ...]:
-    """Lowercase + canonical-flag normalization used for prefix matching."""
+    """Lowercase + canonical-flag normalization used for rule matching."""
     return tuple(_normalize_flag_token(token.lower()) for token in argv)
 
 
 def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     """
     Return ``True`` when *argv* contains all tokens in *rule* as an in-order
-    subsequence, with the executable name (argv[0]) matched exactly.
+    subsequence, with the rule's first token matching the executable name (argv[0]).
 
     This handles global flags that appear between the executable name and the
     subcommand, e.g. ``git -C /workspace/repo commit`` is matched by rule
@@ -172,7 +140,6 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
         return False
     argv_normalized = _normalize_argv_for_match(argv)
     rule_normalized = _normalize_argv_for_match(rule)
-    # The executable name must match exactly at position 0.
     if argv_normalized[0] != rule_normalized[0]:
         return False
     # Remaining rule tokens are matched as an in-order subsequence of the
@@ -199,13 +166,13 @@ def evaluate_command_policy(segments: list, policy: CommandPolicy) -> PolicyResu
 
     Precedence per segment:
     1. Built-in default disallow (cannot be whitelisted by ``allow``).
-    2. User ``disallow`` (cannot be overridden by ``allow``).
-    3. User ``allow`` (exempts from default policy only, not from 1 or 2).
-    4. Default policy → allow (all commands not in DEFAULT_DISALLOW_RULES pass).
+    2. Configured ``disallow`` (cannot be overridden by ``allow``).
+    3. Configured ``allow`` (returns the same result as 4, so it changes nothing).
+    4. Default policy → allow (all commands not caught by 1 or 2 pass).
 
     Args:
-        segments: List of :class:`~core.sandbox.command_parser.ExecutableSegment`.
-        policy: The effective merged policy for this invocation.
+        segments: List of :class:`~automation.agent.workspace.bash_policy.command_parser.ExecutableSegment`.
+        policy: The effective policy for this invocation.
 
     Returns:
         :class:`PolicyResult` with ``allowed=True`` or details of the first
@@ -226,7 +193,6 @@ def _evaluate_segment(segment: object, policy: CommandPolicy) -> PolicyResult:
     if not argv:
         return PolicyResult(allowed=True)
 
-    # 1. Built-in default disallow (cannot be overridden)
     for rule in DEFAULT_DISALLOW_RULES:
         if _argv_matches_rule(argv, rule):
             return PolicyResult(
@@ -236,20 +202,17 @@ def _evaluate_segment(segment: object, policy: CommandPolicy) -> PolicyResult:
                 denied_segment=argv_str,
             )
 
-    # 2. Repo/user explicit disallow (cannot be overridden by allow)
     for rule in policy.disallow:
         if _argv_matches_rule(argv, rule):
             return PolicyResult(
                 allowed=False,
-                denial_reason=DenialReason.REPO_DISALLOW,
+                denial_reason=DenialReason.GLOBAL_DISALLOW,
                 matched_rule=_rule_repr(rule),
                 denied_segment=argv_str,
             )
 
-    # 3. Explicit allow list (exempts from default policy only)
     for rule in policy.allow:
         if _argv_matches_rule(argv, rule):
             return PolicyResult(allowed=True)
 
-    # 4. Default policy: allow everything not caught by built-ins or disallow
     return PolicyResult(allowed=True)

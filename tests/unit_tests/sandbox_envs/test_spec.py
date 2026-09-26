@@ -2,7 +2,6 @@ import pytest
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxEnvOverride, SandboxSpec, merge_sandbox_spec
 
-from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
 
@@ -19,7 +18,6 @@ def _spec(**changes) -> SandboxSpec:
         "memory_bytes": 2 * 2**30,
         "cpus": 2.0,
         "env_vars": {"A": "1", "B": "2"},
-        "command_policy": SandboxCommandPolicy(),
         "egress": _egress(),
     }
     return SandboxSpec(**(fields | changes))
@@ -99,10 +97,6 @@ class TestMergeSandboxSpec:
         global_default = _ov(base_image="python:3.12", env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"})
         spec = merge_sandbox_spec(per_run=per_run, global_default=global_default)
         assert spec.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
-
-    def test_command_policy_defaults_empty(self):
-        spec = merge_sandbox_spec(per_run=_ov(base_image="python:3.14"), global_default=None)
-        assert spec.command_policy == SandboxCommandPolicy()
 
     def test_per_run_egress_wins_over_global_egress(self):
         spec = merge_sandbox_spec(
