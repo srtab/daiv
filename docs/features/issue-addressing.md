@@ -49,6 +49,10 @@ You can also provide feedback or additional instructions in your comment, and DA
 !!! tip
     If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.
 
+## Asking a question
+
+When the issue or your feedback is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Reply with a comment that mentions DAIV; on GitLab the reply is threaded under DAIV's question, on GitHub it's a top-level comment.
+
 ## Max mode
 
 The `daiv-max` label switches DAIV to a more capable model with a higher thinking level:

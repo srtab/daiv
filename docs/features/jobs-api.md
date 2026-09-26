@@ -147,7 +147,25 @@ GET /api/jobs/{job_id}
 | `READY` | Job is queued, waiting for a worker |
 | `RUNNING` | Agent is executing |
 | `SUCCESSFUL` | Completed — `result` contains the agent's response summary |
+| `WAITING_INPUT` | The agent stopped to ask you a question instead of guessing — a terminal state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text |
 | `FAILED` | Agent encountered an error — `error` contains a message |
+
+### Answering a question
+
+When a job comes back `WAITING_INPUT`, submit a new job with the same `thread_id` and your answer as `prompt`:
+
+```bash
+curl -s -X POST https://daiv.example.com/api/jobs \
+  -H "Authorization: Bearer $DAIV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repos": [{"repo_id": "mygroup/myproject"}],
+    "prompt": "Use PostgreSQL.",
+    "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"
+  }'
+```
+
+This starts a new run that continues the agent's work from where it stopped. As with any `thread_id` continuation, `repos` must have exactly one entry, and the thread's most recent run must belong to you.
 
 **Error responses:**
 
@@ -176,12 +194,14 @@ stateDiagram-v2
     QUEUED --> READY: Prior run on the thread finishes (FIFO)
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
+    RUNNING --> WAITING_INPUT: Agent asks a question
     RUNNING --> FAILED: Agent errors
+    WAITING_INPUT --> READY: POST /api/jobs (same thread_id, answer as prompt)
 ```
 
 A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
 
-Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
+Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is final for that job — `WAITING_INPUT` doesn't progress to `SUCCESSFUL` on its own, it waits for a new job on the same thread (see [Answering a question](#answering-a-question)). The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
 
 ## Examples
 

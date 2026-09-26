@@ -66,6 +66,10 @@ When CI/CD fails, ask DAIV to investigate and fix it:
 
 DAIV will inspect the pipeline logs, identify the root cause, and push a fix to the branch.
 
+### Ask a question back
+
+When your request is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Reply with a comment that mentions DAIV; on GitLab the reply is threaded under DAIV's question, on GitHub it's a top-level comment.
+
 ## Conversation continuity
 
 DAIV maintains context across multiple interactions on the same pull request. You can have a back-and-forth conversation — each new mention builds on previous context, so DAIV understands the full history of changes and discussions.

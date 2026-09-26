@@ -74,6 +74,8 @@ Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch i
 
 If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.
 
+Scheduled runs never stop to ask a question — with nobody to answer, the agent picks the most reasonable reading of the prompt and states its assumptions instead.
+
 ## Timezone handling
 
 Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 `Europe/Lisbon` will always fire at 09:00 local time, even across clock changes.

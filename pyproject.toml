@@ -197,6 +197,7 @@ ini_options.python_files = "test_*.py"
 ini_options.python_classes = "Test *Test"
 ini_options.addopts = "--cov --cov-config=.coveragerc -p no:warnings --strict-markers"
 ini_options.markers = [
+  "ask_user: integration test that the agent asks the user on an ambiguous request (paid model calls)",
   "deferred_frozen: integration test asserting deferred-tool schemas are frozen",
   "diff_to_metadata: scored eval of the diff-to-metadata agent (paid model calls)",
   "memory: scored eval of repository-memory extraction and consolidation (paid model calls)",
