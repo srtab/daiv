@@ -62,6 +62,11 @@ class TestSchema:
                 "questions": [_question(options=[_option(description=""), _option("No")])]
             })
 
+    def test_option_labels_must_be_unique(self):
+        options = [_option("Yes"), _option("Yes", description="Other.")]
+        with pytest.raises(ValidationError):
+            AskUserQuestionInput.model_validate({"questions": [_question(options=options)]})
+
 
 class TestRender:
     def test_renders_header_question_numbered_options_and_the_free_text_hint(self):

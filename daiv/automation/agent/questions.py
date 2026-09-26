@@ -61,6 +61,8 @@ class Question(BaseModel):
     def _zero_or_two_to_four(cls, options: list[Option]) -> list[Option]:
         if len(options) == 1:
             raise ValueError("give no options for a free-text question, or 2 to 4")
+        if len({option.label for option in options}) != len(options):
+            raise ValueError("option labels must be unique")
         return options
 
 

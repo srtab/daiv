@@ -47,13 +47,14 @@ chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
 chat.$nextTick = (cb) => cb();
 chat.scrollToBottom = () => {};
 const sent = [];
-chat.submit = async () => { sent.push(chat.draftMessage); };
+chat.submit = async (text) => { sent.push(text); };
 const seg = chat.turns[1].segments[0];
 const out = {};
 for (const step of script) {
   if (step.op === "toggle") chat.toggleQuestionOption(seg, step.qi, step.label);
   if (step.op === "type") chat.setQuestionText(seg, step.qi, step.value);
   if (step.op === "streaming") chat.streaming = step.value;
+  if (step.op === "setDraft") chat.draftMessage = step.value;
   if (step.op === "answer") await chat.answerQuestion(seg);
   if (step.op === "read") out[step.key] = {
     card: chat.isQuestionCard(seg),
@@ -62,6 +63,7 @@ for (const step of script) {
     answer: chat.composeAnswer(seg),
     canAnswer: chat.canAnswerQuestion(seg),
     selected: chat.isOptionSelected(seg, 0, "SQLite"),
+    draft: chat.draftMessage,
   };
 }
 out.sent = sent;
@@ -134,6 +136,18 @@ def test_answer_sends_through_the_composer():
         {"op": "answer"},
     ])
     assert out["sent"] == ["**Database** — SQLite\n**Targets** — UI"]
+
+
+def test_answering_a_question_leaves_a_pre_existing_draft_untouched():
+    out = _drive([
+        {"op": "setDraft", "value": "unrelated draft"},
+        {"op": "toggle", "qi": 0, "label": "SQLite"},
+        {"op": "toggle", "qi": 1, "label": "UI"},
+        {"op": "answer"},
+        {"op": "read", "key": "s"},
+    ])
+    assert out["sent"] == ["**Database** — SQLite\n**Targets** — UI"]
+    assert out["s"]["draft"] == "unrelated draft"
 
 
 def test_the_js_knows_the_delivery_text_the_tool_returns():

@@ -147,7 +147,7 @@ GET /api/jobs/{job_id}
 | `READY` | Job is queued, waiting for a worker |
 | `RUNNING` | Agent is executing |
 | `SUCCESSFUL` | Completed — `result` contains the agent's response summary |
-| `WAITING_INPUT` | The agent stopped to ask you a question instead of guessing — a terminal state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text |
+| `WAITING_INPUT` | The agent stopped to ask you a question instead of guessing — a terminal state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text. `question` is `null` for a chat-origin run — its question is in the session transcript |
 | `FAILED` | Agent encountered an error — `error` contains a message |
 
 ### Answering a question

@@ -16,13 +16,16 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
+    SUBAGENT_ALWAYS_LOADED_TOOLS,
     _build_detector_middleware,
     _build_general_purpose_middleware,
     create_explore_subagent,
@@ -91,6 +94,20 @@ class TestGeneralPurposeMiddleware:
         sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
         assert sandbox_mw._client is sentinel_client
         assert sandbox_mw._sandbox_backend is sentinel_backend
+
+    def test_excludes_ask_user_question(self, mock_model, mock_backend, mock_runtime_ctx):
+        """Subagents never get to ask the user: no AskUserQuestionMiddleware, and the tool name
+        isn't in the always-loaded set that would otherwise expose it via deferred tools."""
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+        )
+        assert not any(isinstance(m, AskUserQuestionMiddleware) for m in middleware)
+        assert ASK_USER_QUESTION_TOOL_NAME not in SUBAGENT_ALWAYS_LOADED_TOOLS
 
     def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_general_purpose_middleware(

@@ -100,7 +100,7 @@ async def run_job_task(
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,
-            ask_user_enabled=trigger_type != SessionOrigin.SCHEDULE,
+            ask_user_enabled=trigger_type not in {SessionOrigin.SCHEDULE, SessionOrigin.PIPELINE_WEBHOOK},
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
         RunHooks(on_failure=_log_failure),

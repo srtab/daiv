@@ -391,8 +391,10 @@ class Run(models.Model):
 
     @property
     def is_retryable(self) -> bool:
-        return self.status in RunStatus.terminal() and self.trigger_type not in (
-            SessionOrigin.webhooks() | {SessionOrigin.CHAT}
+        return (
+            self.status in RunStatus.terminal()
+            and self.status != RunStatus.WAITING_INPUT
+            and self.trigger_type not in (SessionOrigin.webhooks() | {SessionOrigin.CHAT})
         )
 
     @property

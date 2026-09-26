@@ -62,7 +62,8 @@ class JobStatusResponse(Schema):
     question: dict[str, Any] | None = Field(
         default=None,
         description="When status is WAITING_INPUT: the questions the agent asked. Answer by submitting a job with "
-        "this thread_id and the answer as the prompt.",
+        "this thread_id and the answer as the prompt. Null for chat-origin runs, whose question is in the session "
+        "transcript.",
     )
     merge_request_url: str | None = None
     error: str | None = None

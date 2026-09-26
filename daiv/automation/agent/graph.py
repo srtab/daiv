@@ -332,9 +332,9 @@ async def create_daiv_agent(
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools),
+        AskUserQuestionMiddleware(enabled=ask_user_enabled),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        AskUserQuestionMiddleware(enabled=ask_user_enabled),
         # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch
         # capture/sandbox teardown) and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),

@@ -461,6 +461,28 @@ async def test_a_scheduled_run_cannot_ask():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_pipeline_webhook_fix_run_cannot_ask():
+    from sessions.models import Run, RunStatus
+
+    session = await Session.objects.acreate(
+        thread_id="t-pipeline", origin=SessionOrigin.PIPELINE_WEBHOOK, repo_id="owner/repo"
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("jobs.tasks.execute_run", _execute_run):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-pipeline", run_id=str(run.pk))
+
+    assert captured["spec"].ask_user_enabled is False
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_an_api_run_can_ask():
     from sessions.models import Run, RunStatus
 

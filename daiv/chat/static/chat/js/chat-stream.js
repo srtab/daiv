@@ -1186,8 +1186,7 @@
     async answerQuestion(seg) {
       const answer = this.composeAnswer(seg);
       if (!answer || this.streaming || this.resuming) return;
-      this.draftMessage = answer;
-      await this.submit();
+      await this.submit(answer);
     },
 
     isTurnVisible(turn, isLast) {
@@ -1321,8 +1320,14 @@
       el.style.height = el.scrollHeight + "px";
     },
 
-    async submit() {
-      if (!this.canSend() || this.streaming || this.resuming) return;
+    async submit(text = null) {
+      const message = text ?? this.draftMessage;
+      if (text === null) {
+        if (!this.canSend() || this.streaming || this.resuming) return;
+      } else {
+        const hasDestination = this.thread || !!(this.draftRepoId && this.draftRef);
+        if (!hasDestination || this.streaming || this.resuming) return;
+      }
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1345,7 +1350,7 @@
       this.turns.push({
         id: uuid(),
         role: "user",
-        segments: [{ type: "text", content: this.draftMessage }],
+        segments: [{ type: "text", content: message }],
         // Optimistic stamp; a reload reconciles it to the server's Run.created_at and
         // relative granularity hides the difference. `received_at` is server-owned.
         sent_at: new Date().toISOString(),
@@ -1401,7 +1406,7 @@
         forwardedProps,
       };
 
-      this.draftMessage = "";
+      if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
       this.runStartedAt = Date.now();
