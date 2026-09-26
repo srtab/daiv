@@ -25,6 +25,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
 
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value=fake_result)
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
@@ -104,6 +105,7 @@ async def test_run_job_task_forwards_overrides():
 
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value=fake_result)
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
     captured_kwargs: dict = {}
 
@@ -157,6 +159,7 @@ async def test_run_job_task_persists_resolved_model():
     last_message.content = "ok"
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
     runtime_ctx = MagicMock()
     runtime_ctx.config.models.agent = MagicMock()
 
@@ -435,6 +438,51 @@ def _raising_agent() -> AsyncMock:
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     return agent
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_scheduled_run_cannot_ask():
+    from sessions.models import Run, RunStatus
+
+    session = await Session.objects.acreate(thread_id="t-schedule", origin=SessionOrigin.SCHEDULE, repo_id="owner/repo")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("jobs.tasks.execute_run", _execute_run):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-schedule", run_id=str(run.pk))
+
+    assert captured["spec"].ask_user_enabled is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_api_run_can_ask():
+    from sessions.models import Run, RunStatus
+
+    session = await Session.objects.acreate(thread_id="t-api", origin=SessionOrigin.API_JOB, repo_id="owner/repo")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("jobs.tasks.execute_run", _execute_run):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-api", run_id=str(run.pk))
+
+    assert captured["spec"].ask_user_enabled is True
+
+    with patch("jobs.tasks.execute_run", _execute_run):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
+
+    assert captured["spec"].ask_user_enabled is True
 
 
 @pytest.mark.django_db(transaction=True)

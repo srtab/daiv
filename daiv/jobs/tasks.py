@@ -1,11 +1,13 @@
 import logging
 from typing import TYPE_CHECKING
 
+from django.core.exceptions import ValidationError
+
 from django_tasks import task
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import Session
+from sessions.models import Run, Session, SessionOrigin
 
 from codebase.base import Scope
 
@@ -73,6 +75,13 @@ async def run_job_task(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )
 
+    trigger_type = None
+    if run_id:
+        try:
+            trigger_type = await Run.objects.filter(pk=run_id).values_list("trigger_type", flat=True).afirst()
+        except ValueError, ValidationError:
+            logger.warning("run_job_task: run_id=%s is not a valid Run id; ask_user_enabled defaults to True", run_id)
+
     outcome = await execute_run(
         RunSpec(
             thread_id=thread_id,
@@ -91,6 +100,7 @@ async def run_job_task(
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,
+            ask_user_enabled=trigger_type != SessionOrigin.SCHEDULE,
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
         RunHooks(on_failure=_log_failure),

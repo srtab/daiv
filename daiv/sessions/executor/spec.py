@@ -30,6 +30,7 @@ class RunSpec:
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
+    ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     """
 
     thread_id: str | None
@@ -57,6 +58,7 @@ class RunSpec:
     model_names: tuple[str, ...] = ()
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
+    ask_user_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.thread_id == "":
@@ -77,11 +79,13 @@ class RunSpec:
 @dataclass(frozen=True, kw_only=True)
 class RunOutcome:
     """``response_text`` is the agent's last message, read from the checkpoint for a stream. ``snapshot`` is ``None``
-    when the post-run checkpoint read failed; the run itself still succeeded."""
+    when the post-run checkpoint read failed; the run itself still succeeded. ``pending_question`` is the question
+    the run ended on; ``response_text`` is then its rendering."""
 
     agent_result: AgentResult
     response_text: str
     snapshot: StateSnapshot | None
+    pending_question: dict[str, Any] | None = None
 
 
 class FailureHook(Protocol):

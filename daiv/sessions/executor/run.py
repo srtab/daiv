@@ -245,7 +245,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             )
         model = agent_kwargs["model_names"][0]
         await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
-        agent = await create_daiv_agent(ctx=ctx, checkpointer=checkpointer, **agent_kwargs, **spec.agent_options)
+        agent = await create_daiv_agent(
+            ctx=ctx,
+            checkpointer=checkpointer,
+            ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
+            **agent_kwargs,
+            **spec.agent_options,
+        )
         config = build_langsmith_config(
             ctx,
             trigger=spec.trigger,
@@ -273,6 +279,7 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
 async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
     """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
     stands in."""
+    from automation.agent.questions import pending_question, render_questions
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
@@ -280,8 +287,11 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
-    if response_text is None:
-        messages = values.get("messages") or []
+    messages = values.get("messages") or []
+    question = pending_question(messages)
+    if question is not None:
+        response_text = render_questions(question)
+    elif response_text is None:
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     if spec.persist_ref:
@@ -303,9 +313,16 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
 
     agent_result = await build_agent_result(
-        run.agent, run.config, response=response_text, usage=build_usage_summary(run.usage).to_dict(), snapshot=snapshot
+        run.agent,
+        run.config,
+        response=response_text,
+        usage=build_usage_summary(run.usage).to_dict(),
+        snapshot=snapshot,
+        question=question,
     )
-    return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+    return RunOutcome(
+        agent_result=agent_result, response_text=response_text, snapshot=snapshot, pending_question=question
+    )
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

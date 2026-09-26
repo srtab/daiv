@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
@@ -14,9 +15,11 @@ from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Scope
 from codebase.references import ExternalRef
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack, make_spec
 
@@ -63,7 +66,9 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     stack.resolve.assert_called_once_with(
         model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
     )
-    stack.create_agent.assert_awaited_once_with(ctx=stack.ctx, checkpointer=stack.checkpointer, **AGENT_KWARGS)
+    stack.create_agent.assert_awaited_once_with(
+        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, **AGENT_KWARGS
+    )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
         trigger="job",
@@ -86,11 +91,16 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
         outcome = await execute_run(make_spec(), RunHooks(on_success=on_success, on_failure=on_failure))
 
     assert outcome.response_text == "done"
-    assert outcome.agent_result == {"response": "done"}
+    assert outcome.agent_result == {"response": "done", "question": None}
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     stack.build_result.assert_awaited_once_with(
-        agent, stack.langsmith.return_value, response="done", usage={}, snapshot=agent.aget_state.return_value
+        agent,
+        stack.langsmith.return_value,
+        response="done",
+        usage={},
+        snapshot=agent.aget_state.return_value,
+        question=None,
     )
     on_success.assert_awaited_once_with(outcome)
     on_failure.assert_not_awaited()
@@ -454,6 +464,7 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
     stack.create_agent.assert_awaited_once_with(
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
+        ask_user_enabled=True,
         model_names=["model-a", "model-b"],
         thinking_level=thinking_level,
     )
@@ -470,8 +481,58 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
 
     assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
     stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx, checkpointer=stack.checkpointer, **AGENT_KWARGS, capture_patch=True
+        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, **AGENT_KWARGS, capture_patch=True
     )
+
+
+async def test_a_run_that_ended_on_a_question_reports_it():
+    agent = _agent(state={"messages": [HumanMessage(content="migrate"), *ask_user_question_messages()]})
+
+    with agent_stack(agent):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.pending_question == SAMPLE_QUESTION_PAYLOAD
+    assert outcome.response_text == render_questions(SAMPLE_QUESTION_PAYLOAD)
+    assert outcome.agent_result["question"] == SAMPLE_QUESTION_PAYLOAD
+
+
+async def test_a_run_without_a_question_reports_none():
+    agent = _agent(state={"messages": [HumanMessage(content="migrate"), AIMessage(content="done")]})
+
+    with agent_stack(agent):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.pending_question is None
+    assert outcome.agent_result["question"] is None
+
+
+async def test_a_failed_snapshot_read_reports_no_question():
+    agent = _agent()
+    agent.aget_state = AsyncMock(side_effect=RedisError("connection refused"))
+
+    with agent_stack(agent):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.pending_question is None
+    assert outcome.snapshot is None
+
+
+async def test_ask_user_is_forwarded_to_the_agent():
+    spec = make_spec(thread_id="t-1", ask_user_enabled=False)
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    assert stack.create_agent.await_args.kwargs["ask_user_enabled"] is False
+
+
+async def test_a_one_shot_run_never_asks():
+    spec = make_spec(thread_id=None, ask_user_enabled=True, lock=NoLock())
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    assert stack.create_agent.await_args.kwargs["ask_user_enabled"] is False
 
 
 class TestRefFallback:
