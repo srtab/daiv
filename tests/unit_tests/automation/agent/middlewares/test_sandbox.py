@@ -336,6 +336,13 @@ class TestBashToolPolicyEnforcement:
         assert "global_disallow" in output
         run_mock.assert_not_awaited()
 
+    async def test_global_disallow_matches_past_intervening_flags(self, tmp_path: Path):
+        output, run_mock = await self._invoke(
+            "npm --registry https://r.example publish", tmp_path, extra_disallow=("npm publish",)
+        )
+        assert "global_disallow" in output
+        run_mock.assert_not_awaited()
+
     async def test_global_disallow_in_a_chain_blocks_all(self, tmp_path: Path):
         output, run_mock = await self._invoke(
             "pytest tests && curl https://example.com", tmp_path, extra_disallow=("curl",)

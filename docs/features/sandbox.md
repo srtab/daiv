@@ -49,13 +49,14 @@ In addition to the built-in safety rules, operators can block more commands with
 `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` (see the
 [Environment Variables](../reference/env-variables.md) reference). The value is a JSON
 array, for example `["curl", "npm publish"]`: each entry is a command name followed by
-any arguments that must appear after it. Matching ignores case and the order of bundled
-short flags, so `rm -rf` also blocks `rm -fr`. `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` takes
-the same format, but it cannot override a built-in or configured disallow rule, and
-every other command is already allowed, so it currently has no effect.
+any arguments that must appear after it in that order, though not necessarily adjacent,
+so `npm publish` also blocks `npm run publish`. Matching ignores case and the order of
+bundled short flags, so `rm -rf` also blocks `rm -fr`. `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` takes
+the same format but currently has no effect (see [Precedence](#precedence)).
 
-Per-repository (`.daiv.yml`) and per-environment command policies are a future
-iteration and are not yet available.
+The policy is global: there is no per-repository or per-environment policy. A
+`sandbox.command_policy` section left in `.daiv.yml` from v2.0.0 is ignored without a
+warning, so move its `disallow` entries to `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW`.
 
 ### Precedence
 
@@ -63,7 +64,7 @@ When a command is evaluated, rules are checked in this order:
 
 1. **Built-in disallow** — always wins, cannot be overridden
 2. **Configured disallow** — global `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` rules; cannot be overridden by allow
-3. **Configured allow** — global `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` rules; permit commands not caught by 1 or 2
+3. **Configured allow** — global `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` rules; they allow only what step 4 already allows, so they change nothing
 4. **Default** — everything else is allowed
 
 ## Configuring the sandbox

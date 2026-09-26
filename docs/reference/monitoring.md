@@ -267,7 +267,7 @@ DAIV emits structured warning logs whenever the sandbox bash tool blocks a comma
 |-------|-------------|
 | `event` | `bash_policy_denied` or `bash_policy_parse_failed` |
 | `reason_category` | `default_disallow`, `global_disallow`, or `parse_failure` |
-| `matched_rule` | The rule prefix that triggered denial (e.g. `"git push"`) |
+| `matched_rule` | The rule that triggered denial (e.g. `"git push"`) |
 | `denied_segment` | The specific argv segment that was blocked |
 | `tool_call_id` | The agent tool-call ID for correlation with LangSmith traces |
 

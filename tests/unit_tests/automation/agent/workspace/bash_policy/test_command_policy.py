@@ -110,12 +110,6 @@ class TestPrecedence:
         assert not result.allowed
         assert result.denial_reason == DenialReason.GLOBAL_DISALLOW
 
-    def test_allow_exempts_from_default_policy(self):
-        """An explicit allow rule lets otherwise-acceptable commands through."""
-        policy = CommandPolicy(allow=[("mycommand",)])
-        result = evaluate_command_policy([_seg(("mycommand", "--run"))], policy)
-        assert result.allowed
-
     def test_empty_policy_uses_defaults(self):
         policy = CommandPolicy()
         # pytest is safe by default

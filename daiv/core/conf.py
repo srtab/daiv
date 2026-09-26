@@ -19,16 +19,17 @@ class CoreSettings(BaseSettings):
     SANDBOX_COMMAND_POLICY_DISALLOW: tuple[str, ...] = Field(
         default=(),
         description=(
-            "Global list of additional bash command prefixes to block before sandbox execution. "
-            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
+            "Global list of additional bash command rules to block before sandbox execution. "
+            "Each entry is a command name plus arguments that must follow it in order, not necessarily "
+            "adjacent, e.g. 'rm -rf'. "
             "Built-in safety rules always apply and cannot be removed via this setting."
         ),
     )
     SANDBOX_COMMAND_POLICY_ALLOW: tuple[str, ...] = Field(
         default=(),
         description=(
-            "Global list of bash command prefixes to permit. "
-            "Built-in rules and SANDBOX_COMMAND_POLICY_DISALLOW still take precedence."
+            "Global list of bash command rules to permit. Has no effect: built-in rules and "
+            "SANDBOX_COMMAND_POLICY_DISALLOW take precedence, and every other command is already allowed."
         ),
     )
 
