@@ -39,11 +39,13 @@ The following commands are **always blocked** and cannot be overridden:
 
 These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.
 
+The policy checks every command in the invocation, including those in chains, pipelines, `if`/`case` statements, loops, subshells and functions, and it looks past leading variable assignments, so `HUSKY=0 git commit` is caught. It does not look inside command or process substitutions (`$(…)`, backticks, `<(…)`), variable expansions (`git $cmd`), `bash -c` or `eval` strings, or wrappers such as `env`, and it compares words exactly as written, so `/usr/bin/git push`, `\git push` and `git "push"` are not caught. Treat it as a guardrail that stops the agent's plain invocations, not as a security boundary.
+
 ### Global rules
 
-In addition to the built-in safety rules, operators can configure global allow and disallow command prefixes via the `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` environment variables (see the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) reference). Each entry is a space-separated prefix (for example, `curl wget` or `my-safe-tool`).
+In addition to the built-in safety rules, operators can block more commands with `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` (see the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) reference). The value is a JSON array, for example `["curl", "npm publish"]`: each entry is a command name followed by any arguments that must appear after it in that order, though not necessarily adjacent, so `npm publish` also blocks `npm run publish`. Matching ignores case and the order of bundled short flags, so `rm -rf` also blocks `rm -fr`. `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` takes the same format but currently has no effect (see [Precedence](#precedence)).
 
-Per-repository (`.daiv.yml`) and per-environment command policies are a future iteration and are not yet available.
+The policy is global: there is no per-repository or per-environment policy. A `sandbox.command_policy` section left in `.daiv.yml` from v2.0.0 is ignored without a warning, so move its `disallow` entries to `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW`.
 
 ### Precedence
 
@@ -51,7 +53,7 @@ When a command is evaluated, rules are checked in this order:
 
 1. **Built-in disallow** — always wins, cannot be overridden
 1. **Configured disallow** — global `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` rules; cannot be overridden by allow
-1. **Configured allow** — global `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` rules; permit commands not caught by 1 or 2
+1. **Configured allow** — global `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` rules; they allow only what step 4 already allows, so they change nothing
 1. **Default** — everything else is allowed
 
 ## Configuring the sandbox

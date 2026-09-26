@@ -1644,20 +1644,25 @@ PyPI, etc.), which needs network access. The sandbox runs with networking
 </tbody>
 </table>
 <p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.</p>
+<p>The policy checks every command in the invocation, including those in chains, pipelines, <code>if</code>/<code>case</code> statements, loops, subshells and functions, and it looks past leading variable assignments, so <code>HUSKY=0 git commit</code> is caught. It does not look inside command or process substitutions (<code>$(…)</code>, backticks, <code>&lt;(…)</code>), variable expansions (<code>git $cmd</code>), <code>bash -c</code> or <code>eval</code> strings, or wrappers such as <code>env</code>, and it compares words exactly as written, so <code>/usr/bin/git push</code>, <code>\git push</code> and <code>git "push"</code> are not caught. Treat it as a guardrail that stops the agent's plain invocations, not as a security boundary.</p>
 <h3 id="global-rules">Global rules</h3>
-<p>In addition to the built-in safety rules, operators can configure global allow and
-disallow command prefixes via the <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> and
-<code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> environment variables (see the
-<a href="../../reference/env-variables/">Environment Variables</a> reference). Each entry is a
-space-separated prefix (for example, <code>curl wget</code> or <code>my-safe-tool</code>).</p>
-<p>Per-repository (<code>.daiv.yml</code>) and per-environment command policies are a future
-iteration and are not yet available.</p>
+<p>In addition to the built-in safety rules, operators can block more commands with
+<code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> (see the
+<a href="../../reference/env-variables/">Environment Variables</a> reference). The value is a JSON
+array, for example <code>["curl", "npm publish"]</code>: each entry is a command name followed by
+any arguments that must appear after it in that order, though not necessarily adjacent,
+so <code>npm publish</code> also blocks <code>npm run publish</code>. Matching ignores case and the order of
+bundled short flags, so <code>rm -rf</code> also blocks <code>rm -fr</code>. <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> takes
+the same format but currently has no effect (see <a href="#precedence">Precedence</a>).</p>
+<p>The policy is global: there is no per-repository or per-environment policy. A
+<code>sandbox.command_policy</code> section left in <code>.daiv.yml</code> from v2.0.0 is ignored without a
+warning, so move its <code>disallow</code> entries to <code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code>.</p>
 <h3 id="precedence">Precedence</h3>
 <p>When a command is evaluated, rules are checked in this order:</p>
 <ol>
 <li><strong>Built-in disallow</strong> — always wins, cannot be overridden</li>
 <li><strong>Configured disallow</strong> — global <code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> rules; cannot be overridden by allow</li>
-<li><strong>Configured allow</strong> — global <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> rules; permit commands not caught by 1 or 2</li>
+<li><strong>Configured allow</strong> — global <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> rules; they allow only what step 4 already allows, so they change nothing</li>
 <li><strong>Default</strong> — everything else is allowed</li>
 </ol>
 <h2 id="configuring-the-sandbox">Configuring the sandbox</h2>
@@ -1690,7 +1695,7 @@ running user. See <a href="../sandbox-environments/">Sandbox Environments</a> fo
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2026 23:14:14 UTC">September 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2026 12:26:34 UTC">September 26, 2026</span>
   </span>
 
     
@@ -1700,7 +1705,7 @@ running user. See <a href="../sandbox-environments/">Sandbox Environments</a> fo
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2026 23:14:14 UTC">September 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 13, 2026 18:39:53 UTC">March 13, 2026</span>
   </span>
 
     

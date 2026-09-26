@@ -267,15 +267,15 @@ DAIV emits structured warning logs whenever the sandbox bash tool blocks a comma
 | Field             | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | `event`           | `bash_policy_denied` or `bash_policy_parse_failed`           |
-| `reason_category` | `default_disallow`, `repo_disallow`, or `parse_failure`      |
-| `matched_rule`    | The rule prefix that triggered denial (e.g. `"git push"`)    |
+| `reason_category` | `default_disallow`, `global_disallow`, or `parse_failure`    |
+| `matched_rule`    | The rule that triggered denial (e.g. `"git push"`)           |
 | `denied_segment`  | The specific argv segment that was blocked                   |
 | `tool_call_id`    | The agent tool-call ID for correlation with LangSmith traces |
 
 ### Monitoring recommendations
 
 - **Alert on high denial rates** — a spike in `bash_policy_denied` may indicate the agent is repeatedly attempting prohibited operations.
-- **Tune policy rules** — use `reason_category` to distinguish built-in denials from custom repo-level denials and adjust `.daiv.yml` accordingly.
+- **Tune policy rules** — use `reason_category` to tell built-in denials (`default_disallow`) from denials by your `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` rules (`global_disallow`).
 - **Correlate with LangSmith** — the `tool_call_id` links each denial to the full agent trace for deeper investigation.
 
 ______________________________________________________________________
