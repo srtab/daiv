@@ -68,7 +68,7 @@ DAIV will inspect the pipeline logs, identify the root cause, and push a fix to 
 
 ### Ask a question back
 
-When your request is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Reply with a comment that mentions DAIV; on GitLab the reply is threaded under DAIV's question, on GitHub it's a top-level comment.
+When your request is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Answer it by leaving a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
 
 ## Conversation continuity
 

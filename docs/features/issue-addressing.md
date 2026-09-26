@@ -51,7 +51,7 @@ You can also provide feedback or additional instructions in your comment, and DA
 
 ## Asking a question
 
-When the issue or your feedback is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Reply with a comment that mentions DAIV; on GitLab the reply is threaded under DAIV's question, on GitHub it's a top-level comment.
+When the issue or your feedback is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, with "Reply mentioning `@daiv` with your answer." Answer it by leaving a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
 
 ## Max mode
 

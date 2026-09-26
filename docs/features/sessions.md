@@ -138,7 +138,7 @@ When the agent hits a request that's genuinely ambiguous or a decision that's yo
 
 One **Answer** button sends all of your answers as a single message, one line per question. Submitting it starts a new run on the same thread that picks up where the agent left off.
 
-The card is only interactive on the session's last turn, and only while no run is in flight — reload the page after answering and it's gone, replaced by your answer. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
+The card is only interactive on the session's last turn, and only while no run is in flight — reload the page after answering and the card stays visible but goes inert (options disabled, free-text field and Answer button hidden), with your answer showing as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
 ---
 
