@@ -16,6 +16,7 @@ from sessions.services import (
     acreate_run,
     aget_or_create_session,
     aget_session_ref,
+    aget_task_run_id,
     apersist_session_ref,
     areset_session_ref,
     asubmit_batch_runs,
@@ -703,6 +704,40 @@ async def test_get_session_ref_is_empty_when_there_is_no_working_branch(thread_i
     await Session.objects.acreate(thread_id="t-ref-8", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="a/b")
 
     assert await aget_session_ref(thread_id=thread_id) == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_task_run_id_is_the_run_linked_to_the_task_result():
+    task_result = await _make_db_task_result()
+    run = await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=task_result.id, repo_id="a/b")
+
+    assert await aget_task_run_id(task_result.id) == str(run.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_task_run_id_waits_for_a_run_the_webhook_links_after_enqueueing():
+    """The callback creates the Run only after ``aenqueue`` returns, so a worker can claim the task first."""
+    task_result = await _make_db_task_result()
+
+    async def _webhook_commits_the_run(_delay):
+        await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=task_result.id, repo_id="a/b")
+
+    with patch("sessions.services.asyncio.sleep", AsyncMock(side_effect=_webhook_commits_the_run)) as sleep:
+        run_id = await aget_task_run_id(task_result.id)
+
+    assert run_id == str((await Run.objects.aget(task_result_id=task_result.id)).pk)
+    assert sleep.await_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_task_run_id_is_none_once_the_wait_runs_out(caplog):
+    task_result = await _make_db_task_result()
+
+    with patch("sessions.services.asyncio.sleep", AsyncMock()) as sleep:
+        assert await aget_task_run_id(task_result.id) is None
+
+    assert sleep.await_count > 0
+    assert f"No run is linked to task result {task_result.id}" in caplog.text
 
 
 # ---------------------------------------------------------------------------

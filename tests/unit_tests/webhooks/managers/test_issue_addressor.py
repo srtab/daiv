@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
-from sessions.models import Session, SessionOrigin
+from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
 from automation.agent.utils import get_daiv_agent_kwargs
@@ -260,3 +260,17 @@ class TestIssueAfterRunMatrix:
 
         [message] = agent.ainvoke.await_args.args[0]["messages"]
         assert message.content == prompt.format(issue_iid=42)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(stub_base_init):
+    thread_id = await _issue_session()
+    run = await Run.objects.acreate(
+        session_id=thread_id, trigger_type=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo"
+    )
+
+    with addressor_run(addressor_agent(return_value={"messages": [AIMessage(content="done")]}), ctx=_ctx()):
+        await _address(thread_id=thread_id, run_id=str(run.pk))
+
+    await run.arefresh_from_db()
+    assert (run.agent_model, run.agent_thinking_level) == ("m", "medium")

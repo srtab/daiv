@@ -83,6 +83,33 @@ For in-flight sessions the detail page updates in real time until the run comple
 
 ---
 
+## Artifacts
+
+A run's final message is a paragraph of text, and the agent's workspace is thrown away when the run ends. Tasks whose deliverable is a *document* — a dependency audit, a code-quality report, a changelog draft, a chart — need somewhere else to put it. That is what **artifacts** are for.
+
+The agent has a `publish_artifact` tool: it writes the file to its scratchpad (`/workspace/tmp/...`), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and without committing anything to the repository.
+
+Published files appear in an **Artifacts** panel on the session detail page, above the composer. Each entry links to a viewer page (`/dashboard/sessions/<thread_id>/artifacts/<id>/`) and offers a download. What the viewer shows depends on the file type:
+
+| File type | Viewer |
+|-----------|--------|
+| Markdown (`.md`) | Rendered server-side, sanitized, in the DAIV shell |
+| HTML (`.html`) | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS |
+| Images (`.png`, `.svg`, `.jpg`, `.gif`, `.webp`) | Displayed inline |
+| Text, CSV, JSON, XML, YAML, logs | Shown as preformatted text |
+| Anything else (`.pdf`, archives, …) | Download only |
+
+Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.
+
+**Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
+
+Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
+
+!!! note "Limits and storage"
+    A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`/home/daiv/data/media` in the containers), which the `app` and `worker` containers must share through one volume — see the [deployment guide](../getting-started/deployment.md). Deleting a run deletes its artifacts and their files.
+
+---
+
 ## Chat sessions
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.

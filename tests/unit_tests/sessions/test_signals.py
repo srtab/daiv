@@ -8,6 +8,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import run_finished
 
 from accounts.models import User
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -539,3 +540,39 @@ def test_classify_origins_excludes_chat_and_pipeline_webhook():
         SessionOrigin.CHAT,
         SessionOrigin.PIPELINE_WEBHOOK,
     }
+
+
+@pytest.mark.django_db
+def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_capture_on_commit_callbacks):
+    from django.core.files.storage import default_storage
+
+    from sessions.models import RunArtifact
+
+    run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
+    artifact = make_artifact(run)
+    name = artifact.file.name
+
+    with django_capture_on_commit_callbacks() as callbacks:
+        run.delete()
+        assert default_storage.exists(name)
+
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
+    assert not default_storage.exists(name)
+
+
+@pytest.mark.django_db
+def test_artifact_file_delete_failure_is_logged(django_capture_on_commit_callbacks, caplog):
+    from sessions.models import RunArtifact
+
+    artifact = make_artifact(_create_run(session=_make_session(), status=RunStatus.SUCCESSFUL))
+
+    with (
+        patch.object(artifact.file.storage, "delete", side_effect=OSError("disk gone")),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        artifact.delete()
+
+    assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
+    assert "Failed to delete artifact file" in caplog.text

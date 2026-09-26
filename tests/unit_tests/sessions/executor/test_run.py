@@ -9,6 +9,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
+from sessions.artifacts import aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
@@ -268,6 +269,24 @@ async def test_a_run_records_the_model_it_resolved(error):
     await run.arefresh_from_db()
     assert (session.agent_model, session.agent_thinking_level) == ("claude-4-7-opus", "medium")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_agent_runs_with_the_specs_run_bound_for_artifacts():
+    session, run = await _job_run()
+    agent = _agent()
+    resolved = []
+
+    async def _invoke(*_args, **_kwargs):
+        resolved.append(await aresolve_active_run(session.thread_id))
+        return {"messages": [MagicMock(content="done")]}
+
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+    with agent_stack(agent):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    assert resolved == [run]
+    assert await aresolve_active_run(session.thread_id) is None
 
 
 @pytest.mark.django_db(transaction=True)

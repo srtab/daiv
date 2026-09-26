@@ -23,6 +23,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langgraph.checkpoint.memory import InMemorySaver
+from sessions import artifacts
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -243,6 +244,27 @@ async def test_events_releases_run_even_when_persist_ref_raises():
             pass
 
     assert release_calls == [("t-stream", "r-1")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
+    bound = []
+
+    async def _run(_input):
+        bound.append(artifacts._active_run_id.get())
+        yield _snapshot()
+
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=MagicMock(run=_run)),
+        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert bound == ["run-pk"]
+    assert artifacts._active_run_id.get() is None
 
 
 @pytest.mark.django_db(transaction=True)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import Signal, receiver
 
 from asgiref.sync import async_to_sync
@@ -303,3 +304,12 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
         classify_run_task.enqueue(str(run.pk))
     except Exception:
         logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)
+
+
+@receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")
+def delete_artifact_file(sender: type, instance: Any, **kwargs: Any) -> None:
+    """Remove the stored bytes once the row's deletion commits (Django never deletes FileField content itself)."""
+    from sessions.artifacts import delete_stored_file
+
+    if instance.file.name:
+        transaction.on_commit(partial(delete_stored_file, instance.file.storage, instance.file.name))

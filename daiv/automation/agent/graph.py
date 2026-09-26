@@ -25,6 +25,7 @@ from automation.agent.constants import (
     ModelName,
 )
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
@@ -323,6 +324,7 @@ async def create_daiv_agent(
         ),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
+        ArtifactsMiddleware(backend=backend, sandbox_backend=sandbox_backend),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.

@@ -62,7 +62,7 @@ Both create a persistent conversation thread (stored in Redis with a 7-day TTL b
 The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
 
 !!! note "Tools are deferred by default"
-    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
+    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -102,6 +102,12 @@ Commands are evaluated against a [command policy](../features/sandbox.md) before
 |------|-------------|
 | `skill` | Execute a [skill](../customization/agent-skills.md) (slash command) |
 
+### Artifacts
+
+| Tool | Description |
+|------|-------------|
+| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](../features/sessions.md#artifacts) and return its viewer URL |
+
 ### MCP
 
 External tools provided via [MCP servers](../customization/mcp-tools.md) (Sentry error tracking, Context7 documentation lookup).
@@ -118,6 +124,7 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 | `GitMiddleware` | Branch management, auto-commit, MR creation |
 | `GitPlatformMiddleware` | Git platform CLI tool (issues, MRs, pipelines) |
 | `SkillsMiddleware` | Skill loading and slash command execution |
+| `ArtifactsMiddleware` | The `publish_artifact` tool and its system-prompt section — stores a workspace file as a run artifact |
 | `SubAgentMiddleware` | Delegates tasks to subagents |
 | `MemoryMiddleware` | Loads `AGENTS.md` and repository context |
 | `TodoListMiddleware` | Task tracking within conversations |

@@ -6,6 +6,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 from mcp_server.server import (
     DEFAULT_LIST_LIMIT,
+    _batch_response,
     _decode_repo_cursor,
     _encode_cursor,
     get_job_status,
@@ -13,6 +14,8 @@ from mcp_server.server import (
     submit_job,
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 def _mock_task():
@@ -811,3 +814,65 @@ async def test_list_repositories_unauthenticated_rejected():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
         result = await list_repositories()
     assert "error" in result
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_lists_artifacts(_default_mcp_user):
+    run, artifact = await _run_with_artifact(_default_mcp_user, result_summary="Report published")
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["status"] == "SUCCESSFUL"
+    assert data["result"] == "Report published"
+    assert [a["id"] for a in data["artifacts"]] == [str(artifact.pk)]
+    assert data["artifacts"][0]["url"] == (
+        f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/"
+    )
+    assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")
+
+
+async def _run_with_artifact(user, **run_kwargs) -> tuple[Run, object]:
+    from django.contrib.sites.models import Site
+
+    from asgiref.sync import sync_to_async
+
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="group/project", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="group/project",
+        user=user,
+        status=RunStatus.SUCCESSFUL,
+        **run_kwargs,
+    )
+    artifact = await sync_to_async(make_artifact)(run, filename="audit.md", content=b"# a", title="Audit")
+    return run, artifact
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_batch_response_lists_artifacts_per_finished_job(_default_mcp_user):
+    run, artifact = await _run_with_artifact(_default_mcp_user)
+    pending_id = str(uuid.uuid4())
+    enqueue_response = {"jobs": [{"job_id": str(run.id)}, {"job_id": pending_id}], "failed": []}
+
+    data = json.loads(await _batch_response("b1", enqueue_response, {str(run.id): run}))
+
+    finished, pending = data["statuses"]
+    assert [a["id"] for a in finished["artifacts"]] == [str(artifact.pk)]
+    assert finished["artifacts_error"] is None
+    assert pending == {"job_id": pending_id, "status": "RUNNING"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_still_answers_when_artifacts_cannot_be_listed(_default_mcp_user):
+    run, _artifact = await _run_with_artifact(_default_mcp_user)
+
+    with patch("sessions.artifacts.aserialize_run_artifacts", AsyncMock(side_effect=RuntimeError("no site"))):
+        data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["status"] == "SUCCESSFUL"
+    assert data["artifacts"] == []
+    assert "could not be listed" in data["artifacts_error"]

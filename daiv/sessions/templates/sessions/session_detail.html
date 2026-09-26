@@ -325,6 +325,10 @@
         </div>
       </div>
 
+      {% if artifacts %}
+        {% include "sessions/_artifacts.html" %}
+      {% endif %}
+
       {% if not expired %}
         {% include "chat/_composer.html" %}
       {% endif %}

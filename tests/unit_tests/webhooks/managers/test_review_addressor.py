@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
-from sessions.models import Session, SessionOrigin
+from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from automation.agent.validators import AgentConfigurationError
@@ -218,3 +218,16 @@ class TestReviewAfterRunMatrix:
         run.create_agent.assert_not_awaited()
         [note] = mention.create_merge_request_comment.call_args_list
         assert _UNABLE in note.args[2]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(mention):
+    thread_id = str(uuid.uuid4())
+    session = await _review_session(thread_id)
+    run = await Run.objects.acreate(session=session, trigger_type=SessionOrigin.MR_WEBHOOK, repo_id="owner/repo")
+
+    with addressor_run(addressor_agent(return_value={"messages": [AIMessage(content="done")]}), ctx=_ctx()):
+        await _address(thread_id=thread_id, run_id=str(run.pk))
+
+    await run.arefresh_from_db()
+    assert (run.agent_model, run.agent_thinking_level) == ("m", "medium")

@@ -3,19 +3,22 @@ from __future__ import annotations
 import logging
 import uuid
 from decimal import Decimal
+from pathlib import PurePosixPath
 from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.results import parse_agent_result
 from codebase.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.models import ThinkingLevelChoices
+from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
-from sessions.managers import RunEnvelopeManager, RunManager, SessionManager
+from sessions.managers import RunArtifactManager, RunEnvelopeManager, RunManager, SessionManager
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -581,3 +584,50 @@ class RunEnvelope(models.Model):
     def is_actionable(self) -> bool:
         """Whether the console offers any action (Queue / Finding -> Fix gating)."""
         return self.offered_action != OfferedAction.NONE
+
+
+def artifact_upload_to(instance: RunArtifact, filename: str) -> str:
+    """Storage name ``artifacts/<run_id>/<artifact_id><ext>``: unique per row, so a re-published name never collides."""
+    ext = PurePosixPath(filename).suffix.lower()[:16]
+    return f"artifacts/{instance.run_id}/{instance.id}{ext}"
+
+
+class RunArtifact(models.Model):
+    """A file the agent published out of a run's workspace: a report, a dataset, a rendered page.
+
+    The bytes live in the default file storage (``MEDIA_ROOT``); the row carries what the viewer,
+    the Jobs API and MCP expose. Deleting the run cascades to the row, and
+    ``sessions.signals.delete_artifact_file`` removes the stored bytes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="artifacts", verbose_name=_("run"))
+    title = models.CharField(_("title"), max_length=200)
+    filename = models.CharField(_("filename"), max_length=255)
+    content_type = models.CharField(_("content type"), max_length=100)
+    size = models.PositiveBigIntegerField(_("size"))
+    file = models.FileField(_("file"), upload_to=artifact_upload_to, max_length=500)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    objects = RunArtifactManager()
+
+    class Meta:
+        verbose_name = _("Run Artifact")
+        verbose_name_plural = _("Run Artifacts")
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.filename} ({self.content_type}) for run {self.run_id}"
+
+    def get_absolute_url(self) -> str:
+        return reverse("session_artifact_detail", kwargs={"thread_id": self.run.session_id, "pk": self.pk})
+
+    def get_raw_url(self) -> str:
+        return reverse("session_artifact_raw", kwargs={"thread_id": self.run.session_id, "pk": self.pk})
+
+    def get_download_url(self) -> str:
+        return f"{self.get_raw_url()}?download=1"
+
+    @property
+    def kind(self) -> ArtifactKind:
+        return artifact_kind(self.content_type)

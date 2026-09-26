@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from sessions.artifacts import bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -255,7 +256,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             extra_metadata=spec.extra_metadata,
             configurable={"thread_id": thread_id},
         )
-        with track_usage_metadata() as usage:
+        with track_usage_metadata() as usage, bind_active_run(spec.run_id):
             yield AgentRun(ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id)
 
 

@@ -174,6 +174,8 @@ services:
       - external
     ports:
       - "8000:8000"
+    volumes:
+      - media-volume:/home/daiv/data/media (11)
     deploy:
       <<: *deploy_defaults
 
@@ -192,8 +194,9 @@ services:
       - email_host_password
     networks:
       - internal
-    # volumes:  (10)
-    #   - ./custom-skills:/home/daiv/data/skills:ro
+    volumes:
+      - media-volume:/home/daiv/data/media (11)
+      # - ./custom-skills:/home/daiv/data/skills:ro  (10)
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -219,6 +222,8 @@ services:
       - email_host_password
     networks:
       - internal
+    volumes:
+      - media-volume:/home/daiv/data/media (11)
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -277,6 +282,8 @@ volumes:
     driver: local
   redis-volume:
     driver: local
+  media-volume:
+    driver: local
 
 secrets:
   django_secret_key:
@@ -311,6 +318,7 @@ secrets:
 8.   **Optional**: Remove this volume if you don't need private registry access
 9.   **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
 10.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+11.  **Required**: The web and worker containers must share this directory. It holds the [artifacts](../features/sessions.md#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm use a network-backed volume driver
 
 !!! info "Task queues"
     Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
@@ -366,6 +374,8 @@ Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guid
 x-app-defaults: &x_app_default
   image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
   restart: unless-stopped
+  volumes:
+    - media-volume:/home/daiv/data/media (19)
   ulimits: # (18)!
     nofile:
       soft: 65536
@@ -450,6 +460,7 @@ services:
     <<: *x_app_default
     command: sh /home/daiv/start-worker default
     # volumes:  (15)
+    #   - media-volume:/home/daiv/data/media
     #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
@@ -514,6 +525,8 @@ volumes:
     driver: local
   redis-volume:
     driver: local
+  media-volume:
+    driver: local
 ```
 
 </div>
@@ -531,8 +544,9 @@ volumes:
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 14.  **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
-15.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+15.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line
 18.  **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for the `app`, `worker`, and `scheduler` services (which share this anchor)
+19.  **Required**: Every service built from this anchor shares this directory. It holds the [artifacts](../features/sessions.md#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
 
 !!! info "Task queues"
     Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.

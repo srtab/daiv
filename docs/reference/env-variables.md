@@ -315,6 +315,15 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 | `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
 | `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
+### Artifacts
+
+The `publish_artifact` tool stores files the agent generates (reports, datasets, charts) as run [artifacts](../features/sessions.md#artifacts), served from the dashboard. Files are written to Django's default file storage (`MEDIA_ROOT`, `~/data/media` in the containers), which the web and worker containers must share.
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit) | `10485760` (10 MiB) | `52428800` |
+| `DAIV_ARTIFACTS_PER_RUN_MAX`    | Maximum number of files one run may publish                    | `20`           | `50` |
+
 ### MCP Tools
 
 MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. MCP servers are configured as database rows at `/dashboard/mcp-servers/` and connected to directly by the DAIV app — no sidecar containers are required.

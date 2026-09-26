@@ -2,12 +2,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from django_tasks import task
-from sessions.services import aget_session_ref
+from sessions.services import aget_session_ref, aget_task_run_id
 
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError
 
 if TYPE_CHECKING:
+    from django_tasks import TaskContext
+
     from automation.agent.results import AgentResult
     from codebase.base import MergeRequest
 
@@ -26,8 +28,9 @@ def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> Agent
     )
 
 
-@task(dedup=True)
+@task(dedup=True, takes_context=True)
 async def address_issue_task(
+    context: TaskContext,
     repo_id: str,
     issue_iid: int,
     mention_comment_id: str | None = None,
@@ -39,6 +42,7 @@ async def address_issue_task(
     Address an issue by creating a merge request with the changes described on the issue description.
 
     Args:
+        context (TaskContext): Names the task result the webhook linked this run's ``Run`` row to.
         repo_id (str): The repository id.
         issue_iid (int): The issue id.
         mention_comment_id (str | None): The mention comment id. Defaults to None.
@@ -64,11 +68,13 @@ async def address_issue_task(
         ref=effective_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
+        run_id=await aget_task_run_id(context.task_result.id),
     )
 
 
-@task(dedup=True)
+@task(dedup=True, takes_context=True)
 async def address_mr_comments_task(
+    context: TaskContext,
     repo_id: str,
     merge_request_id: int,
     mention_comment_id: str,
@@ -79,6 +85,7 @@ async def address_mr_comments_task(
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
 
     Args:
+        context (TaskContext): Names the task result the webhook linked this run's ``Run`` row to.
         repo_id (str): The repository id.
         merge_request_id (int): The merge request id.
         mention_comment_id (str): The mention comment id.
@@ -111,6 +118,7 @@ async def address_mr_comments_task(
             mention_comment_id=mention_comment_id,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
+            run_id=await aget_task_run_id(context.task_result.id),
         )
     except CloneRefNotFoundError:
         response = (
