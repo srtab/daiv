@@ -168,25 +168,31 @@ class TestIssueAfterRunMatrix:
         assert reply.args[2] == "done"
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address()
+            await _address(mention_comment_id="c-1")
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == (
             f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\nReply mentioning @daiv-bot with your answer."
         )
-        assert reply.kwargs["reply_to_id"] is None
+        assert reply.kwargs["reply_to_id"] == "c-1"
 
     async def test_a_question_on_github_is_not_threaded(self, captured_client):
         captured_client.git_platform = GitPlatform.GITHUB
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 
         with addressor_run(agent, ctx=_ctx()):
-            await _address()
+            await _address(mention_comment_id="c-1")
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.kwargs["reply_to_id"] is None
