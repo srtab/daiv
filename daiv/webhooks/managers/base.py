@@ -2,6 +2,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
+from django.template.loader import render_to_string
+
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
 from sessions.models import Session
 
@@ -33,6 +35,12 @@ class BaseManager:
     def reply_to_id(self) -> str | None:
         """The mention a failure comment answers under; GitHub can't reply to a comment, so only GitLab gets one."""
         return self.mention_comment_id if self.client.git_platform == GitPlatform.GITLAB else None
+
+    def _question_footer(self) -> str:
+        """How to answer a question the agent posted: a new mention carries the reply onto the same thread."""
+        return render_to_string(
+            "webhooks/ask_user_question.txt", {"bot_username": self.client.current_user.username}
+        ).strip()
 
     def _claim_unable_note(self) -> bool:
         """Idempotency guard for failure comments ("unable to address" and "can't run yet").

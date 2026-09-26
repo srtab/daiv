@@ -5,15 +5,17 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
+from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import MergeRequest, User
+from codebase.base import GitPlatform, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
 
@@ -125,6 +127,30 @@ class TestReviewAfterRunMatrix:
         [reply] = mention.create_merge_request_comment.call_args_list
         assert reply.args[2].startswith("done\n\n")
         assert "(!200)" in reply.args[2]
+
+    async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, mention):
+        messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
+        agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address()
+
+        [reply] = mention.create_merge_request_comment.call_args_list
+        assert reply.args[2] == (
+            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\nReply mentioning @daiv-bot with your answer."
+        )
+        assert reply.kwargs["reply_to_id"] == "c-1"
+
+    async def test_a_question_on_github_is_not_threaded(self, mention):
+        mention.git_platform = GitPlatform.GITHUB
+        messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
+        agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address()
+
+        [reply] = mention.create_merge_request_comment.call_args_list
+        assert reply.kwargs["reply_to_id"] is None
 
     @pytest.mark.django_db(transaction=True)
     async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, mention):

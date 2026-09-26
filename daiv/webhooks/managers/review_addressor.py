@@ -278,6 +278,10 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_success(self, outcome: RunOutcome) -> None:
         fallback_footer = self._render_protected_branch_footer(outcome.snapshot)
+        if outcome.pending_question is not None:
+            body = f"{outcome.response_text}\n\n{self._question_footer()}"
+            self._leave_comment(self._append_footer(body, fallback_footer), reply_to_id=self.reply_to_id)
+            return
         if response := outcome.response_text.strip():
             self._leave_comment(self._append_footer(response, fallback_footer))
         else:
