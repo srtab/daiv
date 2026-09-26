@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import SandboxMiddleware
@@ -192,54 +193,36 @@ async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
         ctor.assert_not_called()
 
 
+@contextmanager
+def _sandbox_run(
+    credential: GitEgressCredential | None,
+    spec: SandboxSpec | None = None,
+    working_dir: str = "/tmp/repo",  # noqa: S108
+):
+    """Patch ``set_runtime_ctx``'s collaborators for a run of ``spec`` (default: a network-off env) over a
+    fake sandbox transport; yield the repo client."""
+    repo_client = MagicMock()
+    repo_client.current_user.username = "daiv"
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
+    repo_client.get_git_egress_credential.return_value = credential
+
+    with ExitStack() as stack:
+        for deps_patch in _context_deps(repo_client, spec or sandbox_spec()):
+            stack.enter_context(deps_patch)
+        stack.enter_context(patch("codebase.context.DAIVSandboxClient", FakeSandboxClient))
+        yield repo_client
+
+
 async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
     """Network-on integration seam: set_runtime_ctx must resolve the repo's git-platform credential
     via the client and land its allow-rule first on ``ctx.sandbox_egress`` (the only place all the
     unit-tested egress pieces are wired together). Guards against that line being dropped or
     reordered — a regression every isolated unit test would miss."""
-    from sandbox_envs.spec import SandboxSpec
+    credential = GitEgressCredential.for_token(host="github.com", token="tok")  # noqa: S106
 
-    from codebase.clients.base import GitEgressCredential
-    from core.sandbox.command_policy import SandboxCommandPolicy
-    from core.sandbox.schemas import EgressConfigRequest
-
-    repo_client = MagicMock()
-    repository = MagicMock()
-    repo_client.get_repository.return_value = repository
-    repo_client.current_user.username = "daiv"
-    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
-    repo_client.get_git_egress_credential.return_value = GitEgressCredential.for_token(
-        host="github.com",
-        token="tok",  # noqa: S106
-    )
-
-    # A real SandboxSpec with a networked egress policy (egress is not None == network on).
-    sandbox = SandboxSpec(
-        base_image="python:3.12",
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=EgressConfigRequest(),
-    )
-    fake_client = MagicMock()
-    fake_client.open = AsyncMock(return_value=fake_client)
-    fake_client.close = AsyncMock()
-
-    with (
-        patch.multiple(
-            "codebase.context",
-            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
-            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
-            DAIVSandboxClient=MagicMock(return_value=fake_client),
-        ),
-        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
-        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
-    ):
+    with _sandbox_run(credential, sandbox_spec(egress=EgressConfigRequest())) as repo_client:
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
-            repo_client.get_git_egress_credential.assert_called_once_with(repository)
+            repo_client.get_git_egress_credential.assert_called_once_with(repo_client.get_repository.return_value)
             assert ctx.sandbox_egress is not None
             platform_rule = ctx.sandbox_egress.policy.rules[0]
             assert platform_rule.host == "github.com"
@@ -254,79 +237,23 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
     The egress proxy overrides Authorization on every platform request, so a credential captured before
     a self-healing clone would pin the sidecar to the stale token the clone just discarded — breaking
     the in-sandbox push. Asserts clone happens before credential resolution."""
-    from sandbox_envs.spec import SandboxSpec
-
-    from codebase.clients.base import GitEgressCredential
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
     calls: list[str] = []
-    repo_client = MagicMock()
-    repository = MagicMock()
-    repo_client.get_repository.return_value = repository
-    repo_client.current_user.username = "daiv"
-
-    clone_repo = MagicMock(working_dir="/tmp/repo")  # noqa: S108
     cm = MagicMock()
-    cm.__enter__ = MagicMock(side_effect=lambda: calls.append("clone") or clone_repo)
+    cm.__enter__ = MagicMock(side_effect=lambda: calls.append("clone") or MagicMock(working_dir="/tmp/repo"))  # noqa: S108
     cm.__exit__ = MagicMock(return_value=False)
-    repo_client.load_repo.return_value = cm
 
     def _cred(repo):
         calls.append("credential")
         return GitEgressCredential.for_token(host="github.com", token="tok")  # noqa: S106
 
-    repo_client.get_git_egress_credential.side_effect = _cred
-
-    # Network-off env (egress=None): a push token still opens it for the git platform host.
-    sandbox = SandboxSpec(
-        base_image="python:3.12",
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=None,
-    )
-    fake_client = MagicMock()
-    fake_client.open = AsyncMock(return_value=fake_client)
-    fake_client.close = AsyncMock()
-
-    with (
-        patch.multiple(
-            "codebase.context",
-            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
-            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
-            DAIVSandboxClient=MagicMock(return_value=fake_client),
-        ),
-        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
-        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
-        patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
-        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
-    ):
+    # Network-off env: a push token still opens it for the git platform host.
+    with _sandbox_run(None) as repo_client:
+        repo_client.load_repo.return_value = cm
+        repo_client.get_git_egress_credential.side_effect = _cred
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             assert calls == ["clone", "credential"], f"credential must resolve after clone, got {calls}"
             assert ctx.sandbox_egress is not None
             assert ctx.sandbox_egress.policy.rules[0].host == "github.com"
-
-
-@contextmanager
-def _sandbox_run(credential: GitEgressCredential | None, spec, working_dir: str):
-    """Patch ``set_runtime_ctx``'s collaborators for a run of ``spec`` over a fake sandbox transport;
-    yield the repo client."""
-    repo_client = MagicMock()
-    repo_client.current_user.username = "daiv"
-    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
-    repo_client.get_git_egress_credential.return_value = credential
-
-    with ExitStack() as stack:
-        for deps_patch in _context_deps(repo_client, spec):
-            stack.enter_context(deps_patch)
-        stack.enter_context(patch("codebase.context.DAIVSandboxClient", FakeSandboxClient))
-        yield repo_client
-
-
-def _network_off_run(credential: GitEgressCredential | None, working_dir: str):
-    """Patch ``set_runtime_ctx``'s collaborators for a network-off env over a fake sandbox transport."""
-    return _sandbox_run(credential, sandbox_spec(), working_dir)
 
 
 @pytest.mark.parametrize("token", [pytest.param("tok", id="push-token"), pytest.param(None, id="token-less")])
@@ -334,7 +261,7 @@ async def test_set_runtime_ctx_opens_a_network_off_env_only_for_a_push_token(tok
     """B9: a network-off env reaches the git host only when a real push token exists."""
     credential = GitEgressCredential.for_token(host="github.com", token=token)
 
-    with _network_off_run(credential, "/tmp/repo"):  # noqa: S108
+    with _sandbox_run(credential):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             egress = ctx.sandbox_egress
 
@@ -352,7 +279,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
     (tmp_path / "README.md").write_text("hello\n")
     credential = GitEgressCredential.for_token(host="github.com", token=token)
 
-    with _network_off_run(credential, str(tmp_path)):
+    with _sandbox_run(credential, working_dir=str(tmp_path)):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             client = get_run_sandbox_client()
             middleware = SandboxMiddleware(
@@ -382,7 +309,7 @@ async def test_set_runtime_ctx_keeps_a_network_on_env_open_without_a_push_token(
     """Without a push token a network-on env keeps its rules, behind the git host when a credential names one."""
     env = sandbox_spec(egress=EgressConfigRequest(policy=EgressPolicy(rules=[EgressRule(host="api.example.com")])))
 
-    with _sandbox_run(credential, env, "/tmp/repo"):  # noqa: S108
+    with _sandbox_run(credential, env):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             egress = ctx.sandbox_egress
 
@@ -393,7 +320,7 @@ async def test_set_runtime_ctx_keeps_a_network_on_env_open_without_a_push_token(
 
 async def test_set_runtime_ctx_keeps_a_network_off_env_isolated_without_a_credential():
     """B9: no derivable credential (e.g. a clone URL without a host) leaves a network-off env with no network."""
-    with _network_off_run(None, "/tmp/repo"):  # noqa: S108
+    with _sandbox_run(None):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             assert ctx.sandbox_egress is None
 
@@ -403,7 +330,7 @@ async def test_set_runtime_ctx_mints_nothing_for_a_disabled_sandbox():
     credential = GitEgressCredential.for_token(host="github.com", token="tok")  # noqa: S106
     disabled = sandbox_spec(base_image=None, egress=EgressConfigRequest())
 
-    with _sandbox_run(credential, disabled, "/tmp/repo") as repo_client:  # noqa: S108
+    with _sandbox_run(credential, disabled) as repo_client:
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
             assert ctx.sandbox_egress is None
 
@@ -411,18 +338,17 @@ async def test_set_runtime_ctx_mints_nothing_for_a_disabled_sandbox():
 
 
 async def test_the_run_spec_never_carries_the_platform_token():
-    """Two runs of one env mint different tokens but share one spec, so its fingerprint follows only the env."""
+    """Two runs of one env mint different tokens but share the env's spec unchanged."""
     env = sandbox_spec(egress=EgressConfigRequest())
     specs, egresses = [], []
     for token in ("tok-1", "tok-2"):
         credential = GitEgressCredential.for_token(host="github.com", token=token)
-        with _sandbox_run(credential, env, "/tmp/repo"):  # noqa: S108
+        with _sandbox_run(credential, env):
             async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
                 specs.append(ctx.sandbox)
                 egresses.append(ctx.sandbox_egress)
 
     assert specs == [env, env]
-    assert specs[0].fingerprint == specs[1].fingerprint
     assert egresses[0] != egresses[1]
 
 

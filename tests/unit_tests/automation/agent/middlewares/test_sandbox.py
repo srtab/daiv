@@ -19,7 +19,6 @@ from automation.agent.middlewares.sandbox import (
     _run_bash_commands,
 )
 from core.conf import settings as core_settings
-from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import (
     EgressConfigRequest,
     EgressPolicy,
@@ -48,7 +47,7 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
     return config
 
 
-def _make_sandbox_spec(disallow=(), allow=(), egress: EgressConfigRequest | None = None):
+def _make_sandbox_spec(disallow=(), allow=()):
     """Build a ``SandboxSpec`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
     from sandbox_envs.spec import SandboxSpec
 
@@ -60,7 +59,6 @@ def _make_sandbox_spec(disallow=(), allow=(), egress: EgressConfigRequest | None
         cpus=None,
         env_vars={},
         command_policy=SandboxCommandPolicy(disallow=tuple(disallow), allow=tuple(allow)),
-        egress=egress,
     )
 
 
@@ -69,7 +67,7 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigReq
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
     runtime.context.config = _make_sandbox_config_mock()
-    runtime.context.sandbox = _make_sandbox_spec(egress=egress)
+    runtime.context.sandbox = _make_sandbox_spec()
     runtime.context.sandbox_egress = egress
     return runtime
 
@@ -513,23 +511,6 @@ class TestSandboxMiddleware:
         client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox_egress)
         client.start_session.assert_not_awaited()  # warm reuse — no recreate
         assert sandbox_backend._session_id == "sess-prev"
-
-    async def test_abefore_agent_refreshes_a_network_off_env_opened_for_the_git_host(self):
-        """A network-off env opened for the git host (a push token) still gets that token refreshed on reuse."""
-        client = MagicMock()
-        client.session_exists = AsyncMock(return_value=True)
-        client.update_egress = AsyncMock()
-        mw = SandboxMiddleware(
-            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
-        )
-        runtime = _make_runtime()  # ctx.sandbox.egress is None: the env itself is network-off
-        runtime.context.sandbox_egress = with_platform_credential(
-            None, host="github.com", header="Authorization", token=SecretStr("Basic tok")
-        )
-
-        await mw.abefore_agent({"session_id": "sess-prev"}, runtime)
-
-        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox_egress)
 
     @pytest.mark.parametrize("refresh_error", ["http_status", "transport"])
     async def test_abefore_agent_recreates_when_egress_refresh_fails(self, refresh_error):

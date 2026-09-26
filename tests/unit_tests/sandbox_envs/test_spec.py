@@ -56,121 +56,65 @@ class TestFingerprint:
         assert _spec().fingerprint != before
 
 
-@pytest.mark.django_db
+def _ov(**fields) -> SandboxEnvOverride:
+    return SandboxEnvOverride(**({"base_image": None, "memory_bytes": None, "cpus": None, "env_vars": {}} | fields))
+
+
 class TestMergeSandboxSpec:
     def test_per_run_env_supplies_fields_when_set(self):
-        egress_on = EgressConfigRequest(
-            policy=EgressPolicy(rules=[EgressRule(host="per-run.example", inject="t")]),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+        per_run = _ov(
+            base_image="python:3.14",
+            memory_bytes=2 * 2**30,
+            cpus=2.0,
+            env_vars={"K": "v"},
+            egress=_egress("per-run.example"),
         )
-        per_run = SandboxEnvOverride(
-            base_image="python:3.14", memory_bytes=2 * 2**30, cpus=2.0, env_vars={"K": "v"}, egress=egress_on
-        )
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=None
-        )
-        runtime = merge_sandbox_spec(per_run=per_run, global_default=global_default)
-        assert runtime.base_image == "python:3.14"
-        # per-run egress takes precedence; network is on (egress is not None)
-        assert runtime.egress is not None
-        assert runtime.egress.policy.rules[0].host == "per-run.example"
-        assert runtime.memory_bytes == 2 * 2**30
-        assert runtime.cpus == 2.0
-        assert runtime.env_vars == {"G": "g", "K": "v"}
+        global_default = _ov(base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"})
+        spec = merge_sandbox_spec(per_run=per_run, global_default=global_default)
+        assert spec.base_image == "python:3.14"
+        assert spec.egress is not None
+        assert spec.egress.policy.rules[0].host == "per-run.example"
+        assert spec.memory_bytes == 2 * 2**30
+        assert spec.cpus == 2.0
+        assert spec.env_vars == {"G": "g", "K": "v"}
 
     def test_per_run_off_blocks_global_egress_inheritance(self):
-        egress_global = EgressConfigRequest(
-            policy=EgressPolicy(rules=[EgressRule(host="global.example", inject="t")]),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+        per_run = _ov(env_vars={"K": "v"})
+        global_default = _ov(
+            base_image="python:3.12",
+            memory_bytes=1 * 2**30,
+            cpus=1.0,
+            env_vars={"G": "g"},
+            egress=_egress("global.example"),
         )
-        per_run = SandboxEnvOverride(base_image=None, memory_bytes=None, cpus=None, env_vars={"K": "v"}, egress=None)
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=egress_global
-        )
-        runtime = merge_sandbox_spec(per_run=per_run, global_default=global_default)
-        assert runtime.base_image == "python:3.12"
-        # per-run has no egress (off); global_default's egress is NOT inherited
-        # (network is per-env, not fallthrough — per-run off beats global on)
-        assert runtime.egress is None
-        assert runtime.memory_bytes == 1 * 2**30
-        assert runtime.cpus == 1.0
-        assert runtime.env_vars == {"G": "g", "K": "v"}
+        spec = merge_sandbox_spec(per_run=per_run, global_default=global_default)
+        assert spec.base_image == "python:3.12"
+        assert spec.egress is None
+        assert spec.memory_bytes == 1 * 2**30
+        assert spec.cpus == 1.0
+        assert spec.env_vars == {"G": "g", "K": "v"}
 
     def test_per_run_env_vars_shadow_global_on_key_collision(self):
-        per_run = SandboxEnvOverride(
-            base_image=None, memory_bytes=None, cpus=None, env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"}
-        )
-        global_default = SandboxEnvOverride(
-            base_image="python:3.12",
-            memory_bytes=None,
-            cpus=None,
-            env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"},
-        )
-        runtime = merge_sandbox_spec(per_run=per_run, global_default=global_default)
-        assert runtime.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
+        per_run = _ov(env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"})
+        global_default = _ov(base_image="python:3.12", env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"})
+        spec = merge_sandbox_spec(per_run=per_run, global_default=global_default)
+        assert spec.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
 
     def test_command_policy_defaults_empty(self):
-        per_run = SandboxEnvOverride(base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={})
-        runtime = merge_sandbox_spec(per_run=per_run, global_default=None)
-        assert runtime.command_policy == SandboxCommandPolicy()
+        spec = merge_sandbox_spec(per_run=_ov(base_image="python:3.14"), global_default=None)
+        assert spec.command_policy == SandboxCommandPolicy()
 
-
-def _egress_request(host: str):
-    return EgressConfigRequest(
-        policy=EgressPolicy(rules=[EgressRule(host=host, inject="t")]),
-        secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
-    )
-
-
-def test_merge_prefers_per_run_egress():
-    rt = merge_sandbox_spec(
-        per_run=_ov(egress=_egress_request("per-run.example")),
-        global_default=_ov(egress=_egress_request("global.example")),
-    )
-    assert rt.egress.policy.rules[0].host == "per-run.example"
-
-
-def test_merge_egress_is_none_when_neither_side_has_it():
-    # Egress is opt-in: no policy on either side must never materialize one (it would otherwise
-    # silently apply an unintended network posture).
-    rt = merge_sandbox_spec(per_run=_ov(egress=None), global_default=_ov(egress=None))
-    assert rt.egress is None
-
-
-@pytest.fixture
-def make_egress():
-    """Return a factory that builds an EgressConfigRequest for a single host."""
-
-    def _factory(hosts: list[str]):
-        rules = [EgressRule(host=h, inject="t") for h in hosts]
-        return EgressConfigRequest(
-            policy=EgressPolicy(rules=rules),
-            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+    def test_per_run_egress_wins_over_global_egress(self):
+        spec = merge_sandbox_spec(
+            per_run=_ov(egress=_egress("per-run.example")), global_default=_ov(egress=_egress("global.example"))
         )
+        assert spec.egress.policy.rules[0].host == "per-run.example"
 
-    return _factory
+    def test_egress_is_none_when_neither_side_has_it(self):
+        spec = merge_sandbox_spec(per_run=_ov(), global_default=_ov())
+        assert spec.egress is None
 
-
-def _ov(**kw):
-    base = {"base_image": None, "memory_bytes": None, "cpus": None, "env_vars": {}, "egress": None}
-    base.update(kw)
-    return SandboxEnvOverride(**base)
-
-
-def test_sandbox_env_override_has_no_network_enabled():
-    assert not hasattr(_ov(), "network_enabled")
-
-
-def test_merge_takes_per_run_egress_off_even_when_global_has_policy(make_egress):
-    # per-run env explicitly Off (egress=None) must NOT inherit the global default's policy.
-    per_run = _ov(egress=None)
-    global_default = _ov(egress=make_egress(["github.com"]))
-    rt = merge_sandbox_spec(per_run=per_run, global_default=global_default)
-    assert rt.egress is None
-    assert not hasattr(rt, "network_enabled")
-
-
-def test_merge_falls_back_to_global_egress_when_no_per_run():
-    eg = object()
-    rt = merge_sandbox_spec(per_run=None, global_default=_ov(egress=eg))
-    assert rt.egress is eg
+    def test_falls_back_to_global_egress_when_no_per_run(self):
+        egress = _egress("global.example")
+        spec = merge_sandbox_spec(per_run=None, global_default=_ov(egress=egress))
+        assert spec.egress is egress

@@ -141,10 +141,18 @@ def _metadata_stub():
     return {"commit_message": commit, "pr_metadata": pr}
 
 
-def _turn_start_egress(*, token: str | None = "turn-start") -> EgressConfigRequest:  # noqa: S107
-    """A turn-start egress holding only the git-host rule, credentialed when ``token`` is set."""
-    credential = GitEgressCredential.for_token(host="gitlab.com", token=token)
-    return with_platform_credential(None, host=credential.host, header=credential.header, token=credential.value)
+def _platform_credential(token: str | None) -> GitEgressCredential:
+    return GitEgressCredential.for_token(host="gitlab.com", token=token)
+
+
+def _turn_start_egress(
+    *,
+    token: str | None = "turn-start",  # noqa: S107
+    env: EgressConfigRequest | None = None,
+) -> EgressConfigRequest:
+    """The turn-start egress: the git-host rule layered on ``env``, credentialed when ``token`` is set."""
+    credential = _platform_credential(token)
+    return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
 
 
 def _make_sandbox_publisher(*, egress="default"):
@@ -789,7 +797,7 @@ class TestPublishSandboxEgressRefresh:
         from automation.agent.git_manager import RepoStatus
 
         publisher = _make_sandbox_publisher()
-        fresh = GitEgressCredential.for_token(host="gitlab.com", token="fresh")  # noqa: S106
+        fresh = _platform_credential("fresh")
         publisher.client.get_git_egress_credential.return_value = fresh
 
         order: list[str] = []
@@ -858,8 +866,8 @@ class TestPublishSandboxEgressRefresh:
         "remint",
         [
             pytest.param(None, id="no-credential"),
-            pytest.param(GitEgressCredential(host="gitlab.com"), id="token-less"),
-            pytest.param(GitEgressCredential.for_token(host="gitlab.com", token="turn-start"), id="same-token"),  # noqa: S106
+            pytest.param(_platform_credential(None), id="token-less"),
+            pytest.param(_platform_credential("turn-start"), id="same-token"),
         ],
     )
     async def test_refresh_skips_delivery_when_the_remint_has_nothing_new(self, remint):
@@ -877,10 +885,7 @@ class TestPublishSandboxEgressRefresh:
         import httpx
 
         publisher = _make_sandbox_publisher()
-        publisher.client.get_git_egress_credential.return_value = GitEgressCredential.for_token(
-            host="gitlab.com",
-            token="fresh",  # noqa: S106
-        )
+        publisher.client.get_git_egress_credential.return_value = _platform_credential("fresh")
         publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=httpx.ConnectError("down"))
 
         with caplog.at_level("ERROR", logger="daiv.tools"):
@@ -888,10 +893,6 @@ class TestPublishSandboxEgressRefresh:
 
         publisher.sandbox_backend.refresh_egress.assert_awaited_once()
         assert "Could not refresh the sandbox egress token" in caplog.text
-
-
-def _platform_credential(token: str) -> GitEgressCredential:
-    return GitEgressCredential.for_token(host="gitlab.com", token=token)
 
 
 def _injected_values(egress: EgressConfigRequest) -> list[str]:
@@ -903,8 +904,7 @@ async def _publish_on_a_live_session(
 ) -> str:
     """Publish through a real backend bound to a fake session started with the turn-start token
     layered on the ``env`` policy."""
-    credential = _platform_credential("turn-start")
-    turn_start = with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
+    turn_start = _turn_start_egress(env=env)
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
     publisher.sandbox_backend = SandboxFileBackend(client=client, session_id=session_id)
