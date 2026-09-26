@@ -200,7 +200,6 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
     from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
 
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
     from core.sandbox.schemas import EgressConfigRequest
 
     repo_client = MagicMock()
@@ -215,9 +214,7 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
 
     # A real (frozen) SandboxRuntime with a networked egress policy (egress is not None == network on);
     # augment_sandbox_with_platform_egress prepends the git-platform rule via dataclasses.replace().
-    sandbox = SandboxRuntime(
-        base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, egress=EgressConfigRequest()
-    )
+    sandbox = sandbox_runtime(egress=EgressConfigRequest())
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)
     fake_client.close = AsyncMock()
@@ -250,7 +247,6 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
     a self-healing clone would pin the sidecar to the stale token the clone just discarded — breaking
     the in-sandbox push. Asserts clone happens before credential resolution."""
     from codebase.clients.base import GitEgressCredential
-    from codebase.context import SandboxRuntime
 
     calls: list[str] = []
     repo_client = MagicMock()
@@ -271,7 +267,7 @@ async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
     repo_client.get_git_egress_credential.side_effect = _cred
 
     # Network-off env (egress=None): a push token still opens it for the git platform host.
-    sandbox = SandboxRuntime(base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, egress=None)
+    sandbox = sandbox_runtime()
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)
     fake_client.close = AsyncMock()

@@ -27,36 +27,17 @@ from core.sandbox.schemas import (
     RunCommandResult,
     RunCommandsResponse,
 )
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_runtime
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def _make_sandbox_config_mock():
-    """Create a mock sandbox config."""
-    config = Mock()
-    config.sandbox = Mock()
-    config.sandbox.base_image = "python:3.12"
-    config.sandbox.network_enabled = False
-    config.sandbox.memory_bytes = None
-    config.sandbox.cpus = None
-    return config
-
-
-def _make_sandbox_runtime(egress: EgressConfigRequest | None = None):
-    """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
-    from codebase.context import SandboxRuntime
-
-    return SandboxRuntime(base_image="python:3.12", memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigRequest | None = None) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
-    runtime.context.config = _make_sandbox_config_mock()
-    runtime.context.sandbox = _make_sandbox_runtime(egress=egress)
+    runtime.context.sandbox = sandbox_runtime(egress=egress)
     return runtime
 
 
@@ -66,7 +47,7 @@ def _make_bash_runtime(repo: Repo) -> Mock:
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(gitrepo=repo, config=_make_sandbox_config_mock(), sandbox=_make_sandbox_runtime()),
+        context=Mock(gitrepo=repo, sandbox=sandbox_runtime()),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",
