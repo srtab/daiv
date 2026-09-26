@@ -248,27 +248,23 @@
     (resultStr) => (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [],
   );
 
-  const parseTodos = memoizePayload("args", (argsStr) => {
-    try {
-      const args = JSON.parse(argsStr || "{}");
-      return Array.isArray(args.todos) ? args.todos : [];
-    } catch {
-      return [];
-    }
-  });
+  const argsArray = (key) =>
+    memoizePayload("args", (argsStr) => {
+      try {
+        const args = JSON.parse(argsStr || "{}");
+        return Array.isArray(args[key]) ? args[key] : [];
+      } catch {
+        return [];
+      }
+    });
+
+  const parseTodos = argsArray("todos");
 
   const ASK_USER_QUESTION = "ask_user_question";
   // Mirrors automation.agent.questions.QUESTION_DELIVERED; a Python test pins the two together.
   const QUESTION_DELIVERED = "Question delivered to the user. This turn is over; their answer arrives as the next user message.";
 
-  const parseQuestions = memoizePayload("args", (argsStr) => {
-    try {
-      const args = JSON.parse(argsStr || "{}");
-      return Array.isArray(args.questions) ? args.questions : [];
-    } catch {
-      return [];
-    }
-  });
+  const parseQuestions = argsArray("questions");
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
@@ -1307,8 +1303,8 @@
 
     // ---------- User actions ------------------------------------------
 
-    canSend() {
-      if (!this.draftMessage.trim()) return false;
+    canSend(text = this.draftMessage) {
+      if (!text.trim()) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1322,12 +1318,7 @@
 
     async submit(text = null) {
       const message = text ?? this.draftMessage;
-      if (text === null) {
-        if (!this.canSend() || this.streaming || this.resuming) return;
-      } else {
-        const hasDestination = this.thread || !!(this.draftRepoId && this.draftRef);
-        if (!hasDestination || this.streaming || this.resuming) return;
-      }
+      if (!this.canSend(message) || this.streaming || this.resuming) return;
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal

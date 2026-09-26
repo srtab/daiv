@@ -235,14 +235,13 @@ def reclassify_missing_envelopes_cron_task():
         Run.objects
         .filter(
             trigger_type__in=get_classify_origins(),
-            status__in=RunStatus.terminal(),
+            status__in=RunStatus.completed(),
             envelope__isnull=True,
             classify_eligible=True,
             # Keyed on finished_at (see docstring); terminal runs always have it set.
             finished_at__lt=grace_cutoff,
             finished_at__gte=age_floor,
         )
-        .exclude(status=RunStatus.WAITING_INPUT)
         .order_by("finished_at")
         .values_list("pk", flat=True)[:RECLASSIFY_BATCH_LIMIT]
     )

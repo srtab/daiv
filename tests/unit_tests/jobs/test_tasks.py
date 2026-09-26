@@ -440,71 +440,21 @@ def _raising_agent() -> AsyncMock:
     return agent
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_scheduled_run_cannot_ask():
-    from sessions.models import Run, RunStatus
-
-    session = await Session.objects.acreate(thread_id="t-schedule", origin=SessionOrigin.SCHEDULE, repo_id="owner/repo")
-    run = await Run.objects.acreate(
-        session=session, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.RUNNING, repo_id="owner/repo"
-    )
+@pytest.mark.parametrize("ask_user_enabled", [True, False])
+async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
     captured: dict = {}
 
     async def _execute_run(spec, hooks=None):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
-    with patch("jobs.tasks.execute_run", _execute_run):
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-schedule", run_id=str(run.pk))
+    with patch("jobs.tasks.Session.objects.filter") as session_filter, patch("jobs.tasks.execute_run", _execute_run):
+        session_filter.return_value.only.return_value.afirst = AsyncMock(return_value=None)
+        await run_job_task.func(
+            repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()), ask_user_enabled=ask_user_enabled
+        )
 
-    assert captured["spec"].ask_user_enabled is False
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_pipeline_webhook_fix_run_cannot_ask():
-    from sessions.models import Run, RunStatus
-
-    session = await Session.objects.acreate(
-        thread_id="t-pipeline", origin=SessionOrigin.PIPELINE_WEBHOOK, repo_id="owner/repo"
-    )
-    run = await Run.objects.acreate(
-        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, status=RunStatus.RUNNING, repo_id="owner/repo"
-    )
-    captured: dict = {}
-
-    async def _execute_run(spec, hooks=None):
-        captured["spec"] = spec
-        return SimpleNamespace(agent_result={"response": "ok"})
-
-    with patch("jobs.tasks.execute_run", _execute_run):
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-pipeline", run_id=str(run.pk))
-
-    assert captured["spec"].ask_user_enabled is False
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_an_api_run_can_ask():
-    from sessions.models import Run, RunStatus
-
-    session = await Session.objects.acreate(thread_id="t-api", origin=SessionOrigin.API_JOB, repo_id="owner/repo")
-    run = await Run.objects.acreate(
-        session=session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
-    )
-    captured: dict = {}
-
-    async def _execute_run(spec, hooks=None):
-        captured["spec"] = spec
-        return SimpleNamespace(agent_result={"response": "ok"})
-
-    with patch("jobs.tasks.execute_run", _execute_run):
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-api", run_id=str(run.pk))
-
-    assert captured["spec"].ask_user_enabled is True
-
-    with patch("jobs.tasks.execute_run", _execute_run):
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
-
-    assert captured["spec"].ask_user_enabled is True
+    assert captured["spec"].ask_user_enabled is ask_user_enabled
 
 
 @pytest.mark.django_db(transaction=True)

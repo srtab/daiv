@@ -119,7 +119,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     try:
-        run = await Run.objects.select_related("task_result").aget(id=run_uuid, user=request.auth)
+        run = await Run.objects.aget(id=run_uuid, user=request.auth)
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
@@ -129,7 +129,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
         status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'WAITING_INPUT', 'FAILED']", run.status),
         thread_id=str(run.session_id) if run.session_id else None,
         result=run.result_summary or None,
-        question=run.pending_question,
+        question=run.question,
         merge_request_url=run.merge_request_web_url or None,
         error=error,
         created_at=run.created_at,

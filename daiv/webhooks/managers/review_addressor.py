@@ -278,9 +278,8 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_success(self, outcome: RunOutcome) -> None:
         fallback_footer = self._render_protected_branch_footer(outcome.snapshot)
-        if outcome.pending_question is not None:
-            body = f"{outcome.response_text}\n\n{self._question_footer()}"
-            self._leave_comment(self._append_footer(body, fallback_footer), reply_to_id=self.reply_to_id)
+        if (question := self._question_comment(outcome)) is not None:
+            self._leave_comment(self._append_footer(question, fallback_footer), reply_to_id=self.reply_to_id)
             return
         if response := outcome.response_text.strip():
             self._leave_comment(self._append_footer(response, fallback_footer))
@@ -341,12 +340,6 @@ class CommentsAddressorManager(BaseManager):
                 "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )
-
-    @staticmethod
-    def _append_footer(body: str, footer: str | None) -> str:
-        if not footer:
-            return body
-        return f"{body.rstrip()}\n\n{footer.lstrip()}"
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """

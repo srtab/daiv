@@ -32,6 +32,11 @@ class RunStatus(models.TextChoices):
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
+    @classmethod
+    def completed(cls) -> frozenset[str]:
+        """Terminal statuses that close the work, unlike ``WAITING_INPUT``, which waits for the user's answer."""
+        return frozenset({cls.SUCCESSFUL, cls.FAILED})
+
 
 class SessionOrigin(models.TextChoices):
     """How a session (or an individual run) was triggered.
@@ -61,6 +66,11 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+
+    @classmethod
+    def unattended(cls) -> frozenset[str]:
+        """Job triggers nobody is around to answer a question for."""
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
 
 
 class WatchState(models.TextChoices):
@@ -324,6 +334,7 @@ class Run(models.Model):
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
+    question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
     total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
@@ -391,10 +402,8 @@ class Run(models.Model):
 
     @property
     def is_retryable(self) -> bool:
-        return (
-            self.status in RunStatus.terminal()
-            and self.status != RunStatus.WAITING_INPUT
-            and self.trigger_type not in (SessionOrigin.webhooks() | {SessionOrigin.CHAT})
+        return self.status in RunStatus.completed() and self.trigger_type not in (
+            SessionOrigin.webhooks() | {SessionOrigin.CHAT}
         )
 
     @property
@@ -412,14 +421,6 @@ class Run(models.Model):
             if parsed["response"]:
                 return parsed["response"]
         return self.result_summary
-
-    @property
-    def pending_question(self) -> dict | None:
-        """The question a ``WAITING_INPUT`` run asked, from its task result. Async callers must
-        ``select_related("task_result")``; chat runs have none, their question lives in the transcript."""
-        if self.status != RunStatus.WAITING_INPUT or self.task_result_id is None:
-            return None
-        return parse_agent_result(self.task_result.return_value)["question"]
 
     def mark_failed(self, prefix: str, err: Exception) -> list[str]:
         """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
@@ -468,7 +469,8 @@ class Run(models.Model):
         tr = self.task_result
         changed: list[str] = []
         parsed = parse_agent_result(tr.return_value) if tr.status == RunStatus.SUCCESSFUL and tr.return_value else None
-        status = RunStatus.WAITING_INPUT if parsed is not None and parsed["question"] else tr.status
+        question = parsed["question"] if parsed is not None else None
+        status = RunStatus.WAITING_INPUT if question else tr.status
 
         for field, value in [("status", status), ("started_at", tr.started_at), ("finished_at", tr.finished_at)]:
             if getattr(self, field) != value:
@@ -488,6 +490,9 @@ class Run(models.Model):
             if parsed["merge_request_web_url"] and not self.merge_request_web_url:
                 self.merge_request_web_url = parsed["merge_request_web_url"]
                 changed.append("merge_request_web_url")
+            if question and self.question is None:
+                self.question = question
+                changed.append("question")
 
             if (usage := parsed["usage"]) and self.input_tokens is None:
                 for field, value in usage_field_updates(usage, run_ref=self.pk).items():

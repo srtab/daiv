@@ -305,7 +305,7 @@ async def test_submit_job_all_enqueue_failures_reported(authenticated_client: Te
 
 
 async def _create_run_row(
-    user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message="", task_result=None
+    user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message="", question=None
 ):
     """Create a real Session+Run row for use in get_job_status tests."""
     thread_id = str(uuid.uuid4())
@@ -321,7 +321,7 @@ async def _create_run_row(
         result_summary=result_summary,
         merge_request_web_url=merge_request_web_url,
         error_message=error_message,
-        task_result=task_result,
+        question=question,
     )
 
 
@@ -342,18 +342,8 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_waiting_input_carries_the_question(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
-    task_result = await DBTaskResult.objects.acreate(
-        id=uuid.uuid4(),
-        status="SUCCESSFUL",
-        task_path=run_job_task.module_path,
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after="9999-01-01T00:00:00Z",
-        return_value={"response": "**Database** — Which?", "question": SAMPLE_QUESTION_PAYLOAD},
-    )
     run = await _create_run_row(
-        user, status="WAITING_INPUT", result_summary="**Database** — Which?", task_result=task_result
+        user, status="WAITING_INPUT", result_summary="**Database** — Which?", question=SAMPLE_QUESTION_PAYLOAD
     )
     response = await authenticated_client.get(f"/jobs/{run.id}")
 

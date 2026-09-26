@@ -279,7 +279,7 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
 async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
     """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
     stands in."""
-    from automation.agent.questions import pending_question, render_questions
+    from automation.agent.questions import pending_question
     from automation.agent.results import build_agent_result
     from automation.agent.usage_tracking import build_usage_summary
     from automation.agent.utils import extract_text_content
@@ -288,10 +288,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     messages = values.get("messages") or []
-    question = pending_question(messages)
-    if question is not None:
-        response_text = render_questions(question)
-    elif response_text is None:
+    if response_text is None:
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
     if spec.persist_ref:
@@ -318,11 +315,9 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
-        question=question,
+        question=pending_question(messages),
     )
-    return RunOutcome(
-        agent_result=agent_result, response_text=response_text, snapshot=snapshot, pending_question=question
-    )
+    return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

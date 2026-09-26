@@ -66,8 +66,11 @@ class Question(BaseModel):
         return options
 
 
+QuestionList = Annotated[list[Question], Field(min_length=1, max_length=4)]
+
+
 class AskUserQuestionInput(BaseModel):
-    questions: Annotated[list[Question], Field(min_length=1, max_length=4)]
+    questions: QuestionList
 
 
 def render_questions(payload: dict[str, Any]) -> str:
@@ -97,7 +100,6 @@ def delivered_question_call(messages: Sequence[AnyMessage]) -> ToolCall | None:
     if not (
         isinstance(delivered, ToolMessage)
         and delivered.name == ASK_USER_QUESTION_TOOL_NAME
-        and delivered.status != "error"
         and delivered.content == QUESTION_DELIVERED
     ):
         return None
@@ -109,14 +111,17 @@ def delivered_question_call(messages: Sequence[AnyMessage]) -> ToolCall | None:
     return call
 
 
+def _question_close_call(messages: Sequence[Any], index: int) -> ToolCall | None:
+    """The ``ask_user_question`` call ``messages[index]`` closes the turn on, or ``None`` if it is no close message."""
+    message = messages[index]
+    if index < 2 or not isinstance(message, AIMessage) or message.tool_calls:
+        return None
+    return delivered_question_call(messages[index - 2 : index])
+
+
 def pending_question(messages: Sequence[AnyMessage]) -> dict[str, Any] | None:
     """The validated payload of the question a thread's last turn ended on, or ``None``."""
-    if not messages:
-        return None
-    close = messages[-1]
-    if not isinstance(close, AIMessage) or close.tool_calls:
-        return None
-    call = delivered_question_call(messages[-3:-1])
+    call = _question_close_call(messages, len(messages) - 1) if messages else None
     if call is None:
         return None
     return AskUserQuestionInput.model_validate(call["args"]).model_dump()
@@ -124,10 +129,4 @@ def pending_question(messages: Sequence[AnyMessage]) -> dict[str, Any] | None:
 
 def is_question_close(messages: Sequence[Any], index: int) -> bool:
     """Whether ``messages[index]`` is the close message a question turn ends on."""
-    message = messages[index]
-    return (
-        index >= 2
-        and isinstance(message, AIMessage)
-        and not message.tool_calls
-        and delivered_question_call(messages[index - 2 : index]) is not None
-    )
+    return _question_close_call(messages, index) is not None

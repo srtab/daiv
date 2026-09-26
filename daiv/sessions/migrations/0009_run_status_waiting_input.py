@@ -13,6 +13,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="run", name="question", field=models.JSONField(blank=True, null=True, verbose_name="question")
+        ),
         migrations.RemoveConstraint(model_name="run", name="run_status_valid"),
         migrations.AlterField(
             model_name="run",

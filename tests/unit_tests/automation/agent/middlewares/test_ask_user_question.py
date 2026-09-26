@@ -85,7 +85,6 @@ def test_the_tool_schema_carries_the_bounds():
 
 
 def _request():
-    # If this langchain's ModelRequest rejects ``system_prompt=``, pass ``system_message=SystemMessage("BASE")``.
     return ModelRequest(
         model=GenericFakeChatModel(messages=iter([])), messages=[HumanMessage(content="hi")], system_prompt="BASE"
     )

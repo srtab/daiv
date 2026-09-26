@@ -24,9 +24,8 @@ def test_run_status_terminal_set():
     assert RunStatus.terminal() == frozenset({RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT, RunStatus.FAILED})
 
 
-def test_waiting_input_is_terminal():
-    assert RunStatus.WAITING_INPUT in RunStatus.terminal()
-    assert RunStatus.WAITING_INPUT.label == "Needs input"
+def test_run_status_completed_set_leaves_out_waiting_input():
+    assert RunStatus.completed() == frozenset({RunStatus.SUCCESSFUL, RunStatus.FAILED})
 
 
 @pytest.mark.django_db
@@ -40,7 +39,7 @@ def test_a_successful_task_result_with_a_question_syncs_to_waiting_input(create_
 
     assert run.status == RunStatus.WAITING_INPUT
     assert run.result_summary == "**DB**: Which?"
-    assert run.pending_question == question
+    assert run.question == question
 
 
 @pytest.mark.django_db
@@ -59,7 +58,7 @@ def test_a_successful_task_result_without_a_question_stays_successful(create_db_
     run.sync_and_save()
 
     assert run.status == RunStatus.SUCCESSFUL
-    assert run.pending_question is None
+    assert run.question is None
 
 
 def test_session_origin_includes_chat():

@@ -486,12 +486,12 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
 
 
 async def test_a_run_that_ended_on_a_question_reports_it():
-    agent = _agent(state={"messages": [HumanMessage(content="migrate"), *ask_user_question_messages()]})
+    messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
+    agent = _agent(messages=messages, state={"messages": messages})
 
     with agent_stack(agent):
         outcome = await execute_run(make_spec())
 
-    assert outcome.pending_question == SAMPLE_QUESTION_PAYLOAD
     assert outcome.response_text == render_questions(SAMPLE_QUESTION_PAYLOAD)
     assert outcome.agent_result["question"] == SAMPLE_QUESTION_PAYLOAD
 
@@ -502,7 +502,6 @@ async def test_a_run_without_a_question_reports_none():
     with agent_stack(agent):
         outcome = await execute_run(make_spec())
 
-    assert outcome.pending_question is None
     assert outcome.agent_result["question"] is None
 
 
@@ -513,24 +512,20 @@ async def test_a_failed_snapshot_read_reports_no_question():
     with agent_stack(agent):
         outcome = await execute_run(make_spec())
 
-    assert outcome.pending_question is None
+    assert outcome.agent_result["question"] is None
     assert outcome.snapshot is None
 
 
-async def test_ask_user_is_forwarded_to_the_agent():
-    spec = make_spec(thread_id="t-1", ask_user_enabled=False)
-
+@pytest.mark.parametrize(
+    "spec_kwargs",
+    [
+        pytest.param({"thread_id": "t-1", "ask_user_enabled": False}, id="disabled"),
+        pytest.param({"thread_id": None, "ask_user_enabled": True, "lock": NoLock()}, id="one-shot"),
+    ],
+)
+async def test_the_agent_does_not_ask_when_nobody_can_answer(spec_kwargs):
     with agent_stack(_agent()) as stack:
-        await execute_run(spec)
-
-    assert stack.create_agent.await_args.kwargs["ask_user_enabled"] is False
-
-
-async def test_a_one_shot_run_never_asks():
-    spec = make_spec(thread_id=None, ask_user_enabled=True, lock=NoLock())
-
-    with agent_stack(_agent()) as stack:
-        await execute_run(spec)
+        await execute_run(make_spec(**spec_kwargs))
 
     assert stack.create_agent.await_args.kwargs["ask_user_enabled"] is False
 

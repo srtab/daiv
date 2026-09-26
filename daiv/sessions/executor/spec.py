@@ -79,13 +79,11 @@ class RunSpec:
 @dataclass(frozen=True, kw_only=True)
 class RunOutcome:
     """``response_text`` is the agent's last message, read from the checkpoint for a stream. ``snapshot`` is ``None``
-    when the post-run checkpoint read failed; the run itself still succeeded. ``pending_question`` is the question
-    the run ended on; ``response_text`` is then its rendering."""
+    when the post-run checkpoint read failed; the run itself still succeeded."""
 
     agent_result: AgentResult
     response_text: str
     snapshot: StateSnapshot | None
-    pending_question: dict[str, Any] | None = None
 
 
 class FailureHook(Protocol):

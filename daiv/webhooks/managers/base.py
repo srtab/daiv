@@ -12,6 +12,7 @@ from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
+    from sessions.executor.spec import RunOutcome
 
 logger = logging.getLogger("daiv.managers")
 
@@ -36,11 +37,18 @@ class BaseManager:
         """The mention a failure comment answers under; GitHub can't reply to a comment, so only GitLab gets one."""
         return self.mention_comment_id if self.client.git_platform == GitPlatform.GITLAB else None
 
-    def _question_footer(self) -> str:
-        """How to answer a question the agent posted: a new mention carries the reply onto the same thread."""
-        return render_to_string(
-            "webhooks/ask_user_question.txt", {"bot_username": self.client.current_user.username}
-        ).strip()
+    @staticmethod
+    def _append_footer(body: str, footer: str | None) -> str:
+        if not footer:
+            return body
+        return f"{body.rstrip()}\n\n{footer.lstrip()}"
+
+    def _question_comment(self, outcome: RunOutcome) -> str | None:
+        """The comment posting the question the run ended on, with how to answer it; ``None`` without a question."""
+        if outcome.agent_result["question"] is None:
+            return None
+        footer = render_to_string("webhooks/ask_user_question.txt", {"bot_username": self.client.current_user.username})
+        return self._append_footer(outcome.response_text, footer.strip())
 
     def _claim_unable_note(self) -> bool:
         """Idempotency guard for failure comments ("unable to address" and "can't run yet").
