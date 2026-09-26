@@ -27,7 +27,7 @@ from core.sandbox.schemas import (
     RunCommandResult,
     RunCommandsResponse,
 )
-from tests.unit_tests.conftest import FakeSandboxClient, sandbox_runtime
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +37,8 @@ def _make_agent_runtime(repo_working_dir: str | Path, *, egress: EgressConfigReq
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=str(repo_working_dir))
-    runtime.context.sandbox = sandbox_runtime(egress=egress)
+    runtime.context.sandbox = sandbox_spec()
+    runtime.context.sandbox_egress = egress
     return runtime
 
 
@@ -47,7 +48,7 @@ def _make_bash_runtime(repo: Repo) -> Mock:
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(gitrepo=repo, sandbox=sandbox_runtime()),
+        context=Mock(gitrepo=repo, sandbox=sandbox_spec()),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",
@@ -71,6 +72,7 @@ def _make_runtime() -> MagicMock:
     sb.cpus = 1
     sb.env_vars = None
     sb.egress = None
+    runtime.context.sandbox_egress = None
     runtime.context.gitrepo.working_dir = "/tmp/repo"  # noqa: S108
     return runtime
 
@@ -517,12 +519,12 @@ class TestSandboxMiddleware:
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = MagicMock()  # run has an egress config (network-on)
+        runtime.context.sandbox_egress = MagicMock()  # run has an egress config (network-on)
 
         result = await mw.abefore_agent({"session_id": "sess-prev"}, runtime)
 
         assert result == {"session_id": "sess-prev"}
-        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox.egress)
+        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox_egress)
         client.start_session.assert_not_awaited()  # warm reuse — no recreate
         assert sandbox_backend._session_id == "sess-prev"
 
@@ -546,7 +548,7 @@ class TestSandboxMiddleware:
         )
 
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = EgressConfigRequest()  # non-None so refresh is attempted
+        runtime.context.sandbox_egress = EgressConfigRequest()  # non-None so refresh is attempted
 
         with (
             patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
@@ -567,7 +569,7 @@ class TestSandboxMiddleware:
         sandbox_backend = SandboxFileBackend(client=client)
         mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
 
-        # _make_runtime() sets sandbox.egress = None by default.
+        # _make_runtime() sets sandbox_egress = None by default.
         result = await mw.abefore_agent({"session_id": "sess-prev"}, _make_runtime())
 
         assert result == {"session_id": "sess-prev"}
@@ -703,8 +705,10 @@ class TestSandboxMiddleware:
         assert SANDBOX_SYSTEM_PROMPT in seen_prompt
 
     async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
-        """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
-        from codebase.context import SandboxRuntime
+        """abefore_agent must build StartSessionRequest from ``ctx.sandbox`` and ``ctx.sandbox_egress``,
+        not ``ctx.config.sandbox``."""
+        from sandbox_envs.spec import SandboxSpec
+
         from core.sandbox.schemas import StartSessionRequest
 
         repo_dir = tmp_path / "repoX"
@@ -723,9 +727,10 @@ class TestSandboxMiddleware:
         runtime.context.config.sandbox.memory_bytes = None
         runtime.context.config.sandbox.cpus = None
         egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
-        runtime.context.sandbox = SandboxRuntime(
-            base_image="alpine:test", egress=egress, memory_bytes=1_234, cpus=2.5, env_vars={"X": "y"}
+        runtime.context.sandbox = SandboxSpec(
+            base_image="alpine:test", memory_bytes=1_234, cpus=2.5, env_vars={"X": "y"}
         )
+        runtime.context.sandbox_egress = egress
 
         captured: dict = {}
 
@@ -802,8 +807,8 @@ class TestSandboxEgress:
 
     def _runtime_with_egress(self):
         runtime = _make_runtime()
-        runtime.context.sandbox.egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
-        return runtime, runtime.context.sandbox.egress
+        runtime.context.sandbox_egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
+        return runtime, runtime.context.sandbox_egress
 
     async def test_no_configure_egress_on_fresh_create(self):
         """Egress is attached at start_session time (via egress= field); configure_egress is never called."""

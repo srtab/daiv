@@ -13,13 +13,13 @@ from django.test import Client
 import httpx
 import pytest
 from pydantic import SecretStr
+from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from codebase.context import SandboxRuntime
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
 from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.schemas import (
@@ -31,10 +31,8 @@ from core.sandbox.schemas import (
 )
 
 
-def sandbox_runtime(
-    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None
-) -> SandboxRuntime:
-    return SandboxRuntime(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
+def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:
+    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 @contextmanager

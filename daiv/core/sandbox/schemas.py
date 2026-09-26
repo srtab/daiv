@@ -260,7 +260,7 @@ class EgressRule(BaseModel):
     @field_validator("host", mode="after")
     @classmethod
     def _host_safe(cls, value: str) -> str:
-        # Enforced on the type, not just the form: from_stored() and apply_platform_egress() build
+        # Enforced on the type, not just the form: from_stored() and with_platform_credential() build
         # rules outside the form, so a blank host or a CR/LF-smuggled host must be rejected here too.
         _reject_crlf(value, "host")
         host = value.strip()
@@ -277,7 +277,7 @@ class EgressSecret(BaseModel):
     @classmethod
     def _header_safe(cls, value: str) -> str:
         # Header-injection guard at the parse boundary, covering from_stored() (drifted row) and
-        # apply_platform_egress() too — not only the form's clean_egress_json.
+        # with_platform_credential() too — not only the form's clean_egress_json.
         _reject_crlf(value, "header name")
         if not value.strip():
             raise ValueError("header name must not be blank")
