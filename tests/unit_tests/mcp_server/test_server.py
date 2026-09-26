@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from django_tasks_db.models import DBTaskResult
+from jobs.tasks import run_job_task
 from mcp_server.server import (
     DEFAULT_LIST_LIMIT,
     _decode_repo_cursor,
@@ -13,6 +15,8 @@ from mcp_server.server import (
     submit_job,
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 
 def _mock_task():
@@ -334,8 +338,10 @@ async def test_submit_job_wait_success():
             finished.created_at = now
             finished.started_at = now
             finished.finished_at = now
+            finished.pending_question = None
             return _AsyncRows([finished])
 
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
@@ -374,6 +380,7 @@ async def test_submit_job_wait_running_when_never_terminal():
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.filter = MagicMock(return_value=_EmptyAsyncRows())
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
@@ -410,6 +417,7 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
         patch("mcp_server.server.MAX_POLL_DURATION", 2.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
     ):
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.filter = MagicMock(side_effect=_capture_filter)
         await _poll_batch_until_complete(
             "batch-1", [job_id], {"jobs": [{"job_id": job_id}], "failed": []}, _default_mcp_user
@@ -433,6 +441,7 @@ async def test_get_job_status_not_found():
         patch("mcp_server.server.Run") as mock_model,
     ):
         mock_model.DoesNotExist = _DoesNotExistError
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.aget = AsyncMock(side_effect=_DoesNotExistError)
         result = await get_job_status(job_id=str(uuid.uuid4()))
     data = json.loads(result)
@@ -461,12 +470,14 @@ async def test_get_job_status_wait_already_complete():
     mock_run.created_at = now
     mock_run.started_at = now
     mock_run.finished_at = now
+    mock_run.pending_question = None
 
     caller = MagicMock(pk=1)
     with (
         patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.aget = AsyncMock(return_value=mock_run)
         mock_model.DoesNotExist = Exception
 
@@ -498,6 +509,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
+    finished_result.pending_question = None
 
     caller = MagicMock(pk=1)
     with (
@@ -506,6 +518,7 @@ async def test_get_job_status_wait_polls_until_complete():
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         # First call is the initial fetch (running), then polling finds it finished
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.aget = AsyncMock(side_effect=[running_result, finished_result])
         mock_model.DoesNotExist = Exception
 
@@ -532,6 +545,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
+    finished_result.pending_question = None
 
     class _DoesNotExistError(Exception):
         pass
@@ -544,6 +558,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         # Initial fetch raises DoesNotExist, then poll finds it
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.aget = AsyncMock(side_effect=[_DoesNotExistError, _DoesNotExistError, finished_result])
 
         result = await get_job_status(job_id=job_id, wait=True)
@@ -568,6 +583,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.filter = MagicMock(side_effect=RuntimeError("DB down"))
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
@@ -590,6 +606,7 @@ async def test_get_job_status_db_exception():
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.DoesNotExist = _DoesNotExistError
+        mock_model.objects.select_related.return_value = mock_model.objects
         mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
         result = await get_job_status(job_id=job_id)
@@ -804,6 +821,49 @@ async def test_get_job_status_other_user_run_returns_not_found():
         result = await get_job_status(job_id=str(run.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_waiting_input_carries_the_question():
+    """A real DB fetch: fails with SynchronousOnlyOperation if the aget lacks select_related."""
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="mcp_waiting", email="mcp_waiting@example.com", password="x")  # noqa: S106
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=user, repo_id="a/b"
+    )
+    task_result = await DBTaskResult.objects.acreate(
+        id=uuid.uuid4(),
+        status="SUCCESSFUL",
+        task_path=run_job_task.module_path,
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after="9999-01-01T00:00:00Z",
+        return_value={"response": "**Database** — Which?", "question": SAMPLE_QUESTION_PAYLOAD},
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="a/b",
+        user=user,
+        status=RunStatus.WAITING_INPUT,
+        result_summary="**Database** — Which?",
+        task_result=task_result,
+    )
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await get_job_status(job_id=str(run.id))
+
+    data = json.loads(result)
+    assert data["status"] == "WAITING_INPUT"
+    assert data["question"] == SAMPLE_QUESTION_PAYLOAD
+    assert data["result"] == "**Database** — Which?"
+
+
+def test_get_job_status_docstring_mentions_waiting_input_and_thread_id():
+    assert "WAITING_INPUT" in get_job_status.__doc__
+    assert "thread_id" in get_job_status.__doc__
 
 
 @pytest.mark.django_db(transaction=True)

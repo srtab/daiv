@@ -11,6 +11,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
 from daiv.api import api
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 
 @pytest.fixture
@@ -303,7 +304,9 @@ async def test_submit_job_all_enqueue_failures_reported(authenticated_client: Te
 # --- Get job status tests (Run-based) ---
 
 
-async def _create_run_row(user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message=""):
+async def _create_run_row(
+    user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message="", task_result=None
+):
     """Create a real Session+Run row for use in get_job_status tests."""
     thread_id = str(uuid.uuid4())
     session = await Session.objects.acreate(
@@ -318,6 +321,7 @@ async def _create_run_row(user, status="SUCCESSFUL", result_summary="", merge_re
         result_summary=result_summary,
         merge_request_web_url=merge_request_web_url,
         error_message=error_message,
+        task_result=task_result,
     )
 
 
@@ -333,6 +337,42 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
     assert data["status"] == "SUCCESSFUL"
     assert data["result"] == "Here are the files..."
     assert data["error"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_waiting_input_carries_the_question(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    task_result = await DBTaskResult.objects.acreate(
+        id=uuid.uuid4(),
+        status="SUCCESSFUL",
+        task_path=run_job_task.module_path,
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after="9999-01-01T00:00:00Z",
+        return_value={"response": "**Database** — Which?", "question": SAMPLE_QUESTION_PAYLOAD},
+    )
+    run = await _create_run_row(
+        user, status="WAITING_INPUT", result_summary="**Database** — Which?", task_result=task_result
+    )
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "WAITING_INPUT"
+    assert data["question"] == SAMPLE_QUESTION_PAYLOAD
+    assert data["result"] == "**Database** — Which?"
+    assert data["error"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_without_a_question_returns_null(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Here are the files...")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 200
+    assert response.json()["question"] is None
 
 
 @pytest.mark.django_db(transaction=True)

@@ -1,5 +1,5 @@
 from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
@@ -56,9 +56,14 @@ class JobSubmitResponse(Schema):
 
 class JobStatusResponse(Schema):
     job_id: str
-    status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "FAILED"]
+    status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
     thread_id: str | None = None
     result: str | None = None
+    question: dict[str, Any] | None = Field(
+        default=None,
+        description="When status is WAITING_INPUT: the questions the agent asked. Answer by submitting a job with "
+        "this thread_id and the answer as the prompt.",
+    )
     merge_request_url: str | None = None
     error: str | None = None
     created_at: datetime | None = None
