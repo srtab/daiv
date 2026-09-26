@@ -129,6 +129,17 @@ The request itself links back to the session that produced it — see [Linking b
 !!! warning "Expired state"
     Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
 
+### Answering a question
+
+When the agent hits a request that's genuinely ambiguous or a decision that's yours to make, it stops and asks instead of guessing. The run ends in the amber **Needs input** status, and the last turn renders as a card with 1 to 4 questions, each with:
+
+- **Option buttons** — click one to select it; on a multi-select question, clicking toggles it on or off alongside the others
+- **A free-text field** — type your own answer if none of the options fit, or if the question has no options at all
+
+One **Answer** button sends all of your answers as a single message, one line per question. Submitting it starts a new run on the same thread that picks up where the agent left off.
+
+The card is only interactive on the session's last turn, and only while no run is in flight — reload the page after answering and the card stays visible but goes inert (options disabled, free-text field and Answer button hidden), with your answer showing as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
+
 ---
 
 ## Linking back to sessions

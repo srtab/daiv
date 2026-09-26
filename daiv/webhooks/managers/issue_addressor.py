@@ -124,6 +124,9 @@ class IssueAddressorManager(BaseManager):
         )
 
     async def _on_success(self, outcome: RunOutcome) -> None:
+        if (question := self._question_comment(outcome)) is not None:
+            self._leave_comment(question, reply_to_id=self.reply_to_id)
+            return
         if response := outcome.response_text.strip():
             self._leave_comment(response)
         else:

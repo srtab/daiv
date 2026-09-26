@@ -21,16 +21,18 @@ from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentE
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.questions import render_questions
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 from tests.unit_tests.sessions.conftest import watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
@@ -266,7 +268,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     persist_calls: list = []
@@ -313,7 +315,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -498,7 +500,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     release_calls: list = []
@@ -550,7 +552,7 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -591,7 +593,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -663,7 +665,7 @@ async def test_events_buffers_text_deltas_into_result_summary():
 
     captured: dict = {}
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
         captured["response_text"] = response_text
         captured["success"] = success
 
@@ -680,6 +682,39 @@ async def test_events_buffers_text_deltas_into_result_summary():
     assert captured["success"] is True
     assert captured["response_text"].startswith("Hello ")
     assert len(captured["response_text"]) == 2000  # truncated at the cap
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("checkpoint_messages", "expected"),
+    [
+        pytest.param(
+            [HumanMessage(content="migrate"), *ask_user_question_messages()],
+            {"question": SAMPLE_QUESTION_PAYLOAD, "response_text": render_questions(SAMPLE_QUESTION_PAYLOAD)},
+            id="question",
+        ),
+        pytest.param([AIMessage(content="done")], {"question": None, "response_text": ""}, id="no-question"),
+    ],
+)
+async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messages, expected):
+    """The question is never streamed as text; the checkpoint is the only place the finished turn reads it from."""
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+        finalize_calls.append({"question": question, "response_text": response_text})
+
+    with (
+        agent_stack(_graph(messages=checkpoint_messages)),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert finalize_calls == [expected]
 
 
 class TestReasoningProvenance:
@@ -969,7 +1004,7 @@ def _recorded_turn(
         _log("start")
         return SimpleNamespace(pk="run-pk")
 
-    async def _finalize(_run_pk, *, success, usage, response_text, error_message=""):
+    async def _finalize(_run_pk, *, success, usage, response_text, error_message="", question=None):
         _log("finalize", success, error_message)
 
     async def _persist(*, thread_id, current_ref, merge_request):

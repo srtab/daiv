@@ -75,6 +75,7 @@ def test_format_tokens(value, expected):
         ("FAILED", "failed"),
         ("RUNNING", "running"),
         ("QUEUED", "queued"),
+        ("WAITING_INPUT", "waiting"),
         ("READY", "pending"),  # unmapped -> pending
         ("anything-else", "pending"),
     ],

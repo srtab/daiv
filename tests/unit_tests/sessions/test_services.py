@@ -558,6 +558,23 @@ class TestSessionContinuation:
         assert enqueue_kwargs["agent_thinking_level"] is None
         assert "use_max" not in enqueue_kwargs
 
+    @pytest.mark.parametrize(
+        ("trigger_type", "expected"), [(SessionOrigin.UI_JOB, True), (SessionOrigin.SCHEDULE, False)]
+    )
+    async def test_asubmit_batch_runs_only_lets_attended_runs_ask(self, member_user, trigger_type, expected):
+        fake_task = await _make_db_task_result()
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = fake_task
+        with patcher:
+            await asubmit_batch_runs(
+                user=member_user,
+                prompt="do thing",
+                repos=[RepoTarget(repo_id="acme/x", ref="")],
+                trigger_type=trigger_type,
+            )
+
+        assert mock_task.aenqueue.call_args.kwargs["ask_user_enabled"] is expected
+
     async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
         """When enqueue raises, run transitions to FAILED and queued sibling is released."""
         thread = str(uuid.uuid4())

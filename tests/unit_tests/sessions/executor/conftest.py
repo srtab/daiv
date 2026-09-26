@@ -66,7 +66,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
 
     async def _build_result(*_args, **kwargs):
         stack.events.append("result built")
-        return {"response": kwargs["response"]}
+        return {"response": kwargs["response"], "question": kwargs.get("question")}
 
     class _Watch(watch_recorder(stack.armed)):
         async def aarm_after_run(self, **kwargs):

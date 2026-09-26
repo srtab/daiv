@@ -30,6 +30,7 @@ class RunSpec:
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
+    ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     """
 
     thread_id: str | None
@@ -57,6 +58,7 @@ class RunSpec:
     model_names: tuple[str, ...] = ()
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
+    ask_user_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.thread_id == "":

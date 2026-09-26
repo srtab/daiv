@@ -25,6 +25,7 @@ from automation.agent.constants import (
     ModelName,
 )
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
@@ -52,6 +53,7 @@ from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
     create_general_purpose_subagent,
@@ -94,6 +96,7 @@ ALWAYS_LOADED_TOOLS = frozenset({
     "write_todos",
     SKILLS_TOOL_NAME,
     "task",
+    ASK_USER_QUESTION_TOOL_NAME,
 })
 
 
@@ -186,6 +189,7 @@ async def create_daiv_agent(
     sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
     web_search_enabled: bool | None = None,
+    ask_user_enabled: bool = True,
 ):
     """
     Create the DAIV agent.
@@ -205,6 +209,7 @@ async def create_daiv_agent(
         sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
         web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
+        ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
 
     Returns:
         The DAIV agent.
@@ -327,6 +332,7 @@ async def create_daiv_agent(
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools),
+        AskUserQuestionMiddleware(enabled=ask_user_enabled),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
         # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch

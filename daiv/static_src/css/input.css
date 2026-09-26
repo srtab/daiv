@@ -579,6 +579,10 @@ html {
     @apply bg-amber-900/40 text-amber-300;
   }
 
+  .status-badge-waiting {
+    @apply bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-400/40;
+  }
+
   .status-badge-pending {
     @apply bg-gray-800/60 text-gray-400;
   }
@@ -614,6 +618,10 @@ html {
 
   .status-dot-queued {
     @apply bg-amber-400;
+  }
+
+  .status-dot-waiting {
+    @apply bg-amber-300;
   }
 
   .status-dot-pending {
@@ -1548,6 +1556,63 @@ html {
     to {
       box-shadow: 0 0 0 0 rgba(167, 139, 250, 0);
     }
+  }
+
+  /* Chat question card */
+
+  .chat-question {
+    @apply flex flex-col gap-4 rounded-[10px] border border-white/[0.06] bg-white/[0.02] p-4;
+  }
+
+  .chat-question--open {
+    @apply border-amber-400/25 bg-amber-400/[0.03];
+  }
+
+  .chat-question__item {
+    @apply flex flex-col gap-2.5 border-0 p-0 disabled:opacity-70;
+  }
+
+  .chat-question__item + .chat-question__item {
+    @apply mt-1 border-t border-white/[0.06] pt-4;
+  }
+
+  .chat-question__header {
+    @apply w-fit rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-0.5
+      font-mono text-[10px] font-semibold tracking-[0.14em] text-amber-200 uppercase;
+  }
+
+  .chat-question__text {
+    @apply text-[14px] text-text;
+  }
+
+  .chat-question__options {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .chat-question__option {
+    @apply flex flex-col items-start gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.02]
+      px-3 py-1.5 text-left transition-colors duration-150 disabled:cursor-not-allowed
+      enabled:hover:border-white/[0.16] enabled:hover:bg-white/[0.05];
+  }
+
+  .chat-question__option--selected {
+    @apply border-amber-400/40 bg-amber-400/15;
+  }
+
+  .chat-question__option-label {
+    @apply text-[13px] font-medium text-text;
+  }
+
+  .chat-question__option-desc {
+    @apply text-[12px] text-text-muted;
+  }
+
+  .chat-question__input {
+    @apply rounded-lg px-3 py-1.5 text-[13px];
+  }
+
+  .chat-question__actions {
+    @apply flex justify-end;
   }
 
   /* Thinking ticker */

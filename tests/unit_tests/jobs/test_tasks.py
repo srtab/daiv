@@ -25,6 +25,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
 
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value=fake_result)
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
@@ -104,6 +105,7 @@ async def test_run_job_task_forwards_overrides():
 
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value=fake_result)
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
 
     captured_kwargs: dict = {}
 
@@ -157,6 +159,7 @@ async def test_run_job_task_persists_resolved_model():
     last_message.content = "ok"
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
+    agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
     runtime_ctx = MagicMock()
     runtime_ctx.config.models.agent = MagicMock()
 
@@ -435,6 +438,23 @@ def _raising_agent() -> AsyncMock:
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     return agent
+
+
+@pytest.mark.parametrize("ask_user_enabled", [True, False])
+async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
+    captured: dict = {}
+
+    async def _execute_run(spec, hooks=None):
+        captured["spec"] = spec
+        return SimpleNamespace(agent_result={"response": "ok"})
+
+    with patch("jobs.tasks.Session.objects.filter") as session_filter, patch("jobs.tasks.execute_run", _execute_run):
+        session_filter.return_value.only.return_value.afirst = AsyncMock(return_value=None)
+        await run_job_task.func(
+            repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()), ask_user_enabled=ask_user_enabled
+        )
+
+    assert captured["spec"].ask_user_enabled is ask_user_enabled
 
 
 @pytest.mark.django_db(transaction=True)

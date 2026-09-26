@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from automation.agent.questions import QUESTION_DELIVERED
 from chat.turns import build_turns
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 
 
 def test_build_turns_empty_list_returns_empty():
@@ -413,3 +417,26 @@ def test_build_turns_list_content_falls_back_to_tool_calls_attr_when_no_tool_blo
             "status": "done",
         }
     ]
+
+
+def test_build_turns_hides_the_close_message_of_a_question_turn():
+    turns = build_turns([HumanMessage(content="migrate", id="h-1"), *ask_user_question_messages()])
+
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    [segment] = turns[1]["segments"]
+    assert segment == {
+        "type": "tool_call",
+        "id": "ask-1",
+        "name": "ask_user_question",
+        "args": json.dumps(SAMPLE_QUESTION_PAYLOAD),
+        "result": QUESTION_DELIVERED,
+        "status": "done",
+    }
+
+
+def test_build_turns_keeps_a_reply_that_follows_a_failed_question():
+    call, _delivered, _close = ask_user_question_messages()
+    failed = ToolMessage(content="bad args", tool_call_id="ask-1", name="ask_user_question", status="error")
+    turns = build_turns([call, failed, AIMessage(content="I will pick SQLite.", id="a-2")])
+
+    assert turns[-1]["segments"] == [{"type": "text", "content": "I will pick SQLite."}]

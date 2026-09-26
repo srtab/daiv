@@ -25,10 +25,16 @@ class RunStatus(models.TextChoices):
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
     SUCCESSFUL = "SUCCESSFUL", _("Done")
+    WAITING_INPUT = "WAITING_INPUT", _("Needs input")
     FAILED = "FAILED", _("Failed")
 
     @classmethod
     def terminal(cls) -> frozenset[str]:
+        return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
+
+    @classmethod
+    def completed(cls) -> frozenset[str]:
+        """Terminal statuses that close the work, unlike ``WAITING_INPUT``, which waits for the user's answer."""
         return frozenset({cls.SUCCESSFUL, cls.FAILED})
 
 
@@ -60,6 +66,11 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+
+    @classmethod
+    def unattended(cls) -> frozenset[str]:
+        """Job triggers nobody is around to answer a question for."""
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
 
 
 class WatchState(models.TextChoices):
@@ -275,7 +286,7 @@ class Run(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="runs", verbose_name=_("session"))
     trigger_type = models.CharField(_("trigger type"), max_length=20, choices=SessionOrigin.choices)
-    status = models.CharField(_("status"), max_length=10, choices=RunStatus.choices, default=RunStatus.READY)
+    status = models.CharField(_("status"), max_length=13, choices=RunStatus.choices, default=RunStatus.READY)
     task_result = models.OneToOneField(
         "django_tasks_database.DBTaskResult",
         on_delete=models.SET_NULL,
@@ -323,6 +334,7 @@ class Run(models.Model):
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
+    question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
     total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
@@ -390,7 +402,7 @@ class Run(models.Model):
 
     @property
     def is_retryable(self) -> bool:
-        return self.status in RunStatus.terminal() and self.trigger_type not in (
+        return self.status in RunStatus.completed() and self.trigger_type not in (
             SessionOrigin.webhooks() | {SessionOrigin.CHAT}
         )
 
@@ -456,15 +468,16 @@ class Run(models.Model):
 
         tr = self.task_result
         changed: list[str] = []
+        parsed = parse_agent_result(tr.return_value) if tr.status == RunStatus.SUCCESSFUL and tr.return_value else None
+        question = parsed["question"] if parsed is not None else None
+        status = RunStatus.WAITING_INPUT if question else tr.status
 
-        for field, value in [("status", tr.status), ("started_at", tr.started_at), ("finished_at", tr.finished_at)]:
+        for field, value in [("status", status), ("started_at", tr.started_at), ("finished_at", tr.finished_at)]:
             if getattr(self, field) != value:
                 setattr(self, field, value)
                 changed.append(field)
 
-        if tr.status == RunStatus.SUCCESSFUL and tr.return_value:
-            parsed = parse_agent_result(tr.return_value)
-
+        if parsed is not None:
             if parsed["response"] and not self.result_summary:
                 self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")
@@ -477,6 +490,9 @@ class Run(models.Model):
             if parsed["merge_request_web_url"] and not self.merge_request_web_url:
                 self.merge_request_web_url = parsed["merge_request_web_url"]
                 changed.append("merge_request_web_url")
+            if question and self.question is None:
+                self.question = question
+                changed.append("question")
 
             if (usage := parsed["usage"]) and self.input_tokens is None:
                 for field, value in usage_field_updates(usage, run_ref=self.pk).items():

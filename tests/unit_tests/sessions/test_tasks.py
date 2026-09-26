@@ -97,3 +97,13 @@ def test_reclassify_skips_ineligible_runs():
     with patch("sessions.tasks.classify_run_task") as task:
         reclassify_missing_envelopes_cron_task.func()
     assert {call.args[0] for call in task.enqueue.call_args_list} == {str(eligible.pk)}
+
+
+@pytest.mark.django_db
+def test_reclassify_skips_waiting_input_runs():
+    """A run stranded on WAITING_INPUT never gets an envelope; a SUCCESSFUL sibling still does."""
+    successful = _stranded_run(status=RunStatus.SUCCESSFUL)
+    _stranded_run(status=RunStatus.WAITING_INPUT)
+    with patch("sessions.tasks.classify_run_task") as task:
+        reclassify_missing_envelopes_cron_task.func()
+    assert {call.args[0] for call in task.enqueue.call_args_list} == {str(successful.pk)}

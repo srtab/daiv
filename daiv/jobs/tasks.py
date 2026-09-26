@@ -28,6 +28,7 @@ async def run_job_task(
     sandbox_environment_id: str | None = None,
     run_id: str | None = None,
     user_id: int | None = None,
+    ask_user_enabled: bool = True,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -39,6 +40,7 @@ async def run_job_task(
     ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
     ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
     to select the user's personal MCP servers.
+    ``ask_user_enabled``: whether someone can answer a question the agent asks mid-run.
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
@@ -91,6 +93,7 @@ async def run_job_task(
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,
+            ask_user_enabled=ask_user_enabled,
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
         RunHooks(on_failure=_log_failure),

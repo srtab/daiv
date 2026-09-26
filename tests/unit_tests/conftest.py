@@ -12,6 +12,7 @@ from django.test import Client
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 
 from accounts.models import Role
@@ -423,3 +424,30 @@ def database_task_backend(settings):
     settings.TASKS = {
         "default": {**settings.TASKS["default"], "BACKEND": "core.backends.deduplicating.DeduplicatingDatabaseBackend"}
     }
+
+
+SAMPLE_QUESTION_PAYLOAD = {
+    "questions": [
+        {
+            "header": "Database",
+            "question": "Which database engine should the project move to?",
+            "options": [
+                {"label": "PostgreSQL", "description": "Keep a relational store with the richest Django support."},
+                {"label": "SQLite", "description": "Single-file database, simplest to run."},
+            ],
+            "multi_select": False,
+        }
+    ]
+}
+
+
+def ask_user_question_messages(payload: dict | None = None) -> list:
+    """The tail a turn leaves when it ends on a question: the call, its delivery, and the close message."""
+    from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, QUESTION_DELIVERED, render_questions
+
+    payload = payload or SAMPLE_QUESTION_PAYLOAD
+    return [
+        AIMessage(content="", tool_calls=[{"id": "ask-1", "name": ASK_USER_QUESTION_TOOL_NAME, "args": payload}]),
+        ToolMessage(content=QUESTION_DELIVERED, tool_call_id="ask-1", name=ASK_USER_QUESTION_TOOL_NAME),
+        AIMessage(content=render_questions(payload)),
+    ]
