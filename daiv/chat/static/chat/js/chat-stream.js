@@ -257,6 +257,19 @@
     }
   });
 
+  const ASK_USER_QUESTION = "ask_user_question";
+  // Mirrors automation.agent.questions.QUESTION_DELIVERED; a Python test pins the two together.
+  const QUESTION_DELIVERED = "Question delivered to the user. This turn is over; their answer arrives as the next user message.";
+
+  const parseQuestions = memoizePayload("args", (argsStr) => {
+    try {
+      const args = JSON.parse(argsStr || "{}");
+      return Array.isArray(args.questions) ? args.questions : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
   // from a finished run don't linger.
@@ -414,6 +427,10 @@
     slashCatalog: loadSlashCatalog(),
     slashDismissed: false,
     slashIndex: 0,
+
+    // ask_user_question draft state, one entry per tool-call segment id: the
+    // user's in-progress selections and typed text before it is sent.
+    questionDrafts: {},
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -1100,6 +1117,77 @@
       return turn.segments.filter(
         (s) => !(s.type === "tool_call" && s.name === "write_todos"),
       );
+    },
+
+    // ---------- ask_user_question card ---------------------------------
+
+    isQuestionCard(seg) {
+      return seg.type === "tool_call" && seg.name === ASK_USER_QUESTION && seg.result === QUESTION_DELIVERED;
+    },
+
+    questionsOf(seg) {
+      return parseQuestions(seg);
+    },
+
+    // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
+    isQuestionOpen(ti) {
+      if (this.streaming || this.resuming) return false;
+      for (let i = ti + 1; i < this.turns.length; i++) {
+        const role = this.turns[i].role;
+        if (role === "user" || role === "assistant") return false;
+      }
+      return true;
+    },
+
+    _questionDraft(seg) {
+      if (!this.questionDrafts[seg.id]) this.questionDrafts[seg.id] = { selected: {}, text: {} };
+      return this.questionDrafts[seg.id];
+    },
+
+    isOptionSelected(seg, qi, label) {
+      return (this.questionDrafts[seg.id]?.selected[qi] || []).includes(label);
+    },
+
+    toggleQuestionOption(seg, qi, label) {
+      const question = parseQuestions(seg)[qi];
+      if (!question) return;
+      const draft = this._questionDraft(seg);
+      const current = draft.selected[qi] || [];
+      if (question.multi_select) {
+        draft.selected[qi] = current.includes(label) ? current.filter((l) => l !== label) : [...current, label];
+      } else {
+        draft.selected[qi] = current.includes(label) ? [] : [label];
+      }
+    },
+
+    questionText(seg, qi) {
+      return this.questionDrafts[seg.id]?.text[qi] || "";
+    },
+
+    setQuestionText(seg, qi, value) {
+      this._questionDraft(seg).text[qi] = value;
+    },
+
+    composeAnswer(seg) {
+      const draft = this.questionDrafts[seg.id] || { selected: {}, text: {} };
+      const lines = [];
+      for (const [qi, question] of parseQuestions(seg).entries()) {
+        const answer = (draft.text[qi] || "").trim() || (draft.selected[qi] || []).join(", ");
+        if (!answer) return "";
+        lines.push(`**${question.header}** — ${answer}`);
+      }
+      return lines.join("\n");
+    },
+
+    canAnswerQuestion(seg) {
+      return !!this.composeAnswer(seg);
+    },
+
+    async answerQuestion(seg) {
+      const answer = this.composeAnswer(seg);
+      if (!answer || this.streaming || this.resuming) return;
+      this.draftMessage = answer;
+      await this.submit();
     },
 
     isTurnVisible(turn, isLast) {

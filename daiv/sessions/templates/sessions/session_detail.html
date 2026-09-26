@@ -253,7 +253,39 @@
                           </div>
                         </template>
 
-                        <template x-if="seg.type === 'tool_call'">
+                        <template x-if="isQuestionCard(seg)">
+                          <div class="chat-question" :class="{ 'chat-question--open': isQuestionOpen(ti) }">
+                            <template x-for="(q, qi) in questionsOf(seg)" :key="qi">
+                              <fieldset class="chat-question__item" :disabled="!isQuestionOpen(ti)">
+                                <legend class="chat-question__header" x-text="q.header"></legend>
+                                <p class="chat-question__text" x-text="q.question"></p>
+                                <div class="chat-question__options" x-show="(q.options || []).length">
+                                  <template x-for="opt in (q.options || [])" :key="opt.label">
+                                    <button type="button" class="chat-question__option"
+                                            :class="{ 'chat-question__option--selected': isOptionSelected(seg, qi, opt.label) }"
+                                            :aria-pressed="isOptionSelected(seg, qi, opt.label).toString()"
+                                            @click="toggleQuestionOption(seg, qi, opt.label)">
+                                      <span class="chat-question__option-label" x-text="opt.label"></span>
+                                      <span class="chat-question__option-desc" x-text="opt.description"></span>
+                                    </button>
+                                  </template>
+                                </div>
+                                <input type="text" class="chat-question__input" x-show="isQuestionOpen(ti)"
+                                       placeholder="{% translate 'Or answer in your own words' %}"
+                                       :aria-label="q.header"
+                                       :value="questionText(seg, qi)"
+                                       @input="setQuestionText(seg, qi, $event.target.value)">
+                              </fieldset>
+                            </template>
+                            <div class="chat-question__actions" x-show="isQuestionOpen(ti)">
+                              <button type="button" class="btn-primary chat-question__answer"
+                                      :disabled="!canAnswerQuestion(seg)"
+                                      @click="answerQuestion(seg)">{% translate "Answer" %}</button>
+                            </div>
+                          </div>
+                        </template>
+
+                        <template x-if="seg.type === 'tool_call' && !isQuestionCard(seg)">
                           <details class="chat-tool" :id="`tool-${seg.id}`"
                                    :class="`chat-tool--${seg.status}`"
                                    :data-status="seg.status">
