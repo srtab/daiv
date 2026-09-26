@@ -63,3 +63,22 @@ async def test_finalize_chat_run_failure(django_user_model):
     await finalize_chat_run(run.pk, success=False, usage=None, response_text="")
     await run.arefresh_from_db()
     assert run.status == RunStatus.FAILED
+
+
+async def test_finalize_records_a_question_turn_as_waiting_input(django_user_model):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await finalize_chat_run(run.pk, success=True, usage=None, response_text="**DB**: Which?", waiting_input=True)
+    await run.arefresh_from_db()
+    assert run.status == RunStatus.WAITING_INPUT
+    assert run.result_summary == "**DB**: Which?"
+
+
+async def test_a_failed_turn_is_failed_even_if_it_was_waiting(django_user_model):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await finalize_chat_run(run.pk, success=False, usage=None, response_text="", waiting_input=True)
+    await run.arefresh_from_db()
+    assert run.status == RunStatus.FAILED

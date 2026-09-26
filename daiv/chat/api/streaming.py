@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
     from ag_ui.core import RunAgentInput
     from sessions.executor.run import AgentRun
+    from sessions.executor.spec import RunOutcome
 
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from codebase.context import RuntimeCtx
@@ -65,14 +66,26 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
 
 
 async def finalize_chat_run(
-    run_pk, *, success: bool, usage: dict | None, response_text: str, error_message: str = ""
+    run_pk,
+    *,
+    success: bool,
+    usage: dict | None,
+    response_text: str,
+    error_message: str = "",
+    waiting_input: bool = False,
 ) -> None:
     """Terminal transition for a chat Run. Reuses ``usage_field_updates`` so the
     token/cost denormalization stays identical to the task-backed path
     (``Run.sync_from_task_result``). On failure, ``error_message`` is persisted so the
     run timeline shows a reason instead of a blank FAILED pill.
     """
-    update = {"status": RunStatus.SUCCESSFUL if success else RunStatus.FAILED, "finished_at": timezone.now()}
+    if not success:
+        status = RunStatus.FAILED
+    elif waiting_input:
+        status = RunStatus.WAITING_INPUT
+    else:
+        status = RunStatus.SUCCESSFUL
+    update = {"status": status, "finished_at": timezone.now()}
     if response_text:
         update["result_summary"] = response_text[:2000]
     if not success and error_message:
@@ -230,6 +243,7 @@ class _Turn:
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
+    question: dict | None = None
 
     def add_text(self, delta: str | None) -> None:
         """Buffer assistant text for ``result_summary``, capped at the 2000 chars ``finalize_chat_run`` keeps."""
@@ -288,7 +302,9 @@ class ChatRunStreamer:
             # what would have run if setup fails.
             if self.auto_resolved_env is not None:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-            hooks = RunHooks(on_context_ready=partial(self._start_turn, turn))
+            hooks = RunHooks(
+                on_context_ready=partial(self._start_turn, turn), on_success=partial(self._record_outcome, turn)
+            )
             async with contextlib.aclosing(
                 stream_run(
                     self._run_spec(), partial(self._agui_events, turn), hooks, should_stop=run_relay.cancel_requested
@@ -359,6 +375,13 @@ class ChatRunStreamer:
             message_id=self.message_id,
         )
 
+    async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
+        """A turn that ended on a question keeps the rendered question as its summary, since the question
+        itself was never streamed as text."""
+        if outcome.pending_question is not None:
+            turn.question = outcome.pending_question
+            turn.response = outcome.response_text[:2000]
+
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
         """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back, then the agent's events through
         the subagent filter, recorded on ``turn``. Raises ``_ReportedRunError`` after the last event when one of them
@@ -398,6 +421,7 @@ class ChatRunStreamer:
                     usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,
                     error_message=turn.error or "",
+                    waiting_input=turn.question is not None,
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
