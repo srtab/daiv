@@ -7,6 +7,7 @@ from django.contrib.sites.models import Site
 
 import pytest
 from git import GitCommandError
+from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
@@ -34,8 +35,8 @@ from codebase.clients.base import GitAuthEnv, GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
-from core.sandbox.egress import with_platform_credential
-from core.sandbox.schemas import EgressConfigRequest, StartSessionRequest
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
+from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import FakeSandboxClient
 
@@ -141,9 +142,9 @@ def _metadata_stub():
 
 
 def _turn_start_egress(*, token: str | None = "turn-start") -> EgressConfigRequest:  # noqa: S107
-    """The egress a network-off run is provisioned with: the git host, credentialed when ``token`` is set."""
+    """A turn-start egress holding only the git-host rule, credentialed when ``token`` is set."""
     credential = GitEgressCredential.for_token(host="gitlab.com", token=token)
-    return with_platform_credential(None, credential.host, credential.header, credential.value)
+    return with_platform_credential(None, host=credential.host, header=credential.header, token=credential.value)
 
 
 def _make_sandbox_publisher(*, egress="default"):
@@ -805,7 +806,9 @@ class TestPublishSandboxEgressRefresh:
 
         publisher.client.get_git_egress_credential.assert_called_once_with(publisher.ctx.repository)
         publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(
-            with_platform_credential(publisher.ctx.sandbox_egress, fresh.host, fresh.header, fresh.value)
+            with_platform_credential(
+                publisher.ctx.sandbox_egress, host=fresh.host, header=fresh.header, token=fresh.value
+            )
         )
         assert order == ["refresh", "snapshot"]
 
@@ -843,7 +846,7 @@ class TestPublishSandboxEgressRefresh:
         ],
     )
     async def test_refresh_mints_nothing_without_a_platform_token(self, turn_start):
-        """B8: with no platform token on the session, no rule would inject a fresh one."""
+        """B8: a session with no platform token is never credentialed at publish time."""
         publisher = _make_sandbox_publisher(egress=turn_start)
 
         await publisher._refresh_sandbox_egress()
@@ -895,10 +898,13 @@ def _injected_values(egress: EgressConfigRequest) -> list[str]:
     return [secret.value.get_secret_value() for secret in egress.secrets.values()]
 
 
-async def _publish_on_a_live_session(client: FakeSandboxClient, *, remint: Mock) -> str:
-    """Publish through a real backend bound to a fake session started with the turn-start token."""
+async def _publish_on_a_live_session(
+    client: FakeSandboxClient, *, remint: Mock, env: EgressConfigRequest | None = None
+) -> str:
+    """Publish through a real backend bound to a fake session started with the turn-start token
+    layered on the ``env`` policy."""
     credential = _platform_credential("turn-start")
-    turn_start = with_platform_credential(None, credential.host, credential.header, credential.value)
+    turn_start = with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
     publisher.sandbox_backend = SandboxFileBackend(client=client, session_id=session_id)
@@ -920,6 +926,30 @@ class TestPublishSandboxEgressRefreshAtTheSandbox:
         names = client.method_names()
         assert names.index("update_egress") < names.index("run_commands")
         assert _injected_values(client.sessions[session_id].egress) == [fresh.value.get_secret_value()]
+
+    async def test_a_rotated_token_keeps_the_environment_rules_and_secrets(self):
+        """B8: the refreshed config is the turn-start one with a new token, so a network-on env keeps its policy."""
+        client = FakeSandboxClient.opened()
+        env = EgressConfigRequest(
+            policy=EgressPolicy(
+                default="allow", rules=[EgressRule(host="pypi.org", methods=["GET"], inject="registry")]
+            ),
+            secrets={"registry": EgressSecret(header="Authorization", value=SecretStr("registry-token"))},
+        )
+        fresh = _platform_credential("fresh")
+
+        session_id = await _publish_on_a_live_session(client, remint=Mock(return_value=fresh), env=env)
+
+        egress = client.sessions[session_id].egress
+        assert egress.policy.default == "allow"
+        assert [(rule.host, rule.inject) for rule in egress.policy.rules] == [
+            ("gitlab.com", PLATFORM_EGRESS_SECRET_NAME),
+            ("pypi.org", "registry"),
+        ]
+        assert {name: secret.value.get_secret_value() for name, secret in egress.secrets.items()} == {
+            PLATFORM_EGRESS_SECRET_NAME: fresh.value.get_secret_value(),
+            "registry": "registry-token",
+        }
 
     async def test_an_unchanged_token_is_not_redelivered(self):
         """B8: a re-mint that returns the turn-start token sends nothing to the session."""

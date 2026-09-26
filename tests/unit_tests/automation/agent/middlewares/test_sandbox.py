@@ -524,7 +524,7 @@ class TestSandboxMiddleware:
         )
         runtime = _make_runtime()  # ctx.sandbox.egress is None: the env itself is network-off
         runtime.context.sandbox_egress = with_platform_credential(
-            None, "github.com", "Authorization", SecretStr("Basic tok")
+            None, host="github.com", header="Authorization", token=SecretStr("Basic tok")
         )
 
         await mw.abefore_agent({"session_id": "sess-prev"}, runtime)

@@ -384,11 +384,11 @@ class GitChangePublisher(ChangePublisher):
 
         Refreshing unconditionally before the first network op — rather than reacting to a failed
         one — keeps the recovery independent of git's auth-error wording, which varies by version and
-        transport. Nothing is minted when the session carries no platform token (no egress proxy, or a
-        token-less turn start, where no rule would inject one), and nothing is delivered when the
-        re-mint yields no token or the same one: GitLab's clone tokens are day-cached, so in practice
-        only GitHub's per-call installation tokens rotate. Each skip is debug-logged, so a publish
-        that later fails on auth shows which one fired.
+        transport. The refresh only rotates a token the session already injects: nothing is minted
+        when it carries none (no egress proxy, or a token-less turn start), and nothing is delivered
+        when the re-mint yields no token or the same one: GitLab's clone tokens are day-cached, so in
+        practice only GitHub's per-call installation tokens rotate. Each skip is debug-logged, so a
+        publish that later fails on auth shows which one fired.
 
         Only called in sandbox mode. Best-effort by design — the broad ``except`` is deliberate: the
         platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors the
@@ -414,7 +414,9 @@ class GitChangePublisher(ChangePublisher):
                 logger.debug("Not refreshing platform egress for %s: re-mint returned the incumbent token", slug)
                 return
             await backend.refresh_egress(
-                with_platform_credential(turn_start, credential.host, credential.header, credential.value)
+                with_platform_credential(
+                    turn_start, host=credential.host, header=credential.header, token=credential.value
+                )
             )
             logger.info("Refreshed the sandbox egress token for %s before publish", slug)
         except Exception:

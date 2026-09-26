@@ -14,7 +14,7 @@ PLATFORM_EGRESS_SECRET_NAME = "__daiv_git_platform__"  # noqa: S105
 
 
 def with_platform_credential(
-    egress: EgressConfigRequest | None, host: str, header: str, token: SecretStr | None
+    egress: EgressConfigRequest | None, *, host: str, header: str, token: SecretStr | None
 ) -> EgressConfigRequest:
     """Return ``egress`` with exactly one git-platform rule for ``host``, first, carrying ``token``.
 

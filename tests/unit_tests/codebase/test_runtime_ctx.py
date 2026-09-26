@@ -2,7 +2,9 @@
 
 The constructor enforces ``len(repos) == 1``. A regression that loosened the
 constraint would silently re-enable repoless runs (or quietly accept multi-repo
-shapes before the codepath is ready for them); these tests pin the contract.
+shapes before the codepath is ready for them); these tests pin the contract. It
+also refuses a networked sandbox environment without the egress its session is
+provisioned with, which would otherwise start that session with no network.
 """
 
 from unittest.mock import Mock
@@ -12,6 +14,8 @@ import pytest
 from codebase.context import RepoHandle, RuntimeCtx
 from codebase.exceptions import SingleRepoRequiredError
 from codebase.references import ExternalRef
+from core.sandbox.schemas import EgressConfigRequest
+from tests.unit_tests.conftest import sandbox_spec
 
 
 def _make_handle() -> RepoHandle:
@@ -66,3 +70,23 @@ def test_runtime_ctx_normalises_references_to_a_tuple():
     ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), references=[ref])  # type: ignore[arg-type]
     assert isinstance(ctx.references, tuple)
     assert ctx.references == (ref,)
+
+
+def test_runtime_ctx_rejects_a_networked_sandbox_without_its_provisioned_egress():
+    with pytest.raises(ValueError, match="sandbox_egress"):
+        RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), sandbox=sandbox_spec(egress=EgressConfigRequest()))
+
+
+@pytest.mark.parametrize(
+    ("sandbox", "sandbox_egress"),
+    [
+        pytest.param(sandbox_spec(egress=EgressConfigRequest()), EgressConfigRequest(), id="networked"),
+        pytest.param(sandbox_spec(), None, id="network-off"),
+        pytest.param(sandbox_spec(base_image=None, egress=EgressConfigRequest()), None, id="disabled"),
+        pytest.param(None, None, id="no-sandbox"),
+    ],
+)
+def test_runtime_ctx_accepts_consistent_sandbox_egress(sandbox, sandbox_egress):
+    ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), sandbox=sandbox, sandbox_egress=sandbox_egress)
+
+    assert ctx.sandbox_egress is sandbox_egress

@@ -85,6 +85,9 @@ class RuntimeCtx:
             object.__setattr__(self, "references", tuple(self.references))
         if len(self.repos) != 1:
             raise SingleRepoRequiredError(actual=len(self.repos))
+        sandbox = self.sandbox
+        if sandbox is not None and sandbox.enabled and sandbox.egress is not None and self.sandbox_egress is None:
+            raise ValueError("A sandbox environment with egress needs sandbox_egress, or its session gets no network")
 
     @property
     def repo(self) -> RepoHandle:
@@ -158,7 +161,9 @@ def _run_egress(sandbox: SandboxSpec, repo_client: RepoClient, repository: Repos
     credential = repo_client.get_git_egress_credential(repository)
     if credential is None or (sandbox.egress is None and credential.value is None):
         return sandbox.egress
-    return with_platform_credential(sandbox.egress, credential.host, credential.header, credential.value)
+    return with_platform_credential(
+        sandbox.egress, host=credential.host, header=credential.header, token=credential.value
+    )
 
 
 @asynccontextmanager
