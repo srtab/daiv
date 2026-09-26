@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_TERMINAL_STATUSES = frozenset({"SUCCESSFUL", "FAILED"})
+_TERMINAL_STATUSES = frozenset({"SUCCESSFUL", "WAITING_INPUT", "FAILED"})
 _OPS = frozenset({"ADD", "UPDATE", "MERGE", "CONFIRM", "DISCARD"})
 _CATEGORIES = frozenset({"build_test", "codebase_fact", "pitfall", "reviewer_preference", "workflow"})
 

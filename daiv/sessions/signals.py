@@ -300,6 +300,8 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
             return
         if run.status not in RunStatus.terminal():
             return
+        if run.status == RunStatus.WAITING_INPUT:
+            return
         classify_run_task.enqueue(str(run.pk))
     except Exception:
         logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)

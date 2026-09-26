@@ -21,7 +21,45 @@ def _mk_run(session: Session, **kwargs) -> Run:
 
 
 def test_run_status_terminal_set():
-    assert RunStatus.terminal() == frozenset({RunStatus.SUCCESSFUL, RunStatus.FAILED})
+    assert RunStatus.terminal() == frozenset({RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT, RunStatus.FAILED})
+
+
+def test_waiting_input_is_terminal():
+    assert RunStatus.WAITING_INPUT in RunStatus.terminal()
+    assert RunStatus.WAITING_INPUT.label == "Needs input"
+
+
+@pytest.mark.django_db
+def test_a_successful_task_result_with_a_question_syncs_to_waiting_input(create_db_task_result):
+    question = {"questions": [{"header": "DB", "question": "Which?", "options": [], "multi_select": False}]}
+    task_result = create_db_task_result(return_value={"response": "**DB**: Which?", "question": question})
+    run = _mk_run(_mk_session(), status=RunStatus.RUNNING, task_result=task_result)
+
+    run.sync_and_save()
+    run.refresh_from_db()
+
+    assert run.status == RunStatus.WAITING_INPUT
+    assert run.result_summary == "**DB**: Which?"
+    assert run.pending_question == question
+
+
+@pytest.mark.django_db
+def test_resyncing_a_waiting_run_changes_nothing(create_db_task_result):
+    task_result = create_db_task_result(return_value={"response": "q", "question": {"questions": []}})
+    run = _mk_run(_mk_session(), status=RunStatus.RUNNING, task_result=task_result)
+    run.sync_and_save()
+
+    assert run.sync_from_task_result() == []
+
+
+@pytest.mark.django_db
+def test_a_successful_task_result_without_a_question_stays_successful(create_db_task_result):
+    task_result = create_db_task_result(return_value={"response": "done"})
+    run = _mk_run(_mk_session(), status=RunStatus.RUNNING, task_result=task_result)
+    run.sync_and_save()
+
+    assert run.status == RunStatus.SUCCESSFUL
+    assert run.pending_question is None
 
 
 def test_session_origin_includes_chat():

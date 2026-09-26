@@ -25,11 +25,12 @@ class RunStatus(models.TextChoices):
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
     SUCCESSFUL = "SUCCESSFUL", _("Done")
+    WAITING_INPUT = "WAITING_INPUT", _("Needs input")
     FAILED = "FAILED", _("Failed")
 
     @classmethod
     def terminal(cls) -> frozenset[str]:
-        return frozenset({cls.SUCCESSFUL, cls.FAILED})
+        return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
 
 class SessionOrigin(models.TextChoices):
@@ -275,7 +276,7 @@ class Run(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="runs", verbose_name=_("session"))
     trigger_type = models.CharField(_("trigger type"), max_length=20, choices=SessionOrigin.choices)
-    status = models.CharField(_("status"), max_length=10, choices=RunStatus.choices, default=RunStatus.READY)
+    status = models.CharField(_("status"), max_length=13, choices=RunStatus.choices, default=RunStatus.READY)
     task_result = models.OneToOneField(
         "django_tasks_database.DBTaskResult",
         on_delete=models.SET_NULL,
@@ -410,6 +411,14 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
+    @property
+    def pending_question(self) -> dict | None:
+        """The question a ``WAITING_INPUT`` run asked, from its task result. Async callers must
+        ``select_related("task_result")``; chat runs have none, their question lives in the transcript."""
+        if self.status != RunStatus.WAITING_INPUT or self.task_result_id is None:
+            return None
+        return parse_agent_result(self.task_result.return_value)["question"]
+
     def mark_failed(self, prefix: str, err: Exception) -> list[str]:
         """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
 
@@ -456,15 +465,15 @@ class Run(models.Model):
 
         tr = self.task_result
         changed: list[str] = []
+        parsed = parse_agent_result(tr.return_value) if tr.status == RunStatus.SUCCESSFUL and tr.return_value else None
+        status = RunStatus.WAITING_INPUT if parsed is not None and parsed["question"] else tr.status
 
-        for field, value in [("status", tr.status), ("started_at", tr.started_at), ("finished_at", tr.finished_at)]:
+        for field, value in [("status", status), ("started_at", tr.started_at), ("finished_at", tr.finished_at)]:
             if getattr(self, field) != value:
                 setattr(self, field, value)
                 changed.append(field)
 
-        if tr.status == RunStatus.SUCCESSFUL and tr.return_value:
-            parsed = parse_agent_result(tr.return_value)
-
+        if parsed is not None:
             if parsed["response"] and not self.result_summary:
                 self.result_summary = parsed["response"][:2000]
                 changed.append("result_summary")

@@ -12,13 +12,14 @@
  * and the later CSS rule wins.
  */
 document.addEventListener("alpine:init", () => {
-    const VARIANTS = ["success", "failed", "running", "queued", "pending"];
+    const VARIANTS = ["success", "failed", "running", "queued", "waiting", "pending"];
 
     function statusVariantFor(status) {
         if (status === "SUCCESSFUL") return "success";
         if (status === "FAILED") return "failed";
         if (status === "RUNNING") return "running";
         if (status === "QUEUED") return "queued";
+        if (status === "WAITING_INPUT") return "waiting";
         return "pending";
     }
 
@@ -27,6 +28,7 @@ document.addEventListener("alpine:init", () => {
         if (status === "FAILED") return "Failed";
         if (status === "RUNNING") return "Running";
         if (status === "QUEUED") return "Queued";
+        if (status === "WAITING_INPUT") return "Needs input";
         return "Pending";
     }
 

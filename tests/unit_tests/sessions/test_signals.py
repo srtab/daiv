@@ -503,6 +503,14 @@ class TestClassifyOnRunFinished:
             classify_on_run_finished(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
+    def test_skips_waiting_input_status(self):
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.WAITING_INPUT)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
     def test_skips_dispatch_failure_reemits(self):
         """``skip_dispatch=True`` is checked first: re-emitted runs never executed."""
         from sessions.signals import classify_on_run_finished

@@ -242,6 +242,7 @@ def reclassify_missing_envelopes_cron_task():
             finished_at__lt=grace_cutoff,
             finished_at__gte=age_floor,
         )
+        .exclude(status=RunStatus.WAITING_INPUT)
         .order_by("finished_at")
         .values_list("pk", flat=True)[:RECLASSIFY_BATCH_LIMIT]
     )
