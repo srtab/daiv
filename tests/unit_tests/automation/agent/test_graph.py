@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from deepagents.backends.protocol import BackendProtocol
 
-from automation.agent.graph import create_daiv_agent
+from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent
+from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, SandboxFileBackend
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
 
 
@@ -32,7 +34,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(*, base_image: str | None) -> SimpleNamespace:
+async def _build(*, base_image: str | None, **agent_kwargs) -> SimpleNamespace:
     """Build the agent with its collaborators stubbed and return the stubs plus the run's client."""
     run_client = FakeSandboxClient.opened()
     sandbox = sandbox_runtime(base_image=base_image)
@@ -56,7 +58,7 @@ async def _build(*, base_image: str | None) -> SimpleNamespace:
         ctx.config.context_file_name = "AGENTS.md"
         if sandbox.enabled:
             stack.enter_context(bound_run_sandbox_client(run_client))
-        await create_daiv_agent(ctx=ctx, auto_commit_changes=False)
+        await create_daiv_agent(ctx=ctx, auto_commit_changes=False, **agent_kwargs)
     return SimpleNamespace(run_client=run_client, **mocks)
 
 
@@ -100,3 +102,21 @@ async def test_sandbox_mode_shares_one_backend_across_the_run():
         assert kwargs["sandbox_backend"] is backend
         assert kwargs["client"] is built.run_client
     assert built.run_client.calls == []
+
+
+def test_ask_user_question_is_always_loaded():
+    assert ASK_USER_QUESTION_TOOL_NAME in ALWAYS_LOADED_TOOLS
+
+
+async def test_ask_user_is_enabled_by_default():
+    built = await _build(base_image=None)
+
+    [middleware] = [m for m in _middleware(built) if isinstance(m, AskUserQuestionMiddleware)]
+    assert middleware.enabled is True
+
+
+async def test_ask_user_can_be_disabled_for_the_run():
+    built = await _build(base_image=None, ask_user_enabled=False)
+
+    [middleware] = [m for m in _middleware(built) if isinstance(m, AskUserQuestionMiddleware)]
+    assert middleware.enabled is False

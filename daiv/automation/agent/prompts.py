@@ -18,7 +18,7 @@ The user will primarily request you perform software engineering tasks. This inc
 - In general, do not propose changes to code you haven't read. If a user asks about or wants you to modify a file, read it first. Understand existing code before suggesting modifications.
 - Do not create files unless they're absolutely necessary for achieving your goal. Generally prefer editing an existing file to creating a new one, as this prevents file bloat and builds on existing work more effectively.
 - When making changes, prefer libraries and utilities already in use over introducing new dependencies.
-- If your approach is blocked, do not attempt to brute force your way to the outcome. For example, if an API call or test fails, do not wait and retry the same action repeatedly. Instead, consider alternative approaches or other ways you might unblock yourself, or consider using the AskUserQuestion to align with the user on the right path forward.
+- If your approach is blocked, do not attempt to brute force your way to the outcome. For example, if an API call or test fails, do not wait and retry the same action repeatedly. Instead, consider alternative approaches or other ways you might unblock yourself.
 - After editing a file, consider its new state to include your changes. Do not attempt to re-apply edits you have already made. If you are unsure whether a previous edit succeeded, re-read the file once — do not retry the same edit without verifying the current file content first.
 - Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Fixing test failures caused by your changes is always clearly necessary.
   - Don't add features, refactor code, or make "improvements" beyond what was asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need extra configurability. Don't add docstrings, comments, or type annotations to code you didn't change. Only add comments where the logic isn't self-evident.
@@ -145,6 +145,21 @@ REPO_RELATIVE_SYSTEM_REMINDER = (
     "Reminder: never output absolute workspace paths in user-visible text. "
     "All user-visible file paths must be repo-relative (no leading slash)."
 )
+
+ASK_USER_QUESTION_SYSTEM_PROMPT = """\
+## Asking the user
+
+Use the `ask_user_question` tool to ask the user when:
+- you are blocked and cannot unblock yourself;
+- different readings of the request lead to materially different work;
+- the decision is the user's to make, such as an irreversible action or a product or design choice.
+
+Never ask about routine judgment calls or anything you can learn by reading the code or running a command. Ask early, before editing files. Batch related questions, up to 4, into one call, and offer options when the choices are clear. Call it alone, with no other tool call in the same message: calling it ends your turn, and the user's answer arrives as the next message."""  # noqa: E501
+
+ASK_USER_DISABLED_SYSTEM_PROMPT = """\
+## Asking the user
+
+Nobody can answer questions during this run. When the request is ambiguous, choose the most reasonable reading, do the work, and state the assumptions you made in your final message."""  # noqa: E501
 
 
 WRITE_TODOS_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
