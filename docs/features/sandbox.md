@@ -41,6 +41,8 @@ The following commands are **always blocked** and cannot be overridden:
 
 These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.
 
+The policy checks every command in the invocation, including those in chains, pipelines, `if`/`case` statements, loops, subshells and functions, and it looks past leading variable assignments, so `HUSKY=0 git commit` is caught. It does not look inside command or process substitutions (`$(…)`, backticks, `<(…)`), variable expansions (`git $cmd`), `bash -c` or `eval` strings, or wrappers such as `env`, and it compares words exactly as written, so `/usr/bin/git push`, `\git push` and `git "push"` are not caught. Treat it as a guardrail that stops the agent's plain invocations, not as a security boundary.
+
 ### Global rules
 
 In addition to the built-in safety rules, operators can block more commands with

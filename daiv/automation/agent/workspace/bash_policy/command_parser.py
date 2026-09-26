@@ -9,8 +9,10 @@ only on the stable :class:`ExecutableSegment` interface.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import dropwhile
 
 from parable import ParseError as ParableParseError
+from parable import _looks_like_assignment
 from parable import parse as _parable_parse
 
 
@@ -20,9 +22,9 @@ class ExecutableSegment:
     A normalized representation of one executable command within a compound input.
 
     Attributes:
-        argv: The command name followed by its arguments, derived from the parsed
-            Word tokens. The first element is the executable name.
-        raw: The original un-parsed source slice (for logging / diagnostics only).
+        argv: The command name and its arguments, with leading variable assignments
+            dropped, so an assignment-only command (``FOO=1``) has an empty argv.
+        raw: All of the command's words joined by spaces (for logging / diagnostics only).
     """
 
     argv: tuple[str, ...]
@@ -49,8 +51,8 @@ def parse_command(command: str) -> list[ExecutableSegment]:
 
     Each segment corresponds to one simple command reachable in the execution
     graph (across ``&&``, ``||``, ``;``, ``|`` operators and all nesting
-    levels).  The caller should evaluate **every** segment before allowing
-    execution.
+    levels except substitutions).  The caller should evaluate **every** segment
+    before allowing execution.
 
     Args:
         command: The raw bash command string to parse.
@@ -59,8 +61,8 @@ def parse_command(command: str) -> list[ExecutableSegment]:
         A non-empty list of :class:`ExecutableSegment` instances.
 
     Raises:
-        CommandParseError: If Parable cannot parse the command or if the result
-            is ambiguous / empty in a way that prevents safe analysis.
+        CommandParseError: If Parable cannot parse the command, the result holds a
+            construct the walker does not know, or no executable command is found.
     """
     if not command or not command.strip():
         raise CommandParseError(command, "empty command")
@@ -73,7 +75,8 @@ def parse_command(command: str) -> list[ExecutableSegment]:
         raise CommandParseError(command, f"unexpected parser error: {exc}") from exc
 
     segments: list[ExecutableSegment] = []
-    _collect_segments(ast_nodes, command, segments)
+    for node in ast_nodes:
+        _walk(node, command, segments)
 
     if not segments:
         raise CommandParseError(command, "no executable commands found after parsing")
@@ -86,94 +89,55 @@ def parse_command(command: str) -> list[ExecutableSegment]:
 # ---------------------------------------------------------------------------
 
 
-def _collect_segments(nodes: list, source: str, out: list[ExecutableSegment]) -> None:
-    """Recursively walk Parable AST nodes and populate *out* with segments."""
-    for node in nodes:
-        _walk(node, source, out)
+_CHILD_FIELDS: dict[str, tuple[str, ...]] = {
+    "pipeline": ("commands",),
+    "list": ("parts",),
+    "if": ("condition", "then_body", "else_body"),
+    "while": ("condition", "body"),
+    "until": ("condition", "body"),
+    "for": ("body",),
+    "for-arith": ("body",),
+    "select": ("body",),
+    "case": ("patterns",),
+    "pattern": ("body",),
+    "brace-group": ("body",),
+    "subshell": ("body",),
+    "function": ("body",),
+    "negation": ("pipeline",),
+    "time": ("pipeline",),
+    "coproc": ("command",),
+}
+
+#: Kinds with no child command nodes; listing a kind that has them hides those commands from the policy.
+_LEAF_KINDS = frozenset({"operator", "pipe-both", "empty", "comment", "redirect", "arith-cmd", "cond-expr"})
 
 
 def _walk(node: object, source: str, out: list[ExecutableSegment]) -> None:
-    """Dispatch on node kind."""
+    """
+    Dispatch on node kind.
+
+    Raises:
+        CommandParseError: On an unknown kind or a missing field, so Parable drift blocks commands.
+    """
     kind = getattr(node, "kind", None)
 
     if kind == "command":
-        _handle_command(node, out)
-
-    elif kind == "pipeline":
-        for child in node.commands:
-            _walk(child, source, out)
-
-    elif kind in {"list"}:
-        for part in node.parts:
-            _walk(part, source, out)
-
-    elif kind in {
-        "if",
-        "while",
-        "until",
-        "for",
-        "for-arith",
-        "select",
-        "case",
-        "brace-group",
-        "subshell",
-        "arith-command",
-        "cond-expr",
-        "time",
-        "negation",
-        "coproc",
-        "function",
-    }:
-        _walk_compound(node, source, out)
-
-    # "operator", "empty", "comment", "redirect", etc. are intentionally ignored
-
-
-def _handle_command(node: object, out: list[ExecutableSegment]) -> None:
-    """Convert a Command node into an ExecutableSegment."""
-    words = getattr(node, "words", [])
-    if not words:
-        return
-
-    argv_parts: list[str] = []
-    for word in words:
-        val = getattr(word, "value", None)
-        if val is not None:
-            argv_parts.append(val)
-
-    if not argv_parts:
-        return
-
-    out.append(ExecutableSegment(argv=tuple(argv_parts), raw=" ".join(argv_parts)))
-
-
-def _walk_compound(node: object, source: str, out: list[ExecutableSegment]) -> None:
-    """
-    Walk compound constructs by visiting all child attributes that may contain
-    executable nodes (body, condition, then_part, else_part, etc.).
-    """
-    for attr in (
-        "body",
-        "condition",
-        "then_part",
-        "elif_clauses",
-        "else_part",
-        "commands",
-        "parts",
-        "list",
-        "items",
-        "pattern_list",
-    ):
-        child = getattr(node, attr, None)
-        if child is None:
-            continue
-        if isinstance(child, list):
-            for item in child:
-                if hasattr(item, "kind"):
+        words = tuple(_field(word, "value", source) for word in _field(node, "words", source))
+        if words:
+            argv = tuple(dropwhile(_looks_like_assignment, words))
+            out.append(ExecutableSegment(argv=argv, raw=" ".join(words)))
+    elif kind in _CHILD_FIELDS:
+        for attr in _CHILD_FIELDS[kind]:
+            child = _field(node, attr, source)
+            for item in child if isinstance(child, list) else (child,):
+                if item is not None:
                     _walk(item, source, out)
-                elif hasattr(item, "__iter__"):
-                    for sub in item:
-                        if hasattr(sub, "kind"):
-                            _walk(sub, source, out)
-        elif hasattr(child, "kind"):
-            _walk(child, source, out)
+    elif kind not in _LEAF_KINDS:
+        raise CommandParseError(source, f"unsupported shell construct: {kind}")
+
+
+def _field(node: object, attr: str, source: str):
+    try:
+        return getattr(node, attr)
+    except AttributeError:
+        raise CommandParseError(source, f"{getattr(node, 'kind', None)} node has no {attr!r} field") from None

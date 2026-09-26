@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
+from parable import parse as parable_parse
 
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, ExecutableSegment, parse_command
 
@@ -98,6 +101,92 @@ class TestParseCommandChaining:
         segments = parse_command("echo safe && git reset --hard")
         names = [s.name for s in segments]
         assert "git" in names
+
+
+class TestParseCommandCompound:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param("if true; then git push; fi", id="if-then"),
+            pytest.param("if false; then :; elif true; then git push; fi", id="elif"),
+            pytest.param("if false; then :; else git push; fi", id="else"),
+            pytest.param("if git push; then :; fi", id="if-condition"),
+            pytest.param("case x in y) :;; x) git push;; esac", id="case-arm"),
+            pytest.param("echo a; ! git push", id="negation"),
+            pytest.param("echo a; time git push", id="time"),
+            pytest.param("echo a; coproc git push", id="coproc"),
+            pytest.param("while git push; do :; done", id="while-condition"),
+            pytest.param("while true; do git push; done", id="while-body"),
+            pytest.param("until git push; do :; done", id="until-condition"),
+            pytest.param("until false; do git push; done", id="until-body"),
+            pytest.param("for x in a; do git push; done", id="for"),
+            pytest.param("for ((;;)); do git push; done", id="for-arith"),
+            pytest.param("select x in a; do git push; done", id="select"),
+            pytest.param("{ git push; }", id="brace-group"),
+            pytest.param("( git push )", id="subshell"),
+            pytest.param("f() ( git push )", id="function"),
+        ],
+    )
+    def test_nested_command_is_extracted(self, command):
+        assert ("git", "push") in [s.argv for s in parse_command(command)]
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("[[ -f x ]] && echo ok", [("echo", "ok")]),
+            ("(( i++ )); echo ok", [("echo", "ok")]),
+            ("echo a |& tee log", [("echo", "a"), ("tee", "log")]),
+        ],
+    )
+    def test_leaf_constructs_yield_no_segment(self, command, expected):
+        assert [s.argv for s in parse_command(command)] == expected
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("time pytest", [("pytest",)]),
+            ("! grep x f", [("grep", "x", "f")]),
+            ("case x in x) echo ok;; esac", [("echo", "ok")]),
+            ("coproc echo hi", [("echo", "hi")]),
+        ],
+    )
+    def test_lone_compound_command_is_parsed(self, command, expected):
+        assert [s.argv for s in parse_command(command)] == expected
+
+    @pytest.mark.parametrize(
+        ("kind", "match"),
+        [
+            pytest.param("new-construct", "unsupported shell construct: new-construct", id="unknown-kind"),
+            pytest.param("subshell", "subshell node has no 'body' field", id="missing-child-field"),
+            pytest.param("command", "command node has no 'words' field", id="missing-words-field"),
+        ],
+    )
+    def test_parable_drift_fails_closed(self, monkeypatch, kind, match):
+        nodes = [*parable_parse("echo a"), SimpleNamespace(kind=kind)]
+        monkeypatch.setattr(
+            "automation.agent.workspace.bash_policy.command_parser._parable_parse", lambda _command: nodes
+        )
+        with pytest.raises(CommandParseError, match=match):
+            parse_command("echo a; <drifted node>")
+
+
+class TestParseCommandAssignments:
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("HUSKY=0 git commit -m x", ("git", "commit", "-m", "x")),
+            ("A=1 B[0]=2 C+=3 git push", ("git", "push")),
+            ("a[b[1]]=2 git push", ("git", "push")),
+            ("make CC=gcc", ("make", "CC=gcc")),
+            ('"FOO=1" git push', ('"FOO=1"', "git", "push")),
+            ("FOO=1", ()),
+        ],
+    )
+    def test_leading_assignments_are_dropped_from_argv(self, command, expected):
+        assert parse_command(command)[0].argv == expected
+
+    def test_raw_keeps_leading_assignments(self):
+        assert parse_command("HUSKY=0 git push")[0].raw == "HUSKY=0 git push"
 
 
 class TestParseCommandErrorHandling:

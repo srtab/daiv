@@ -281,6 +281,16 @@ class TestBashToolPolicyEnforcement:
         assert output.startswith("error:")
         run_mock.assert_not_awaited()
 
+    async def test_git_push_inside_if_body_is_blocked(self, tmp_path: Path):
+        output, run_mock = await self._invoke("if true; then git push; fi", tmp_path)
+        assert "default_disallow" in output
+        run_mock.assert_not_awaited()
+
+    async def test_git_commit_after_assignment_prefix_is_blocked(self, tmp_path: Path):
+        output, run_mock = await self._invoke("HUSKY=0 git commit -m wip", tmp_path)
+        assert "default_disallow" in output
+        run_mock.assert_not_awaited()
+
     # --- Parse failure → fail-closed ---
 
     async def test_unmatched_quote_blocks_execution(self, tmp_path: Path):
