@@ -299,7 +299,7 @@ def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
             return
         if run.trigger_type not in get_classify_origins():
             return
-        if run.status not in RunStatus.completed():
+        if run.status not in RunStatus.terminal():
             return
         classify_run_task.enqueue(str(run.pk))
     except Exception:

@@ -39,7 +39,8 @@ async def classify_run_task(run_id: str) -> None:
     one envelope (the OneToOne would otherwise raise on a second insert).
 
     The load-bearing invariants are enforced here, in code, so no future method choice can break
-    them: a FAILED run is a tooling problem (``failed``, no LLM call); a ``report``-intent run never
+    them: a FAILED run is a tooling problem (``failed``, no LLM call); a WAITING_INPUT run is
+    ``needs-input`` with its question lines (no LLM call); a ``report``-intent run never
     yields a finding (``actionable == []``); a ``found-issues`` draft with no items is coerced to
     ``all-clear``; and — the reverse direction — only a ``found-issues`` envelope ever carries
     actionable items (any other status is emptied), so an off-contract draft can never persist an
@@ -112,10 +113,15 @@ async def classify_run_task(run_id: str) -> None:
         await _persist(status=EnvelopeStatus.FAILED, summary=first_line or gettext("Run failed."), actionable=[])
         return
 
-    # Defensive terminal-successful re-check: only a SUCCESSFUL run reaches the classification path.
-    # The signal gate enqueues terminal-only (currently ``{SUCCESSFUL, FAILED}``), but a manual
-    # re-enqueue (contemplated above) or a future third terminal ``RunStatus`` must never be dressed
-    # as success — skip rather than misclassify a non-successful run as ``all-clear``/``found-issues``.
+    if run.status == RunStatus.WAITING_INPUT:
+        from automation.agent.questions import question_lines
+
+        summary = question_lines(run.question) or gettext("Waiting for your answer.")
+        await _persist(status=EnvelopeStatus.NEEDS_INPUT, summary=summary, actionable=[])
+        return
+
+    # Defensive terminal-successful re-check: FAILED and WAITING_INPUT are handled above, so only a
+    # SUCCESSFUL run may reach classification; anything else (a manual re-enqueue while RUNNING) skips.
     if run.status != RunStatus.SUCCESSFUL:
         logger.warning("classify_run_task: run %s is %s (not terminal-successful), skipping", run_id, run.status)
         return
@@ -235,7 +241,7 @@ def reclassify_missing_envelopes_cron_task():
         Run.objects
         .filter(
             trigger_type__in=get_classify_origins(),
-            status__in=RunStatus.completed(),
+            status__in=RunStatus.terminal(),
             envelope__isnull=True,
             classify_eligible=True,
             # Keyed on finished_at (see docstring); terminal runs always have it set.
