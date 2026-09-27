@@ -14,6 +14,7 @@ from notifications.policy import (
     envelope_tone,
     is_schedule_run,
     notification_source_for_run,
+    notifies,
     notify_worthy,
     notify_worthy_statuses,
     status_severity,
@@ -93,7 +94,7 @@ def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
         (row for row in rows if notify_worthy(row.status)), key=lambda r: (status_severity(r.status), r.repo)
     )
     head = [
-        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": row.summary}
+        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": " ".join(row.summary.split())}
         for row in notable[:NOTABLE_RUNS_CONTEXT_LIMIT]
     ]
     return head, len(notable) - len(head)
@@ -129,14 +130,16 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
     status = envelope.status
     count = envelope.count
 
-    # The caller gates on notify_worthy() first, so status is found-issues / needs-attention / failed;
-    # an unmatched status would leave subject unbound, so the else raises instead of guessing.
+    # The caller gates on notifies() first; an unmatched status would leave subject unbound,
+    # so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
             subject = _("'%(name)s' found %(count)d issue(s) on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("'%(name)s' needs attention on %(repo)s — %(owner)s") % params
+        elif status == EnvelopeStatus.NEEDS_INPUT:
+            subject = _("'%(name)s' is waiting for an answer on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
         else:
@@ -147,6 +150,8 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
             subject = _("Agent run on %(repo)s found %(count)d issue(s)") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("Agent run on %(repo)s needs attention") % params
+        elif status == EnvelopeStatus.NEEDS_INPUT:
+            subject = _("Agent run on %(repo)s is waiting for your answer") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("Agent run on %(repo)s failed") % params
         else:
@@ -202,8 +207,9 @@ def _render_batch_payload(
             subject = _("Agent run batch: %(notable)d/%(total)d need a look") % params
 
     body = _(
-        "%(found)d found issues, %(needs)d need attention, %(failed)d failed, %(clear)d all-clear (of %(total)d runs)."
-    ) % {"found": agg["found"], "needs": agg["needs"], "failed": agg["failed"], "clear": agg["clear"], "total": total}
+        "%(found)d found issues, %(needs_input)d waiting for input, %(needs)d need attention, %(failed)d failed, "
+        "%(clear)d all-clear (of %(total)d runs)."
+    ) % {**agg, "total": total}
 
     notable_runs, notable_runs_overflow = _notable_runs_context(rows)
 
@@ -212,6 +218,7 @@ def _render_batch_payload(
         "notable_runs_overflow": notable_runs_overflow,
         "found_count": agg["found"],
         "needs_attention_count": agg["needs"],
+        "needs_input_count": agg["needs_input"],
         "failed_count": agg["failed"],
         "all_clear_count": agg["clear"],
         "notable_count": notable,
@@ -286,6 +293,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
     agg = siblings.aggregate(
         found=Count("id", filter=Q(envelope__status=EnvelopeStatus.FOUND_ISSUES)),
         needs=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_ATTENTION)),
+        needs_input=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_INPUT)),
         failed=Count("id", filter=Q(envelope__status=EnvelopeStatus.FAILED)),
         clear=Count("id", filter=Q(envelope__status=EnvelopeStatus.ALL_CLEAR)),
         # Counted off the predicate, not summed from the per-status counts above: a new
@@ -336,8 +344,9 @@ def emit_run_notification(run, envelope) -> None:
     """Notify recipients when a Run is classified, driven by the envelope (not raw status).
 
     Chat is never classified, so no chat special-case is needed. all-clear is silent; found-issues /
-    needs-attention / failed notify unless muted, within the relevance window. Delivery is
-    at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
+    needs-attention / needs-input / failed notify unless muted, within the relevance window, except where
+    ``notifies()`` says otherwise.
+    Delivery is at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
     """
     from sessions.models import Run
 
@@ -352,7 +361,7 @@ def emit_run_notification(run, envelope) -> None:
             _handle_batch_completion(run, siblings, total)
             return
 
-    if not notify_worthy(envelope.status) or run.effective_muted:
+    if not notifies(run, envelope.status) or run.effective_muted:
         return
 
     recipients = resolve_recipients(run)

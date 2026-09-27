@@ -23,6 +23,7 @@ def _mr_comment_skip_result(response: str, merge_request: MergeRequest) -> Agent
         merge_request_id=merge_request.merge_request_id,
         merge_request_web_url=merge_request.web_url,
         usage=None,
+        question=None,
     )
 
 

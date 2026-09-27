@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
@@ -272,12 +273,15 @@ class CommentsAddressorManager(BaseManager):
                     "merge_request_id": self.merge_request.merge_request_id,
                 },
             ),
-            RunHooks(on_success=self._on_success, on_failure=self._on_failure),
+            RunHooks(on_success=partial(self._on_success, asker=note.author.username), on_failure=self._on_failure),
         )
         return outcome.agent_result
 
-    async def _on_success(self, outcome: RunOutcome) -> None:
+    async def _on_success(self, outcome: RunOutcome, *, asker: str) -> None:
         fallback_footer = self._render_protected_branch_footer(outcome.snapshot)
+        if (question := self._question_comment(outcome, asker=asker)) is not None:
+            self._leave_comment(self._append_footer(question, fallback_footer), reply_to_id=self.reply_to_id)
+            return
         if response := outcome.response_text.strip():
             self._leave_comment(self._append_footer(response, fallback_footer))
         else:
@@ -337,12 +341,6 @@ class CommentsAddressorManager(BaseManager):
                 "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )
-
-    @staticmethod
-    def _append_footer(body: str, footer: str | None) -> str:
-        if not footer:
-            return body
-        return f"{body.rstrip()}\n\n{footer.lstrip()}"
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """

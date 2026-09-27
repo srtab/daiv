@@ -18,6 +18,7 @@ from sessions.tasks import classify_run_task
 
 from accounts.models import User
 from schedules.models import Frequency, Intent, ScheduledJob
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 
 
 def _llm_returning(classification: RunClassification) -> MagicMock:
@@ -486,3 +487,41 @@ async def test_raced_loser_does_not_emit():
 
     assert received == []  # the raced loser never emits
     assert await RunEnvelope.objects.filter(run=run).acount() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("response_text", "model"),
+    [("There is prose here.", "openrouter:primary"), ("", "openrouter:primary"), ("There is prose here.", "")],
+    ids=["prose", "empty-prose", "no-classifier-model"],
+)
+async def test_waiting_input_run_is_needs_input_with_the_question_lines_and_no_llm_call(response_text, model):
+    run = await _make_scheduled_run(status=RunStatus.WAITING_INPUT, response_text=response_text)
+    await Run.objects.filter(pk=run.pk).aupdate(question=SAMPLE_QUESTION_PAYLOAD)
+
+    with (
+        patch("core.site_settings.site_settings", _fake_site_settings(model=model, fallback="")),
+        patch("sessions.classification._build_structured_llm") as build,
+    ):
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_not_called()
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert envelope.status == EnvelopeStatus.NEEDS_INPUT
+    assert envelope.actionable == []
+    assert envelope.count == 0
+    assert envelope.summary == "Database: Which database engine should the project move to?"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_waiting_input_run_without_a_stored_question_still_gets_an_envelope(caplog):
+    run = await _make_scheduled_run(status=RunStatus.WAITING_INPUT)
+
+    with patch("sessions.classification._build_structured_llm") as build, caplog.at_level("ERROR", "daiv.sessions"):
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_not_called()
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert envelope.status == EnvelopeStatus.NEEDS_INPUT
+    assert envelope.summary == "Waiting for your answer."
+    assert "has no question to show" in caplog.text

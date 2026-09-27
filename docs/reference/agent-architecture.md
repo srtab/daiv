@@ -62,7 +62,7 @@ Both create a persistent conversation thread (stored in Redis with a 7-day TTL b
 The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
 
 !!! note "Tools are deferred by default"
-    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
+    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -105,6 +105,14 @@ Commands are evaluated against a [command policy](../features/sandbox.md) before
 ### MCP
 
 External tools provided via [MCP servers](../customization/mcp-tools.md) (Sentry error tracking, Context7 documentation lookup).
+
+### Asking the user
+
+| Tool | Description |
+|------|-------------|
+| `ask_user_question` | Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message |
+
+See [Answering a question](../features/sessions.md#answering-a-question) for what this looks like from the user's side.
 
 ## Middlewares
 
@@ -152,6 +160,8 @@ The main agent can delegate work to two general-use subagents. See [Subagents](.
 In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](../features/subagents.md#custom-subagents) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
+
+No subagent is given `ask_user_question` — only the main agent can stop a run to ask the user.
 
 ## Dynamic system prompt
 

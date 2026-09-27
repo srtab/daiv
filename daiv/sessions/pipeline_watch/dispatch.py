@@ -69,6 +69,7 @@ class FixRunDispatcher:
                 sandbox_environment_id=sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=session.user_id,
+                ask_user_enabled=False,
             )
         except Exception as err:  # noqa: BLE001
             # The claim already charged the attempt and moved the row to FIXING, but nothing will

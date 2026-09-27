@@ -17,7 +17,7 @@ from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
 
-# Emitted when a Run transitions to a terminal status (SUCCESSFUL or FAILED).
+# Emitted when a Run transitions to a terminal status (``RunStatus.terminal()``).
 # Arguments: run (Run instance).
 run_finished = Signal()
 
@@ -236,7 +236,7 @@ def _enqueue_queued_run(run: Any) -> bool:
     ``finished_at`` set and re-emits ``run_finished`` with ``skip_dispatch=True``
     so notification receivers fire without recursively re-entering the dispatcher.
     """
-    from sessions.models import RunStatus
+    from sessions.models import RunStatus, SessionOrigin
 
     agent_model = run.agent_model or None
     agent_thinking_level = run.agent_thinking_level or None
@@ -252,6 +252,7 @@ def _enqueue_queued_run(run: Any) -> bool:
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
+            ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)

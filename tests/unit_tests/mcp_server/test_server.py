@@ -14,6 +14,8 @@ from mcp_server.server import (
 )
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
+
 
 def _mock_task():
     m = MagicMock()
@@ -334,6 +336,7 @@ async def test_submit_job_wait_success():
             finished.created_at = now
             finished.started_at = now
             finished.finished_at = now
+            finished.question = None
             return _AsyncRows([finished])
 
         mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
@@ -461,6 +464,7 @@ async def test_get_job_status_wait_already_complete():
     mock_run.created_at = now
     mock_run.started_at = now
     mock_run.finished_at = now
+    mock_run.question = None
 
     caller = MagicMock(pk=1)
     with (
@@ -498,6 +502,7 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
+    finished_result.question = None
 
     caller = MagicMock(pk=1)
     with (
@@ -532,6 +537,7 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
+    finished_result.question = None
 
     class _DoesNotExistError(Exception):
         pass
@@ -804,6 +810,33 @@ async def test_get_job_status_other_user_run_returns_not_found():
         result = await get_job_status(job_id=str(run.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_waiting_input_carries_the_question():
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="mcp_waiting", email="mcp_waiting@example.com", password="x")  # noqa: S106
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=user, repo_id="a/b"
+    )
+    run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.MCP_JOB,
+        repo_id="a/b",
+        user=user,
+        status=RunStatus.WAITING_INPUT,
+        result_summary="**Database** — Which?",
+        question=SAMPLE_QUESTION_PAYLOAD,
+    )
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await get_job_status(job_id=str(run.id))
+
+    data = json.loads(result)
+    assert data["status"] == "WAITING_INPUT"
+    assert data["question"] == SAMPLE_QUESTION_PAYLOAD
+    assert data["result"] == "**Database** — Which?"
 
 
 @pytest.mark.django_db(transaction=True)

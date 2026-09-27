@@ -321,6 +321,7 @@ def _build_job_response_dict(run: Run) -> dict:
         "status": str(run.status),
         "thread_id": str(run.session_id) if run.session_id else None,
         "result": run.result_summary or None,
+        "question": run.question,
         "merge_request_url": run.merge_request_web_url or None,
         "error": error,
         "created_at": run.created_at.isoformat() if run.created_at else None,
@@ -433,7 +434,9 @@ async def get_job_status(
 ) -> str:
     """Get the status and result of a previously submitted job.
 
-    Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
+    Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, WAITING_INPUT, FAILED. WAITING_INPUT means the agent
+    stopped to ask the user: ``question`` holds its questions and ``result`` their rendered text. To answer, call
+    ``submit_job`` with the same single repository, this response's ``thread_id``, and the answer as ``prompt``.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
@@ -564,7 +567,8 @@ def _serialize_job_summary(run: Run) -> dict:
 async def list_jobs(
     repo_id: Annotated[str | None, Field(description="Filter to one repository (repo_id).")] = None,
     status: Annotated[
-        RunStatus | None, Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, or FAILED.")
+        RunStatus | None,
+        Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, WAITING_INPUT, or FAILED."),
     ] = None,
     limit: LimitParam = DEFAULT_LIST_LIMIT,
     cursor: Annotated[

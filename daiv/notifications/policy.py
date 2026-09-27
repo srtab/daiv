@@ -24,13 +24,27 @@ def is_schedule_run(run) -> bool:
 def notify_worthy_statuses() -> frozenset[str]:
     from sessions.models import EnvelopeStatus
 
-    return frozenset({EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION, EnvelopeStatus.FAILED})
+    return frozenset({
+        EnvelopeStatus.FOUND_ISSUES,
+        EnvelopeStatus.NEEDS_ATTENTION,
+        EnvelopeStatus.NEEDS_INPUT,
+        EnvelopeStatus.FAILED,
+    })
 
 
 def notify_worthy(status: str) -> bool:
-    """The single notification predicate: notify only when the run produced something to look at.
-    ``all-clear`` is silent (it lives in the Feed)."""
+    """Whether an envelope status is worth a look; ``all-clear`` is silent (it lives in the Feed).
+    Per-run delivery decisions go through ``notifies()``, which adds the run-level exceptions."""
     return status in notify_worthy_statuses()
+
+
+def notifies(run, status: str) -> bool:
+    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
+    from sessions.models import EnvelopeStatus, SessionOrigin
+
+    if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
+        return False
+    return notify_worthy(status)
 
 
 def status_severity(status: str) -> int:
@@ -104,6 +118,7 @@ def status_tones() -> dict[str, str]:
         EnvelopeStatus.FAILED: "failure",
         EnvelopeStatus.FOUND_ISSUES: "warning",
         EnvelopeStatus.NEEDS_ATTENTION: "warning",
+        EnvelopeStatus.NEEDS_INPUT: "warning",
         EnvelopeStatus.ALL_CLEAR: "success",
     }
 

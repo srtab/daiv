@@ -133,17 +133,22 @@ class TestDeliverNotification:
         assert "Re-enqueue failed" in d.error_message
 
 
-def _classified_finished_run(user, *, status=EnvelopeStatus.FAILED):
-    session = Session.objects.create(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=user
-    )
+_RUN_STATUS_FOR_ENVELOPE = {
+    EnvelopeStatus.FAILED: RunStatus.FAILED,
+    EnvelopeStatus.NEEDS_INPUT: RunStatus.WAITING_INPUT,
+}
+
+
+def _classified_finished_run(user, *, status=EnvelopeStatus.FAILED, origin=SessionOrigin.API_JOB, batch_id=None):
+    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="x/y", user=user)
     run = Run.objects.create(
         session=session,
-        trigger_type=SessionOrigin.API_JOB,
+        trigger_type=origin,
         repo_id="x/y",
-        status=RunStatus.FAILED if status == EnvelopeStatus.FAILED else RunStatus.SUCCESSFUL,
+        status=_RUN_STATUS_FOR_ENVELOPE.get(status, RunStatus.SUCCESSFUL),
         user=user,
         finished_at=timezone.now(),
+        batch_id=batch_id,
     )
     RunEnvelope.objects.create(run=run, status=status, summary="s")
     return run
@@ -309,3 +314,36 @@ def test_redrive_skips_batch_not_yet_fully_classified(member_user, email_binding
         redrive_missing_notifications_cron_task.func()
     send_mock.assert_not_called()
     assert Notification.objects.filter(source_id=str(batch_id)).count() == 0
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_a_missing_prompt_driven_question(member_user, email_binding):
+    run = _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT)
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, caplog):
+    """Re-emitting would be skipped by the emit and then logged as a stuck delivery every tick."""
+    _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT, origin=SessionOrigin.ISSUE_WEBHOOK)
+
+    with (
+        patch("sessions.signals.run_classified.send_robust") as send_mock,
+        caplog.at_level(logging.ERROR, logger="daiv.notifications"),
+    ):
+        redrive_missing_notifications_cron_task.func()
+    send_mock.assert_not_called()
+    assert "still missing" not in caplog.text
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_the_rollup_of_a_batch_with_a_question_sibling(member_user, email_binding):
+    batch_id = uuid.uuid4()
+    for status in (EnvelopeStatus.FAILED, EnvelopeStatus.NEEDS_INPUT):
+        _classified_finished_run(member_user, status=status, batch_id=batch_id)
+
+    redrive_missing_notifications_cron_task.func()
+
+    rollup = Notification.objects.get(source_type="sessions.Batch", source_id=str(batch_id))
+    assert rollup.context["needs_input_count"] == 1

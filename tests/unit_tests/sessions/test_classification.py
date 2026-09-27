@@ -16,11 +16,12 @@ from schedules.models import Intent
 
 
 def test_status_literal_matches_envelope_status_minus_failed():
-    """``RunClassification.status`` must stay a subset of ``EnvelopeStatus`` (minus ``FAILED``, which
-    the model never authors) so ``EnvelopeStatus(draft.status)`` in the task can never raise. Mirrors
-    the enum/literal parity guards elsewhere in the codebase (e.g. the RunEnvelope status constraint)."""
+    """``RunClassification.status`` must stay a subset of ``EnvelopeStatus`` (minus ``FAILED`` and
+    ``NEEDS_INPUT``, neither of which the model authors: both are decided deterministically) so
+    ``EnvelopeStatus(draft.status)`` in the task can never raise. Mirrors the enum/literal parity
+    guards elsewhere in the codebase (e.g. the RunEnvelope status constraint)."""
     literal_values = set(get_args(RunClassification.model_fields["status"].annotation))
-    assert literal_values == set(EnvelopeStatus.values) - {EnvelopeStatus.FAILED}
+    assert literal_values == set(EnvelopeStatus.values) - {EnvelopeStatus.FAILED, EnvelopeStatus.NEEDS_INPUT}
 
 
 def test_build_structured_llm_single_model_skips_fallbacks():
