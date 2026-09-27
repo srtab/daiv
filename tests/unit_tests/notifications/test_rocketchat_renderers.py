@@ -257,6 +257,12 @@ class TestJobBatchFinishedRenderer:
         _text, attachments = JobBatchFinishedRenderer().render(notif)
         assert "Repositories" not in _fields_by_title(attachments[0])
 
+    def test_breakdown_names_questions_only_when_there_are_some(self):
+        _text, attachments = JobBatchFinishedRenderer().render(
+            _stub_notification(context=self._ctx(needs_input_count=2))
+        )
+        assert _fields_by_title(attachments[0])["Breakdown"] == "found 2 · needs 1 · failed 1 · input 2"
+
 
 class TestClassifierReasonRidesEveryAttachment:
     """The summary and findings are attached in ``_message``, not per renderer, so a new renderer

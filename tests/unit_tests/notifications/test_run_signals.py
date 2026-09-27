@@ -159,6 +159,7 @@ class TestRunBatchRollup:
         assert ctx["all_clear_count"] == 1
         assert ctx["notable_count"] == 3
         assert ctx["total"] == 4
+        assert ctx["needs_input_count"] == 0
         # notable (3) < total (4) → the partial "warning" tone the email pill colours amber.
         assert ctx["status_tone"] == "warning"
         assert ctx["status_label"] == "Needs attention"
@@ -255,6 +256,22 @@ class TestRunBatchRollup:
 
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["duration_seconds"] == 90.0  # t0 → t0+90s
+
+    def test_a_question_sibling_completes_the_batch_and_is_counted(self, member_user, email_binding):
+        runs = _make_run_batch(
+            member_user, statuses=[RunStatus.WAITING_INPUT, RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL]
+        )
+        statuses = [EnvelopeStatus.NEEDS_INPUT, EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.ALL_CLEAR]
+        for run, status in zip(runs, statuses, strict=True):
+            self._finish(run)
+            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+
+        rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
+        assert rollup.context["needs_input_count"] == 1
+        assert rollup.context["notable_count"] == 2
+        assert rollup.body == (
+            "1 found issues, 1 waiting for input, 0 need attention, 0 failed, 1 all-clear (of 3 runs)."
+        )
 
     def test_webhook_batch_subject_names_repos_and_truncates(self, member_user, email_binding):
         """A webhook/API batch has no name or owner in its subject, so it names the repos, truncating
@@ -545,6 +562,18 @@ class TestBatchNotableRuns:
     def test_a_sibling_with_no_summary_still_names_its_repo(self, member_user, email_binding):
         ctx = self._rollup(member_user, [(EnvelopeStatus.FAILED, ""), (EnvelopeStatus.ALL_CLEAR, "clean")])
         assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": ""}]
+
+    def test_a_question_row_sits_below_failures_on_one_line(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [
+                (EnvelopeStatus.FOUND_ISSUES, "i"),
+                (EnvelopeStatus.NEEDS_INPUT, "Database: Which engine?\nDeadline: When is it due?"),
+                (EnvelopeStatus.FAILED, "f"),
+            ],
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed", "Needs input", "Found issues"]
+        assert ctx["notable_runs"][1]["ref"] == "Database: Which engine? Deadline: When is it due?"
 
     def test_a_single_run_batch_carries_findings_not_notable_rows(self, member_user, email_binding):
         """total == 1 falls through to the per-run path, which has the full findings list instead."""

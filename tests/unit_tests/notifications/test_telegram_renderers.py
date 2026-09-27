@@ -188,6 +188,12 @@ class TestJobBatchFinishedRenderer:
         text, _markup = JobBatchFinishedRenderer().render(_notif(context=self._ctx(repo_ids=[])))
         assert "Repositories" not in text
 
+    def test_breakdown_names_questions_only_when_there_are_some(self):
+        text, _markup = JobBatchFinishedRenderer().render(_notif(context=self._ctx(needs_input_count=2)))
+        assert "found 2 · needs 1 · failed 1 · input 2" in text
+        text, _markup = JobBatchFinishedRenderer().render(_notif(context=self._ctx()))
+        assert "input" not in text
+
 
 class TestLengthCap:
     def test_a_huge_repo_list_is_clamped_to_the_bot_api_limit(self):

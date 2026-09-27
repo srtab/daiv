@@ -26,9 +26,13 @@ class JobBatchFinishedRenderer(RocketChatRenderer):
 
         color, emoji = self._tone_style(ctx)
 
+        breakdown = f"found {found} · needs {needs} · failed {failed}"
+        if needs_input := ctx.get("needs_input_count", 0):
+            breakdown += f" · input {needs_input}"
+
         fields: list[dict] = [
             {"title": "Results", "value": f"⚑ {notable} · ✓ {clear} of {total}", "short": True},
-            {"title": "Breakdown", "value": f"found {found} · needs {needs} · failed {failed}", "short": True},
+            {"title": "Breakdown", "value": breakdown, "short": True},
             {"title": "Duration", "value": self._fmt_duration(ctx.get("duration_seconds")), "short": True},
         ]
         if owner := ctx.get("trigger_owner"):

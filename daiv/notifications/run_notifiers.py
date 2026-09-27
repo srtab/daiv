@@ -94,7 +94,7 @@ def _notable_runs_context(rows: list[BatchRow]) -> tuple[list[dict], int]:
         (row for row in rows if notify_worthy(row.status)), key=lambda r: (status_severity(r.status), r.repo)
     )
     head = [
-        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": row.summary}
+        {"kind": str(EnvelopeStatus(row.status).label), "label": row.repo, "ref": " ".join(row.summary.split())}
         for row in notable[:NOTABLE_RUNS_CONTEXT_LIMIT]
     ]
     return head, len(notable) - len(head)
@@ -207,8 +207,16 @@ def _render_batch_payload(
             subject = _("Agent run batch: %(notable)d/%(total)d need a look") % params
 
     body = _(
-        "%(found)d found issues, %(needs)d need attention, %(failed)d failed, %(clear)d all-clear (of %(total)d runs)."
-    ) % {"found": agg["found"], "needs": agg["needs"], "failed": agg["failed"], "clear": agg["clear"], "total": total}
+        "%(found)d found issues, %(input)d waiting for input, %(needs)d need attention, %(failed)d failed, "
+        "%(clear)d all-clear (of %(total)d runs)."
+    ) % {
+        "found": agg["found"],
+        "input": agg["needs_input"],
+        "needs": agg["needs"],
+        "failed": agg["failed"],
+        "clear": agg["clear"],
+        "total": total,
+    }
 
     notable_runs, notable_runs_overflow = _notable_runs_context(rows)
 
@@ -217,6 +225,7 @@ def _render_batch_payload(
         "notable_runs_overflow": notable_runs_overflow,
         "found_count": agg["found"],
         "needs_attention_count": agg["needs"],
+        "needs_input_count": agg["needs_input"],
         "failed_count": agg["failed"],
         "all_clear_count": agg["clear"],
         "notable_count": notable,
@@ -291,6 +300,7 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
     agg = siblings.aggregate(
         found=Count("id", filter=Q(envelope__status=EnvelopeStatus.FOUND_ISSUES)),
         needs=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_ATTENTION)),
+        needs_input=Count("id", filter=Q(envelope__status=EnvelopeStatus.NEEDS_INPUT)),
         failed=Count("id", filter=Q(envelope__status=EnvelopeStatus.FAILED)),
         clear=Count("id", filter=Q(envelope__status=EnvelopeStatus.ALL_CLEAR)),
         # Counted off the predicate, not summed from the per-status counts above: a new

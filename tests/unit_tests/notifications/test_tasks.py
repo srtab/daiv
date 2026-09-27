@@ -341,3 +341,30 @@ def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, 
         redrive_missing_notifications_cron_task.func()
     send_mock.assert_not_called()
     assert "still missing" not in caplog.text
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_the_rollup_of_a_batch_with_a_question_sibling(member_user, email_binding):
+    batch_id = uuid.uuid4()
+    for run_status, envelope_status in [
+        (RunStatus.FAILED, EnvelopeStatus.FAILED),
+        (RunStatus.WAITING_INPUT, EnvelopeStatus.NEEDS_INPUT),
+    ]:
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=member_user
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="x/y",
+            status=run_status,
+            user=member_user,
+            finished_at=timezone.now(),
+            batch_id=batch_id,
+        )
+        RunEnvelope.objects.create(run=run, status=envelope_status, summary="s")
+
+    redrive_missing_notifications_cron_task.func()
+
+    rollup = Notification.objects.get(source_type="sessions.Batch", source_id=str(batch_id))
+    assert rollup.context["needs_input_count"] == 1
