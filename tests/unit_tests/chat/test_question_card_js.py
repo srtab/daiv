@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 
-from automation.agent.questions import QUESTION_DELIVERED
+import pytest
+
+from automation.agent.questions import NO_PREFERENCE, QUESTION_DELIVERED, SKIP_ANSWER
 from tests.unit_tests.chat.chat_stream_driver import CHAT_STREAM_JS, run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
@@ -56,14 +58,13 @@ for (const step of script) {
   if (step.op === "streaming") chat.streaming = step.value;
   if (step.op === "setDraft") chat.draftMessage = step.value;
   if (step.op === "answer") await chat.answerQuestion(seg);
-  if (step.op === "skip") await chat.skipQuestion(seg);
+  if (step.op === "skip") await chat.skipQuestion();
   if (step.op === "read") out[step.key] = {
     card: chat.isQuestionCard(seg),
     open: chat.isQuestionOpen(1),
     questions: chat.questionsOf(seg).length,
     answer: chat.composeAnswer(seg),
     canAnswer: chat.canAnswerQuestion(seg),
-    selected: chat.isOptionSelected(seg, 0, "SQLite", 1),
     highlighted: chat.questionsOf(seg).map((q, qi) =>
       (q.options || []).filter((o) => chat.isOptionSelected(seg, qi, o.label, 1)).map((o) => o.label)),
     draft: chat.draftMessage,
@@ -112,7 +113,7 @@ def test_answer_composes_one_line_per_question():
         {"op": "toggle", "qi": 1, "label": "UI"},
         {"op": "read", "key": "s"},
     ])
-    assert out["s"]["selected"] is True
+    assert out["s"]["highlighted"] == [["SQLite"], ["API", "UI"]]
     assert out["s"]["answer"] == "**Database** — SQLite\n**Targets** — API, UI"
 
 
@@ -128,7 +129,7 @@ def test_typed_text_wins_over_a_selection():
 
 def test_an_unanswered_question_is_sent_as_no_preference():
     out = _drive([{"op": "toggle", "qi": 0, "label": "SQLite"}, {"op": "answer"}])
-    assert out["sent"] == ["**Database** — SQLite\n**Targets** — No preference"]
+    assert out["sent"] == [f"**Database** — SQLite\n**Targets** — {NO_PREFERENCE}"]
 
 
 def test_a_card_with_nothing_answered_blocks_the_answer():
@@ -139,7 +140,7 @@ def test_a_card_with_nothing_answered_blocks_the_answer():
 
 def test_skip_sends_the_skip_message_whatever_is_selected():
     out = _drive([{"op": "toggle", "qi": 0, "label": "SQLite"}, {"op": "skip"}])
-    assert out["sent"] == ["Skip these questions — use your best judgment and state the assumptions you made."]
+    assert out["sent"] == [SKIP_ANSWER]
 
 
 def test_skip_does_nothing_while_a_run_is_in_flight():
@@ -190,3 +191,8 @@ def test_an_answered_card_highlights_nothing_when_the_reply_was_typed_in_the_com
 
 def test_the_js_knows_the_delivery_text_the_tool_returns():
     assert json.dumps(QUESTION_DELIVERED) in CHAT_STREAM_JS.read_text()
+
+
+@pytest.mark.parametrize("text", [NO_PREFERENCE, SKIP_ANSWER])
+def test_the_js_knows_the_answer_texts_the_prompt_names(text):
+    assert json.dumps(text, ensure_ascii=False) in CHAT_STREAM_JS.read_text()

@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, pending_question, render_questions
+from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, SKIP_ANSWER, pending_question, render_questions
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -16,7 +16,11 @@ from .utils import ASK_USER_MODELS, extract_tool_calls, require_provider_for_mod
 
 logger = logging.getLogger(__name__)
 
-TEST_SUITE = "DAIV: Ask user question"
+pytestmark = [
+    pytest.mark.ask_user,
+    pytest.mark.langsmith(test_suite_name="DAIV: Ask user question"),
+    pytest.mark.parametrize("model_name", ASK_USER_MODELS),
+]
 
 EDIT_TOOL_NAMES = {"write_file", "edit_file"}
 
@@ -25,11 +29,15 @@ MIGRATION_ANSWER = (
     "Target MySQL 8. Keep the existing data; a short downtime window is fine. "
     "Don't edit any files yet: reply with a short migration plan."
 )
-SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made."
+
+
+@pytest.fixture(autouse=True)
+def _require_provider(model_name):
+    require_provider_for_model(model_name)
 
 
 @asynccontextmanager
-async def agent_runner(model_name: str, *, ask_user_enabled: bool = True):
+async def agent_runner(model_name: str):
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
             ctx=ctx,
@@ -37,7 +45,6 @@ async def agent_runner(model_name: str, *, ask_user_enabled: bool = True):
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             sandbox_enabled=False,
-            ask_user_enabled=ask_user_enabled,
         )
 
         async def run(content: str) -> dict:
@@ -72,7 +79,7 @@ def assert_ended_on_one_clean_question(messages) -> dict:
     payload = pending_question(messages)
     assert payload is not None, "Expected the run to end on a question"
     assert not (errors := failed_asks(messages)), f"Expected every ask to be valid on the first try, got: {errors}"
-    assert len(ask_calls(messages)) == 1, f"Expected one batched ask, got {len(ask_calls(messages))}"
+    assert len(asks := ask_calls(messages)) == 1, f"Expected one batched ask, got {len(asks)}"
     edits = [call["name"] for call in extract_tool_calls(messages) if call["name"] in EDIT_TOOL_NAMES]
     assert not edits, f"Expected no file edits before asking, got: {edits}"
     return payload
@@ -84,9 +91,6 @@ async def log_question_relevance(prompt: str, payload: dict) -> None:
     t.log_feedback(key="question_relevance", score=int(verdict.passed), comment=verdict.explanation)
 
 
-@pytest.mark.ask_user
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
 @pytest.mark.parametrize(
     "prompt",
     [
@@ -95,7 +99,6 @@ async def log_question_relevance(prompt: str, payload: dict) -> None:
     ],
 )
 async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt):
-    require_provider_for_model(model_name)
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
@@ -106,9 +109,6 @@ async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt):
     await log_question_relevance(prompt, payload)
 
 
-@pytest.mark.ask_user
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
 @pytest.mark.parametrize(
     "prompt",
     [
@@ -117,49 +117,29 @@ async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt):
     ],
 )
 async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt):
-    require_provider_for_model(model_name)
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
         result = await run(prompt)
 
     t.log_outputs(result)
-    assert not ask_calls(result["messages"]), f"Expected no question, got: {ask_calls(result['messages'])}"
+    assert not (asks := ask_calls(result["messages"])), f"Expected no question, got: {asks}"
     assert final_text(result["messages"]), "Expected the run to end on a reply"
 
 
-@pytest.mark.ask_user
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
-async def test_an_answer_resumes_the_run(model_name):
-    require_provider_for_model(model_name)
-    t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": MIGRATION_ANSWER})
+@pytest.mark.parametrize(
+    "answer", [pytest.param(MIGRATION_ANSWER, id="answered"), pytest.param(SKIP_ANSWER, id="skipped")]
+)
+async def test_a_reply_to_the_question_resumes_without_asking_again(model_name, answer):
+    t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": answer})
 
     async with agent_runner(model_name) as run:
         asked = await run(MIGRATION_PROMPT)
         assert_ended_on_one_clean_question(asked["messages"])
-        answered = await run(MIGRATION_ANSWER)
+        replied = await run(answer)
 
-    t.log_outputs(answered)
-    answer_turn = answered["messages"][len(asked["messages"]) :]
-    assert pending_question(answered["messages"]) is None, "Expected the answer to clear the pending question"
-    assert not ask_calls(answer_turn), f"Expected no further question, got: {ask_calls(answer_turn)}"
-    assert final_text(answered["messages"]), "Expected the run to end on a reply"
-
-
-@pytest.mark.ask_user
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
-async def test_a_skipped_question_is_not_asked_again(model_name):
-    require_provider_for_model(model_name)
-    t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": SKIP_ANSWER})
-
-    async with agent_runner(model_name) as run:
-        asked = await run(MIGRATION_PROMPT)
-        assert_ended_on_one_clean_question(asked["messages"])
-        skipped = await run(SKIP_ANSWER)
-
-    t.log_outputs(skipped)
-    skip_turn = skipped["messages"][len(asked["messages"]) :]
-    assert not ask_calls(skip_turn), f"Expected the skip to be honoured, got: {ask_calls(skip_turn)}"
-    assert final_text(skipped["messages"]), "Expected the run to end on a reply"
+    t.log_outputs(replied)
+    reply_turn = replied["messages"][len(asked["messages"]) :]
+    assert pending_question(replied["messages"]) is None, "Expected the reply to clear the pending question"
+    assert not (asks := ask_calls(reply_turn)), f"Expected no further question, got: {asks}"
+    assert final_text(replied["messages"]), "Expected the run to end on a reply"

@@ -102,17 +102,3 @@ async def test_enabled_binds_the_tool_and_adds_the_asking_section():
 
     assert [tool.name for tool in middleware.tools] == [ASK_USER_QUESTION_TOOL_NAME]
     assert seen == [f"BASE\n\n{ASK_USER_QUESTION_SYSTEM_PROMPT}"]
-
-
-async def test_disabled_binds_nothing_and_leaves_the_prompt_unchanged():
-    seen = []
-
-    async def handler(request):
-        seen.append(request.system_prompt)
-        return AIMessage(content="ok")
-
-    middleware = AskUserQuestionMiddleware(enabled=False)
-    await middleware.awrap_model_call(_request(), handler)
-
-    assert middleware.tools == []
-    assert seen == ["BASE"]

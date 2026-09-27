@@ -53,21 +53,15 @@ class AskUserQuestionMiddleware(AgentMiddleware):
     Not ``return_direct``: that would also end the turn on an invalid call, which must loop back to the model.
     """
 
-    def __init__(self, *, enabled: bool = True) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.enabled = enabled
-        self.tools = [ask_user_question] if enabled else []
+        self.tools = [ask_user_question]
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        if not self.enabled:
-            return await handler(request)
         if (call := delivered_question_call(request.messages)) is not None:
             return AIMessage(content=render_questions(call["args"]))
-        system_prompt = (
-            f"{request.system_prompt}\n\n{ASK_USER_QUESTION_SYSTEM_PROMPT}"
-            if request.system_prompt
-            else ASK_USER_QUESTION_SYSTEM_PROMPT
-        )
+        section = ASK_USER_QUESTION_SYSTEM_PROMPT
+        system_prompt = f"{request.system_prompt}\n\n{section}" if request.system_prompt else section
         return await handler(request.override(system_prompt=system_prompt))

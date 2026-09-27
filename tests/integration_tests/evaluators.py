@@ -42,9 +42,5 @@ async def judge_question_relevance(request: str, rendered_questions: str) -> Ver
         "Pass the questions only if they target the ambiguity that most changes the work, and none of them asks "
         "about a routine judgment call or something the agent could learn by reading the repository."
     )
-    return await _judge_or_fail(prompt)
-
-
-async def _judge_or_fail(prompt: str) -> Verdict:
     result = await _question_judge().with_structured_output(Verdict).ainvoke(prompt)
     return result or Verdict(passed=False, explanation="the judge returned nothing")

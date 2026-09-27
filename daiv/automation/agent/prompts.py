@@ -1,5 +1,7 @@
 from langchain_core.prompts import SystemMessagePromptTemplate
 
+from automation.agent.questions import NO_PREFERENCE
+
 DAIV_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     """\
 You are DAIV, a coding agent that helps users with their software engineering tasks. Use the instructions below and the tools available to you to assist the user.
@@ -146,7 +148,7 @@ REPO_RELATIVE_SYSTEM_REMINDER = (
     "All user-visible file paths must be repo-relative (no leading slash)."
 )
 
-ASK_USER_QUESTION_SYSTEM_PROMPT = """\
+ASK_USER_QUESTION_SYSTEM_PROMPT = f"""\
 ## Asking the user
 
 Use the `ask_user_question` tool to ask the user when:
@@ -156,7 +158,7 @@ Use the `ask_user_question` tool to ask the user when:
 
 Never ask about routine judgment calls or anything you can learn by reading the code or running a command. Ask early, before editing files. Batch related questions, up to 4, into one call, and offer options when the choices are clear. Call it alone, with no other tool call in the same message: calling it ends your turn, and the user's answer arrives as the next message.
 
-The user may skip your questions or answer some with "No preference". Do not re-ask those questions: proceed with a reasonable default and state the assumption you made."""  # noqa: E501
+The user may skip your questions or answer some with "{NO_PREFERENCE}". Do not re-ask those questions: proceed with a reasonable default and state the assumption you made."""  # noqa: E501
 
 
 WRITE_TODOS_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(

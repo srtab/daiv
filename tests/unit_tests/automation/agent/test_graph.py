@@ -111,12 +111,10 @@ def test_ask_user_question_is_always_loaded():
 async def test_ask_user_is_enabled_by_default():
     built = await _build(base_image=None)
 
-    [middleware] = [m for m in _middleware(built) if isinstance(m, AskUserQuestionMiddleware)]
-    assert middleware.enabled is True
+    assert any(isinstance(m, AskUserQuestionMiddleware) for m in _middleware(built))
 
 
 async def test_ask_user_can_be_disabled_for_the_run():
     built = await _build(base_image=None, ask_user_enabled=False)
 
-    [middleware] = [m for m in _middleware(built) if isinstance(m, AskUserQuestionMiddleware)]
-    assert middleware.enabled is False
+    assert not any(isinstance(m, AskUserQuestionMiddleware) for m in _middleware(built))

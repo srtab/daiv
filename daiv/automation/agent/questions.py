@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 ASK_USER_QUESTION_TOOL_NAME = "ask_user_question"
 
 QUESTION_DELIVERED = "Question delivered to the user. This turn is over; their answer arrives as the next user message."
+NO_PREFERENCE = "No preference"
+SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made."
 NOT_ALONE_ERROR = f"`{ASK_USER_QUESTION_TOOL_NAME}` must be the only tool call in the message; nothing was asked."
 
 _FREE_TEXT_HINT = "_If none of the options fit, reply in your own words._"
