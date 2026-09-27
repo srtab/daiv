@@ -116,12 +116,17 @@ def redrive_missing_notifications_cron_task():
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
-    from sessions.models import Run, RunStatus
+    from sessions.models import EnvelopeStatus, Run, RunStatus, SessionOrigin
     from sessions.signals import get_classify_origins, run_classified
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
     from notifications.models import Notification
-    from notifications.policy import notification_source_for_run, notify_worthy_statuses, within_relevance_window
+    from notifications.policy import (
+        notification_source_for_run,
+        notifies,
+        notify_worthy_statuses,
+        within_relevance_window,
+    )
     from notifications.run_notifiers import resolve_recipients
 
     def _delivered(source_type: str, source_id: str, event_type: str) -> set:
@@ -143,6 +148,7 @@ def redrive_missing_notifications_cron_task():
             finished_at__isnull=False,
             finished_at__gte=now - RECLASSIFY_MAX_AGE,
         )
+        .exclude(envelope__status=EnvelopeStatus.NEEDS_INPUT, trigger_type__in=SessionOrigin.webhooks())
         .select_related("envelope", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
         .prefetch_related("session__scheduled_job__subscribers")
         .order_by("finished_at")[:REDRIVE_BATCH_LIMIT]
@@ -151,6 +157,8 @@ def redrive_missing_notifications_cron_task():
     redriven = 0
     for run in candidates:
         if not within_relevance_window(run.finished_at) or run.effective_muted:
+            continue
+        if not notifies(run, run.envelope.status):
             continue
         # Skip only when EVERY expected recipient already has a row. A partial fan-out — a crash between
         # the per-recipient commits — must still be re-driven for the recipients that missed out.

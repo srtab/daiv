@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from sessions.executor.recovery import recover_draft
 
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
+from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 
 _AUTHOR = User(id=1, username="alice")
@@ -113,7 +113,7 @@ class TestSandboxMode:
             patch("automation.agent.publishers.GitChangePublisher", publisher),
             patch("codebase.utils.get_repo_ref", return_value="daiv/issue-10"),
         ):
-            published = await recover_draft(_ctx(sandbox=sandbox_runtime()), agent, {}, thread_id="t-1")
+            published = await recover_draft(_ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1")
         return published, agent
 
     async def test_it_publishes_a_draft_through_the_live_session(self):

@@ -159,6 +159,7 @@ class TestRunBatchRollup:
         assert ctx["all_clear_count"] == 1
         assert ctx["notable_count"] == 3
         assert ctx["total"] == 4
+        assert ctx["needs_input_count"] == 0
         # notable (3) < total (4) → the partial "warning" tone the email pill colours amber.
         assert ctx["status_tone"] == "warning"
         assert ctx["status_label"] == "Needs attention"
@@ -255,6 +256,22 @@ class TestRunBatchRollup:
 
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["duration_seconds"] == 90.0  # t0 → t0+90s
+
+    def test_a_question_sibling_completes_the_batch_and_is_counted(self, member_user, email_binding):
+        runs = _make_run_batch(
+            member_user, statuses=[RunStatus.WAITING_INPUT, RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL]
+        )
+        statuses = [EnvelopeStatus.NEEDS_INPUT, EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.ALL_CLEAR]
+        for run, status in zip(runs, statuses, strict=True):
+            self._finish(run)
+            run_classified.send(sender=Run, run=run, envelope=_classify(run, status))
+
+        rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
+        assert rollup.context["needs_input_count"] == 1
+        assert rollup.context["notable_count"] == 2
+        assert rollup.body == (
+            "1 found issues, 1 waiting for input, 0 need attention, 0 failed, 1 all-clear (of 3 runs)."
+        )
 
     def test_webhook_batch_subject_names_repos_and_truncates(self, member_user, email_binding):
         """A webhook/API batch has no name or owner in its subject, so it names the repos, truncating
@@ -546,6 +563,18 @@ class TestBatchNotableRuns:
         ctx = self._rollup(member_user, [(EnvelopeStatus.FAILED, ""), (EnvelopeStatus.ALL_CLEAR, "clean")])
         assert ctx["notable_runs"] == [{"kind": "Failed", "label": "acme/repo0", "ref": ""}]
 
+    def test_a_question_row_sits_below_failures_on_one_line(self, member_user, email_binding):
+        ctx = self._rollup(
+            member_user,
+            [
+                (EnvelopeStatus.FOUND_ISSUES, "i"),
+                (EnvelopeStatus.NEEDS_INPUT, "Database: Which engine?\nDeadline: When is it due?"),
+                (EnvelopeStatus.FAILED, "f"),
+            ],
+        )
+        assert [row["kind"] for row in ctx["notable_runs"]] == ["Failed", "Needs input", "Found issues"]
+        assert ctx["notable_runs"][1]["ref"] == "Database: Which engine? Deadline: When is it due?"
+
     def test_a_single_run_batch_carries_findings_not_notable_rows(self, member_user, email_binding):
         """total == 1 falls through to the per-run path, which has the full findings list instead."""
         ctx = self._rollup(member_user, [(EnvelopeStatus.FOUND_ISSUES, "one repo")], event_type="job.finished")
@@ -604,3 +633,59 @@ class TestRunFanoutToSubscribers:
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
+
+
+QUESTION_LINES = "Database: Which database engine should the project move to?"
+
+
+@pytest.mark.django_db
+class TestNeedsInputNotification:
+    def test_prompt_driven_question_notifies_with_the_question_lines(self, member_user, email_binding):
+        session = _session(user=member_user)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, summary=QUESTION_LINES, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        notification = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert notification.subject == "Agent run on x/y is waiting for your answer"
+        assert notification.body == QUESTION_LINES
+        assert notification.context["status_tone"] == "warning"
+        assert notification.context["status_label"] == "Needs input"
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
+
+    def test_schedule_question_has_its_own_subject(self, member_user, run_schedule):
+        session = _session(origin=SessionOrigin.SCHEDULE, thread_id=str(uuid.uuid4()), scheduled_job=run_schedule)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.SCHEDULE, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        notification = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert notification.subject == f"'run-schedule' is waiting for an answer on x/y — {run_schedule.user}"
+
+    @pytest.mark.parametrize("origin", sorted(SessionOrigin.webhooks()))
+    def test_webhook_question_sends_nothing(self, member_user, email_binding, origin):
+        session = _session(origin=origin, thread_id=str(uuid.uuid4()), user=member_user)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=origin, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.count() == 0
+
+    def test_webhook_question_without_a_daiv_user_is_silent_not_a_dropped_delivery(self, caplog):
+        session = _session(origin=SessionOrigin.ISSUE_WEBHOOK, thread_id=str(uuid.uuid4()))
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=None
+        )
+        with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.count() == 0
+        assert "no resolvable recipient" not in caplog.text
+
+    def test_a_second_question_on_the_same_thread_notifies_again(self, member_user, email_binding):
+        session = _session(user=member_user)
+        for _ in range(2):
+            run, envelope = _classified_run(session, status=EnvelopeStatus.NEEDS_INPUT, user=member_user)
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 2

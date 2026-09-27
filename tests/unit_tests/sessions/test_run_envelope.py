@@ -161,6 +161,27 @@ def test_offered_action_found_issues_with_actionable_is_fix():
     assert env.is_actionable is True
 
 
+def test_offered_action_needs_input():
+    env = RunEnvelope(status=EnvelopeStatus.NEEDS_INPUT)
+    assert env.offered_action == OfferedAction.REVIEW
+    assert env.is_actionable is True
+
+
+def test_needs_input_passes_the_status_check_constraint():
+    env = RunEnvelope.objects.create(run=_mk_run(_mk_session()), status=EnvelopeStatus.NEEDS_INPUT)
+    assert env.status == "needs-input"
+
+
+def test_a_question_ranks_below_a_failure_and_above_findings():
+    assert EnvelopeStatus.worst_first() == (
+        EnvelopeStatus.FAILED,
+        EnvelopeStatus.NEEDS_INPUT,
+        EnvelopeStatus.FOUND_ISSUES,
+        EnvelopeStatus.NEEDS_ATTENTION,
+        EnvelopeStatus.ALL_CLEAR,
+    )
+
+
 def test_offered_action_found_issues_empty_resolves_to_none():
     env = RunEnvelope(status=EnvelopeStatus.FOUND_ISSUES, actionable=[])
     assert env.offered_action == OfferedAction.NONE

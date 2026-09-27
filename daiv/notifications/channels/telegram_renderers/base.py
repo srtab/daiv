@@ -80,6 +80,11 @@ class TelegramRenderer(BaseRenderer):
             rows.append((cost_label, cost))
         return rows
 
+    def _summary_extra(self, ctx: dict) -> tuple[str, str] | None:
+        if summary := (ctx.get("summary") or "").strip():
+            return ("Summary", self.esc(summary))
+        return None
+
     def _assemble(
         self, notification: Notification, ctx: dict, rows: list[tuple[str, str]], extra: tuple[str, str] | None = None
     ) -> tuple[str, dict]:
@@ -89,7 +94,8 @@ class TelegramRenderer(BaseRenderer):
         ``_ROW_BUDGET`` so no single row can eat the 4096 budget — Telegram answers an
         over-length message with a 400, which the channel files as a permanent failure and the
         message is lost. ``extra`` is the one variable-length region — ``(label, already-escaped
-        text)`` — and is fitted to whatever the fixed skeleton leaves of the 4096 budget.
+        text)`` — and is fitted to whatever the fixed skeleton leaves of the 4096 budget; it defaults
+        to the envelope summary, so a new renderer cannot omit it.
         """
         emoji = TONE_EMOJI[self._tone(ctx)]
         subject = truncate_escaped(self.esc(notification.subject), _SUBJECT_BUDGET)
@@ -98,6 +104,8 @@ class TelegramRenderer(BaseRenderer):
             f"<b>{self.esc(label)}:</b> {truncate_escaped(self.esc(value), _ROW_BUDGET)}" for label, value in rows
         ]
         text = "\n".join(lines)
+        if extra is None:
+            extra = self._summary_extra(ctx)
         if extra is not None:
             label, escaped_value = extra
             prefix = f"{text}\n<b>{self.esc(label)}:</b> "

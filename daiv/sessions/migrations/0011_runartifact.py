@@ -10,7 +10,7 @@ import sessions.models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0008_session_pipeline_watch")]
+    dependencies = [("agent_sessions", "0010_runenvelope_status_needs_input")]
 
     operations = [
         migrations.CreateModel(

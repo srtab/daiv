@@ -156,6 +156,19 @@ The request itself links back to the session that produced it — see [Linking b
 !!! warning "Expired state"
     Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
 
+### Answering a question
+
+When the agent hits a request that's genuinely ambiguous or a decision that's yours to make, it stops and asks instead of guessing. The run ends in the amber **Needs input** status, and the last turn renders as a card with 1 to 4 questions, each with:
+
+- **Option buttons** — click one to select it; a multi-select question is marked "Pick any that apply", and clicking toggles an option on or off alongside the others
+- **A free-text field** — type your own answer if none of the options fit, or if the question has no options at all
+
+**Answer** sends all of your answers as a single message, one line per question; any question you leave blank is sent as "No preference". **Skip** declines the whole card and tells the agent to use its best judgment. Either way the agent carries on with reasonable defaults for what you didn't answer, states the assumptions it made, and doesn't ask the same questions again. Both start a new run on the same thread that picks up where the agent left off, and you can also just type a reply in the composer.
+
+The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
+
+For job runs (a dashboard job submission, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md)) and [scheduled](scheduled-jobs.md) runs, DAIV also sends a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
+
 ---
 
 ## Linking back to sessions
@@ -187,7 +200,7 @@ The composer accepts:
 - **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](sandbox-environments.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
-- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
+- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
 
 Runs started this way are tagged with the **UI Run** origin. A single-repository submission takes you straight to the session detail page; a multi-repository submission takes you to the batch-filtered list.
 

@@ -17,47 +17,78 @@ class TestParseAgentResult:
             merge_request_id=None,
             merge_request_web_url=None,
             usage=None,
+            question=None,
         )
 
     def test_new_dict_format_no_code_changes(self):
         rv = {"response": "Done", "code_changes": False}
         assert parse_agent_result(rv) == AgentResult(
-            response="Done", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="Done",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     def test_legacy_dict_code_changes_only(self):
         """Old format returned by address_issue_task / address_mr_comments_task before this change."""
         rv = {"code_changes": True}
         assert parse_agent_result(rv) == AgentResult(
-            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="", code_changes=True, merge_request_id=None, merge_request_web_url=None, usage=None, question=None
         )
 
     def test_legacy_dict_code_changes_false(self):
         rv = {"code_changes": False}
         assert parse_agent_result(rv) == AgentResult(
-            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     def test_empty_dict(self):
         assert parse_agent_result({}) == AgentResult(
-            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     def test_legacy_string(self):
         """Old format returned by run_job_task before this change."""
         assert parse_agent_result("some text") == AgentResult(
-            response="some text", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="some text",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     def test_empty_string(self):
         assert parse_agent_result("") == AgentResult(
-            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     def test_none(self):
         """return_value is None for failed/in-progress tasks."""
         assert parse_agent_result(None) == AgentResult(
-            response="", code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=None
+            response="",
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=None,
+            question=None,
         )
 
     @pytest.mark.parametrize("rv", [{"response": "", "code_changes": False}, {"response": "", "code_changes": True}])
@@ -90,6 +121,16 @@ class TestParseAgentResult:
         result = parse_agent_result(rv)
         assert result["merge_request_id"] is None
         assert result["merge_request_web_url"] is None
+
+
+def test_parse_agent_result_keeps_the_question():
+    parsed = parse_agent_result({"response": "r", "question": {"questions": []}})
+    assert parsed["question"] == {"questions": []}
+
+
+def test_parse_agent_result_defaults_the_question_for_older_results():
+    assert parse_agent_result({"response": "r"})["question"] is None
+    assert parse_agent_result("plain text")["question"] is None
 
 
 class TestParseAgentResultUsageFields:
@@ -140,3 +181,19 @@ class TestBuildAgentResult:
         assert (result["merge_request_id"], result["merge_request_web_url"]) == (None, None)
         assert result["code_changes"] is True
         assert "revived as dict" in caplog.text
+
+    async def test_question_round_trips_into_the_result(self):
+        snapshot = SimpleNamespace(values={})
+
+        result = await build_agent_result(
+            MagicMock(), {}, response="done", snapshot=snapshot, question={"questions": []}
+        )
+
+        assert result["question"] == {"questions": []}
+
+    async def test_question_defaults_to_none_including_the_snapshot_none_branch(self):
+        with_snapshot = await build_agent_result(MagicMock(), {}, response="done", snapshot=SimpleNamespace(values={}))
+        without_snapshot = await build_agent_result(MagicMock(), {}, response="done", snapshot=None)
+
+        assert with_snapshot["question"] is None
+        assert without_snapshot["question"] is None

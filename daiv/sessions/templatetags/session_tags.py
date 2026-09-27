@@ -67,7 +67,13 @@ def approx_prompt_tokens(prompt) -> int:
     return len(str(prompt)) // 4
 
 
-_STATUS_VARIANTS = {"SUCCESSFUL": "success", "FAILED": "failed", "RUNNING": "running", "QUEUED": "queued"}
+_STATUS_VARIANTS = {
+    "SUCCESSFUL": "success",
+    "FAILED": "failed",
+    "RUNNING": "running",
+    "QUEUED": "queued",
+    "WAITING_INPUT": "waiting",
+}
 
 
 @register.filter

@@ -34,6 +34,9 @@ class AgentResult(TypedDict):
     usage: dict[str, Any] | None
     """Token usage and cost summary, or None if not available."""
 
+    question: dict[str, Any] | None
+    """The question the run ended on (``{"questions": [...]}``), or None when it ended without one."""
+
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
@@ -48,6 +51,7 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             merge_request_id=rv.get("merge_request_id"),
             merge_request_web_url=rv.get("merge_request_web_url"),
             usage=rv.get("usage") if isinstance(rv.get("usage"), dict) else None,
+            question=rv.get("question") if isinstance(rv.get("question"), dict) else None,
         )
     return AgentResult(
         response=str(rv) if rv else "",
@@ -55,6 +59,7 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
         merge_request_id=None,
         merge_request_web_url=None,
         usage=None,
+        question=None,
     )
 
 
@@ -65,6 +70,7 @@ async def build_agent_result(
     response: str,
     usage: dict[str, Any] | None = None,
     snapshot: Any = NO_SNAPSHOT,
+    question: dict[str, Any] | None = None,
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
@@ -82,7 +88,12 @@ async def build_agent_result(
         snapshot = await agent.aget_state(config=config)
     if snapshot is None:
         return AgentResult(
-            response=response, code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=usage
+            response=response,
+            code_changes=False,
+            merge_request_id=None,
+            merge_request_web_url=None,
+            usage=usage,
+            question=question,
         )
     mr = checkpointed_merge_request(snapshot.values, strict=False)
     return AgentResult(
@@ -91,4 +102,5 @@ async def build_agent_result(
         merge_request_id=mr.merge_request_id if mr else None,
         merge_request_web_url=mr.web_url if mr else None,
         usage=usage,
+        question=question,
     )

@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
@@ -106,7 +107,7 @@ class IssueAddressorManager(BaseManager):
                     "labels": [label.lower() for label in self.issue.labels],
                 },
             ),
-            RunHooks(on_success=self._on_success, on_failure=self._on_failure),
+            RunHooks(on_success=partial(self._on_success, asker=triggered_by), on_failure=self._on_failure),
         )
         return outcome.agent_result
 
@@ -126,7 +127,10 @@ class IssueAddressorManager(BaseManager):
             self.issue.author.username,
         )
 
-    async def _on_success(self, outcome: RunOutcome) -> None:
+    async def _on_success(self, outcome: RunOutcome, *, asker: str) -> None:
+        if (question := self._question_comment(outcome, asker=asker)) is not None:
+            self._leave_comment(question, reply_to_id=self.reply_to_id)
+            return
         if response := outcome.response_text.strip():
             self._leave_comment(response)
         else:

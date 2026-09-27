@@ -128,9 +128,10 @@ async def get_job_status(request: HttpRequest, job_id: str):
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),
-        status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'FAILED']", run.status),
+        status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'WAITING_INPUT', 'FAILED']", run.status),
         thread_id=str(run.session_id) if run.session_id else None,
         result=run.result_summary or None,
+        question=run.question,
         merge_request_url=run.merge_request_web_url or None,
         artifacts=artifacts,
         artifacts_error=artifacts_error,

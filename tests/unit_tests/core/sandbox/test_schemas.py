@@ -81,7 +81,7 @@ def test_egress_rule_uppercases_methods_and_rejects_empty():
 
 
 def test_egress_rule_rejects_blank_and_crlf_host():
-    """Host validity is enforced on the type (not only the form) so from_stored/apply_platform_egress
+    """Host validity is enforced on the type (not only the form) so from_stored/with_platform_credential
     can't carry a blank or CR/LF-smuggled host through to the sidecar. A surrounding-whitespace host
     is normalised."""
     from core.sandbox.schemas import EgressRule

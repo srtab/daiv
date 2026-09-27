@@ -21,11 +21,7 @@ class JobBatchFinishedRenderer(TelegramRenderer):
         total = ctx.get("total", 0)
         rows: list[tuple[str, str]] = [
             ("Results", f"⚑ {notable} · ✓ {ctx.get('all_clear_count', 0)} of {total}"),
-            (
-                "Breakdown",
-                f"found {ctx.get('found_count', 0)} · needs {ctx.get('needs_attention_count', 0)}"
-                f" · failed {ctx.get('failed_count', 0)}",
-            ),
+            ("Breakdown", self._breakdown_value(ctx)),
             ("Duration", self._fmt_duration(ctx.get("duration_seconds"))),
         ]
         if owner := ctx.get("trigger_owner"):

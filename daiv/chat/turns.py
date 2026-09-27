@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any
 
+from automation.agent.questions import is_question_close
+
 logger = logging.getLogger("daiv.chat")
 
 # Tool-call content-block types across providers: Anthropic emits ``tool_use``, the
@@ -45,13 +47,16 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     resolved SKILL.md body right after its ``ToolMessage``. On reload we fold
     that body into the skill call's ``result`` instead of rendering it as a
     user turn — it's agent scaffolding, not something the human typed.
+
+    The close message a question turn ends on is skipped: the chat renders the question from
+    the ``ask_user_question`` call.
     """
     turns: list[dict[str, Any]] = []
     tool_index: dict[str, tuple[int, int]] = {}
     skill_tool_ids: set[str] = set()
     pending_skill_tc_id: str | None = None
 
-    for m in messages:
+    for index, m in enumerate(messages):
         mtype = message_role(m)
         if mtype in ("human", "user"):
             if pending_skill_tc_id is not None:
@@ -60,6 +65,8 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
                 continue
             turns.append(_build_user_turn(m))
         elif mtype in _ASSISTANT_ROLES:
+            if is_question_close(messages, index):
+                continue
             turn = _build_assistant_turn(m)
             turn_idx = len(turns)
             for seg_idx, seg in enumerate(turn["segments"]):

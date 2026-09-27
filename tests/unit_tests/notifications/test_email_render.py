@@ -180,3 +180,10 @@ def test_html_email_still_escapes_prose():
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
     assert "<b>b</b>" not in html
+
+
+def test_html_email_keeps_multi_question_lines_apart():
+    """A needs-input body is one 'Header: question' line per question; HTML must not collapse them."""
+    notif = SimpleNamespace(subject="s", body="Scope: what should it cover?\nDeadline: when is it due?", context={})
+    html = render_to_string("notifications/emails/notification.html", {"notification": notif, "link_absolute_url": ""})
+    assert "Scope: what should it cover?<br>Deadline: when is it due?" in html

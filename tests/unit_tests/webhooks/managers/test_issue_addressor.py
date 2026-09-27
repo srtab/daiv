@@ -5,20 +5,27 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
+from automation.agent.questions import render_questions
 from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import Issue, MergeRequest, User
+from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
 from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_runtime
+from tests.unit_tests.conftest import (
+    SAMPLE_QUESTION_PAYLOAD,
+    FakeSandboxClient,
+    ask_user_question_messages,
+    bound_run_sandbox_client,
+    sandbox_spec,
+)
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
@@ -34,7 +41,7 @@ def _ctx() -> SimpleNamespace:
 
 def _sandbox_ctx() -> SimpleNamespace:
     """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_runtime())
+    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec())
 
 
 def _issue(*, labels: list[str]) -> Issue:
@@ -60,6 +67,11 @@ async def _issue_session(**fields) -> str:
         thread_id=thread_id, origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="owner/repo", **fields
     )
     return thread_id
+
+
+def _question_agent():
+    messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
+    return addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 
 
 async def _address(**kwargs):
@@ -159,6 +171,37 @@ class TestIssueAfterRunMatrix:
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
+
+    async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
+        with addressor_run(_question_agent(), ctx=_ctx()):
+            await _address(mention_comment_id="c-1")
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2] == (
+            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\n@bob, reply mentioning @daiv-bot with your answer."
+        )
+        assert reply.kwargs["reply_to_id"] == "c-1"
+
+    async def test_a_label_triggered_question_mentions_the_issue_author(self, captured_client):
+        with addressor_run(_question_agent(), ctx=_ctx()):
+            await _address()
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2].endswith("\n\n@alice, reply mentioning @daiv-bot with your answer.")
+
+    async def test_a_question_on_github_is_not_threaded(self, captured_client):
+        captured_client.git_platform = GitPlatform.GITHUB
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
+        with addressor_run(_question_agent(), ctx=_ctx()):
+            await _address(mention_comment_id="c-1")
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.kwargs["reply_to_id"] is None
 
     async def test_an_agent_error_recovers_a_draft_says_so_and_re_raises(self, captured_client):
         with (

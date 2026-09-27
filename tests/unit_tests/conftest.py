@@ -12,17 +12,17 @@ from django.test import Client
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
+from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from codebase.context import SandboxRuntime
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
 from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
-from core.sandbox.command_policy import SandboxCommandPolicy
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -32,17 +32,8 @@ from core.sandbox.schemas import (
 )
 
 
-def sandbox_runtime(
-    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None
-) -> SandboxRuntime:
-    return SandboxRuntime(
-        base_image=base_image,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        command_policy=SandboxCommandPolicy(),
-        egress=egress,
-    )
+def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:
+    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
 
 
 @contextmanager
@@ -431,3 +422,30 @@ def database_task_backend(settings):
     settings.TASKS = {
         "default": {**settings.TASKS["default"], "BACKEND": "core.backends.deduplicating.DeduplicatingDatabaseBackend"}
     }
+
+
+SAMPLE_QUESTION_PAYLOAD = {
+    "questions": [
+        {
+            "header": "Database",
+            "question": "Which database engine should the project move to?",
+            "options": [
+                {"label": "PostgreSQL", "description": "Keep a relational store with the richest Django support."},
+                {"label": "SQLite", "description": "Single-file database, simplest to run."},
+            ],
+            "multi_select": False,
+        }
+    ]
+}
+
+
+def ask_user_question_messages(payload: dict | None = None) -> list:
+    """The tail a turn leaves when it ends on a question: the call, its delivery, and the close message."""
+    from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, QUESTION_DELIVERED, render_questions
+
+    payload = payload or SAMPLE_QUESTION_PAYLOAD
+    return [
+        AIMessage(content="", tool_calls=[{"id": "ask-1", "name": ASK_USER_QUESTION_TOOL_NAME, "args": payload}]),
+        ToolMessage(content=QUESTION_DELIVERED, tool_call_id="ask-1", name=ASK_USER_QUESTION_TOOL_NAME),
+        AIMessage(content=render_questions(payload)),
+    ]
