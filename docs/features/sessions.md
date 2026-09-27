@@ -140,6 +140,8 @@ One **Answer** button sends all of your answers as a single message, one line pe
 
 The card is only interactive on the session's last turn, and only while no run is in flight — reload the page after answering and the card stays visible but goes inert (options disabled, free-text field and Answer button hidden), with your answer showing as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
+For runs started from the dashboard, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md), DAIV also sends you a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Webhook runs rely on the question posted to the issue or merge request instead.
+
 ---
 
 ## Linking back to sessions

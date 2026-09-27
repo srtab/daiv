@@ -6,7 +6,9 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 ## What produces a notification
 
-DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are **found-issues**, **needs-attention**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are **found-issues**, **needs-attention**, **needs-input**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+
+A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted on the issue or MR/PR with a mention, so DAIV sends no separate notification for it.
 
 There are three event types:
 
@@ -17,7 +19,7 @@ There are three event types:
 | **Schedule finished** (`schedule.finished`) | A run tied to a [scheduled job](scheduled-jobs.md) finishes with a notify-worthy classification | The schedule owner and its subscribers |
 
 !!! note "Batches collapse into one message"
-    A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.
+    A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
 !!! info "Webhook-triggered runs notify on worthy outcomes"
     Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
@@ -67,6 +69,8 @@ Rocket Chat is an optional integration. It appears as a channel only when an adm
 Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.
 
 Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.
+
+Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.
 
 ## Muting
 
