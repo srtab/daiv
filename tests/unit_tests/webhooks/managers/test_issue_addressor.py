@@ -24,7 +24,7 @@ from tests.unit_tests.conftest import (
     FakeSandboxClient,
     ask_user_question_messages,
     bound_run_sandbox_client,
-    sandbox_runtime,
+    sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
@@ -41,7 +41,7 @@ def _ctx() -> SimpleNamespace:
 
 def _sandbox_ctx() -> SimpleNamespace:
     """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_runtime())
+    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec())
 
 
 def _issue(*, labels: list[str]) -> Issue:

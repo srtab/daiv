@@ -509,11 +509,11 @@ def test_validate_egress_rejects_oversized_secrets_blob():
 
 def test_validate_egress_rejects_reserved_platform_secret_name():
     """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
-    rejected at save time: ``apply_platform_egress`` overwrites that key at runtime, so allowing it in
+    rejected at save time: ``with_platform_credential`` overwrites that key at runtime, so allowing it in
     stored config would let a user silently shadow DAIV's authenticated git-platform credential."""
     from django.core.exceptions import ValidationError
 
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+    from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 
     env = _egress_env(
         egress_policy={
