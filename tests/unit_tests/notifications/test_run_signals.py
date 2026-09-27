@@ -604,3 +604,33 @@ class TestRunFanoutToSubscribers:
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
+
+
+QUESTION_LINES = "Database: Which database engine should the project move to?"
+
+
+@pytest.mark.django_db
+class TestNeedsInputNotification:
+    def test_prompt_driven_question_notifies_with_the_question_lines(self, member_user, email_binding):
+        session = _session(user=member_user)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, summary=QUESTION_LINES, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        notification = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert notification.subject == "Agent run on x/y is waiting for your answer"
+        assert notification.body == QUESTION_LINES
+        assert notification.context["status_tone"] == "warning"
+        assert notification.context["status_label"] == "Needs input"
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
+
+    def test_schedule_question_has_its_own_subject(self, member_user, run_schedule):
+        session = _session(origin=SessionOrigin.SCHEDULE, thread_id=str(uuid.uuid4()), scheduled_job=run_schedule)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.SCHEDULE, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        notification = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert notification.subject == f"'run-schedule' is waiting for an answer on x/y — {run_schedule.user}"

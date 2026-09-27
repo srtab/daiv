@@ -18,8 +18,13 @@ from sessions.tasks import RECLASSIFY_MAX_AGE
 def test_notify_worthy_truth_table():
     assert notify_worthy(EnvelopeStatus.FOUND_ISSUES) is True
     assert notify_worthy(EnvelopeStatus.NEEDS_ATTENTION) is True
+    assert notify_worthy(EnvelopeStatus.NEEDS_INPUT) is True
     assert notify_worthy(EnvelopeStatus.FAILED) is True
     assert notify_worthy(EnvelopeStatus.ALL_CLEAR) is False
+
+
+def test_a_question_renders_amber():
+    assert envelope_tone(EnvelopeStatus.NEEDS_INPUT) == "warning"
 
 
 def test_window_rejects_none_and_too_old():

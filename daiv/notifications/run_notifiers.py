@@ -129,14 +129,16 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
     status = envelope.status
     count = envelope.count
 
-    # The caller gates on notify_worthy() first, so status is found-issues / needs-attention / failed;
-    # an unmatched status would leave subject unbound, so the else raises instead of guessing.
+    # The caller gates on notify_worthy() first; an unmatched status would leave subject unbound,
+    # so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
             subject = _("'%(name)s' found %(count)d issue(s) on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("'%(name)s' needs attention on %(repo)s — %(owner)s") % params
+        elif status == EnvelopeStatus.NEEDS_INPUT:
+            subject = _("'%(name)s' is waiting for an answer on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
         else:
@@ -147,6 +149,8 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
             subject = _("Agent run on %(repo)s found %(count)d issue(s)") % params
         elif status == EnvelopeStatus.NEEDS_ATTENTION:
             subject = _("Agent run on %(repo)s needs attention") % params
+        elif status == EnvelopeStatus.NEEDS_INPUT:
+            subject = _("Agent run on %(repo)s is waiting for your answer") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("Agent run on %(repo)s failed") % params
         else:

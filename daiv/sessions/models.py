@@ -90,7 +90,7 @@ class WatchState(models.TextChoices):
 
 
 class EnvelopeStatus(models.TextChoices):
-    """The classification of a completed scheduled run (stored on ``RunEnvelope.status``).
+    """The classification of a completed run (stored on ``RunEnvelope.status``).
 
     Values are hyphenated by deliberate convention — distinct from ``RunStatus``'s UPPER and
     ``SessionOrigin``'s snake_case, consistent with Story 1.1's ``intent`` (``watch-find``).
@@ -100,13 +100,14 @@ class EnvelopeStatus(models.TextChoices):
     ALL_CLEAR = "all-clear", _("All clear")
     FOUND_ISSUES = "found-issues", _("Found issues")
     NEEDS_ATTENTION = "needs-attention", _("Needs attention")
+    NEEDS_INPUT = "needs-input", _("Needs input")
     FAILED = "failed", _("Failed")
 
     @classmethod
     def worst_first(cls) -> tuple[EnvelopeStatus, ...]:
         """Severity ranking, worst first. Load-bearing wherever a list of runs is capped: unordered
         rows let a rollup show three needs-attention repos and hide the failure."""
-        return (cls.FAILED, cls.FOUND_ISSUES, cls.NEEDS_ATTENTION, cls.ALL_CLEAR)
+        return (cls.FAILED, cls.NEEDS_INPUT, cls.FOUND_ISSUES, cls.NEEDS_ATTENTION, cls.ALL_CLEAR)
 
 
 class OfferedAction(models.TextChoices):
@@ -129,6 +130,7 @@ class OfferedAction(models.TextChoices):
 _STATUS_OFFERED_ACTION = {
     EnvelopeStatus.ALL_CLEAR: OfferedAction.NONE,
     EnvelopeStatus.NEEDS_ATTENTION: OfferedAction.REVIEW,
+    EnvelopeStatus.NEEDS_INPUT: OfferedAction.REVIEW,
     EnvelopeStatus.FAILED: OfferedAction.RETRY,
 }
 

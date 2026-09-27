@@ -24,7 +24,12 @@ def is_schedule_run(run) -> bool:
 def notify_worthy_statuses() -> frozenset[str]:
     from sessions.models import EnvelopeStatus
 
-    return frozenset({EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION, EnvelopeStatus.FAILED})
+    return frozenset({
+        EnvelopeStatus.FOUND_ISSUES,
+        EnvelopeStatus.NEEDS_ATTENTION,
+        EnvelopeStatus.NEEDS_INPUT,
+        EnvelopeStatus.FAILED,
+    })
 
 
 def notify_worthy(status: str) -> bool:
@@ -104,6 +109,7 @@ def status_tones() -> dict[str, str]:
         EnvelopeStatus.FAILED: "failure",
         EnvelopeStatus.FOUND_ISSUES: "warning",
         EnvelopeStatus.NEEDS_ATTENTION: "warning",
+        EnvelopeStatus.NEEDS_INPUT: "warning",
         EnvelopeStatus.ALL_CLEAR: "success",
     }
 
