@@ -9,6 +9,7 @@ from automation.agent.questions import (
     delivered_question_call,
     is_question_close,
     pending_question,
+    question_lines,
     render_questions,
 )
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
@@ -127,3 +128,24 @@ class TestDerivation:
     def test_is_question_close_marks_only_the_close_message(self):
         messages = [HumanMessage(content="hi"), *ask_user_question_messages()]
         assert [is_question_close(messages, i) for i in range(len(messages))] == [False, False, False, True]
+
+
+class TestQuestionLines:
+    def test_one_header_and_question_line_per_question_without_options(self):
+        payload = {"questions": [_question(options=[_option("A"), _option("B")]), _question(header="Deadline", question="When is it due?")]}
+        assert question_lines(payload) == "Scope: Which modules should change?\nDeadline: When is it due?"
+
+    def test_the_sample_payload_renders_its_single_line(self):
+        assert question_lines(SAMPLE_QUESTION_PAYLOAD) == "Database: Which database engine should the project move to?"
+
+    def test_a_multi_line_question_stays_on_one_line(self):
+        payload = {"questions": [_question(question="Which modules\nshould   change?")]}
+        assert question_lines(payload) == "Scope: Which modules should change?"
+
+    @pytest.mark.parametrize("payload", [None, {}, {"questions": []}])
+    def test_no_questions_is_an_empty_string(self, payload):
+        assert question_lines(payload) == ""
+
+    def test_a_missing_header_leaves_the_bare_question_and_a_blank_question_is_skipped(self):
+        payload = {"questions": [{"question": "Which modules should change?"}, {"header": "Empty", "question": "  "}]}
+        assert question_lines(payload) == "Which modules should change?"

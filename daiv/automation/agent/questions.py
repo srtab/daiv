@@ -92,6 +92,18 @@ def render_questions(payload: dict[str, Any]) -> str:
     return "\n\n".join(blocks)
 
 
+def question_lines(payload: dict[str, Any] | None) -> str:
+    """One ``Header: question`` line per question, for notification bodies that can't carry options."""
+    lines: list[str] = []
+    for question in (payload or {}).get("questions") or []:
+        text = " ".join(str(question.get("question") or "").split())
+        if not text:
+            continue
+        header = question.get("header")
+        lines.append(f"{header}: {text}" if header else text)
+    return "\n".join(lines)
+
+
 def delivered_question_call(messages: Sequence[AnyMessage]) -> ToolCall | None:
     """The ``ask_user_question`` call whose successful delivery is the last message, or ``None``."""
     if len(messages) < 2:
