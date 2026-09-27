@@ -309,3 +309,35 @@ def test_redrive_skips_batch_not_yet_fully_classified(member_user, email_binding
         redrive_missing_notifications_cron_task.func()
     send_mock.assert_not_called()
     assert Notification.objects.filter(source_id=str(batch_id)).count() == 0
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_a_missing_prompt_driven_question(member_user, email_binding):
+    run = _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT)
+    redrive_missing_notifications_cron_task.func()
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, caplog):
+    """Re-emitting would be skipped by the emit and then logged as a stuck delivery every tick."""
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="x/y", user=member_user
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        repo_id="x/y",
+        status=RunStatus.WAITING_INPUT,
+        user=member_user,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=EnvelopeStatus.NEEDS_INPUT, summary="Scope: Which modules?")
+
+    with (
+        patch("sessions.signals.run_classified.send_robust") as send_mock,
+        caplog.at_level(logging.ERROR, logger="daiv.notifications"),
+    ):
+        redrive_missing_notifications_cron_task.func()
+    send_mock.assert_not_called()
+    assert "still missing" not in caplog.text

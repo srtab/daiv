@@ -121,7 +121,12 @@ def redrive_missing_notifications_cron_task():
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
     from notifications.models import Notification
-    from notifications.policy import notification_source_for_run, notify_worthy_statuses, within_relevance_window
+    from notifications.policy import (
+        notification_source_for_run,
+        notifies,
+        notify_worthy_statuses,
+        within_relevance_window,
+    )
     from notifications.run_notifiers import resolve_recipients
 
     def _delivered(source_type: str, source_id: str, event_type: str) -> set:
@@ -151,6 +156,8 @@ def redrive_missing_notifications_cron_task():
     redriven = 0
     for run in candidates:
         if not within_relevance_window(run.finished_at) or run.effective_muted:
+            continue
+        if not notifies(run, run.envelope.status):
             continue
         # Skip only when EVERY expected recipient already has a row. A partial fan-out — a crash between
         # the per-recipient commits — must still be re-driven for the recipients that missed out.

@@ -634,3 +634,29 @@ class TestNeedsInputNotification:
 
         notification = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
         assert notification.subject == f"'run-schedule' is waiting for an answer on x/y — {run_schedule.user}"
+
+    @pytest.mark.parametrize("origin", sorted(SessionOrigin.webhooks()))
+    def test_webhook_question_sends_nothing(self, member_user, email_binding, origin):
+        session = _session(origin=origin, thread_id=str(uuid.uuid4()), user=member_user)
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=origin, user=member_user
+        )
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.count() == 0
+
+    def test_webhook_question_without_a_daiv_user_is_silent_not_a_dropped_delivery(self, caplog):
+        session = _session(origin=SessionOrigin.ISSUE_WEBHOOK, thread_id=str(uuid.uuid4()))
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.ISSUE_WEBHOOK, user=None
+        )
+        with caplog.at_level(logging.WARNING, logger="daiv.notifications"):
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.count() == 0
+        assert "no resolvable recipient" not in caplog.text
+
+    def test_a_second_question_on_the_same_thread_notifies_again(self, member_user, email_binding):
+        session = _session(user=member_user)
+        for _ in range(2):
+            run, envelope = _classified_run(session, status=EnvelopeStatus.NEEDS_INPUT, user=member_user)
+            run_classified.send(sender=Run, run=run, envelope=envelope)
+        assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 2

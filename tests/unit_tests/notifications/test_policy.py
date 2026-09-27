@@ -1,17 +1,19 @@
 import logging
 from datetime import timedelta
+from types import SimpleNamespace
 
 from django.utils import timezone
 
 from notifications.policy import (
     envelope_tone,
+    notifies,
     notify_worthy,
     notify_worthy_statuses,
     status_severity,
     status_tones,
     within_relevance_window,
 )
-from sessions.models import EnvelopeStatus
+from sessions.models import EnvelopeStatus, SessionOrigin
 from sessions.tasks import RECLASSIFY_MAX_AGE
 
 
@@ -70,3 +72,18 @@ class TestEveryStatusIsTriaged:
         with caplog.at_level(logging.ERROR, logger="daiv.notifications"):
             assert envelope_tone("brand-new") == "failure"
         assert "untoned envelope status" in caplog.text
+
+
+class TestNotifies:
+    def test_a_webhook_question_is_left_to_the_forge_mention(self):
+        for origin in SessionOrigin.webhooks():
+            assert notifies(SimpleNamespace(trigger_type=origin), EnvelopeStatus.NEEDS_INPUT) is False
+
+    def test_a_prompt_driven_question_notifies(self):
+        for origin in SessionOrigin.prompt_driven():
+            assert notifies(SimpleNamespace(trigger_type=origin), EnvelopeStatus.NEEDS_INPUT) is True
+
+    def test_other_webhook_outcomes_follow_notify_worthy(self):
+        run = SimpleNamespace(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+        assert notifies(run, EnvelopeStatus.FAILED) is True
+        assert notifies(run, EnvelopeStatus.ALL_CLEAR) is False

@@ -14,6 +14,7 @@ from notifications.policy import (
     envelope_tone,
     is_schedule_run,
     notification_source_for_run,
+    notifies,
     notify_worthy,
     notify_worthy_statuses,
     status_severity,
@@ -356,7 +357,7 @@ def emit_run_notification(run, envelope) -> None:
             _handle_batch_completion(run, siblings, total)
             return
 
-    if not notify_worthy(envelope.status) or run.effective_muted:
+    if not notifies(run, envelope.status) or run.effective_muted:
         return
 
     recipients = resolve_recipients(run)

@@ -38,6 +38,15 @@ def notify_worthy(status: str) -> bool:
     return status in notify_worthy_statuses()
 
 
+def notifies(run, status: str) -> bool:
+    """Whether this run's outcome notifies. A webhook question is already posted, with a mention, on the forge."""
+    from sessions.models import EnvelopeStatus, SessionOrigin
+
+    if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
+        return False
+    return notify_worthy(status)
+
+
 def status_severity(status: str) -> int:
     """Rank a classified run for a list that is then capped.
 
