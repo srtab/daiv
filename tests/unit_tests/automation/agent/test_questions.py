@@ -132,7 +132,12 @@ class TestDerivation:
 
 class TestQuestionLines:
     def test_one_header_and_question_line_per_question_without_options(self):
-        payload = {"questions": [_question(options=[_option("A"), _option("B")]), _question(header="Deadline", question="When is it due?")]}
+        payload = {
+            "questions": [
+                _question(options=[_option("A"), _option("B")]),
+                _question(header="Deadline", question="When is it due?"),
+            ]
+        }
         assert question_lines(payload) == "Scope: Which modules should change?\nDeadline: When is it due?"
 
     def test_the_sample_payload_renders_its_single_line(self):
