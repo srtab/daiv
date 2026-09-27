@@ -133,6 +133,29 @@ class TestJobFinishedRenderer:
         text, _markup = JobFinishedRenderer().render(_notif(context={"status_tone": "warning", "is_successful": True}))
         assert text.startswith("⚠️ ")
 
+    def test_the_summary_closes_the_message(self):
+        text, _markup = JobFinishedRenderer().render(
+            _notif(context={"status_tone": "warning", "summary": "Database: Which engine?\nDeadline: When?"})
+        )
+        assert text.endswith("<b>Summary:</b> Database: Which engine?\nDeadline: When?")
+
+    def test_the_summary_is_escaped(self):
+        text, _markup = JobFinishedRenderer().render(
+            _notif(context={"status_tone": "warning", "summary": "Keep <b> & drop <i>?"})
+        )
+        assert "Keep &lt;b&gt; &amp; drop &lt;i&gt;?" in text
+
+    def test_a_blank_summary_drops_the_row(self):
+        text, _markup = JobFinishedRenderer().render(_notif(context={"status_tone": "warning", "summary": "  "}))
+        assert "Summary" not in text
+
+    def test_a_huge_summary_is_clamped_to_the_bot_api_limit(self):
+        text, _markup = JobFinishedRenderer().render(
+            _notif(context={"status_tone": "warning", "summary": "x" * 10_000})
+        )
+        assert len(text) <= TG_MAX_CHARS
+        assert text.endswith("…")
+
 
 class TestScheduleFinishedRenderer:
     def test_includes_repository_owner_and_duration(self):
@@ -150,6 +173,12 @@ class TestScheduleFinishedRenderer:
         assert "acme/api" in text
         assert "alice" in text
         assert "47s" in text
+
+    def test_the_summary_closes_the_message(self):
+        text, _markup = ScheduleFinishedRenderer().render(
+            _notif(context={"status_tone": "failure", "summary": "migration 0042 errored"})
+        )
+        assert text.endswith("<b>Summary:</b> migration 0042 errored")
 
 
 class TestJobBatchFinishedRenderer:

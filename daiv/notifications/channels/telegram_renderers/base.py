@@ -80,6 +80,12 @@ class TelegramRenderer(BaseRenderer):
             rows.append((cost_label, cost))
         return rows
 
+    def _summary_extra(self, ctx: dict) -> tuple[str, str] | None:
+        """The envelope summary as the ``extra`` region for ``_assemble``, or ``None`` if blank."""
+        if summary := (ctx.get("summary") or "").strip():
+            return ("Summary", self.esc(summary))
+        return None
+
     def _assemble(
         self, notification: Notification, ctx: dict, rows: list[tuple[str, str]], extra: tuple[str, str] | None = None
     ) -> tuple[str, dict]:

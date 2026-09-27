@@ -22,4 +22,4 @@ class ScheduleFinishedRenderer(TelegramRenderer):
             ("Duration", self._fmt_duration(ctx.get("duration_seconds"))),
         ]
         rows.extend(self._usage_rows(ctx))
-        return self._assemble(notification, ctx, rows)
+        return self._assemble(notification, ctx, rows, extra=self._summary_extra(ctx))
