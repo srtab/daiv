@@ -1726,7 +1726,7 @@
 </tr>
 <tr>
 <td><code>get_job_status</code></td>
-<td>Get the status and result of a previously submitted job. Also supports <code>wait=True</code> to block until completion.</td>
+<td>Get the status and result of a previously submitted job. A <code>WAITING_INPUT</code> status means the agent stopped to ask a question: <code>question</code> holds it and <code>result</code> its rendered text — answer with <code>submit_job</code> using the same <code>thread_id</code>. Also supports <code>wait=True</code> to block until completion (a <code>WAITING_INPUT</code> result also ends the wait, since it's terminal).</td>
 </tr>
 <tr>
 <td><code>list_repositories</code></td>
@@ -1762,7 +1762,7 @@
 <li><code>agent_thinking_level</code> — control reasoning effort: one of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, or <code>xhigh</code>. Omit to inherit the system default.</li>
 <li><code>muted</code> — mute this run's notifications; default false. <code>notify_on</code> is no longer accepted (removed); sending it returns an unknown-argument error.</li>
 <li><code>environment</code> — the <a href="../sandbox/">sandbox environment</a> to run every job in, given as its name or UUID (discover names via <code>list_environments</code>). Omit to auto-resolve a runtime per repository.</li>
-<li><code>thread_id</code> — continue an existing thread by passing the UUID from a prior <code>submit_job</code> or <code>get_job_status</code> response. Continuation requires exactly one repository, whose latest activity must belong to you.</li>
+<li><code>thread_id</code> — continue an existing thread by passing the UUID from a prior <code>submit_job</code> or <code>get_job_status</code> response. Continuation requires exactly one repository, whose latest activity must belong to you. This is also how you answer a <code>WAITING_INPUT</code> job: submit a new job with the same <code>thread_id</code> and the answer as <code>prompt</code>.</li>
 <li><code>references</code> — a list of up to 20 external work-item references to link into the MR/PR DAIV creates. Each entry is an object with these fields:<ul>
 <li><code>key</code> <em>(required)</em> — the issue or ticket identifier, 1–64 characters, matching <code>[A-Za-z0-9][A-Za-z0-9._/#-]*</code> (e.g. <code>"PROJ-123"</code>, <code>"42"</code>, <code>"DAIV-1V"</code>). When <code>relation</code> is <code>"closes"</code> the key must additionally be a bare identifier — no <code>/</code> and no <code>#</code> — because DAIV emits it next to a closing keyword, where <code>namespace/project#7</code> would be a valid cross-project reference and would close an issue in someone else's project.</li>
 <li><code>url</code> <em>(optional)</em> — an <code>http(s)</code> URL for the work item, up to 500 characters. Used as the link target when DAIV renders the reference. Anything outside the URL character set (RFC 3986), <strong>parentheses included</strong>, must be percent-encoded: DAIV renders the value into a markdown link destination in the MR/PR description, so a space, a newline or a <code>)</code> would end the link and let the rest of the value become body text the git platform parses.</li>
@@ -1808,7 +1808,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 5, 2026 15:48:55 UTC">September 5, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2026 14:49:30 UTC">September 26, 2026</span>
   </span>
 
     

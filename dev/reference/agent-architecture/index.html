@@ -1388,6 +1388,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#asking-the-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Asking the user
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1679,6 +1690,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#asking-the-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Asking the user
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1899,7 +1921,7 @@
 <p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
 <div class="admonition note">
 <p class="admonition-title">Tools are deferred by default</p>
-<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
+<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
 </div>
 <h3 id="filesystem">Filesystem</h3>
 <table>
@@ -2003,6 +2025,22 @@
 </table>
 <h3 id="mcp">MCP</h3>
 <p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
+<h3 id="asking-the-user">Asking the user</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ask_user_question</code></td>
+<td>Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../../features/sessions/#answering-a-question">Answering a question</a> for what this looks like from the user's side.</p>
 <h2 id="middlewares">Middlewares</h2>
 <p>Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.</p>
 <h3 id="always-enabled">Always enabled</h3>
@@ -2138,6 +2176,7 @@
 </table>
 <p>In addition, a set of read-only <strong>code-review detector subagents</strong> (<code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-custom-rules</code>) is built and registered on every run. The <a href="../../features/pull-request-assistant/">code review</a> skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. <a href="../../features/subagents/#custom-subagents">Custom subagents</a> defined per repository are also added to the available-agents list.</p>
 <p>All subagents (including custom subagents) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (<code>DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME</code>).</p>
+<p>No subagent is given <code>ask_user_question</code> — only the main agent can stop a run to ask the user.</p>
 <h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
 <p>The agent's system prompt is assembled at runtime and includes:</p>
 <ul>
@@ -2180,7 +2219,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2026 22:41:01 UTC">September 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2026 09:29:15 UTC">September 26, 2026</span>
   </span>
 
     

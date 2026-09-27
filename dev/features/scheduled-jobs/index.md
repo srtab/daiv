@@ -76,6 +76,8 @@ Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch i
 
 If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.
 
+Scheduled runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
+
 ## Timezone handling
 
 Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 `Europe/Lisbon` will always fire at 09:00 local time, even across clock changes.
@@ -118,7 +120,7 @@ When a subscriber opens a session produced by a schedule they are CC'd on, the s
 
 Notification preferences
 
-Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
+Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, needs-input, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
 
 ## Relationship with the Jobs API
 

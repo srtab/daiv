@@ -6,7 +6,9 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 ## What produces a notification
 
-DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are **found-issues**, **needs-attention**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are **found-issues**, **needs-attention**, **needs-input**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+
+A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
 There are three event types:
 
@@ -18,11 +20,11 @@ There are three event types:
 
 Batches collapse into one message
 
-A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.
+A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
 Webhook-triggered runs notify on worthy outcomes
 
-Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
+Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
 
 ## Channels
 
@@ -46,7 +48,7 @@ DAIV reaches you through channels. The in-app bell is always available; email, R
 
 ### The in-app bell and list
 
-The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, or failed. All-clear runs are silent and do not produce a bell entry.
+The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.
 
 - The bell dropdown shows your ten most recent notifications and marks them read when you open it.
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
@@ -65,6 +67,8 @@ Rocket Chat is an optional integration. It appears as a channel only when an adm
 Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.
 
 Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.
+
+Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.
 
 ## Muting
 

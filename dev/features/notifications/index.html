@@ -1699,7 +1699,8 @@
 <p>DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email, Rocket Chat, and Telegram. Clean runs stay silent and appear only in the Feed.</p>
 <p>Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.</p>
 <h2 id="what-produces-a-notification">What produces a notification</h2>
-<p>DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are <strong>found-issues</strong>, <strong>needs-attention</strong>, and <strong>failed</strong>. Runs classified <strong>all-clear</strong> are silent — they live in the Feed but generate no notification.</p>
+<p>DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are <strong>found-issues</strong>, <strong>needs-attention</strong>, <strong>needs-input</strong>, and <strong>failed</strong>. Runs classified <strong>all-clear</strong> are silent — they live in the Feed but generate no notification.</p>
+<p>A run is classified <strong>needs-input</strong> when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.</p>
 <p>There are three event types:</p>
 <table>
 <thead>
@@ -1729,11 +1730,11 @@
 </table>
 <div class="admonition note">
 <p class="admonition-title">Batches collapse into one message</p>
-<p>A batch is a group of runs sharing a batch ID — for example a <a href="../scheduled-jobs/">scheduled job</a> that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single <strong>Job batch finished</strong> rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.</p>
+<p>A batch is a group of runs sharing a batch ID — for example a <a href="../scheduled-jobs/">scheduled job</a> that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single <strong>Job batch finished</strong> rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.</p>
 </div>
 <div class="admonition info">
 <p class="admonition-title">Webhook-triggered runs notify on worthy outcomes</p>
-<p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.</p>
+<p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.</p>
 </div>
 <h2 id="channels">Channels</h2>
 <p>DAIV reaches you through channels. The in-app bell is always available; email, Rocket Chat, and Telegram are external delivery channels.</p>
@@ -1758,7 +1759,7 @@
 </ul>
 </div>
 <h3 id="the-in-app-bell-and-list">The in-app bell and list</h3>
-<p>The bell entry is written for <strong>notify-worthy</strong> runs — those classified as found-issues, needs-attention, or failed. All-clear runs are silent and do not produce a bell entry.</p>
+<p>The bell entry is written for <strong>notify-worthy</strong> runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.</p>
 <ul>
 <li>The bell dropdown shows your ten most recent notifications and marks them read when you open it.</li>
 <li><code>/dashboard/notifications/</code> lists your full history with <code>All</code> / <code>Unread</code> / <code>Read</code> filters and a <strong>Mark all as read</strong> action.</li>
@@ -1771,6 +1772,7 @@
 <h3 id="telegram">Telegram</h3>
 <p>Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.</p>
 <p>Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.</p>
+<p>Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.</p>
 <h2 id="muting">Muting</h2>
 <p>Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is <strong>Mute</strong>.</p>
 <p><strong>Per-schedule mute</strong> — each schedule has a <strong>Mute</strong> checkbox (default off). When enabled, it silences <em>all</em> notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via <code>Run.muted</code> (the same field the <code>muted</code> flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.</p>
@@ -1876,7 +1878,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2026 22:50:53 UTC">September 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 27, 2026 10:50:40 UTC">September 27, 2026</span>
   </span>
 
     

@@ -1858,7 +1858,7 @@
 <li><strong>Watch armed</strong> — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. See <a href="#which-runs-arm-the-watch">Which runs arm the watch</a>. Arming requires that the run actually <em>pushed</em>: a turn that ends with a clean tree already on its merge request publishes nothing, so it leaves the watch alone. The counter survives re-arming by a fix run, so the cap bounds one chain of fix attempts; a human-initiated run that publishes to the same merge request starts a fresh budget.</li>
 <li><strong>Pipeline event</strong> — a webhook from GitLab (<code>pipeline_events</code>) or GitHub (<code>workflow_run</code>) delivers the terminal result. The watch also evaluates immediately on arming, because the CI event can arrive before the watch exists.</li>
 <li><strong>Judgment</strong> — see <a href="#conservative-judgment">Conservative judgment</a> below.</li>
-<li><strong>Fix run</strong> — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool and pushes a fix.</li>
+<li><strong>Fix run</strong> — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool and pushes a fix. Fix runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.</li>
 <li><strong>Give up</strong> — when the attempt counter reaches the cap, DAIV posts a comment on the MR with the failing jobs and the pipeline link, then closes the watch. A notification is sent to the session owner if one exists.</li>
 <li><strong>No-diff early exit</strong> — if a fix run produces no diff (nothing to commit), the watch ends immediately. No push means no pipeline and no future event, so the loop would never advance.</li>
 <li><strong>Reconciler</strong> — a cron task runs every 10 minutes to handle missed events and stuck states. Any watch still open after 6 hours is marked unclear, with a note on the merge request saying so. Each tick expires at most 200 watches and re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.</li>
@@ -2077,7 +2077,7 @@ update. Running <code>--update</code> on a GitHub install is a no-op.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 26, 2026 14:47:25 UTC">August 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 27, 2026 16:34:18 UTC">September 27, 2026</span>
   </span>
 
     

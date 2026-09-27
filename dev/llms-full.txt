@@ -1493,6 +1493,10 @@ Tip
 
 If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.
 
+## Asking a question
+
+When the issue or your feedback is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, mentioning you and ending with "reply mentioning `@daiv` with your answer." Answer it by leaving a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
+
 ## Max mode
 
 The `daiv-max` label switches DAIV to a more capable model with a higher thinking level:
@@ -1613,6 +1617,10 @@ When CI/CD fails, ask DAIV to investigate and fix it:
 
 DAIV will inspect the pipeline logs, identify the root cause, and push a fix to the branch.
 
+### Ask a question back
+
+When your request is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, mentioning you and ending with "reply mentioning `@daiv` with your answer." Answer it by leaving a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
+
 ## Conversation continuity
 
 DAIV maintains context across multiple interactions on the same pull request. You can have a back-and-forth conversation — each new mention builds on previous context, so DAIV understands the full history of changes and discussions.
@@ -1694,7 +1702,7 @@ sequenceDiagram
 1. **Watch armed** — when a DAIV run publishes a merge request, the watch is activated on the MR's thread. See [Which runs arm the watch](#which-runs-arm-the-watch). Arming requires that the run actually *pushed*: a turn that ends with a clean tree already on its merge request publishes nothing, so it leaves the watch alone. The counter survives re-arming by a fix run, so the cap bounds one chain of fix attempts; a human-initiated run that publishes to the same merge request starts a fresh budget.
 1. **Pipeline event** — a webhook from GitLab (`pipeline_events`) or GitHub (`workflow_run`) delivers the terminal result. The watch also evaluates immediately on arming, because the CI event can arrive before the watch exists.
 1. **Judgment** — see [Conservative judgment](#conservative-judgment) below.
-1. **Fix run** — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool and pushes a fix.
+1. **Fix run** — on an actionable failure, a run is dispatched on the MR's own branch and thread with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool and pushes a fix. Fix runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
 1. **Give up** — when the attempt counter reaches the cap, DAIV posts a comment on the MR with the failing jobs and the pipeline link, then closes the watch. A notification is sent to the session owner if one exists.
 1. **No-diff early exit** — if a fix run produces no diff (nothing to commit), the watch ends immediately. No push means no pipeline and no future event, so the loop would never advance.
 1. **Reconciler** — a cron task runs every 10 minutes to handle missed events and stuck states. Any watch still open after 6 hours is marked unclear, with a note on the merge request saying so. Each tick expires at most 200 watches and re-judges at most 200 branches, so a backlog after an outage drains over several ticks rather than in one platform-API storm.
@@ -1970,6 +1978,19 @@ Expired state
 
 Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
 
+### Answering a question
+
+When the agent hits a request that's genuinely ambiguous or a decision that's yours to make, it stops and asks instead of guessing. The run ends in the amber **Needs input** status, and the last turn renders as a card with 1 to 4 questions, each with:
+
+- **Option buttons** — click one to select it; a multi-select question is marked "Pick any that apply", and clicking toggles an option on or off alongside the others
+- **A free-text field** — type your own answer if none of the options fit, or if the question has no options at all
+
+**Answer** sends all of your answers as a single message, one line per question; any question you leave blank is sent as "No preference". **Skip** declines the whole card and tells the agent to use its best judgment. Either way the agent carries on with reasonable defaults for what you didn't answer, states the assumptions it made, and doesn't ask the same questions again. Both start a new run on the same thread that picks up where the agent left off, and you can also just type a reply in the composer.
+
+The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
+
+For job runs (a dashboard job submission, the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)) and [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) runs, DAIV also sends a [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
+
 ______________________________________________________________________
 
 ## Linking back to sessions
@@ -2001,7 +2022,7 @@ The composer accepts:
 - **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
-- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass `muted` via the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md); for scheduled runs, use the schedule's Mute toggle.
+- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md); for scheduled runs, use the schedule's Mute toggle.
 
 Runs started this way are tagged with the **UI Run** origin. A single-repository submission takes you straight to the session detail page; a multi-repository submission takes you to the batch-filtered list.
 
@@ -2226,13 +2247,33 @@ GET /api/jobs/{job_id}
 
 **Status values:**
 
-| Status       | Meaning                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `QUEUED`     | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied). |
-| `READY`      | Job is queued, waiting for a worker                                                                                                         |
-| `RUNNING`    | Agent is executing                                                                                                                          |
-| `SUCCESSFUL` | Completed — `result` contains the agent's response summary                                                                                  |
-| `FAILED`     | Agent encountered an error — `error` contains a message                                                                                     |
+| Status          | Meaning                                                                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QUEUED`        | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied).                                             |
+| `READY`         | Job is queued, waiting for a worker                                                                                                                                                     |
+| `RUNNING`       | Agent is executing                                                                                                                                                                      |
+| `SUCCESSFUL`    | Completed — `result` contains the agent's response summary                                                                                                                              |
+| `WAITING_INPUT` | The agent stopped to ask you a question instead of guessing — a terminal state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text |
+| `FAILED`        | Agent encountered an error — `error` contains a message                                                                                                                                 |
+
+### Answering a question
+
+When a job comes back `WAITING_INPUT`, submit a new job with the same `thread_id` and your answer as `prompt`:
+
+```
+curl -s -X POST https://daiv.example.com/api/jobs \
+  -H "Authorization: Bearer $DAIV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repos": [{"repo_id": "mygroup/myproject"}],
+    "prompt": "Use PostgreSQL.",
+    "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"
+  }'
+```
+
+This starts a new run that continues the agent's work from where it stopped. As with any `thread_id` continuation, `repos` must have exactly one entry, and the thread's most recent run must belong to you.
+
+You don't have to poll for it: when a job ends in `WAITING_INPUT`, DAIV also sends you a [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) listing the questions, unless you've muted it. In a multi-repo job, the run is counted in the batch rollup (and listed, in email and Rocket Chat) once every repository's run has settled.
 
 **Error responses:**
 
@@ -2261,12 +2302,14 @@ stateDiagram-v2
     QUEUED --> READY: Prior run on the thread finishes (FIFO)
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
+    RUNNING --> WAITING_INPUT: Agent asks a question
     RUNNING --> FAILED: Agent errors
+    WAITING_INPUT --> READY: POST /api/jobs (same thread_id, answer as prompt)
 ```
 
 A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
 
-Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
+Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is final for that job — `WAITING_INPUT` doesn't progress to `SUCCESSFUL` on its own, it waits for a new job on the same thread (see [Answering a question](#answering-a-question)). The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
 
 ## Examples
 
@@ -2427,6 +2470,8 @@ Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch i
 
 If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.
 
+Scheduled runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
+
 ## Timezone handling
 
 Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 `Europe/Lisbon` will always fire at 09:00 local time, even across clock changes.
@@ -2469,7 +2514,7 @@ When a subscriber opens a session produced by a schedule they are CC'd on, the s
 
 Notification preferences
 
-Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
+Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, needs-input, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
 
 ## Relationship with the Jobs API
 
@@ -2585,7 +2630,7 @@ Any MCP client that supports Streamable HTTP transport can connect to DAIV using
 | Tool                  | Description                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `submit_job`          | Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a `batch_id` and a `jobs` list, or set `wait=True` to block until every job in the batch completes (up to 10 minutes total).                                                                                                                                                                     |
-| `get_job_status`      | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion.                                                                                                                                                                                                                                                                                       |
+| `get_job_status`      | Get the status and result of a previously submitted job. A `WAITING_INPUT` status means the agent stopped to ask a question: `question` holds it and `result` its rendered text — answer with `submit_job` using the same `thread_id`. Also supports `wait=True` to block until completion (a `WAITING_INPUT` result also ends the wait, since it's terminal).                                      |
 | `list_repositories`   | Discover repositories accessible to DAIV, optionally filtered by `search` (partial name match) or `topics`. Served from DAIV's local repository catalog — a periodically synced mirror — not a live platform call. Supports `limit` (default 20, max 50) and `cursor`, ordered by slug — a `search` matching more repositories than `limit` is still fully reachable by paging.                     |
 | `list_environments`   | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones), ordered by scope then name. Supports `limit` (default 20, max 50) and `cursor`; use a returned `name` or `id` as `submit_job`'s `environment` argument.                                                                                                                                         |
 | `get_environment`     | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes.                                                                                                                                                                                                                                       |
@@ -2603,7 +2648,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 - `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
-- `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you.
+- `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you. This is also how you answer a `WAITING_INPUT` job: submit a new job with the same `thread_id` and the answer as `prompt`.
 - `references` — a list of up to 20 external work-item references to link into the MR/PR DAIV creates. Each entry is an object with these fields:
   - `key` *(required)* — the issue or ticket identifier, 1–64 characters, matching `[A-Za-z0-9][A-Za-z0-9._/#-]*` (e.g. `"PROJ-123"`, `"42"`, `"DAIV-1V"`). When `relation` is `"closes"` the key must additionally be a bare identifier — no `/` and no `#` — because DAIV emits it next to a closing keyword, where `namespace/project#7` would be a valid cross-project reference and would close an issue in someone else's project.
   - `url` *(optional)* — an `http(s)` URL for the work item, up to 500 characters. Used as the link target when DAIV renders the reference. Anything outside the URL character set (RFC 3986), **parentheses included**, must be percent-encoded: DAIV renders the value into a markdown link destination in the MR/PR description, so a space, a newline or a `)` would end the link and let the rest of the value become body text the git platform parses.
@@ -2638,7 +2683,9 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 ## What produces a notification
 
-DAIV classifies every finished run and notifies only when the outcome warrants it. The three notify-worthy classifications are **found-issues**, **needs-attention**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are **found-issues**, **needs-attention**, **needs-input**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+
+A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
 There are three event types:
 
@@ -2650,11 +2697,11 @@ There are three event types:
 
 Batches collapse into one message
 
-A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear.
+A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
 Webhook-triggered runs notify on worthy outcomes
 
-Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
+Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
 
 ## Channels
 
@@ -2678,7 +2725,7 @@ DAIV reaches you through channels. The in-app bell is always available; email, R
 
 ### The in-app bell and list
 
-The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, or failed. All-clear runs are silent and do not produce a bell entry.
+The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.
 
 - The bell dropdown shows your ten most recent notifications and marks them read when you open it.
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
@@ -2697,6 +2744,8 @@ Rocket Chat is an optional integration. It appears as a channel only when an adm
 Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.
 
 Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.
+
+Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.
 
 ## Muting
 
@@ -4676,7 +4725,7 @@ The agent's tools are injected via middlewares. Each middleware provides one or 
 
 Tools are deferred by default
 
-Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
+Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -4719,6 +4768,14 @@ Commands are evaluated against a [command policy](https://srtab.github.io/daiv/d
 ### MCP
 
 External tools provided via [MCP servers](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md) (Sentry error tracking, Context7 documentation lookup).
+
+### Asking the user
+
+| Tool                | Description                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| `ask_user_question` | Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message |
+
+See [Answering a question](https://srtab.github.io/daiv/dev/features/sessions/#answering-a-question) for what this looks like from the user's side.
 
 ## Middlewares
 
@@ -4766,6 +4823,8 @@ The main agent can delegate work to two general-use subagents. See [Subagents](h
 In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
+
+No subagent is given `ask_user_question` — only the main agent can stop a run to ask the user.
 
 ## Dynamic system prompt
 
