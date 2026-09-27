@@ -21,7 +21,7 @@ There are three event types:
 !!! note "Batches collapse into one message"
     A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
-!!! info "Webhook-triggered runs notify on worthy outcomes"
+!!! info "Webhook-triggered runs notify on worthy outcomes (except runs waiting for an answer — see above)"
     Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
 
 ## Channels

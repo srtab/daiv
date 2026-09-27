@@ -351,8 +351,9 @@ def emit_run_notification(run, envelope) -> None:
     """Notify recipients when a Run is classified, driven by the envelope (not raw status).
 
     Chat is never classified, so no chat special-case is needed. all-clear is silent; found-issues /
-    needs-attention / failed notify unless muted, within the relevance window. Delivery is
-    at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
+    needs-attention / needs-input / failed notify unless muted, within the relevance window — except
+    a webhook-triggered needs-input, whose question is already posted on the forge (see ``notifies()``).
+    Delivery is at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
     """
     from sessions.models import Run
 

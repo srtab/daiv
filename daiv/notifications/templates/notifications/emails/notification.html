@@ -5,7 +5,7 @@
 <h1 style="margin: 0 0 8px; font-size: 20px; font-weight: 600; color: #111827;">
     {{ notification.subject }}
 </h1>
-<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">{{ notification.body }}</p>
+<p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #6b7280;">{{ notification.body|linebreaksbr }}</p>
 
 {% with ctx=notification.context %}
 {% if ctx.actionable %}{% include "notifications/emails/_row_list.html" with heading=_("Findings") items=ctx.actionable overflow=ctx.actionable_overflow mono=True only %}{% endif %}

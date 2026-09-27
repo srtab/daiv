@@ -167,7 +167,7 @@ curl -s -X POST https://daiv.example.com/api/jobs \
 
 This starts a new run that continues the agent's work from where it stopped. As with any `thread_id` continuation, `repos` must have exactly one entry, and the thread's most recent run must belong to you.
 
-You don't have to poll for it: when a job ends in `WAITING_INPUT`, DAIV also sends you a [notification](notifications.md) listing the questions.
+You don't have to poll for it: when a job ends in `WAITING_INPUT`, DAIV also sends you a [notification](notifications.md) listing the questions, unless you've muted it. In a multi-repo job, the question appears as a row in the batch rollup once every repository's run has settled.
 
 **Error responses:**
 
