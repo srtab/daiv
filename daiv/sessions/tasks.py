@@ -116,7 +116,10 @@ async def classify_run_task(run_id: str) -> None:
     if run.status == RunStatus.WAITING_INPUT:
         from automation.agent.questions import question_lines
 
-        summary = question_lines(run.question) or gettext("Waiting for your answer.")
+        summary = question_lines(run.question)
+        if not summary:
+            logger.error("classify_run_task: run %s is waiting for input but has no question to show", run_id)
+            summary = gettext("Waiting for your answer.")
         await _persist(status=EnvelopeStatus.NEEDS_INPUT, summary=summary, actionable=[])
         return
 

@@ -69,6 +69,11 @@ async def _issue_session(**fields) -> str:
     return thread_id
 
 
+def _question_agent():
+    messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
+    return addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
+
+
 async def _address(**kwargs):
     """``address_issue`` for a label-triggered issue on ``owner/repo``; ``kwargs`` override."""
     return await IssueAddressorManager.address_issue(
@@ -171,27 +176,28 @@ class TestIssueAfterRunMatrix:
         captured_client.get_issue_comment.return_value = SimpleNamespace(
             notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
         )
-        messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
-        agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
-
-        with addressor_run(agent, ctx=_ctx()):
+        with addressor_run(_question_agent(), ctx=_ctx()):
             await _address(mention_comment_id="c-1")
 
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == (
-            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\nReply mentioning @daiv-bot with your answer."
+            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\n@bob, reply mentioning @daiv-bot with your answer."
         )
         assert reply.kwargs["reply_to_id"] == "c-1"
+
+    async def test_a_label_triggered_question_mentions_the_issue_author(self, captured_client):
+        with addressor_run(_question_agent(), ctx=_ctx()):
+            await _address()
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2].endswith("\n\n@alice, reply mentioning @daiv-bot with your answer.")
 
     async def test_a_question_on_github_is_not_threaded(self, captured_client):
         captured_client.git_platform = GitPlatform.GITHUB
         captured_client.get_issue_comment.return_value = SimpleNamespace(
             notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
         )
-        messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
-        agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
-
-        with addressor_run(agent, ctx=_ctx()):
+        with addressor_run(_question_agent(), ctx=_ctx()):
             await _address(mention_comment_id="c-1")
 
         [reply] = captured_client.create_issue_comment.call_args_list

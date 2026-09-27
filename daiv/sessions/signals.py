@@ -17,7 +17,7 @@ from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")
 
-# Emitted when a Run transitions to a terminal status (SUCCESSFUL or FAILED).
+# Emitted when a Run transitions to a terminal status (``RunStatus.terminal()``).
 # Arguments: run (Run instance).
 run_finished = Signal()
 

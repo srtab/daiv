@@ -19,15 +19,9 @@ class JobBatchFinishedRenderer(TelegramRenderer):
         ctx = notification.context
         notable = ctx.get("notable_count", 0)
         total = ctx.get("total", 0)
-        breakdown = (
-            f"found {ctx.get('found_count', 0)} · needs {ctx.get('needs_attention_count', 0)}"
-            f" · failed {ctx.get('failed_count', 0)}"
-        )
-        if needs_input := ctx.get("needs_input_count", 0):
-            breakdown += f" · input {needs_input}"
         rows: list[tuple[str, str]] = [
             ("Results", f"⚑ {notable} · ✓ {ctx.get('all_clear_count', 0)} of {total}"),
-            ("Breakdown", breakdown),
+            ("Breakdown", self._breakdown_value(ctx)),
             ("Duration", self._fmt_duration(ctx.get("duration_seconds"))),
         ]
         if owner := ctx.get("trigger_owner"):

@@ -116,7 +116,7 @@ Only the owner (or an admin) can change a schedule's subscribers.
 When a subscriber opens a session produced by a schedule they are CC'd on, the session detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
 
 !!! note "Notification preferences"
-    Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
+    Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, needs-input, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
 
 ## Relationship with the Jobs API
 

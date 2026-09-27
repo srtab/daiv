@@ -116,7 +116,7 @@ def redrive_missing_notifications_cron_task():
 
     ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock.
     """
-    from sessions.models import Run, RunStatus
+    from sessions.models import EnvelopeStatus, Run, RunStatus, SessionOrigin
     from sessions.signals import get_classify_origins, run_classified
     from sessions.tasks import RECLASSIFY_MAX_AGE
 
@@ -148,6 +148,7 @@ def redrive_missing_notifications_cron_task():
             finished_at__isnull=False,
             finished_at__gte=now - RECLASSIFY_MAX_AGE,
         )
+        .exclude(envelope__status=EnvelopeStatus.NEEDS_INPUT, trigger_type__in=SessionOrigin.webhooks())
         .select_related("envelope", "session", "session__scheduled_job", "session__scheduled_job__user", "user")
         .prefetch_related("session__scheduled_job__subscribers")
         .order_by("finished_at")[:REDRIVE_BATCH_LIMIT]

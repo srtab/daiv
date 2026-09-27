@@ -140,7 +140,7 @@ One **Answer** button sends all of your answers as a single message, one line pe
 
 The card is only interactive on the session's last turn, and only while no run is in flight — reload the page after answering and the card stays visible but goes inert (options disabled, free-text field and Answer button hidden), with your answer showing as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
-For runs started from the dashboard, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md), DAIV also sends you a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Webhook runs rely on the question posted to the issue or merge request instead.
+For job runs (a dashboard job submission, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md)) and [scheduled](scheduled-jobs.md) runs, DAIV also sends a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
 
 ---
 
@@ -173,7 +173,7 @@ The composer accepts:
 - **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
 - **Sandbox environment** — the named [sandbox environment](sandbox-environments.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
-- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
+- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](jobs-api.md) or [MCP endpoint](mcp-endpoint.md); for scheduled runs, use the schedule's Mute toggle.
 
 Runs started this way are tagged with the **UI Run** origin. A single-repository submission takes you straight to the session detail page; a multi-repository submission takes you to the batch-filtered list.
 

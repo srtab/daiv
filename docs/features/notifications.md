@@ -8,7 +8,7 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are **found-issues**, **needs-attention**, **needs-input**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
 
-A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted on the issue or MR/PR with a mention, so DAIV sends no separate notification for it.
+A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
 There are three event types:
 
@@ -21,8 +21,8 @@ There are three event types:
 !!! note "Batches collapse into one message"
     A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
-!!! info "Webhook-triggered runs notify on worthy outcomes (except runs waiting for an answer — see above)"
-    Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) still report back inside the issue or MR/PR thread, and — like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)) — now also fire a notification to their initiator when the outcome is notify-worthy. All-clear runs stay silent on both paths.
+!!! info "Webhook-triggered runs notify on worthy outcomes"
+    Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
 
 ## Channels
 
@@ -50,7 +50,7 @@ DAIV reaches you through channels. The in-app bell is always available; email, R
 
 ### The in-app bell and list
 
-The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, or failed. All-clear runs are silent and do not produce a bell entry.
+The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.
 
 - The bell dropdown shows your ten most recent notifications and marks them read when you open it.
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.

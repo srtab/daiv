@@ -90,7 +90,7 @@ class WatchState(models.TextChoices):
 
 
 class EnvelopeStatus(models.TextChoices):
-    """The classification of a completed run (stored on ``RunEnvelope.status``).
+    """The classification of a terminal run (stored on ``RunEnvelope.status``).
 
     Values are hyphenated by deliberate convention — distinct from ``RunStatus``'s UPPER and
     ``SessionOrigin``'s snake_case, consistent with Story 1.1's ``intent`` (``watch-find``).

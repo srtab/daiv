@@ -130,7 +130,7 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
     status = envelope.status
     count = envelope.count
 
-    # The caller gates on notify_worthy() first; an unmatched status would leave subject unbound,
+    # The caller gates on notifies() first; an unmatched status would leave subject unbound,
     # so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
@@ -207,16 +207,9 @@ def _render_batch_payload(
             subject = _("Agent run batch: %(notable)d/%(total)d need a look") % params
 
     body = _(
-        "%(found)d found issues, %(input)d waiting for input, %(needs)d need attention, %(failed)d failed, "
+        "%(found)d found issues, %(needs_input)d waiting for input, %(needs)d need attention, %(failed)d failed, "
         "%(clear)d all-clear (of %(total)d runs)."
-    ) % {
-        "found": agg["found"],
-        "input": agg["needs_input"],
-        "needs": agg["needs"],
-        "failed": agg["failed"],
-        "clear": agg["clear"],
-        "total": total,
-    }
+    ) % {**agg, "total": total}
 
     notable_runs, notable_runs_overflow = _notable_runs_context(rows)
 
@@ -351,8 +344,8 @@ def emit_run_notification(run, envelope) -> None:
     """Notify recipients when a Run is classified, driven by the envelope (not raw status).
 
     Chat is never classified, so no chat special-case is needed. all-clear is silent; found-issues /
-    needs-attention / needs-input / failed notify unless muted, within the relevance window — except
-    a webhook-triggered needs-input, whose question is already posted on the forge (see ``notifies()``).
+    needs-attention / needs-input / failed notify unless muted, within the relevance window, except where
+    ``notifies()`` says otherwise.
     Delivery is at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
     """
     from sessions.models import Run

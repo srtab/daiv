@@ -133,17 +133,22 @@ class TestDeliverNotification:
         assert "Re-enqueue failed" in d.error_message
 
 
-def _classified_finished_run(user, *, status=EnvelopeStatus.FAILED):
-    session = Session.objects.create(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=user
-    )
+_RUN_STATUS_FOR_ENVELOPE = {
+    EnvelopeStatus.FAILED: RunStatus.FAILED,
+    EnvelopeStatus.NEEDS_INPUT: RunStatus.WAITING_INPUT,
+}
+
+
+def _classified_finished_run(user, *, status=EnvelopeStatus.FAILED, origin=SessionOrigin.API_JOB, batch_id=None):
+    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="x/y", user=user)
     run = Run.objects.create(
         session=session,
-        trigger_type=SessionOrigin.API_JOB,
+        trigger_type=origin,
         repo_id="x/y",
-        status=RunStatus.FAILED if status == EnvelopeStatus.FAILED else RunStatus.SUCCESSFUL,
+        status=_RUN_STATUS_FOR_ENVELOPE.get(status, RunStatus.SUCCESSFUL),
         user=user,
         finished_at=timezone.now(),
+        batch_id=batch_id,
     )
     RunEnvelope.objects.create(run=run, status=status, summary="s")
     return run
@@ -321,18 +326,7 @@ def test_redrive_delivers_a_missing_prompt_driven_question(member_user, email_bi
 @pytest.mark.django_db
 def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, caplog):
     """Re-emitting would be skipped by the emit and then logged as a stuck delivery every tick."""
-    session = Session.objects.create(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="x/y", user=member_user
-    )
-    run = Run.objects.create(
-        session=session,
-        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
-        repo_id="x/y",
-        status=RunStatus.WAITING_INPUT,
-        user=member_user,
-        finished_at=timezone.now(),
-    )
-    RunEnvelope.objects.create(run=run, status=EnvelopeStatus.NEEDS_INPUT, summary="Scope: Which modules?")
+    _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT, origin=SessionOrigin.ISSUE_WEBHOOK)
 
     with (
         patch("sessions.signals.run_classified.send_robust") as send_mock,
@@ -346,23 +340,8 @@ def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, 
 @pytest.mark.django_db
 def test_redrive_delivers_the_rollup_of_a_batch_with_a_question_sibling(member_user, email_binding):
     batch_id = uuid.uuid4()
-    for run_status, envelope_status in [
-        (RunStatus.FAILED, EnvelopeStatus.FAILED),
-        (RunStatus.WAITING_INPUT, EnvelopeStatus.NEEDS_INPUT),
-    ]:
-        session = Session.objects.create(
-            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="x/y", user=member_user
-        )
-        run = Run.objects.create(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="x/y",
-            status=run_status,
-            user=member_user,
-            finished_at=timezone.now(),
-            batch_id=batch_id,
-        )
-        RunEnvelope.objects.create(run=run, status=envelope_status, summary="s")
+    for status in (EnvelopeStatus.FAILED, EnvelopeStatus.NEEDS_INPUT):
+        _classified_finished_run(member_user, status=status, batch_id=batch_id)
 
     redrive_missing_notifications_cron_task.func()
 

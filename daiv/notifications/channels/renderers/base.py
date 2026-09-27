@@ -90,6 +90,17 @@ class BaseRenderer(ABC):
         return BaseRenderer._fmt_cost(ctx.get("cost_usd"))
 
     @staticmethod
+    def _breakdown_value(ctx: dict) -> str:
+        """The batch rollup's per-status counts; the question count only when some run is waiting."""
+        breakdown = (
+            f"found {ctx.get('found_count', 0)} · needs {ctx.get('needs_attention_count', 0)}"
+            f" · failed {ctx.get('failed_count', 0)}"
+        )
+        if needs_input := ctx.get("needs_input_count", 0):
+            breakdown += f" · input {needs_input}"
+        return breakdown
+
+    @staticmethod
     def _link(notification: Notification) -> str:
         return build_absolute_url(notification.link_url) if notification.link_url else ""
 

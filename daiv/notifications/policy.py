@@ -33,13 +33,13 @@ def notify_worthy_statuses() -> frozenset[str]:
 
 
 def notify_worthy(status: str) -> bool:
-    """The single notification predicate: notify only when the run produced something to look at.
-    ``all-clear`` is silent (it lives in the Feed)."""
+    """Whether an envelope status is worth a look; ``all-clear`` is silent (it lives in the Feed).
+    Per-run delivery decisions go through ``notifies()``, which adds the run-level exceptions."""
     return status in notify_worthy_statuses()
 
 
 def notifies(run, status: str) -> bool:
-    """Whether this run's outcome notifies. A webhook question is already posted, with a mention, on the forge."""
+    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker."""
     from sessions.models import EnvelopeStatus, SessionOrigin
 
     if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():

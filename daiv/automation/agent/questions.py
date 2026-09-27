@@ -93,7 +93,7 @@ def render_questions(payload: dict[str, Any]) -> str:
 
 
 def question_lines(payload: dict[str, Any] | None) -> str:
-    """One ``Header: question`` line per question, for notification bodies that can't carry options."""
+    """One ``Header: question`` line per question, for the needs-input envelope summary (no options)."""
     lines: list[str] = []
     for question in (payload or {}).get("questions") or []:
         text = " ".join(str(question.get("question") or "").split())

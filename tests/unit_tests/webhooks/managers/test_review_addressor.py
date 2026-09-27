@@ -137,7 +137,7 @@ class TestReviewAfterRunMatrix:
 
         [reply] = mention.create_merge_request_comment.call_args_list
         assert reply.args[2] == (
-            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\nReply mentioning @daiv-bot with your answer."
+            f"{render_questions(SAMPLE_QUESTION_PAYLOAD)}\n\n@bob, reply mentioning @daiv-bot with your answer."
         )
         assert reply.kwargs["reply_to_id"] == "c-1"
 

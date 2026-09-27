@@ -43,11 +43,14 @@ class BaseManager:
             return body
         return f"{body.rstrip()}\n\n{footer.lstrip()}"
 
-    def _question_comment(self, outcome: RunOutcome) -> str | None:
-        """The comment posting the question the run ended on, with how to answer it; ``None`` without a question."""
+    def _question_comment(self, outcome: RunOutcome, *, asker: str) -> str | None:
+        """The comment posting the question the run ended on, mentioning ``asker`` with how to answer it; ``None``
+        without a question."""
         if outcome.agent_result["question"] is None:
             return None
-        footer = render_to_string("webhooks/ask_user_question.txt", {"bot_username": self.client.current_user.username})
+        footer = render_to_string(
+            "webhooks/ask_user_question.txt", {"asker": asker, "bot_username": self.client.current_user.username}
+        )
         return self._append_footer(outcome.response_text, footer.strip())
 
     def _claim_unable_note(self) -> bool:
