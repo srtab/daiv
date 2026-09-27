@@ -40,7 +40,7 @@ class Option(BaseModel):
 
 
 class Question(BaseModel):
-    header: str = Field(min_length=1, max_length=12, description="A short chip label, 1 to 12 characters.")
+    header: str = Field(min_length=1, max_length=24, description="A short chip label, 1 to 24 characters.")
     question: str = Field(min_length=1, description="The full question, ending with '?'.")
     options: list[Option] = Field(
         default_factory=list,

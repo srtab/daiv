@@ -54,7 +54,7 @@ async def test_a_valid_question_ends_the_turn_and_after_agent_still_runs():
 
 
 async def test_invalid_arguments_return_an_error_and_the_loop_continues():
-    bad = {"questions": [{**SAMPLE_QUESTION_PAYLOAD["questions"][0], "header": "x" * 13}]}
+    bad = {"questions": [{**SAMPLE_QUESTION_PAYLOAD["questions"][0], "header": "x" * 25}]}
     messages, _probe = await _run(
         AIMessage(content="", tool_calls=[_ask("ask-1", bad)]), AIMessage(content="", tool_calls=[_ask("ask-2")])
     )

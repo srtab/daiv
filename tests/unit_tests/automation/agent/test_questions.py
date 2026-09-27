@@ -33,8 +33,8 @@ class TestSchema:
         with pytest.raises(ValidationError):
             AskUserQuestionInput.model_validate({"questions": [_question()] * count})
 
-    @pytest.mark.parametrize("header", ["", "x" * 13])
-    def test_header_is_one_to_twelve_characters(self, header):
+    @pytest.mark.parametrize("header", ["", "x" * 25])
+    def test_header_is_one_to_twenty_four_characters(self, header):
         with pytest.raises(ValidationError):
             AskUserQuestionInput.model_validate({"questions": [_question(header=header)]})
 
