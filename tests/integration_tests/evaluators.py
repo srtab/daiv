@@ -2,6 +2,7 @@ from functools import cache
 
 from openevals.llm import create_async_llm_as_judge
 from openevals.prompts import CORRECTNESS_PROMPT
+from pydantic import BaseModel
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import ModelName
@@ -20,3 +21,41 @@ def get_correctness_evaluator():
         feedback_key="correctness",
         judge=BaseAgent.get_model(model=ModelName.GPT_5_3_CODEX, thinking_level=ThinkingLevel.MEDIUM),
     )
+
+
+class Verdict(BaseModel):
+    passed: bool
+    explanation: str
+
+
+@cache
+def _question_judge():
+    return BaseAgent.get_model(model=ModelName.CLAUDE_OPUS_4_6, thinking_level=ThinkingLevel.MEDIUM)
+
+
+async def judge_question_relevance(request: str, rendered_questions: str) -> Verdict:
+    """Whether the agent's questions target the ambiguity that most changes the work."""
+    prompt = (
+        "A coding agent working in a repository received the request below and, instead of doing the work, "
+        "asked the user the questions that follow.\n\n"
+        f"Request:\n{request}\n\nQuestions:\n{rendered_questions}\n\n"
+        "Pass the questions only if they target the ambiguity that most changes the work, and none of them asks "
+        "about a routine judgment call or something the agent could learn by reading the repository."
+    )
+    return await _judge_or_fail(prompt)
+
+
+async def judge_states_assumptions(request: str, final_message: str) -> Verdict:
+    """Whether a run that could not ask states the assumptions it made to resolve the request's ambiguity."""
+    prompt = (
+        "A coding agent received the ambiguous request below. Nobody could answer questions during the run, so "
+        "it was told to choose the most reasonable reading and state its assumptions in its final message.\n\n"
+        f"Request:\n{request}\n\nFinal message:\n{final_message}\n\n"
+        "Pass only if the final message explicitly states the assumption it made to resolve the ambiguity."
+    )
+    return await _judge_or_fail(prompt)
+
+
+async def _judge_or_fail(prompt: str) -> Verdict:
+    result = await _question_judge().with_structured_output(Verdict).ainvoke(prompt)
+    return result or Verdict(passed=False, explanation="the judge returned nothing")
