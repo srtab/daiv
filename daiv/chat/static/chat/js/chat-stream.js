@@ -265,6 +265,8 @@
   const QUESTION_DELIVERED = "Question delivered to the user. This turn is over; their answer arrives as the next user message.";
 
   const parseQuestions = argsArray("questions");
+  const NO_PREFERENCE = "No preference";
+  const SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made.";
 
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
@@ -1140,8 +1142,23 @@
       return this.questionDrafts[seg.id];
     },
 
-    isOptionSelected(seg, qi, label) {
-      return (this.questionDrafts[seg.id]?.selected[qi] || []).includes(label);
+    isOptionSelected(seg, qi, label, ti) {
+      if (this.isQuestionOpen(ti)) return (this.questionDrafts[seg.id]?.selected[qi] || []).includes(label);
+      return this._answeredLabels(seg, qi, ti).includes(label);
+    },
+
+    // Reads the choices back out of the reply `composeAnswer` wrote; a reply typed any other way names none.
+    _answeredLabels(seg, qi, ti) {
+      const question = parseQuestions(seg)[qi];
+      const reply = this.turns.slice(ti + 1).find((turn) => turn.role === "user");
+      const text = reply?.segments.find((s) => s.type === "text")?.content || "";
+      const prefix = `**${question?.header}** — `;
+      const line = text.split("\n")[qi];
+      if (!question || !line?.startsWith(prefix)) return [];
+      const answer = line.slice(prefix.length);
+      const labels = (question.options || []).map((o) => o.label);
+      const picked = question.multi_select ? answer.split(", ") : [answer];
+      return picked.every((label) => labels.includes(label)) ? picked : [];
     },
 
     toggleQuestionOption(seg, qi, label) {
@@ -1166,13 +1183,13 @@
 
     composeAnswer(seg) {
       const draft = this.questionDrafts[seg.id] || { selected: {}, text: {} };
-      const lines = [];
-      for (const [qi, question] of parseQuestions(seg).entries()) {
-        const answer = (draft.text[qi] || "").trim() || (draft.selected[qi] || []).join(", ");
-        if (!answer) return "";
-        lines.push(`**${question.header}** — ${answer}`);
-      }
-      return lines.join("\n");
+      const answers = parseQuestions(seg).map(
+        (_, qi) => (draft.text[qi] || "").trim() || (draft.selected[qi] || []).join(", "),
+      );
+      if (!answers.some(Boolean)) return "";
+      return parseQuestions(seg)
+        .map((question, qi) => `**${question.header}** — ${answers[qi] || NO_PREFERENCE}`)
+        .join("\n");
     },
 
     canAnswerQuestion(seg) {
@@ -1183,6 +1200,11 @@
       const answer = this.composeAnswer(seg);
       if (!answer || this.streaming || this.resuming) return;
       await this.submit(answer);
+    },
+
+    async skipQuestion() {
+      if (this.streaming || this.resuming) return;
+      await this.submit(SKIP_ANSWER);
     },
 
     isTurnVisible(turn, isLast) {

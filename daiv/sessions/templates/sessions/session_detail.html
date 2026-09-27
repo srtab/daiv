@@ -259,11 +259,12 @@
                               <fieldset class="chat-question__item" :disabled="!isQuestionOpen(ti)">
                                 <legend class="chat-question__header" x-text="q.header"></legend>
                                 <p class="chat-question__text" x-text="q.question"></p>
+                                <p class="chat-question__hint" x-show="q.multi_select && (q.options || []).length">{% translate "Pick any that apply." %}</p>
                                 <div class="chat-question__options" x-show="(q.options || []).length">
                                   <template x-for="opt in (q.options || [])" :key="opt.label">
                                     <button type="button" class="chat-question__option"
-                                            :class="{ 'chat-question__option--selected': isOptionSelected(seg, qi, opt.label) }"
-                                            :aria-pressed="isOptionSelected(seg, qi, opt.label).toString()"
+                                            :class="{ 'chat-question__option--selected': isOptionSelected(seg, qi, opt.label, ti) }"
+                                            :aria-pressed="isOptionSelected(seg, qi, opt.label, ti).toString()"
                                             @click="toggleQuestionOption(seg, qi, opt.label)">
                                       <span class="chat-question__option-label" x-text="opt.label"></span>
                                       <span class="chat-question__option-desc" x-text="opt.description"></span>
@@ -278,6 +279,7 @@
                               </fieldset>
                             </template>
                             <div class="chat-question__actions" x-show="isQuestionOpen(ti)">
+                              <button type="button" class="btn-secondary" @click="skipQuestion()">{% translate "Skip" %}</button>
                               <button type="button" class="btn-primary chat-question__answer"
                                       :disabled="!canAnswerQuestion(seg)"
                                       @click="answerQuestion(seg)">{% translate "Answer" %}</button>

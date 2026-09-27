@@ -25,6 +25,7 @@ MIGRATION_ANSWER = (
     "Target MySQL 8. Keep the existing data; a short downtime window is fine. "
     "Don't edit any files yet: reply with a short migration plan."
 )
+SKIP_ANSWER = "Skip these questions — use your best judgment and state the assumptions you made."
 
 
 @asynccontextmanager
@@ -144,3 +145,21 @@ async def test_an_answer_resumes_the_run(model_name):
     assert pending_question(answered["messages"]) is None, "Expected the answer to clear the pending question"
     assert not ask_calls(answer_turn), f"Expected no further question, got: {ask_calls(answer_turn)}"
     assert final_text(answered["messages"]), "Expected the run to end on a reply"
+
+
+@pytest.mark.ask_user
+@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
+@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
+async def test_a_skipped_question_is_not_asked_again(model_name):
+    require_provider_for_model(model_name)
+    t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": SKIP_ANSWER})
+
+    async with agent_runner(model_name) as run:
+        asked = await run(MIGRATION_PROMPT)
+        assert_ended_on_one_clean_question(asked["messages"])
+        skipped = await run(SKIP_ANSWER)
+
+    t.log_outputs(skipped)
+    skip_turn = skipped["messages"][len(asked["messages"]) :]
+    assert not ask_calls(skip_turn), f"Expected the skip to be honoured, got: {ask_calls(skip_turn)}"
+    assert final_text(skipped["messages"]), "Expected the run to end on a reply"

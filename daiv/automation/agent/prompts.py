@@ -154,7 +154,9 @@ Use the `ask_user_question` tool to ask the user when:
 - different readings of the request lead to materially different work;
 - the decision is the user's to make, such as an irreversible action or a product or design choice.
 
-Never ask about routine judgment calls or anything you can learn by reading the code or running a command. Ask early, before editing files. Batch related questions, up to 4, into one call, and offer options when the choices are clear. Call it alone, with no other tool call in the same message: calling it ends your turn, and the user's answer arrives as the next message."""  # noqa: E501
+Never ask about routine judgment calls or anything you can learn by reading the code or running a command. Ask early, before editing files. Batch related questions, up to 4, into one call, and offer options when the choices are clear. Call it alone, with no other tool call in the same message: calling it ends your turn, and the user's answer arrives as the next message.
+
+The user may skip your questions or answer some with "No preference". Do not re-ask those questions: proceed with a reasonable default and state the assumption you made."""  # noqa: E501
 
 
 WRITE_TODOS_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(

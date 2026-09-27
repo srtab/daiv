@@ -1585,6 +1585,10 @@ html {
     @apply text-[14px] text-text;
   }
 
+  .chat-question__hint {
+    @apply -mt-1.5 text-[12px] text-text-muted;
+  }
+
   .chat-question__options {
     @apply flex flex-wrap gap-2;
   }
@@ -1612,7 +1616,7 @@ html {
   }
 
   .chat-question__actions {
-    @apply flex justify-end;
+    @apply flex justify-end gap-2;
   }
 
   /* Thinking ticker */
