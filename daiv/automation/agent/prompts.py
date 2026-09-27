@@ -156,11 +156,6 @@ Use the `ask_user_question` tool to ask the user when:
 
 Never ask about routine judgment calls or anything you can learn by reading the code or running a command. Ask early, before editing files. Batch related questions, up to 4, into one call, and offer options when the choices are clear. Call it alone, with no other tool call in the same message: calling it ends your turn, and the user's answer arrives as the next message."""  # noqa: E501
 
-ASK_USER_DISABLED_SYSTEM_PROMPT = """\
-## Asking the user
-
-Nobody can answer questions during this run. When the request is ambiguous, choose the most reasonable reading, do the work, and state the assumptions you made in your final message."""  # noqa: E501
-
 
 WRITE_TODOS_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     """\

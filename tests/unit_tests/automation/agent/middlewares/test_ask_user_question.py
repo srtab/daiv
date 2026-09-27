@@ -4,7 +4,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware, ask_user_question
-from automation.agent.prompts import ASK_USER_DISABLED_SYSTEM_PROMPT, ASK_USER_QUESTION_SYSTEM_PROMPT
+from automation.agent.prompts import ASK_USER_QUESTION_SYSTEM_PROMPT
 from automation.agent.questions import (
     ASK_USER_QUESTION_TOOL_NAME,
     NOT_ALONE_ERROR,
@@ -104,7 +104,7 @@ async def test_enabled_binds_the_tool_and_adds_the_asking_section():
     assert seen == [f"BASE\n\n{ASK_USER_QUESTION_SYSTEM_PROMPT}"]
 
 
-async def test_disabled_binds_nothing_and_tells_the_model_nobody_can_answer():
+async def test_disabled_binds_nothing_and_leaves_the_prompt_unchanged():
     seen = []
 
     async def handler(request):
@@ -115,4 +115,4 @@ async def test_disabled_binds_nothing_and_tells_the_model_nobody_can_answer():
     await middleware.awrap_model_call(_request(), handler)
 
     assert middleware.tools == []
-    assert seen == [f"BASE\n\n{ASK_USER_DISABLED_SYSTEM_PROMPT}"]
+    assert seen == ["BASE"]

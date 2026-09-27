@@ -74,7 +74,7 @@ Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch i
 
 If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.
 
-Scheduled runs never stop to ask a question — with nobody to answer, the agent picks the most reasonable reading of the prompt and states its assumptions instead.
+Scheduled runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
 
 ## Timezone handling
 

@@ -6,7 +6,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, ToolMessage
 
-from automation.agent.prompts import ASK_USER_DISABLED_SYSTEM_PROMPT, ASK_USER_QUESTION_SYSTEM_PROMPT
+from automation.agent.prompts import ASK_USER_QUESTION_SYSTEM_PROMPT
 from automation.agent.questions import (
     ASK_USER_QUESTION_TOOL_NAME,
     NOT_ALONE_ERROR,
@@ -61,8 +61,13 @@ class AskUserQuestionMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        if self.enabled and (call := delivered_question_call(request.messages)) is not None:
+        if not self.enabled:
+            return await handler(request)
+        if (call := delivered_question_call(request.messages)) is not None:
             return AIMessage(content=render_questions(call["args"]))
-        section = ASK_USER_QUESTION_SYSTEM_PROMPT if self.enabled else ASK_USER_DISABLED_SYSTEM_PROMPT
-        system_prompt = f"{request.system_prompt}\n\n{section}" if request.system_prompt else section
+        system_prompt = (
+            f"{request.system_prompt}\n\n{ASK_USER_QUESTION_SYSTEM_PROMPT}"
+            if request.system_prompt
+            else ASK_USER_QUESTION_SYSTEM_PROMPT
+        )
         return await handler(request.override(system_prompt=system_prompt))

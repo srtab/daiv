@@ -11,7 +11,7 @@ from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, pending_ques
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
-from .evaluators import judge_question_relevance, judge_states_assumptions
+from .evaluators import judge_question_relevance
 from .utils import ASK_USER_MODELS, extract_tool_calls, require_provider_for_model
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,6 @@ MIGRATION_ANSWER = (
     "Target MySQL 8. Keep the existing data; a short downtime window is fine. "
     "Don't edit any files yet: reply with a short migration plan."
 )
-PLAN_ONLY_MIGRATION_PROMPT = f"{MIGRATION_PROMPT} Don't edit any files: reply with a short migration plan."
 
 
 @asynccontextmanager
@@ -145,21 +144,3 @@ async def test_an_answer_resumes_the_run(model_name):
     assert pending_question(answered["messages"]) is None, "Expected the answer to clear the pending question"
     assert not ask_calls(answer_turn), f"Expected no further question, got: {ask_calls(answer_turn)}"
     assert final_text(answered["messages"]), "Expected the run to end on a reply"
-
-
-@pytest.mark.ask_user
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-@pytest.mark.parametrize("model_name", ASK_USER_MODELS)
-async def test_a_run_that_cannot_ask_states_its_assumptions(model_name):
-    require_provider_for_model(model_name)
-    t.log_inputs({"model_name": model_name, "prompt": PLAN_ONLY_MIGRATION_PROMPT})
-
-    async with agent_runner(model_name, ask_user_enabled=False) as run:
-        result = await run(PLAN_ONLY_MIGRATION_PROMPT)
-
-    t.log_outputs(result)
-    assert not ask_calls(result["messages"]), f"Expected no question, got: {ask_calls(result['messages'])}"
-    reply = final_text(result["messages"])
-    assert reply, "Expected the run to end on a reply"
-    verdict = await judge_states_assumptions(PLAN_ONLY_MIGRATION_PROMPT, reply)
-    assert verdict.passed, f"Expected the reply to state its assumptions: {verdict.explanation}"

@@ -45,17 +45,6 @@ async def judge_question_relevance(request: str, rendered_questions: str) -> Ver
     return await _judge_or_fail(prompt)
 
 
-async def judge_states_assumptions(request: str, final_message: str) -> Verdict:
-    """Whether a run that could not ask states the assumptions it made to resolve the request's ambiguity."""
-    prompt = (
-        "A coding agent received the ambiguous request below. Nobody could answer questions during the run, so "
-        "it was told to choose the most reasonable reading and state its assumptions in its final message.\n\n"
-        f"Request:\n{request}\n\nFinal message:\n{final_message}\n\n"
-        "Pass only if the final message explicitly states the assumption it made to resolve the ambiguity."
-    )
-    return await _judge_or_fail(prompt)
-
-
 async def _judge_or_fail(prompt: str) -> Verdict:
     result = await _question_judge().with_structured_output(Verdict).ainvoke(prompt)
     return result or Verdict(passed=False, explanation="the judge returned nothing")
