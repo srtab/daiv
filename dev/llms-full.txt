@@ -3237,7 +3237,7 @@ With the sandbox enabled, DAIV can:
 
 Network access is off by default
 
-Installing or updating dependencies reaches out to package registries (npm, PyPI, etc.), which needs network access. The sandbox runs with networking **disabled** by default, so these commands fail until you enable `network_enabled` on the relevant [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md).
+Installing or updating dependencies reaches out to package registries (npm, PyPI, etc.), which needs network access. The sandbox runs with networking **disabled** by default, so these commands fail until you turn **Network** on for the relevant [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md).
 
 Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
 
@@ -3279,7 +3279,7 @@ When a command is evaluated, rules are checked in this order:
 
 ## Configuring the sandbox
 
-Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and environment variables) is managed through the **Sandbox Environments** admin page rather than `.daiv.yml`. Each environment can be bound to specific repositories (`owner/repo`); when an agent runs in a repo claimed by an environment, that environment is auto-selected. Personal (USER-scoped) environments override organization-wide (GLOBAL-scoped) environments for the running user. See [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) for details.
+Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and environment variables) is managed through the **Sandbox Environments** admin page rather than `.daiv.yml`. Each environment can be bound to specific repositories (`owner/repo`); when a run is requested in a repo claimed by an environment, that environment is auto-selected. Personal (USER-scoped) environments override organization-wide (GLOBAL-scoped) environments for the running user. See [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) for details.
 
 # Sandbox Environments
 
@@ -3383,13 +3383,13 @@ The proxy always performs TLS interception on every reachable host — this is w
 
 ### Repository bindings
 
-The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when an agent runs in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
+The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when a run is requested in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
 
 A repository ID may be claimed by at most one environment **within the same scope** for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.
 
 ## How an environment is resolved
 
-When a run starts in a repository, DAIV picks the per-run environment using this precedence (per repository):
+When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository) and records it on the run. A session keeps the environment of its first run:
 
 1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)/[MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md), or the session header). Selecting an environment overrides all binding/default logic.
 1. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
@@ -3399,13 +3399,15 @@ When a run starts in a repository, DAIV picks the per-run environment using this
 
 The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
-Webhook-triggered runs
+Issue and merge request webhooks
 
-Runs triggered by a webhook (for example, [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
+Runs triggered by an issue or merge request webhook (for example, [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
+
+The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.
 
 ```
 flowchart TD
-    A[Run starts for a repo] --> B{Environment<br/>explicitly selected?}
+    A[Run requested for a repo] --> B{Environment<br/>explicitly selected?}
     B -- Yes --> Z[Use it]
     B -- No --> C{User env binds<br/>this repo?}
     C -- Yes --> Z

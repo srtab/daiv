@@ -2025,10 +2025,10 @@
 </table>
 <p>The proxy always performs TLS interception on every reachable host — this is what lets it inject per-host credentials and enforce per-host HTTP-method restrictions. (TLS inspection is not configurable.)</p>
 <h3 id="repository-bindings">Repository bindings</h3>
-<p>The <strong>Repositories</strong> field is a list of repository IDs (<code>owner/repo</code>, <code>group/subgroup/repo</code>, …) that this environment claims. Bindings drive <a href="#how-an-environment-is-resolved">auto-resolution</a>: when an agent runs in a bound repository and no environment is explicitly selected, this environment is chosen automatically.</p>
+<p>The <strong>Repositories</strong> field is a list of repository IDs (<code>owner/repo</code>, <code>group/subgroup/repo</code>, …) that this environment claims. Bindings drive <a href="#how-an-environment-is-resolved">auto-resolution</a>: when a run is requested in a bound repository and no environment is explicitly selected, this environment is chosen automatically.</p>
 <p>A repository ID may be claimed by at most one environment <strong>within the same scope</strong> for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.</p>
 <h2 id="how-an-environment-is-resolved">How an environment is resolved</h2>
-<p>When a run starts in a repository, DAIV picks the per-run environment using this precedence (per repository):</p>
+<p>When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository) and records it on the run. A session keeps the environment of its first run:</p>
 <ol>
 <li><strong>Explicit selection</strong> — an environment chosen for the run (the picker in the dashboard, the <code>environment</code> argument to the <a href="../jobs-api/">Jobs API</a>/<a href="../mcp-endpoint/">MCP</a>, or the session header). Selecting an environment overrides all binding/default logic.</li>
 <li><strong>User repository binding</strong> — your <strong>User</strong> environment whose <strong>Repositories</strong> list contains this repository.</li>
@@ -2038,11 +2038,12 @@
 </ol>
 <p>The selected per-run environment is then <strong>merged with the global default</strong> to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. <strong>Network (egress) is the exception — it is explicit per environment and is never inherited</strong>: a per-run environment with <strong>Network</strong> off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.</p>
 <div class="admonition note">
-<p class="admonition-title">Webhook-triggered runs</p>
-<p>Runs triggered by a webhook (for example, <a href="../issue-addressing/">issue addressing</a>) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.</p>
+<p class="admonition-title">Issue and merge request webhooks</p>
+<p>Runs triggered by an issue or merge request webhook (for example, <a href="../issue-addressing/">issue addressing</a>) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.</p>
 </div>
+<p>The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A <a href="../pipeline-watch/">pipeline-watch</a> fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.</p>
 <pre class="mermaid"><code>flowchart TD
-    A[Run starts for a repo] --&gt; B{Environment&lt;br/&gt;explicitly selected?}
+    A[Run requested for a repo] --&gt; B{Environment&lt;br/&gt;explicitly selected?}
     B -- Yes --&gt; Z[Use it]
     B -- No --&gt; C{User env binds&lt;br/&gt;this repo?}
     C -- Yes --&gt; Z
@@ -2129,7 +2130,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 28, 2026 15:01:31 UTC">September 28, 2026</span>
   </span>
 
     
