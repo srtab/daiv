@@ -22,7 +22,6 @@ from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
-from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -43,16 +42,6 @@ def stub_sandbox_spec(spec: SandboxSpec | None = None):
     built = spec or sandbox_spec(base_image=None)
     with patch("sandbox_envs.services.build_sandbox_spec", new=AsyncMock(return_value=built)) as build:
         yield build
-
-
-@contextmanager
-def bound_run_sandbox_client(client):
-    """Bind ``client`` as the run-scoped sandbox client, as ``set_runtime_ctx`` does for a sandbox run."""
-    token = set_run_sandbox_client(client)
-    try:
-        yield client
-    finally:
-        reset_run_sandbox_client(token)
 
 
 @dataclass

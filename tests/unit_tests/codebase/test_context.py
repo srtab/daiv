@@ -9,7 +9,6 @@ from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
 from codebase.context import set_runtime_ctx
 from codebase.exceptions import CloneRefNotFoundError
-from core.sandbox.client import _run_sandbox_client, get_run_sandbox_client
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
@@ -46,17 +45,17 @@ async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled()
     fake_client.open = AsyncMock(return_value=fake_client)
     fake_client.close = AsyncMock()
     with _context_deps(), patch("codebase.context.DAIVSandboxClient", return_value=fake_client):
-        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()):
-            assert _run_sandbox_client.get() is fake_client
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
+            assert ctx.sandbox_client is fake_client
+            fake_client.close.assert_not_awaited()
         fake_client.open.assert_awaited_once()
         fake_client.close.assert_awaited_once()
-        assert _run_sandbox_client.get() is None
 
 
 async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
     with _context_deps(), patch("codebase.context.DAIVSandboxClient") as ctor:
-        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)):
-            assert _run_sandbox_client.get() is None
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            assert ctx.sandbox_client is None
         ctor.assert_not_called()
 
 
@@ -138,7 +137,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
 
     with _sandbox_run(credential, working_dir=str(tmp_path)):
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
-            client = get_run_sandbox_client()
+            client = ctx.sandbox_client
             middleware = SandboxMiddleware(
                 agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
             )

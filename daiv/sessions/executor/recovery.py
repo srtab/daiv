@@ -13,14 +13,13 @@ logger = logging.getLogger("daiv.sessions")
 async def recover_draft(ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableConfig, *, thread_id: str) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
-    Runs inside the run's context, so the clone and the sandbox client are still open. Sandbox-mode publish runs
-    git through a backend bound to the turn's session, rebuilt here from the persisted session id. Never raises:
-    this is the last attempt to save the run's work, and a failure only means no draft.
+    Runs inside the run's context, so the clone and the context's sandbox client are still open. Sandbox-mode
+    publish runs git through a backend bound to the turn's session, rebuilt here from the persisted session id.
+    Never raises: this is the last attempt to save the run's work, and a failure only means no draft.
     """
     from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.utils import get_repo_ref
-    from core.sandbox.client import get_run_sandbox_client
 
     try:
         snapshot = await agent.aget_state(config=config)
@@ -33,7 +32,7 @@ async def recover_draft(ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableC
 
         sandbox_backend = None
         if ctx.sandbox is not None and ctx.sandbox.enabled and (sid := snapshot.values.get("session_id")):
-            sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
+            sandbox_backend = SandboxFileBackend(client=ctx.sandbox_client)
             sandbox_backend.bind_session(sid)
 
         publisher = GitChangePublisher(ctx, sandbox_backend=sandbox_backend, thread_id=thread_id)

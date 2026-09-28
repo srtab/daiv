@@ -13,7 +13,7 @@ from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -57,8 +57,7 @@ async def _build(*, base_image: str | None, **agent_kwargs) -> SimpleNamespace:
         ctx.gitrepo.working_dir = "/repo"
         ctx.sandbox = sandbox
         ctx.config.context_file_name = "AGENTS.md"
-        if sandbox.enabled:
-            stack.enter_context(bound_run_sandbox_client(run_client))
+        ctx.sandbox_client = run_client if sandbox.enabled else None
         await create_daiv_agent(ctx=ctx, auto_commit_changes=False, **agent_kwargs)
     return SimpleNamespace(run_client=run_client, **mocks)
 

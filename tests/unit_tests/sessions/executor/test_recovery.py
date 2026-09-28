@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from sessions.executor.recovery import recover_draft
 
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 
 _AUTHOR = User(id=1, username="alice")
@@ -39,10 +39,11 @@ def _mr(*, source_branch: str) -> MergeRequest:
     )
 
 
-def _ctx(*, sandbox=None) -> Mock:
+def _ctx(*, sandbox=None, client=None) -> Mock:
     ctx = Mock()
     ctx.repository = Mock(slug="owner/repo")
     ctx.sandbox = sandbox
+    ctx.sandbox_client = client
     ctx.merge_request = None
     ctx.gitrepo = Mock()
     return ctx
@@ -109,11 +110,10 @@ class TestSandboxMode:
     async def _recover(client: FakeSandboxClient, session_id: str, *, publisher) -> tuple[bool, Mock]:
         agent = _agent({"merge_request": None, "session_id": session_id})
         with (
-            bound_run_sandbox_client(client),
             patch("automation.agent.publishers.GitChangePublisher", publisher),
             patch("codebase.utils.get_repo_ref", return_value="daiv/issue-10"),
         ):
-            published = await recover_draft(_ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1")
+            published = await recover_draft(_ctx(sandbox=sandbox_spec(), client=client), agent, {}, thread_id="t-1")
         return published, agent
 
     async def test_it_publishes_a_draft_through_the_live_session(self):

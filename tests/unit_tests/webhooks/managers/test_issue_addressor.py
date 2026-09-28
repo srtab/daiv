@@ -23,7 +23,6 @@ from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
     ask_user_question_messages,
-    bound_run_sandbox_client,
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder
@@ -39,9 +38,11 @@ def _ctx() -> SimpleNamespace:
     return SimpleNamespace(config=RepositoryConfig(), repo=SimpleNamespace(ref="main"))
 
 
-def _sandbox_ctx() -> SimpleNamespace:
+def _sandbox_ctx(client) -> SimpleNamespace:
     """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec())
+    return SimpleNamespace(
+        **vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec(), sandbox_client=client
+    )
 
 
 def _issue(*, labels: list[str]) -> Issue:
@@ -240,8 +241,7 @@ class TestIssueAfterRunMatrix:
         agent.aupdate_state = AsyncMock()
         created: list = []
         with (
-            bound_run_sandbox_client(client),
-            addressor_run(agent, ctx=_sandbox_ctx(), stub_recovery=False),
+            addressor_run(agent, ctx=_sandbox_ctx(client), stub_recovery=False),
             patch(
                 "automation.agent.publishers.GitChangePublisher",
                 publisher_through_backend(created, publishes=_merge_request()),

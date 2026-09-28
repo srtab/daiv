@@ -64,7 +64,6 @@ from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
-from core.sandbox.client import get_run_sandbox_client
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -244,7 +243,9 @@ async def create_daiv_agent(
         # to the run's session by SandboxMiddleware.abefore_agent. It is wrapped in a composite only
         # so the offloading middlewares get an ``artifacts_root`` under /workspace (a bare backend
         # would default to "/" and write evictions outside /workspace, which the sandbox rejects).
-        run_client = get_run_sandbox_client()
+        run_client = ctx.sandbox_client
+        if run_client is None:
+            raise RuntimeError("A sandbox-enabled run needs the sandbox client set_runtime_ctx opens")
         sandbox_backend = SandboxFileBackend(client=run_client)
         backend: BackendProtocol = DAIVCompositeBackend(
             default=sandbox_backend, routes={}, artifacts_root=WORKSPACE_PATH

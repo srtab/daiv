@@ -13,7 +13,7 @@ from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
-from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
+from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
@@ -64,6 +64,8 @@ class RuntimeCtx:
     sandbox_egress: EgressConfigRequest | None = None
     """The egress config the run's sandbox is provisioned with: ``sandbox.egress`` plus the git-platform
     rule and credential (see :func:`_run_egress`). ``None`` means no network."""
+    sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
+    """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -210,14 +212,12 @@ async def set_runtime_ctx(
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    # One run-scoped client (one httpx pool), read by create_daiv_agent and sessions.executor.recovery;
-    # httpx connects lazily, so opening it before the clone is free.
+    # One client (one httpx pool) per run, carried on the context; httpx connects lazily, so opening it before the
+    # clone is free.
     sandbox_client: DAIVSandboxClient | None = None
-    client_token = None
     if sandbox_spec.enabled:
         sandbox_client = DAIVSandboxClient()
         await sandbox_client.open()
-        client_token = set_run_sandbox_client(sandbox_client)
 
     try:
         with _load_repo_with_optional_fallback(
@@ -239,6 +239,7 @@ async def set_runtime_ctx(
                 repos=(handle,),
                 sandbox=sandbox_spec,
                 sandbox_egress=sandbox_egress,
+                sandbox_client=sandbox_client,
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,
@@ -254,16 +255,12 @@ async def set_runtime_ctx(
             finally:
                 runtime_ctx.reset(token)
     finally:
-        if sandbox_client is not None and client_token is not None:
+        if sandbox_client is not None:
             try:
                 await sandbox_client.close()
             except Exception:
-                # A transport-level close failure must not mask whatever the run was already raising,
-                # and the contextvar reset below must still run so it is never left bound to a closed
-                # client. Log and continue.
+                # A close failure must not mask whatever the run was already raising.
                 logger.exception("Failed to close run-scoped sandbox client")
-            finally:
-                reset_run_sandbox_client(client_token)
 
 
 def get_runtime_ctx() -> RuntimeCtx:
