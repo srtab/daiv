@@ -8,7 +8,7 @@ from uuid import UUID
 from django.db.models import Q
 
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
-from sandbox_envs.spec import SandboxEnvOverride
+from sandbox_envs.spec import SandboxEnvOverride, SandboxSpec, merge_sandbox_spec
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -84,6 +84,16 @@ async def get_global_default() -> SandboxEnvOverride | None:
     no GLOBAL default row exists."""
     row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
     return row_to_override(row) if row is not None else None
+
+
+async def build_sandbox_spec(env_id: str | None) -> SandboxSpec:
+    """The sandbox a run gets: the environment ``env_id`` names, merged over the GLOBAL default.
+
+    ``None`` means the trigger selected none, so the GLOBAL default applies alone; the choice is
+    :mod:`sandbox_envs.selection`'s. Raises :class:`LookupError` when ``env_id`` names no environment.
+    """
+    per_run = await resolve_sandbox_env(env_id)
+    return merge_sandbox_spec(per_run=per_run, global_default=await get_global_default())
 
 
 def humanise_global_default() -> dict[str, str | bool]:

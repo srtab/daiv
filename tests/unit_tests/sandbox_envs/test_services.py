@@ -1,8 +1,15 @@
+import uuid
 from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import alist_visible_environments, build_env_trigger, get_global_default, resolve_sandbox_env
+from sandbox_envs.services import (
+    alist_visible_environments,
+    build_env_trigger,
+    build_sandbox_spec,
+    get_global_default,
+    resolve_sandbox_env,
+)
 from sandbox_envs.spec import SandboxEnvOverride
 
 from accounts.models import User
@@ -346,3 +353,41 @@ async def test_alist_visible_environments_excludes_other_users():
     names = {e.name for e in rows}
     assert "mine" in names
     assert "theirs" not in names
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBuildSandboxSpec:
+    @pytest.fixture(autouse=True)
+    def _clear_global(self):
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+
+    async def test_it_merges_the_selected_env_over_the_global_default(self):
+        await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="Default", base_image="python:3.12", memory_bytes=2_000_000_000, is_default=True
+        )
+        env = await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="dev", base_image="alpine:latest")
+
+        spec = await build_sandbox_spec(str(env.id))
+
+        assert (spec.base_image, spec.memory_bytes) == ("alpine:latest", 2_000_000_000)
+
+    async def test_no_env_is_the_global_default_alone_even_when_an_env_binds_a_repo(self):
+        await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True
+        )
+        await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+
+        spec = await build_sandbox_spec(None)
+
+        assert spec.base_image == "python:3.12"
+
+    async def test_no_env_and_no_global_default_is_a_disabled_sandbox(self):
+        spec = await build_sandbox_spec(None)
+
+        assert not spec.enabled
+
+    async def test_an_env_id_that_names_no_environment_raises(self):
+        with pytest.raises(LookupError, match="not found"):
+            await build_sandbox_spec(str(uuid.uuid4()))
