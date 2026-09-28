@@ -10,7 +10,6 @@ import pytest
 from git import Repo
 from pydantic import SecretStr
 
-from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import (
     SANDBOX_SYSTEM_PROMPT,
     BashFailure,
@@ -18,6 +17,7 @@ from automation.agent.middlewares.sandbox import (
     SandboxMiddleware,
     _run_bash_commands,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from core.conf import settings as core_settings
 from core.sandbox.schemas import (
     EgressConfigRequest,

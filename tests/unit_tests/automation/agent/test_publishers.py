@@ -11,7 +11,6 @@ from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
-from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
@@ -21,6 +20,7 @@ from automation.agent.publishers import (
     effective_merge_request,
     run_base_branch,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import (
     GitPlatform,
     Issue,

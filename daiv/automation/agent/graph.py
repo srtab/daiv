@@ -35,7 +35,6 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FS_TOOLS,
     DAIVCompositeBackend,
     DAIVFilesystemMiddleware,
-    SandboxFileBackend,
     build_disk_workspace_backend,
     filesystem_absolute_path_directive,
 )
@@ -60,6 +59,7 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref

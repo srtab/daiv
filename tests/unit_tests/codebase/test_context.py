@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
 from codebase.context import set_runtime_ctx

@@ -32,7 +32,7 @@ from .diff_to_metadata.prompts import sanitize_agent_report
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from automation.agent.middlewares.file_system import SandboxFileBackend
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.clients.base import GitAuthEnv
     from codebase.context import RuntimeCtx
 

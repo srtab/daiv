@@ -7,7 +7,7 @@ import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
-from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend
 from automation.agent.middlewares.git_platform import (
     GITHUB_CLI_ALLOW_COMMANDS,
     GITHUB_TOOL_DESCRIPTION,
@@ -20,6 +20,7 @@ from automation.agent.middlewares.git_platform import (
     _run_gitlab_subcommand,
     _write_output_to_file,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import GitPlatform
 
 LARGE_TOOL_RESULTS_PREFIX = "/workspace/large_tool_results"

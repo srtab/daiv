@@ -17,7 +17,7 @@ from automation.agent.git_manager import (
     _is_push_stale_error_text,
     _shell_quote,
 )
-from automation.agent.middlewares.file_system import SandboxFileBackend
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeSandboxClient
 

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from git import Repo
 
-    from automation.agent.middlewares.file_system import SandboxFileBackend
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.clients.base import GitAuthEnv
 
 logger = logging.getLogger("daiv.tools")

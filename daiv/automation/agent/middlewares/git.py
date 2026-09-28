@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
-    from automation.agent.middlewares.file_system import SandboxFileBackend
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 
 logger = logging.getLogger("daiv.tools")

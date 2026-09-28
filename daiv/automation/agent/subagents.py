@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
-    from automation.agent.middlewares.file_system import SandboxFileBackend
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.context import RuntimeCtx
     from core.sandbox.client import DAIVSandboxClient
 

@@ -9,9 +9,10 @@ from deepagents.backends.protocol import BackendProtocol
 
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, SandboxFileBackend
+from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
 
 

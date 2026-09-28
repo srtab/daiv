@@ -6,9 +6,9 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage
 
 from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
-from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 
 
