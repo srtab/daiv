@@ -1,3 +1,4 @@
+import asyncio
 import io
 import tarfile
 from unittest.mock import AsyncMock
@@ -146,6 +147,19 @@ class TestAcquire:
 
         with pytest.raises(RuntimeError, match="already acquired"):
             await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+
+    async def test_a_cancelled_seed_removes_the_new_container(self):
+        client = FakeSandboxClient.opened()
+        session = _session(client)
+
+        with pytest.raises(asyncio.CancelledError):
+            await session.acquire(
+                prior_id=None, prior_fingerprint=None, seed=AsyncMock(side_effect=asyncio.CancelledError)
+            )
+
+        assert client.calls_to("close_session") == [("sess-1", True)]
+        assert client.sessions == {}
+        assert not session.is_acquired
 
 
 def _started_egress(token: str | None, env: EgressConfigRequest | None = None) -> EgressConfigRequest:
