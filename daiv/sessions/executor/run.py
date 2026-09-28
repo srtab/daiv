@@ -202,6 +202,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
 async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     # Imported here so django.setup(), which reaches this module via jobs.tasks, never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
+    from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.graph import create_daiv_agent
     from automation.agent.usage_tracking import track_usage_metadata
@@ -209,6 +210,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
 
+    sandbox_spec = await build_sandbox_spec(spec.sandbox_env_id)
     if spec.thread_id is None:
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
@@ -221,7 +223,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
-            sandbox_env_id=spec.sandbox_env_id,
+            sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             mcp_overrides=spec.mcp_overrides,
             references=spec.references,

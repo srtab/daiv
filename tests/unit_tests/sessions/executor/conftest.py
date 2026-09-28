@@ -11,6 +11,7 @@ from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunSpec
 
 from codebase.base import Scope
+from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import watch_recorder
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
 
     ``ctx`` is the ``RuntimeCtx`` the stubbed clone yields (its ``repo.ref`` defaults to ``"main"``), ``context``
     replaces ``set_runtime_ctx`` itself, and ``resolve`` replaces ``get_daiv_agent_kwargs``.
+    ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed to the clone.
     """
     stack = SimpleNamespace(
         events=[],
@@ -74,6 +76,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
             await super().aarm_after_run(**kwargs)
 
     with (
+        stub_sandbox_spec() as build_spec,
         patch("codebase.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch("automation.agent.utils.get_daiv_agent_kwargs", stack.resolve),
@@ -86,6 +89,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
     ):
+        stack.build_spec = build_spec
         stack.create_agent = create_agent
         stack.langsmith = langsmith
         stack.build_result = build_result

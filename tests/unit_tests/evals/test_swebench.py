@@ -187,7 +187,7 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     explicit_params = set(ctx_sig.parameters) - {"kwargs"}
     ctx_kwargs = {k: v for k, v in spec.context_options.items() if k in explicit_params}
     client_kwargs = {k: v for k, v in spec.context_options.items() if k not in explicit_params}
-    ctx_sig.bind(spec.repo_id, scope=spec.scope, **ctx_kwargs)
+    ctx_sig.bind(spec.repo_id, scope=spec.scope, sandbox_spec=None, **ctx_kwargs)
     client = _real_create_instance(**client_kwargs)
     assert isinstance(client, SWERepoClient)
     assert client.repo_host == "github.com"

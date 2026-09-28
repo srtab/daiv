@@ -32,7 +32,7 @@ from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
-from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
@@ -931,6 +931,7 @@ async def test_events_hands_the_turns_settings_to_the_executor():
     resolve = MagicMock(return_value={"model_names": ["m-1"], "thinking_level": "low"})
     langsmith = MagicMock(return_value={})
     with (
+        stub_sandbox_spec() as build_spec,
         patch("codebase.context.set_runtime_ctx", _capture_ctx),
         patch("automation.agent.utils.get_daiv_agent_kwargs", resolve),
         patch("automation.agent.utils.build_langsmith_config", langsmith),
@@ -955,8 +956,9 @@ async def test_events_hands_the_turns_settings_to_the_executor():
         async for _ in streamer.events():
             pass
 
-    assert {key: captured[key] for key in ("sandbox_env_id", "acting_user_id", "mcp_overrides", "references")} == {
-        "sandbox_env_id": "env-1",
+    build_spec.assert_awaited_once_with("env-1")
+    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "mcp_overrides", "references")} == {
+        "sandbox_spec": build_spec.return_value,
         "acting_user_id": 7,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,

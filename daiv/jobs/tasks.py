@@ -37,7 +37,7 @@ async def run_job_task(
     on the assumption that the Session and the checkpointer share the same thread_id key.
     A silent UUID fallback here would break that contract on the resume path.
 
-    ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
+    ``sandbox_environment_id`` is the environment the caller selected; ``None`` runs on the GLOBAL default.
     ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
     to select the user's personal MCP servers.
     ``ask_user_enabled``: whether someone can answer a question the agent asks mid-run.

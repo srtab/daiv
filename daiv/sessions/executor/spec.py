@@ -31,6 +31,8 @@ class RunSpec:
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
+    ``sandbox_env_id`` is the environment the trigger selected; the run builds its sandbox spec from it once, and
+    ``None`` runs on the GLOBAL default alone.
     """
 
     thread_id: str | None

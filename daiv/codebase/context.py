@@ -175,7 +175,7 @@ async def set_runtime_ctx(
     issue: Issue | None = None,
     merge_request: MergeRequest | None = None,
     offline: bool = False,
-    sandbox_env_id: str | None = None,
+    sandbox_spec: SandboxSpec,
     acting_user_id: int | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[ExternalRef] | None = None,
@@ -191,11 +191,8 @@ async def set_runtime_ctx(
         issue: The issue object if the context is scoped to an issue.
         merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
-        sandbox_env_id: Optional per-run sandbox environment UUID. When provided, the env
-            is resolved and merged with the GLOBAL default to build ``ctx.sandbox``.
-            When not provided, Auto-resolution selects an env via
-            :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
-            to the GLOBAL default env if nothing matches.
+        sandbox_spec: The run's sandbox, built once by the executor from the environment its trigger selected
+            (:func:`sandbox_envs.services.build_sandbox_spec`).
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
         mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
         references: Caller-declared external references, from ``Session.external_refs``.
@@ -207,24 +204,12 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    from sandbox_envs.selection import resolve_env_for_run
-    from sandbox_envs.services import get_global_default, resolve_sandbox_env, row_to_override
-    from sandbox_envs.spec import merge_sandbox_spec
-
     repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 
     if ref is None:
         ref = cast("str", config.default_branch)
-
-    if sandbox_env_id:
-        per_run = await resolve_sandbox_env(sandbox_env_id)
-    else:
-        auto_env = await resolve_env_for_run(user=None, repo_id=repo_id)
-        per_run = row_to_override(auto_env) if auto_env is not None else None
-    global_default = await get_global_default()
-    sandbox = merge_sandbox_spec(per_run=per_run, global_default=global_default)
 
     # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
     # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening
@@ -233,7 +218,7 @@ async def set_runtime_ctx(
     # file-only flows never construct one.
     sandbox_client: DAIVSandboxClient | None = None
     client_token = None
-    if sandbox.enabled:
+    if sandbox_spec.enabled:
         sandbox_client = DAIVSandboxClient()
         await sandbox_client.open()
         client_token = set_run_sandbox_client(sandbox_client)
@@ -244,7 +229,7 @@ async def set_runtime_ctx(
         ) as (repo, effective_ref):
             # After the clone, so the credential is any token the clone's self-heal re-minted, not the
             # stale one it discarded (the egress proxy overrides Authorization on every platform request).
-            sandbox_egress = _run_egress(sandbox, repo_client, repository)
+            sandbox_egress = _run_egress(sandbox_spec, repo_client, repository)
             handle = RepoHandle(
                 repo_id=repo_id,
                 git_platform=repo_client.git_platform,
@@ -256,7 +241,7 @@ async def set_runtime_ctx(
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,
                 repos=(handle,),
-                sandbox=sandbox,
+                sandbox=sandbox_spec,
                 sandbox_egress=sandbox_egress,
                 scope=scope,
                 issue=issue,

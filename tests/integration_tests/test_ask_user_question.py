@@ -5,6 +5,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
+from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, SKIP_ANSWER, pending_question, render_questions
@@ -38,7 +39,9 @@ def _require_provider(model_name):
 
 @asynccontextmanager
 async def agent_runner(model_name: str):
-    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
+    async with set_runtime_ctx(
+        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
+    ) as ctx:
         agent = await create_daiv_agent(
             ctx=ctx,
             model_names=[model_name],
