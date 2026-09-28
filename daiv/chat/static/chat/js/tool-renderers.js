@@ -453,8 +453,8 @@
 
   const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
 
-  // `running` wins over everything else; otherwise `published` iff the result
-  // parses as artifact JSON, else `error`. Never throws on a malformed segment.
+  // A server-built segment reads `done` with a null result until its ToolMessage is
+  // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
   window.artifactItem = (seg) => {
     const s = seg || {};
     const argsStr = s.args;
@@ -462,7 +462,7 @@
     const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
     const titleArg = pickKeyOrPartial(args, ["title"], argsStr) ?? "";
 
-    if (s.status === "running") {
+    if (s.status === "running" || (s.result == null && s.status !== "error")) {
       return { state: "running", label: titleArg || pathArg };
     }
 

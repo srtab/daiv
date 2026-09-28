@@ -842,6 +842,7 @@
           const at = evt.timestamp || Date.now();
           this._lastFrameAt = at;
           if (this._isReplayDuplicate(evt)) {
+            if (evt.type === AGUI.TOOL_CALL_RESULT) this._fillReplayedResult(evt);
             this._dropReplayedThinking(turn);
             return;
           }
@@ -871,6 +872,20 @@
       if (evt.messageId && d.messages.has(evt.messageId)) return true;
       if (evt.toolCallId && d.tools.has(evt.toolCallId)) return true;
       return false;
+    },
+
+    // A call rendered from the checkpoint before its ToolMessage landed has no result, and
+    // this deduped event is the only place it arrives — so fill it in place.
+    _fillReplayedResult(evt) {
+      for (const t of this.turns) {
+        const seg = t.segments?.find((s) => s.type === "tool_call" && s.id === evt.toolCallId);
+        if (!seg) continue;
+        if (seg.result == null) {
+          seg.result = evt.content;
+          seg.status = "done";
+        }
+        return;
+      }
     },
 
     // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
