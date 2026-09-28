@@ -79,6 +79,18 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
+    def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
+        placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
+        fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)
+        _create_run(fixed, trigger_type=SessionOrigin.PIPELINE_WEBHOOK)
+        legacy_chat = _create_session(user=user, origin=SessionOrigin.CHAT)
+
+        response = logged_in_client.get(reverse("session_list"))
+
+        session_pks = {s.pk for s in response.context["sessions"]}
+        assert placeholder.pk not in session_pks
+        assert {fixed.pk, legacy_chat.pk} <= session_pks
+
     def test_filter_by_status_on_latest_run(self, logged_in_client, user):
         """?status=SUCCESSFUL only returns sessions whose latest run is SUCCESSFUL."""
         success_session = _create_session(user=user)

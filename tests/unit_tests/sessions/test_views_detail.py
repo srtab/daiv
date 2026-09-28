@@ -10,7 +10,7 @@ from django.utils import timezone
 import pytest
 from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -236,6 +236,22 @@ def test_detail_with_missing_checkpoint_flags_expired(member_client, member_user
 
     assert resp.status_code == 200
     assert resp.context["expired"] is True
+
+
+@pytest.mark.django_db
+def test_detail_ci_watch_placeholder_shows_watch_notice_not_expired(member_client, member_user):
+    session = _create_session(
+        user=member_user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=42, watch_state=WatchState.WATCHING
+    )
+
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["watch_only"] is True
+    content = resp.content.decode()
+    assert "state has expired" not in content
+    assert "!42" in content
 
 
 @pytest.mark.django_db

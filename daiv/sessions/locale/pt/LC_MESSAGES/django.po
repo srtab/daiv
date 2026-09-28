@@ -362,6 +362,14 @@ msgstr "ainda não sincronizado"
 msgid "MCP servers"
 msgstr "servidores MCP"
 
+#, python-format
+msgid ""
+"This session tracks CI on !%(iid)s (%(state)s). It gets a transcript once "
+"DAIV runs a fix or someone comments on the merge request."
+msgstr ""
+"Esta sessão acompanha a CI em !%(iid)s (%(state)s). Terá uma transcrição "
+"quando o DAIV executar uma correção ou alguém comentar o merge request."
+
 msgid "This session's state has expired. Start a new session to continue."
 msgstr "O estado desta sessão expirou. Inicie uma nova sessão para continuar."
 
