@@ -95,7 +95,7 @@ The proxy always performs TLS interception on every reachable host — this is w
 
 ### Repository bindings
 
-The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when an agent runs in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
+The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when a run is requested in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
 
 A repository ID may be claimed by at most one environment **within the same scope** for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.
 
@@ -114,11 +114,11 @@ The selected per-run environment is then **merged with the global default** to p
 !!! note "Webhook-triggered runs"
     Runs triggered by a webhook (for example, [issue addressing](issue-addressing.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
 
-The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses its session's environment even if the repository has been bound to another one since. A session with no environment recorded (it started before any existed, or its environment was deleted) runs on the global default.
+The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses the environment its session started with, even if the repository has been bound to another one since, or a later run in the session used a different one. A session with no environment recorded (it started before any existed, or its environment was deleted) runs on the global default.
 
 ```mermaid
 flowchart TD
-    A[Run starts for a repo] --> B{Environment<br/>explicitly selected?}
+    A[Run requested for a repo] --> B{Environment<br/>explicitly selected?}
     B -- Yes --> Z[Use it]
     B -- No --> C{User env binds<br/>this repo?}
     C -- Yes --> Z

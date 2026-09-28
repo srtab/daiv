@@ -214,7 +214,7 @@ async def set_runtime_ctx(
     # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
     # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening
     # the client is cheap (httpx connects lazily on first request), so idling through the
-    # clone/graph-build phase costs nothing. Gated on `sandbox.enabled` so sandbox-disabled /
+    # clone/graph-build phase costs nothing. Gated on `sandbox_spec.enabled` so sandbox-disabled /
     # file-only flows never construct one.
     sandbox_client: DAIVSandboxClient | None = None
     client_token = None
