@@ -263,9 +263,11 @@ class SandboxSession:
         try:
             repo_archive, skills_archive = await seed()
             await self._client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-        # BaseException: a stopped chat turn cancels mid-seed, and the new container must not outlive it.
-        except BaseException:
-            logger.exception("Failed to build or seed sandbox session %s", session_id)
+        # BaseException: a stopped turn cancels mid-seed too, and the new container must not outlive it;
+        # only a genuine Exception is logged as a failure (a cancellation is not one).
+        except BaseException as exc:
+            if isinstance(exc, Exception):
+                logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:
                 await self._client.close_session(session_id, force=True)
             except Exception:

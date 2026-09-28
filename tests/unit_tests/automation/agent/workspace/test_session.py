@@ -148,11 +148,11 @@ class TestAcquire:
         with pytest.raises(RuntimeError, match="already acquired"):
             await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
 
-    async def test_a_cancelled_seed_removes_the_new_container(self):
+    async def test_a_cancelled_seed_removes_the_new_container(self, caplog):
         client = FakeSandboxClient.opened()
         session = _session(client)
 
-        with pytest.raises(asyncio.CancelledError):
+        with caplog.at_level("ERROR", logger="daiv.tools"), pytest.raises(asyncio.CancelledError):
             await session.acquire(
                 prior_id=None, prior_fingerprint=None, seed=AsyncMock(side_effect=asyncio.CancelledError)
             )
@@ -160,6 +160,7 @@ class TestAcquire:
         assert client.calls_to("close_session") == [("sess-1", True)]
         assert client.sessions == {}
         assert not session.is_acquired
+        assert not caplog.records
 
 
 def _started_egress(token: str | None, env: EgressConfigRequest | None = None) -> EgressConfigRequest:
