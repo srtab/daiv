@@ -13,11 +13,11 @@ from pydantic import SecretStr
 from automation.agent.middlewares.sandbox import (
     SANDBOX_SYSTEM_PROMPT,
     BashFailure,
-    SandboxEgressUnavailableError,
     SandboxMiddleware,
     _run_bash_commands,
 )
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.session import SandboxEgressUnavailableError
 from core.conf import settings as core_settings
 from core.sandbox.schemas import (
     EgressConfigRequest,

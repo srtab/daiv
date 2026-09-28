@@ -27,6 +27,7 @@ from automation.agent.workspace.bash_policy.command_policy import (
     parse_rule,
 )
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend  # noqa: TC001
+from automation.agent.workspace.session import _EGRESS_PROXY_UNAVAILABLE_MARKER, SandboxEgressUnavailableError
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -285,21 +286,6 @@ def _make_global_skills_archive() -> bytes | None:
         logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
         return None
     return buf.getvalue()
-
-
-class SandboxEgressUnavailableError(RuntimeError):
-    """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
-    no egress proxy configured (no shared egress CA). daiv-sandbox rejects such a session up front
-    with HTTP 400 and a detail naming the egress proxy (see its ``POST /session/`` handler).
-    Fail-closed: an environment that requires a restricted egress policy must not run without that
-    policy in force."""
-
-
-# Substring that distinguishes the "egress proxy not configured" 400 from any other create-time 400.
-# Couples to daiv-sandbox's FastAPI ``detail`` ("egress requires the egress proxy, which is not
-# configured on this deployment" — its ``POST /session/`` handler). The sandbox exposes no
-# machine-readable error code, so this is the single greppable point of that prose coupling.
-_EGRESS_PROXY_UNAVAILABLE_MARKER = "egress proxy"
 
 
 class BashFailure(Enum):

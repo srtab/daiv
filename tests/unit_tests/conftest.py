@@ -18,6 +18,7 @@ from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
@@ -42,6 +43,21 @@ def stub_sandbox_spec(spec: SandboxSpec | None = None):
     built = spec or sandbox_spec(base_image=None)
     with patch("sandbox_envs.services.build_sandbox_spec", new=AsyncMock(return_value=built)) as build:
         yield build
+
+
+def acquired_session(
+    client,
+    session_id: str = "sess-1",
+    *,
+    spec: SandboxSpec | None = None,
+    egress: EgressConfigRequest | None = None,
+    credential_source=None,
+) -> SandboxSession:
+    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress``, for tests of
+    what runs on an already-acquired session."""
+    session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
+    session._session_id, session._egress = session_id, egress
+    return session
 
 
 @dataclass
