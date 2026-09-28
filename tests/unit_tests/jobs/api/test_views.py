@@ -585,6 +585,7 @@ async def test_get_job_status_lists_artifacts(authenticated_client: TestAsyncCli
             "title": "Audit",
             "filename": "audit.html",
             "content_type": "text/html",
+            "kind": "html",
             "size": 8,
             "url": f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/",
             "download_url": (

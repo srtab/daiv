@@ -56,6 +56,7 @@ class ArtifactPayload(BaseModel):
     title: str
     filename: str
     content_type: str
+    kind: ArtifactKind
     size: int
     url: str
     download_url: str
@@ -95,6 +96,16 @@ _TEXT_CONTENT_TYPES = frozenset({
 
 _IMAGE_CONTENT_TYPES = frozenset({"image/svg+xml", "image/png", "image/jpeg", "image/gif", "image/webp"})
 
+_KIND_CONTENT_TYPES: dict[ArtifactKind, frozenset[str]] = {
+    ArtifactKind.MARKDOWN: frozenset({"text/markdown"}),
+    ArtifactKind.HTML: frozenset({"text/html"}),
+    ArtifactKind.IMAGE: _IMAGE_CONTENT_TYPES,
+    ArtifactKind.TEXT: _TEXT_CONTENT_TYPES,
+    ArtifactKind.OTHER: frozenset(),
+}
+
+KNOWN_KIND_CONTENT_TYPES: frozenset[str] = frozenset().union(*_KIND_CONTENT_TYPES.values())
+
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
 _active_run_id: ContextVar[str | None] = ContextVar("sessions_active_run_id", default=None)
@@ -109,15 +120,14 @@ def guess_content_type(filename: str) -> str:
     return DEFAULT_CONTENT_TYPE if encoding or not guessed else guessed
 
 
+def content_types_for_kind(kind: ArtifactKind) -> frozenset[str]:
+    return _KIND_CONTENT_TYPES[kind]
+
+
 def artifact_kind(content_type: str) -> ArtifactKind:
-    if content_type == "text/markdown":
-        return ArtifactKind.MARKDOWN
-    if content_type == "text/html":
-        return ArtifactKind.HTML
-    if content_type in _IMAGE_CONTENT_TYPES:
-        return ArtifactKind.IMAGE
-    if content_type in _TEXT_CONTENT_TYPES:
-        return ArtifactKind.TEXT
+    for kind, content_types in _KIND_CONTENT_TYPES.items():
+        if content_type in content_types:
+            return kind
     return ArtifactKind.OTHER
 
 
@@ -206,6 +216,7 @@ def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
         title=artifact.title,
         filename=artifact.filename,
         content_type=artifact.content_type,
+        kind=artifact.kind,
         size=artifact.size,
         url=build_absolute_url(artifact.get_absolute_url()),
         download_url=build_absolute_url(artifact.get_download_url()),

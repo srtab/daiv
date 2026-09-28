@@ -126,6 +126,8 @@ async def test_publish_stores_artifact_and_returns_urls():
     assert payload["title"] == "Audit"
     assert payload["filename"] == "audit.html"
     assert payload["content_type"] == "text/html"
+    assert payload["kind"] == "html"
+    assert '"kind": "html"' in result
     assert payload["size"] == len(b"<h1>Audit</h1>")
     assert payload["url"] == f"https://daiv.example.com/dashboard/sessions/{session.thread_id}/artifacts/{artifact.pk}/"
     assert payload["download_url"].endswith(f"/artifacts/{artifact.pk}/raw/?download=1")

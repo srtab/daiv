@@ -136,6 +136,7 @@ GET /api/jobs/{job_id}
       "title": "Dependency audit",
       "filename": "dependency-audit.html",
       "content_type": "text/html",
+      "kind": "html",
       "size": 48213,
       "url": "https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/",
       "download_url": "https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/raw/?download=1"

@@ -12,6 +12,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from sessions import artifacts as artifacts_module
 from sessions.artifacts import (
+    KNOWN_KIND_CONTENT_TYPES,
     ArtifactError,
     ArtifactKind,
     aresolve_active_run,
@@ -20,6 +21,7 @@ from sessions.artifacts import (
     aserialize_run_artifacts_for_status,
     astore_artifact,
     bind_active_run,
+    content_types_for_kind,
     guess_content_type,
     serialize_artifact,
 )
@@ -86,6 +88,24 @@ def test_guess_content_type(filename, expected):
 )
 def test_artifact_kind(content_type, kind):
     assert artifact_kind(content_type) == kind
+
+
+@pytest.mark.parametrize("kind", [ArtifactKind.MARKDOWN, ArtifactKind.HTML, ArtifactKind.IMAGE, ArtifactKind.TEXT])
+def test_content_types_for_kind_round_trips_through_artifact_kind(kind):
+    content_types = content_types_for_kind(kind)
+    assert content_types
+    for content_type in content_types:
+        assert artifact_kind(content_type) == kind
+
+
+def test_content_types_for_kind_other_is_empty():
+    assert content_types_for_kind(ArtifactKind.OTHER) == frozenset()
+
+
+@pytest.mark.parametrize("content_type", ["application/pdf", "application/octet-stream"])
+def test_content_type_outside_known_kinds_maps_to_other(content_type):
+    assert content_type not in KNOWN_KIND_CONTENT_TYPES
+    assert artifact_kind(content_type) == ArtifactKind.OTHER
 
 
 async def test_aresolve_active_run_without_a_bound_run_does_not_guess_one():
@@ -199,6 +219,7 @@ def test_serialize_artifact_uses_site_domain_for_absolute_urls():
         "title": "Report",
         "filename": "report.md",
         "content_type": "text/markdown",
+        "kind": "markdown",
         "size": 3,
         "url": f"https://daiv.example.com{expected_path}",
         "download_url": f"https://daiv.example.com{expected_path}raw/?download=1",

@@ -861,6 +861,7 @@ async def test_get_job_status_lists_artifacts(_default_mcp_user):
         f"https://daiv.example.com/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/"
     )
     assert data["artifacts"][0]["download_url"].endswith("/raw/?download=1")
+    assert data["artifacts"][0]["kind"] == "markdown"
 
 
 async def _run_with_artifact(user, **run_kwargs) -> tuple[Run, object]:
