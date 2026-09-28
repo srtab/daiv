@@ -820,8 +820,6 @@ def test_detail_context_has_no_artifacts_key(member_client, member_user):
 
 @pytest.mark.django_db
 def test_detail_never_renders_the_bottom_artifacts_card(member_client, member_user):
-    # The bottom card is gone for good: artifacts now render inline in the transcript
-    # (where the publish_artifact tool call happened), not in a separate section here.
     session = _create_session(user=member_user)
     make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 

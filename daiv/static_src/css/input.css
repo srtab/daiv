@@ -1630,16 +1630,28 @@ html {
       font-semibold tracking-[0.14em] text-gray-400 uppercase;
   }
 
+  .artifact-card__list {
+    @apply divide-y divide-white/[0.06];
+  }
+
   .artifact-card__row {
     @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3;
   }
 
-  .artifact-card__row--error {
-    @apply text-red-300;
+  .artifact-card__title {
+    @apply min-w-0 flex-1 truncate text-[14px] font-medium text-white hover:text-violet-200;
+  }
+
+  .artifact-card__download {
+    @apply rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white;
   }
 
   .artifact-card__meta {
     @apply font-mono text-[12px] text-gray-500 tabular-nums;
+  }
+
+  .artifact-card__meta--error {
+    @apply text-red-300;
   }
 
   /* Thinking ticker */
