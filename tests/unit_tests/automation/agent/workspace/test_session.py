@@ -162,6 +162,48 @@ class TestAcquire:
         assert not session.is_acquired
         assert not caplog.records
 
+    @pytest.mark.parametrize("method", ["session_exists", "update_egress"])
+    async def test_a_cancelled_warm_reuse_stops_the_prior_container(self, method, caplog):
+        """A chat Stop mid-reuse leaves the warm container the probe restarted unheld, where ``release`` cannot stop
+        it: acquire stops it, keeping it for the thread's next turn, and does not log the cancellation as a failure."""
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start"))
+        client.sessions[prior_id].state = "stopped"
+        session = _session(client, credential=_credential("fresh", host="gitlab.com"))
+        _cancel_after(client, method)
+
+        with caplog.at_level("ERROR", logger="daiv.tools"), pytest.raises(asyncio.CancelledError):
+            await session.acquire(prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed())
+
+        assert client.calls_to("close_session") == [(prior_id, False)]
+        assert client.sessions[prior_id].state == "stopped"
+        assert not session.is_acquired
+        assert not caplog.records
+
+    async def test_a_failed_stop_after_a_cancelled_reuse_is_a_warning_under_the_cancellation(self, caplog):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start"))
+        session = _session(client, credential=_credential("fresh", host="gitlab.com"))
+        _cancel_after(client, "session_exists")
+        client.fail("close_session")
+
+        with caplog.at_level("WARNING", logger="daiv.tools"), pytest.raises(asyncio.CancelledError):
+            await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+
+        assert client.calls_to("close_session") == [(prior_id, False)]
+        assert [record.levelname for record in caplog.records] == ["WARNING"]
+
+
+def _cancel_after(client: FakeSandboxClient, method: str) -> None:
+    """Make ``method`` take effect and then raise ``CancelledError``, as a chat Stop landing on its request does."""
+    call = getattr(client, method)
+
+    async def _cancelled(*args, **kwargs):
+        await call(*args, **kwargs)
+        raise asyncio.CancelledError
+
+    setattr(client, method, _cancelled)
+
 
 def _started_egress(token: str | None, env: EgressConfigRequest | None = None) -> EgressConfigRequest:
     credential = _credential(token, host="gitlab.com")

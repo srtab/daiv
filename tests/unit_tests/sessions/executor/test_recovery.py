@@ -113,7 +113,7 @@ class TestPublishTarget:
 
 class TestSandboxMode:
     @staticmethod
-    async def _recover(client: FakeSandboxClient, session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
+    async def _recover(session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with (
             patch("automation.agent.publishers.GitChangePublisher", publisher),
@@ -131,9 +131,7 @@ class TestSandboxMode:
         created: list = []
 
         published, agent = await self._recover(
-            client,
-            acquired_session(client, session_id),
-            publisher=publisher_through_backend(created, publishes=_DRAFT_MR),
+            acquired_session(client, session_id), publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
         )
 
         assert published is True
@@ -150,7 +148,7 @@ class TestSandboxMode:
         publisher.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            published, agent = await self._recover(client, acquired_session(client, session_id), publisher=publisher)
+            published, agent = await self._recover(acquired_session(client, session_id), publisher=publisher)
 
         assert published is False
         agent.aupdate_state.assert_not_awaited()

@@ -95,22 +95,23 @@ class SandboxSession:
         ``prior_id`` and ``prior_fingerprint`` are what the thread's checkpoint recorded. ``seed`` builds the repository
         and global-skills archives, and runs only for a freshly started container. Raises
         ``SandboxEgressUnavailableError`` when the sandbox has no egress proxy for an environment that needs one, and
-        re-raises a failed start, or a failed seed after removing the new container.
+        re-raises a failed start, or a failed seed after removing the new container. Cancelled while reusing the warm
+        container, it stops that container before the cancellation propagates.
         """
         if self._session_id is not None:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
         fingerprint = self._spec.fingerprint
         egress = await self._provision_egress()
-        if prior_id is not None and await self._exists(prior_id):
-            if prior_fingerprint is not None and prior_fingerprint != fingerprint:
-                logger.info("Sandbox environment changed since session %s started; replacing it", prior_id)
-                await self._discard(prior_id, after="an environment change")
-            elif await self._push_egress(prior_id, egress):
-                logger.info("Reusing warm sandbox session %s", prior_id)
+        if prior_id is not None:
+            try:
+                reused = await self._reuse(prior_id, prior_fingerprint, egress)
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    await self._stop_after_cancel(prior_id)
+                raise
+            if reused:
                 self._session_id, self._egress = prior_id, egress
                 return prior_id, fingerprint
-            else:
-                await self._discard(prior_id, after="egress refresh failure")
         session_id = await self._start(egress)
         await self._seed(session_id, seed)
         self._session_id, self._egress = session_id, egress
@@ -156,7 +157,7 @@ class SandboxSession:
     async def release(self, *, resumable: bool) -> None:
         """Stop the container, keeping it for the thread's next turn (``resumable``), or remove it.
 
-        Idempotent. A failed close is logged, never raised: the sandbox reaper reclaims a container this leaves behind.
+        Idempotent. An ``httpx`` error from the close is logged, not raised.
         """
         session_id, self._session_id, self._egress = self._session_id, None, None
         if session_id is None:
@@ -187,6 +188,33 @@ class SandboxSession:
         return with_platform_credential(
             self._spec.egress, host=credential.host, header=credential.header, token=credential.value
         )
+
+    async def _reuse(self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None) -> bool:
+        """Ready the thread's warm container for this run; return whether it may be reused.
+
+        One started from another spec, or whose egress push failed, is removed instead.
+        """
+        if not await self._exists(prior_id):
+            return False
+        if prior_fingerprint is not None and prior_fingerprint != self._spec.fingerprint:
+            logger.info("Sandbox environment changed since session %s started; replacing it", prior_id)
+            await self._discard(prior_id, after="an environment change")
+            return False
+        if not await self._push_egress(prior_id, egress):
+            await self._discard(prior_id, after="egress refresh failure")
+            return False
+        logger.info("Reusing warm sandbox session %s", prior_id)
+        return True
+
+    async def _stop_after_cancel(self, session_id: str) -> None:
+        """Stop the warm container a cancelled reuse leaves running: it is not held yet, so ``release`` would not.
+
+        Stopped, not removed, so the thread's next turn can still reuse it; a one-shot run has no warm container.
+        """
+        try:
+            await self._client.close_session(session_id, force=False)
+        except httpx.HTTPError:
+            logger.warning("Failed to stop warm sandbox session %s after a cancelled reuse", session_id, exc_info=True)
 
     async def _exists(self, session_id: str) -> bool:
         """Whether ``session_id`` still exists on the sandbox, restarting it if stopped.

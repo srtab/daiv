@@ -51,7 +51,7 @@ def test_graph_constructs_sandbox_backend_without_root():
     src = inspect.getsource(graph_module)
     assert "SandboxFileBackend(sandbox_session)" in src, (
         "graph.py must construct SandboxFileBackend(sandbox_session) with no root — the agent uses "
-        "sandbox-absolute paths and the run client is injected by construction"
+        "sandbox-absolute paths and the run's sandbox session is injected by construction"
     )
     assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
 

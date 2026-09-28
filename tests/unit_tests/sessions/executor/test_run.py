@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+import tarfile
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
@@ -18,6 +20,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Scope
+from codebase.clients.base import GitEgressCredential
 from codebase.references import ExternalRef
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
@@ -704,15 +707,24 @@ async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
-def _sandbox_ctx(client: FakeSandboxClient) -> MagicMock:
-    """The stubbed clone's ``RuntimeCtx`` for a sandbox run: its spec, its open client, no credential source."""
+def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None) -> MagicMock:
+    """The stubbed clone's ``RuntimeCtx`` for a sandbox run: its spec, its open client and its credential source."""
     return MagicMock(
-        repo=SimpleNamespace(ref="main"), sandbox=sandbox_spec(), sandbox_client=client, credential_source=None
+        repo=SimpleNamespace(ref="main"),
+        sandbox=sandbox_spec(),
+        sandbox_client=client,
+        credential_source=credential_source,
     )
 
 
 async def _acquire(session, prior_id: str) -> None:
     await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=AsyncMock())
+
+
+def _archive() -> bytes:
+    buffer = io.BytesIO()
+    tarfile.open(fileobj=buffer, mode="w:gz").close()
+    return buffer.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -764,6 +776,30 @@ async def test_a_raising_agent_still_releases_its_sandbox_session(one_shot, forc
             await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
 
     assert client.calls_to("close_session") == [(session_id, force)]
+
+
+async def test_the_sandbox_session_mints_its_egress_credential_from_the_context():
+    """The executor hands the session the clone's credential source, so a fresh container's egress carries the run's
+    push token."""
+    client = FakeSandboxClient.opened()
+    credential = GitEgressCredential.for_token(host="gitlab.com", token="tok")  # noqa: S106
+    agent = _agent()
+
+    with agent_stack(agent, ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))) as stack:
+
+        async def _invoke(*_args, **_kwargs):
+            session = stack.create_agent.await_args.kwargs["sandbox_session"]
+            await session.acquire(
+                prior_id=None, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None))
+            )
+            return {"messages": [MagicMock(content="done")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        await execute_run(make_spec())
+
+    [(request,)] = client.calls_to("start_session")
+    assert request.egress is not None
+    assert [secret.value for secret in request.egress.secrets.values()] == [credential.value]
 
 
 async def test_a_failing_sandbox_release_still_closes_the_context(caplog):
@@ -1088,5 +1124,26 @@ class TestStreamRun:
                     await anext(events)
             else:
                 await events.aclose()
+
+        assert client.calls_to("close_session") == [(session_id, False)]
+
+    async def test_a_cancelled_stream_still_releases_its_sandbox_session(self):
+        """B5: cancelling the task that consumes a chat turn's stream stops its container."""
+        client = FakeSandboxClient.opened()
+        session_id = client.add_running_session("sess-1")
+        waiting = asyncio.Event()
+
+        async def _acquiring(run):
+            await _acquire(run.sandbox_session, session_id)
+            yield "a"
+            waiting.set()
+            await asyncio.Event().wait()
+
+        with agent_stack(_agent(), ctx=_sandbox_ctx(client)):
+            task = asyncio.create_task(_drain(make_spec(lock=NoLock()), _acquiring))
+            await waiting.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
         assert client.calls_to("close_session") == [(session_id, False)]

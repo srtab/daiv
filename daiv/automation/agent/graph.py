@@ -331,8 +331,8 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch
-        # capture/sandbox teardown) and discard work — the failure mode StepBudget guards against.
+        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
+        # and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
         StepBudgetMiddleware(),
         ContextUsageMiddleware(),

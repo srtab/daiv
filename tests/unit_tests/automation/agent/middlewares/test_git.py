@@ -318,7 +318,7 @@ class TestGitMiddleware:
         — so the run's ``SandboxFileBackend`` is never bound and the agent loop never ran. Probing
         git through the unbound backend raised ``SandboxFileBackend is not bound to a sandbox
         session``; aafter_agent must no-op instead (nothing to publish)."""
-        backend = unacquired_backend()  # constructed but never bound
+        backend = unacquired_backend()  # constructed but never acquired
         mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=backend)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 

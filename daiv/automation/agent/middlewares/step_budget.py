@@ -47,7 +47,7 @@ class StepBudgetMiddleware(AgentMiddleware):
 
     Without this, the model has zero visibility into its step budget: runs that hit the
     limit raise ``GraphRecursionError`` mid-flight, skipping every ``after_agent`` hook
-    (patch capture, sandbox teardown) and discarding otherwise-finished work.
+    (patch capture) and discarding otherwise-finished work.
 
     Implemented entirely inside ``wrap_model_call`` so it adds no graph node (a
     ``before_model`` hook — e.g. ``ModelCallLimitMiddleware`` — would itself inflate the

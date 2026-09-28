@@ -155,12 +155,12 @@ def _turn_start_egress(
     return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
 
 
-def _make_sandbox_publisher(*, refreshed: bool = False):
-    """A sandbox-mode publisher over a mocked backend whose session refresh reports ``refreshed``; the refresh's own
+def _make_sandbox_publisher():
+    """A sandbox-mode publisher over a mocked backend whose session refresh pushes no new token; the refresh's own
     skip rules are ``SandboxSession``'s (``test_session.py``)."""
     publisher = _make_publisher()
     publisher.sandbox_backend = Mock()
-    publisher.sandbox_backend.session.refresh_credential = AsyncMock(return_value=refreshed)
+    publisher.sandbox_backend.session.refresh_credential = AsyncMock(return_value=False)
     return publisher
 
 
