@@ -89,7 +89,9 @@ A run's final message is a paragraph of text, and the agent's workspace is throw
 
 The agent has a `publish_artifact` tool: it writes the file to its scratchpad (`/workspace/tmp/...`), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and without committing anything to the repository.
 
-Published files appear in an **Artifacts** panel on the session detail page, above the composer. Each entry links to a viewer page (`/dashboard/sessions/<thread_id>/artifacts/<id>/`) and offers a download. What the viewer shows depends on the file type:
+Published files appear inline in the transcript, as part of the turn that published them: adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card, one row per file. Each row shows the title (linking to the viewer page, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, opened in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows "Publishing…"; a publish that failed shows a red row with the error — in the same card as any files that did publish. The card looks the same live and after reloading the page.
+
+What the viewer shows depends on the file type:
 
 | File type | Viewer |
 |-----------|--------|
@@ -102,6 +104,8 @@ Published files appear in an **Artifacts** panel on the session detail page, abo
 Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.
 
 **Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
+
+Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
 
 Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 
