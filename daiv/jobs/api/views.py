@@ -7,7 +7,7 @@ from django.http import HttpRequest  # noqa: TC002 - required at runtime by Djan
 
 from ninja import Router
 from ninja.errors import HttpError
-from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
+from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs

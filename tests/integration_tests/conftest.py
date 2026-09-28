@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sandbox_envs.services import build_sandbox_spec
 
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
@@ -211,7 +212,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def runtime_ctx():
-    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
+    async with set_runtime_ctx(
+        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
+    ) as ctx:
         yield ctx
 
 

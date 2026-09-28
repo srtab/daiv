@@ -17,8 +17,8 @@ With the sandbox enabled, DAIV can:
 !!! warning "Network access is off by default"
     Installing or updating dependencies reaches out to package registries (npm,
     PyPI, etc.), which needs network access. The sandbox runs with networking
-    **disabled** by default, so these commands fail until you enable
-    `network_enabled` on the relevant [Sandbox Environment](sandbox-environments.md).
+    **disabled** by default, so these commands fail until you turn **Network**
+    on for the relevant [Sandbox Environment](sandbox-environments.md).
 
 Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
 
@@ -72,7 +72,7 @@ When a command is evaluated, rules are checked in this order:
 Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and
 environment variables) is managed through the **Sandbox Environments** admin
 page rather than `.daiv.yml`. Each environment can be bound to specific
-repositories (`owner/repo`); when an agent runs in a repo claimed by an
+repositories (`owner/repo`); when a run is requested in a repo claimed by an
 environment, that environment is auto-selected. Personal (USER-scoped)
 environments override organization-wide (GLOBAL-scoped) environments for the
 running user. See [Sandbox Environments](sandbox-environments.md) for details.

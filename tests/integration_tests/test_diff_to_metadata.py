@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from langsmith import testing as t
+from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
@@ -59,7 +60,12 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs, expect):
     t.log_reference_outputs(reference_outputs)
 
     async with set_runtime_ctx(
-        "srtab/daiv", scope=Scope.GLOBAL, ref="main", offline=True, git_platform=GitPlatform.GITLAB
+        "srtab/daiv",
+        scope=Scope.GLOBAL,
+        ref="main",
+        offline=True,
+        git_platform=GitPlatform.GITLAB,
+        sandbox_spec=await build_sandbox_spec(None),
     ) as ctx:
         agent_path = Path(ctx.gitrepo.working_dir)
         if "context_file_content" in inputs:

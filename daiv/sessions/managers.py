@@ -71,6 +71,13 @@ class SessionQuerySet(models.QuerySet["Session"]):
             | models.Q(pk__in=Run.objects.filter(merge_request_iid=iid).values("session_id"))
         )
 
+    def without_watch_placeholders(self) -> models.QuerySet[Session]:
+        """Exclude the MR threads a CI watch created that no run has used yet."""
+        from sessions.models import Run, SessionOrigin
+
+        has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
+        return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
+
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
 

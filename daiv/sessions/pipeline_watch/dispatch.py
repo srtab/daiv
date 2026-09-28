@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
-from sandbox_envs.services import resolve_env_for_run
 
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore
@@ -35,6 +34,8 @@ class FixRunDispatcher:
 
         Create-then-enqueue is not cosmetic: ``WatchStore.ais_fix_run`` reads ``trigger_type`` back
         off the Run row, which is what keeps a re-arming fix run from resetting ``watch_attempts``.
+        The fix run reuses the session's recorded env: it redoes that session's work, and re-matching would lose an
+        explicit pick.
         """
         from jobs.tasks import run_job_task
 
@@ -45,8 +46,7 @@ class FixRunDispatcher:
         prompt = FIX_RUN_PROMPT.format(names=report.failed_job_names(default="the pipeline"), url=report.web_url)
 
         user = await sync_to_async(lambda: session.user)()
-        sandbox_env = await resolve_env_for_run(user=user, repo_id=repo_id)
-        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        sandbox_environment_id = str(session.sandbox_environment_id) if session.sandbox_environment_id else None
 
         run = await acreate_run(
             trigger_type=SessionOrigin.PIPELINE_WEBHOOK,

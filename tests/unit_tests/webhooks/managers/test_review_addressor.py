@@ -103,8 +103,9 @@ class TestReviewAfterRunMatrix:
         merge_request = _merge_request()
 
         with addressor_run(agent, ctx=_ctx()) as run:
-            await _address(merge_request=merge_request, thread_id=session.thread_id)
+            await _address(merge_request=merge_request, thread_id=session.thread_id, sandbox_env_id="env-1")
 
+        run.build_spec.assert_awaited_once_with("env-1")
         assert run.context_kwargs["ref"] == "feature"
         assert run.context_kwargs["merge_request"] is merge_request
         assert run.context_kwargs["fallback_ref_on_missing"] is False

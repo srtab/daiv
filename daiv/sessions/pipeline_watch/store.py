@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from django.db.models import F
 from django.utils import timezone
 
+from sandbox_envs.models import SandboxEnvironment
+
 from sessions.models import Run, Session, SessionOrigin, WatchState
 
 if TYPE_CHECKING:
@@ -54,6 +56,7 @@ class WatchStore:
         ref: str,
         merge_request_iid: int,
         user_id: int | None,
+        sandbox_environment_id: str | None,
         reset_attempts: bool,
     ) -> None:
         session, _created = await Session.objects.aget_or_create(
@@ -74,6 +77,11 @@ class WatchStore:
         }
         if user_id and session.user_id is None:
             updates["user_id"] = user_id
+        if sandbox_environment_id and session.sandbox_environment_id is None:
+            # The run's env may be another user's USER env, or deleted since the run started.
+            owner_id = session.user_id or user_id
+            if await SandboxEnvironment.objects.visible_to(owner_id).filter(pk=sandbox_environment_id).aexists():
+                updates["sandbox_environment_id"] = sandbox_environment_id
         if reset_attempts:
             updates["watch_attempts"] = 0
             updates["watch_pipeline_id"] = None

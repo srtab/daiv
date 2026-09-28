@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
-from sandbox_envs.services import resolve_env_for_run
+from sandbox_envs.selection import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -102,9 +102,7 @@ class IssueCallback(GitHubCallback):
         thread_id = compute_thread_id(
             repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
         )
-        # user=None: webhook triggers are not scoped to the commenter's USER envs (the webhook
-        # fires for whoever interacted with the issue/PR, not the configured agent owner). Only
-        # GLOBAL repo envs and the GLOBAL default apply — mirroring set_runtime_ctx's contract.
+        # user=None: the webhook fires for whoever touched the issue/PR, not the agent owner, so USER envs never apply.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
         result = await address_issue_task.aenqueue(

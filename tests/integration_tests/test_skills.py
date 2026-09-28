@@ -1,6 +1,7 @@
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
+from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.graph import create_daiv_agent
 from codebase.base import Scope
@@ -32,7 +33,9 @@ async def test_skill_activated(model_name, user_message, skill):
 
     t.log_inputs({"model_name": model_name, "user_message": user_message, "skill": skill})
 
-    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
+    async with set_runtime_ctx(
+        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
+    ) as ctx:
         agent = await create_daiv_agent(
             ctx=ctx,
             model_names=[model_name],

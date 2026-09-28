@@ -9,7 +9,7 @@ from mcp_servers.selection import build_selection_pool, diff_selection, parse_se
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
-from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
+from sandbox_envs.selection import resolve_env_for_run, resolve_env_for_user
 from sessions.locks import SessionLock, stale_cutoff
 from sessions.models import Session
 from sessions.spend import build_session_spend

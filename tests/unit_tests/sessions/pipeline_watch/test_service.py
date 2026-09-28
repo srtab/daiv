@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from django.utils import timezone
 
 import pytest
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Session, SessionOrigin, WatchState
 from sessions.pipeline_watch.dispatch import FixRunDispatcher
 from sessions.pipeline_watch.notifier import WatchNotifier
@@ -537,50 +539,102 @@ async def test_a_fix_run_that_changed_nothing_gives_up(watch):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_arming_gives_the_mr_thread_the_run_owner(watch, monkeypatch, django_user_model):
+async def test_arming_gives_the_mr_thread_the_run_owner_and_environment(watch, django_user_model):
     """The MR thread is almost always created *here*, not by a human — so without an owner
     carried in, the give-up notification has no recipient and the fix run loses the user's
-    personal MCP servers and USER-tier sandbox env."""
+    personal MCP servers; without the environment, every fix run falls to the GLOBAL default."""
 
     owner = await django_user_model.objects.acreate(username="runner", email="runner@example.com")
+    env = await SandboxEnvironment.objects.acreate(
+        scope=SandboxScope.USER, user=owner, name="mine", base_image="python:3.14"
+    )
     mr_thread = mr_thread_id(91)
 
-    armed = await watch.make().aarm(merge_request_iid=91, ref="daiv/branch", was_fix_run=False, user_id=owner.pk)
+    armed = await watch.make().aarm(
+        merge_request_iid=91, ref="daiv/branch", was_fix_run=False, user_id=owner.pk, sandbox_environment_id=str(env.id)
+    )
 
     assert armed == mr_thread
     session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.user_id == owner.pk
+    assert (session.user_id, session.sandbox_environment_id) == (owner.pk, env.id)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_arming_adopts_an_ownerless_thread(watch, monkeypatch, django_user_model):
+async def test_arming_adopts_an_ownerless_thread(watch, django_user_model):
     """An MR thread created by an earlier webhook has no user; the first owned run must adopt it
-    or that thread can never notify anyone."""
+    or that thread can never notify anyone. Its env is checked against the owner adopted in the same arm."""
 
     owner = await django_user_model.objects.acreate(username="runner2", email="runner2@example.com")
+    env = await SandboxEnvironment.objects.acreate(
+        scope=SandboxScope.USER, user=owner, name="mine", base_image="python:3.14"
+    )
     mr_thread = mr_thread_id(92)
     await amake_watched_session(thread_id=mr_thread, merge_request_iid=92, user=None)
 
-    await watch.make().aarm(merge_request_iid=92, ref="daiv/branch", was_fix_run=False, user_id=owner.pk)
+    await watch.make().aarm(
+        merge_request_iid=92, ref="daiv/branch", was_fix_run=False, user_id=owner.pk, sandbox_environment_id=str(env.id)
+    )
 
     session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.user_id == owner.pk
+    assert (session.user_id, session.sandbox_environment_id) == (owner.pk, env.id)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_arming_never_reassigns_an_owned_thread(watch, monkeypatch, django_user_model):
+async def test_arming_never_reassigns_an_owned_thread(watch, django_user_model):
     """A human's MR conversation keeps its owner: a scheduled run publishing to the same MR must
-    not silently move that thread (and its notifications) to the scheduler's user."""
+    not silently move that thread (and its notifications) to the scheduler's user, nor open the
+    scheduler's USER env and its secrets to the owner's fix runs."""
 
     human = await django_user_model.objects.acreate(username="human2", email="human2@example.com")
     robot = await django_user_model.objects.acreate(username="robot", email="robot@example.com")
+    private = await SandboxEnvironment.objects.acreate(
+        scope=SandboxScope.USER, user=robot, name="mine", base_image="python:3.14"
+    )
     mr_thread = mr_thread_id(93)
     await amake_watched_session(thread_id=mr_thread, merge_request_iid=93, user=human)
 
-    await watch.make().aarm(merge_request_iid=93, ref="daiv/branch", was_fix_run=False, user_id=robot.pk)
+    await watch.make().aarm(
+        merge_request_iid=93,
+        ref="daiv/branch",
+        was_fix_run=False,
+        user_id=robot.pk,
+        sandbox_environment_id=str(private.id),
+    )
 
     session = await Session.objects.aget(thread_id=mr_thread)
-    assert session.user_id == human.pk
+    assert (session.user_id, session.sandbox_environment_id) == (human.pk, None)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_environment_deleted_during_the_run_still_arms_the_watch(watch):
+    """The run holds the id from its start; writing a deleted one would fail the arm and leave the MR unwatched."""
+    env = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
+    env_id = str(env.id)
+    await env.adelete()
+
+    armed = await watch.make().aarm(
+        merge_request_iid=98, ref="daiv/branch", was_fix_run=False, sandbox_environment_id=env_id
+    )
+
+    session = await Session.objects.aget(thread_id=armed)
+    assert session.watch_state == WatchState.WATCHING
+    assert session.sandbox_environment_id is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_arming_never_replaces_a_threads_environment(watch):
+    """A session keeps the environment of its first run, like its owner."""
+    first = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
+    other = await SandboxEnvironment.objects.acreate(scope=SandboxScope.GLOBAL, name="ci-2", base_image="python:3.13")
+    mr_thread = mr_thread_id(96)
+    await amake_watched_session(thread_id=mr_thread, merge_request_iid=96, sandbox_environment=first)
+
+    await watch.make().aarm(
+        merge_request_iid=96, ref="daiv/branch", was_fix_run=False, sandbox_environment_id=str(other.id)
+    )
+
+    session = await Session.objects.aget(thread_id=mr_thread)
+    assert session.sandbox_environment_id == first.id
 
 
 @pytest.mark.django_db(transaction=True)

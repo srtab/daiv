@@ -16,7 +16,8 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from mcp_servers.selection import mcp_picker_context
-from sandbox_envs.services import env_picker_context, resolve_repo_envs
+from sandbox_envs.selection import resolve_repo_envs
+from sandbox_envs.services import env_picker_context
 from sessions.models import SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 

@@ -65,7 +65,13 @@ class PipelineWatch:
         return compute_thread_id(repo_slug=self.repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request_iid)
 
     async def aarm(
-        self, *, merge_request_iid: int, ref: str, was_fix_run: bool, user_id: int | None = None
+        self,
+        *,
+        merge_request_iid: int,
+        ref: str,
+        was_fix_run: bool,
+        user_id: int | None = None,
+        sandbox_environment_id: str | None = None,
     ) -> str | None:
         """Point the watch at a merge request DAIV just published.
 
@@ -74,8 +80,11 @@ class PipelineWatch:
 
         ``user_id`` is the originating run's owner. This method is what *creates* the MR thread on
         almost every path, so without it that session is ownerless: the give-up notification has no
-        recipient and the fix run gets no personal MCP servers and no USER-tier sandbox env. An
-        existing owner is never reassigned — the thread may be a human's MR conversation.
+        recipient and the fix run gets no personal MCP servers. An existing owner is never
+        reassigned — the thread may be a human's MR conversation.
+
+        ``sandbox_environment_id`` is the originating run's environment, which the fix run reuses. Like the
+        owner, it is adopted only by a thread that has none, and only if the thread's owner can see it.
         """
         if not (await self._apolicy()).enabled:
             return None
@@ -87,6 +96,7 @@ class PipelineWatch:
             ref=ref,
             merge_request_iid=merge_request_iid,
             user_id=user_id,
+            sandbox_environment_id=sandbox_environment_id,
             reset_attempts=not was_fix_run,
         )
         return thread_id
@@ -112,6 +122,7 @@ class PipelineWatch:
         published: bool,
         run_id: str | None = None,
         user_id: int | None = None,
+        sandbox_environment_id: str | None = None,
     ) -> None:
         """Point the CI watch at the merge request a finished run published, then evaluate at once.
 
@@ -142,7 +153,13 @@ class PipelineWatch:
                 )
             return
 
-        armed = await self.aarm(merge_request_iid=merge_request_iid, ref=ref, was_fix_run=was_fix_run, user_id=user_id)
+        armed = await self.aarm(
+            merge_request_iid=merge_request_iid,
+            ref=ref,
+            was_fix_run=was_fix_run,
+            user_id=user_id,
+            sandbox_environment_id=sandbox_environment_id,
+        )
         if armed is None:
             return
         await evaluate_pipeline_watch_task.aenqueue(repo_id=self.repo_id, ref=ref)

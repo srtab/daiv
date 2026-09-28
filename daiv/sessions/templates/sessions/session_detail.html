@@ -130,7 +130,11 @@
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
-      {% if expired %}
+      {% if watch_only %}
+        <div class="mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-gray-300">
+          {% blocktranslate with iid=session.merge_request_iid state=session.get_watch_state_display %}This session tracks CI on !{{ iid }} ({{ state }}). It gets a transcript once DAIV runs a fix or someone comments on the merge request.{% endblocktranslate %}
+        </div>
+      {% elif expired %}
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
           <span>{% translate "This session's state has expired. Start a new session to continue." %}</span>
           <a href="{% url 'session_new' %}" class="btn-primary">{% translate "New session" %}</a>

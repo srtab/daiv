@@ -37,6 +37,15 @@ def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfig
 
 
 @contextmanager
+def stub_sandbox_spec(spec: SandboxSpec | None = None):
+    """Stub ``build_sandbox_spec`` so a run needs no environment rows; the mock records the env id each run
+    asked for."""
+    built = spec or sandbox_spec(base_image=None)
+    with patch("sandbox_envs.services.build_sandbox_spec", new=AsyncMock(return_value=built)) as build:
+        yield build
+
+
+@contextmanager
 def bound_run_sandbox_client(client):
     """Bind ``client`` as the run-scoped sandbox client, as ``set_runtime_ctx`` does for a sandbox run."""
     token = set_run_sandbox_client(client)

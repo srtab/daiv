@@ -59,11 +59,12 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "issue": None,
         "merge_request": None,
         "fallback_ref_on_missing": False,
-        "sandbox_env_id": "env-1",
+        "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
+    stack.build_spec.assert_awaited_once_with("env-1")
     stack.resolve.assert_called_once_with(
         model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
     )
@@ -234,7 +235,7 @@ async def test_an_agent_that_returns_no_messages_fails_the_run():
 
 
 async def test_the_ref_sync_and_the_watch_run_when_asked():
-    spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7)
+    spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1", acting_user_id=7, sandbox_env_id="env-1")
 
     with (
         agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
@@ -244,7 +245,14 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
 
     stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="main", merge_request=MR)
     assert stack.armed == [
-        {"repo_id": "owner/repo", "run_id": "run-1", "merge_request": MR, "published": True, "user_id": 7}
+        {
+            "repo_id": "owner/repo",
+            "run_id": "run-1",
+            "merge_request": MR,
+            "published": True,
+            "user_id": 7,
+            "sandbox_environment_id": "env-1",
+        }
     ]
 
 
@@ -417,7 +425,14 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
     on_success.assert_awaited_once_with(outcome)
     stack.persist.assert_awaited_once_with(thread_id=ANY, current_ref="main", merge_request=None)
     assert stack.armed == [
-        {"repo_id": "owner/repo", "run_id": None, "merge_request": None, "published": False, "user_id": None}
+        {
+            "repo_id": "owner/repo",
+            "run_id": None,
+            "merge_request": None,
+            "published": False,
+            "user_id": None,
+            "sandbox_environment_id": None,
+        }
     ]
     assert stack.build_result.await_args.kwargs["snapshot"] is None
     [record] = caplog.records
@@ -682,6 +697,19 @@ async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_buil
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
+async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
+    error = LookupError("Sandbox environment 'env-1' not found")
+    on_failure = AsyncMock()
+
+    with agent_stack(_agent()) as stack, pytest.raises(LookupError):
+        stack.build_spec.side_effect = error
+        await execute_run(make_spec(sandbox_env_id="env-1"), RunHooks(on_failure=on_failure))
+
+    assert stack.events == []
+    stack.create_agent.assert_not_awaited()
+    on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
+
+
 def _stream(*events, error: Exception | None = None):
     """A ``stream_run`` factory yielding ``events``, then raising ``error``. ``runs`` records the ``AgentRun``s it was
     handed; ``closed`` says whether it was closed before its end."""
@@ -716,6 +744,15 @@ async def _drain(spec, stream, hooks=None, *, should_stop=None) -> list:
 
 
 class TestStreamRun:
+    async def test_a_stream_builds_the_sandbox_spec_once(self):
+        agent = _agent(state={"messages": [MagicMock(content="done")]})
+
+        with agent_stack(agent) as stack:
+            await _drain(make_spec(input_messages=(), sandbox_env_id="env-1"), _stream("a", "b"))
+
+        stack.build_spec.assert_awaited_once_with("env-1")
+        assert stack.context_kwargs["sandbox_spec"] is stack.build_spec.return_value
+
     async def test_it_yields_the_streams_events_and_finishes_from_the_checkpoint(self):
         agent = _agent(state={"merge_request": MR, "published": True, "messages": [MagicMock(content="done")]})
         stream = _stream("a", "b")
@@ -936,5 +973,18 @@ class TestStreamRun:
             await _drain(spec, stream, RunHooks(on_failure=on_failure))
 
         assert isinstance(on_failure.await_args.args[0], SessionLockTimeoutError)
+        assert stream.runs == []
+        assert stack.events == []
+
+    async def test_an_unknown_environment_id_reaches_on_failure_before_any_event(self):
+        error = LookupError("Sandbox environment 'env-1' not found")
+        stream = _stream("a")
+        on_failure = AsyncMock()
+
+        with agent_stack(_agent()) as stack, pytest.raises(LookupError):
+            stack.build_spec.side_effect = error
+            await _drain(make_spec(sandbox_env_id="env-1"), stream, RunHooks(on_failure=on_failure))
+
+        on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
         assert stream.runs == []
         assert stack.events == []

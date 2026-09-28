@@ -1,3 +1,4 @@
+import inspect
 import uuid
 
 from django.core.files.base import ContentFile
@@ -123,6 +124,7 @@ async def amake_watched_session(
     watch_armed_at=None,
     watch_pipeline_id: int | None = None,
     user: User | None = None,
+    sandbox_environment=None,
 ) -> Session:
     """A session with the watch armed — the starting row for every watch test."""
     return await Session.objects.acreate(
@@ -136,6 +138,7 @@ async def amake_watched_session(
         watch_armed_at=watch_armed_at or timezone.now(),
         watch_pipeline_id=watch_pipeline_id,
         user=user,
+        sandbox_environment=sandbox_environment,
     )
 
 
@@ -156,14 +159,17 @@ def watch_recorder(armed: list[dict], *, error: Exception | None = None):
     Patched over the name each seam imported, so it pins that seam's wiring — which arguments reach
     the watch — rather than the watch itself. Every publishing seam has such a test; keeping one
     stub means a new keyword argument is one edit, not three, and a copy that drifts records
-    nothing while still passing. ``error`` is raised after each call is recorded.
+    nothing while still passing. ``error`` is raised after each call is recorded. Calls are bound to the real
+    signature, so a renamed argument fails here rather than in production's logged-and-swallowed arm.
     """
+    from sessions.pipeline_watch.service import PipelineWatch
 
     class RecordingWatch:
         def __init__(self, repo_id):
             self.repo_id = repo_id
 
         async def aarm_after_run(self, **kwargs):
+            inspect.signature(PipelineWatch.aarm_after_run).bind(self, **kwargs)
             armed.append({"repo_id": self.repo_id, **kwargs})
             if error is not None:
                 raise error
