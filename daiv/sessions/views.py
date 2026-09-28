@@ -24,7 +24,8 @@ from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
 from mcp_servers.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.services import env_picker_context, resolve_repo_envs
+from sandbox_envs.selection import resolve_repo_envs
+from sandbox_envs.services import env_picker_context
 
 from accounts.mixins import BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context

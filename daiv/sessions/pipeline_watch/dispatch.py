@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
-from sandbox_envs.services import resolve_env_for_run
+from sandbox_envs.selection import resolve_env_for_run
 
 from sessions.models import RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import WatchStore

@@ -207,7 +207,8 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    from sandbox_envs.services import get_global_default, resolve_env_for_run, resolve_sandbox_env, row_to_override
+    from sandbox_envs.selection import resolve_env_for_run
+    from sandbox_envs.services import get_global_default, resolve_sandbox_env, row_to_override
     from sandbox_envs.spec import merge_sandbox_spec
 
     repo_client = RepoClient.create_instance(**kwargs)

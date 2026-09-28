@@ -165,7 +165,7 @@ def _context_deps(repo_client, sandbox):
             RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
             RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
         ),
-        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
+        patch("sandbox_envs.selection.resolve_env_for_run", AsyncMock(return_value=None)),
         patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
         patch("sandbox_envs.spec.merge_sandbox_spec", MagicMock(return_value=sandbox)),
         patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),

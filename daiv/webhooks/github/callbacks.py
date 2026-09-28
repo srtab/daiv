@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
-from sandbox_envs.services import resolve_env_for_run
+from sandbox_envs.selection import resolve_env_for_run
 from sessions.models import SessionOrigin
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.policy import WatchPolicy
