@@ -42,7 +42,8 @@
             {% endfor %}
         </div>
 
-        <select x-model="repo" @change="_apply()" class="!w-auto min-w-[180px]">
+        <select x-model="repo" @change="_apply()" class="!w-auto min-w-[180px]"
+                aria-label="{% translate 'Repository' %}">
             <option value="">{% translate "All repositories" %}</option>
             {% for repo_id in repos %}
             <option value="{{ repo_id }}">{{ repo_id }}</option>

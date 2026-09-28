@@ -375,3 +375,19 @@ class TestArtifactListView:
         session_url = re.escape(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
         pattern = rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*untitled/repo\s*</a>'
         assert re.search(pattern, html)
+
+    def test_row_without_session_title_or_repo_has_no_empty_link_or_bare_repo_pill(self, member_client, member_user):
+        session = _create_session(user=member_user, title="", repo_id="")
+        artifact = make_artifact(_create_run(session))
+
+        resp = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true")
+        html = resp.content.decode()
+
+        session_url = re.escape(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+        assert re.search(rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*<em[^>]*>generating title…</em>', html)
+        assert "session-repo" not in html
+
+    def test_repo_filter_select_has_an_accessible_name(self, member_client, member_user):
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert re.search(r'<select x-model="repo"[^>]*aria-label="Repository"', resp.content.decode())

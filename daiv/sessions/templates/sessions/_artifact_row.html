@@ -3,13 +3,17 @@
     <a href="{{ artifact.get_absolute_url }}" class="artifact-card__title" title="{{ artifact.filename }}">{{ artifact.title }}</a>
     <span class="meta-pill">{{ artifact.kind.label }}</span>
     <span class="artifact-card__meta">{{ artifact.size|filesizeformat }}</span>
+    {% with session=artifact.run.session %}
     <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
        class="max-w-[200px] truncate text-[13px] text-gray-400 hover:text-white">
-        {{ artifact.run.session.title|default:artifact.run.session.repo_id }}
+        {% if session.title %}{{ session.title }}{% elif session.repo_id %}{{ session.repo_id }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
     </a>
-    <span class="session-repo shrink-0" title="{{ artifact.run.session.repo_id }}">
-        {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[140px] truncate">{{ artifact.run.session.repo_id }}</span>
+    {% if session.repo_id %}
+    <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+        {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[140px] truncate">{{ session.repo_id }}</span>
     </span>
+    {% endif %}
+    {% endwith %}
     <span class="artifact-card__meta">{{ artifact.created_at|naturaltime }}</span>
     <a href="{{ artifact.get_download_url }}" class="artifact-card__download" title="{% translate 'Download' %}">
         {% icon "arrow-down-tray" "h-4 w-4" %}

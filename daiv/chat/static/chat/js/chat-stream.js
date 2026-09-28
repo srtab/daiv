@@ -1135,6 +1135,7 @@
       const out = [];
       for (const s of turn.segments) {
         if (s.type === "tool_call" && s.name === "write_todos") continue;
+        if (s.type === "text" && !String(s.content ?? "").trim()) continue;
         if (s.type === "tool_call" && s.name === "publish_artifact") {
           const last = out[out.length - 1];
           const item = window.artifactItem(s);

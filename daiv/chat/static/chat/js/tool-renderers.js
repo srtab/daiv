@@ -1,10 +1,13 @@
-// Per-tool UI strategies. Two exports on window:
+// Per-tool UI strategies. Three exports on window:
 //
 //   toolSignature(name, argsStr, result, status)
 //     -> { label, path, badges: [{text, tone}] }
 //
 //   toolBodyHTML(name, argsStr, result, status)
 //     -> HTML string rendered inside <details> when the card is expanded.
+//
+//   artifactItem(seg)
+//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... }
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral signature/body rather than throwing. Unknown tools fall

@@ -1619,7 +1619,7 @@ html {
     @apply flex justify-end gap-2;
   }
 
-  /* Inline artifact card (publish_artifact tool calls, grouped in the transcript) */
+  /* Artifact card: grouped publish_artifact calls in the transcript, and the Artifacts list page */
 
   .artifact-card {
     @apply overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02];
@@ -1639,7 +1639,11 @@ html {
   }
 
   .artifact-card__title {
-    @apply min-w-0 flex-1 truncate text-[14px] font-medium text-white hover:text-violet-200;
+    @apply min-w-0 flex-1 truncate text-[14px] font-medium text-white;
+  }
+
+  a.artifact-card__title {
+    @apply hover:text-violet-200;
   }
 
   .artifact-card__download {

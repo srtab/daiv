@@ -6,7 +6,7 @@ from datetime import UTC, datetime, time, timedelta
 from django.utils import timezone
 
 import pytest
-from sessions.artifacts import ArtifactKind
+from sessions.artifacts import ArtifactKind, content_types_for_kind
 from sessions.filters import ArtifactFilter, SessionFilter
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
@@ -386,18 +386,24 @@ class TestArtifactFilter:
         assert image.pk in pks
         assert text.pk not in pks
 
-    def test_kind_other_excludes_every_known_kind(self, user):
+    @pytest.mark.parametrize("known_kind", [kind for kind in ArtifactKind if kind != ArtifactKind.OTHER])
+    def test_kind_other_excludes_every_known_kind(self, user, known_kind):
         session = _create_session()
         run = _create_run(session)
         unrecognized = make_artifact(run, filename="report.pdf")
-        image = make_artifact(run, filename="chart.png")
+        known = []
+        for content_type in content_types_for_kind(known_kind):
+            artifact = make_artifact(run)
+            RunArtifact.objects.filter(pk=artifact.pk).update(content_type=content_type)
+            known.append(artifact.pk)
         pks = list(
             ArtifactFilter({"kind": ArtifactKind.OTHER}, queryset=RunArtifact.objects.all()).qs.values_list(
                 "pk", flat=True
             )
         )
         assert unrecognized.pk in pks
-        assert image.pk not in pks
+        assert known
+        assert not set(known) & set(pks)
 
     def test_repo_filter(self, user):
         here = make_artifact(_create_run(_create_session(repo_id="group/project")))
