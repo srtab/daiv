@@ -1619,6 +1619,29 @@ html {
     @apply flex justify-end gap-2;
   }
 
+  /* Inline artifact card (publish_artifact tool calls, grouped in the transcript) */
+
+  .artifact-card {
+    @apply overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02];
+  }
+
+  .artifact-card__header {
+    @apply flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5 font-mono text-[12px]
+      font-semibold tracking-[0.14em] text-gray-400 uppercase;
+  }
+
+  .artifact-card__row {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3;
+  }
+
+  .artifact-card__row--error {
+    @apply text-red-300;
+  }
+
+  .artifact-card__meta {
+    @apply font-mono text-[12px] text-gray-500 tabular-nums;
+  }
+
   /* Thinking ticker */
 
   .chat-thinking {

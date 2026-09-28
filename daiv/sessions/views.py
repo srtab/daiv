@@ -310,7 +310,6 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "thread_ref": "",
                 "diff_stats": None,
                 "runs": [],
-                "artifacts": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
                 "context_usage": None,
@@ -354,7 +353,6 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["context_usage"] = hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
         ctx["runs"] = runs
-        ctx["artifacts"] = list(RunArtifact.objects.filter(run__session=session).select_related("run"))
         ctx["is_in_flight"] = is_in_flight
         # The chat page rejoins the event relay only when the in-flight holder is a
         # chat run (holder id == AG-UI run id). Background holders don't publish to

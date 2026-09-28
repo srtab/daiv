@@ -1114,10 +1114,23 @@
       return window.renderMarkdown ? window.renderMarkdown(raw) : "";
     },
 
+    // Adjacent publish_artifact tool calls fold into one artifact_group card; any other
+    // segment in between starts a new group. Recomputed on every render (no memoization),
+    // so a publish streaming in mid-group joins the existing card as its args/result grow.
     visibleSegments(turn) {
-      return turn.segments.filter(
-        (s) => !(s.type === "tool_call" && s.name === "write_todos"),
-      );
+      const out = [];
+      for (const s of turn.segments) {
+        if (s.type === "tool_call" && s.name === "write_todos") continue;
+        if (s.type === "tool_call" && s.name === "publish_artifact") {
+          const last = out[out.length - 1];
+          const item = window.artifactItem ? window.artifactItem(s) : { state: "error", label: "", message: "" };
+          if (last && last.type === "artifact_group") last.items.push(item);
+          else out.push({ type: "artifact_group", items: [item] });
+        } else {
+          out.push(s);
+        }
+      }
+      return out;
     },
 
     // ---------- ask_user_question card ---------------------------------

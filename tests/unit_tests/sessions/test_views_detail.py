@@ -807,28 +807,25 @@ def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(m
 
 
 @pytest.mark.django_db
-def test_detail_lists_the_sessions_artifacts(member_client, member_user):
+def test_detail_context_has_no_artifacts_key(member_client, member_user):
     session = _create_session(user=member_user)
-    artifact = make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
-    make_artifact(_create_run(_create_session(user=member_user)), filename="other.md")
+    make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
-    assert [a.pk for a in resp.context["artifacts"]] == [artifact.pk]
-    html = resp.content.decode()
-    assert "Dependency audit" in html
-    assert artifact.get_absolute_url() in html
-    assert artifact.get_download_url() in html
+    assert "artifacts" not in resp.context
 
 
 @pytest.mark.django_db
-def test_detail_without_artifacts_omits_the_section(member_client, member_user):
+def test_detail_never_renders_the_bottom_artifacts_card(member_client, member_user):
+    # The bottom card is gone for good: artifacts now render inline in the transcript
+    # (where the publish_artifact tool call happened), not in a separate section here.
     session = _create_session(user=member_user)
+    make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
-    assert resp.context["artifacts"] == []
     assert 'id="session-artifacts-heading"' not in resp.content.decode()

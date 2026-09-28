@@ -193,15 +193,13 @@
   line-height: 1.5;
 }
 
-.chat-search__item,
-.chat-artifact {
+.chat-search__item {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.chat-search__item .chat-tool__link,
-.chat-artifact > .chat-tool__link:first-child {
+.chat-search__item .chat-tool__link {
   font-weight: 500;
   color: #c4b5fd;
 }
@@ -211,8 +209,7 @@
   color: #fbbf24;
 }
 
-.chat-search__host,
-.chat-artifact__meta {
+.chat-search__host {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px;
   color: #64748b;
@@ -220,9 +217,4 @@
 
 .chat-search__snippet {
   color: #94a3b8;
-}
-
-.chat-artifact {
-  font-size: 13px;
-  line-height: 1.5;
 }

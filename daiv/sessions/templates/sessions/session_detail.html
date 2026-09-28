@@ -311,6 +311,56 @@
                             <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
                           </details>
                         </template>
+
+                        <template x-if="seg.type === 'artifact_group'">
+                          <div class="artifact-card">
+                            <div class="artifact-card__header">
+                              {% icon "clipboard-document" "h-4 w-4 shrink-0 text-gray-400" %}
+                              <span>{% translate "Artifacts" %}</span>
+                              <span class="artifact-card__meta" x-text="seg.items.filter((it) => it.state === 'published').length"></span>
+                            </div>
+                            <ul class="divide-y divide-white/[0.06]">
+                              <template x-for="(item, ii) in seg.items" :key="ii">
+                                <li class="artifact-card__row" :class="{ 'artifact-card__row--error': item.state === 'error' }">
+                                  <template x-if="item.state === 'running'">
+                                    <span class="h-3 w-3 shrink-0 animate-spin rounded-full border-[1.5px] border-amber-400/30 border-t-amber-400" aria-hidden="true"></span>
+                                  </template>
+                                  <template x-if="item.state === 'error'">
+                                    <span class="shrink-0" aria-hidden="true">×</span>
+                                  </template>
+
+                                  <template x-if="item.state === 'published'">
+                                    <a class="min-w-0 flex-1 truncate text-[14px] font-medium text-white hover:text-violet-200"
+                                       :href="item.url" :title="item.filename" x-text="item.title"></a>
+                                  </template>
+                                  <template x-if="item.state !== 'published'">
+                                    <span class="min-w-0 flex-1 truncate text-[14px] font-medium" x-text="item.label"></span>
+                                  </template>
+
+                                  <template x-if="item.state === 'published' && item.kindLabel">
+                                    <span class="meta-pill" x-text="item.kindLabel"></span>
+                                  </template>
+                                  <template x-if="item.state === 'published' && item.sizeLabel">
+                                    <span class="artifact-card__meta" x-text="item.sizeLabel"></span>
+                                  </template>
+                                  <template x-if="item.state === 'running'">
+                                    <span class="artifact-card__meta">{% translate "Publishing…" %}</span>
+                                  </template>
+                                  <template x-if="item.state === 'error'">
+                                    <span class="font-mono text-[12px]" x-text="item.message"></span>
+                                  </template>
+                                  <template x-if="item.state === 'published' && item.download_url">
+                                    <a class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+                                       :href="item.download_url">
+                                      {% icon "arrow-down-tray" "h-4 w-4" %}
+                                      <span class="sr-only">{% translate "Download" %}</span>
+                                    </a>
+                                  </template>
+                                </li>
+                              </template>
+                            </ul>
+                          </div>
+                        </template>
                       </div>
                     </template>
                   </div>
@@ -362,10 +412,6 @@
           <span x-text="runStatus.label"></span>
         </div>
       </div>
-
-      {% if artifacts %}
-        {% include "sessions/_artifacts.html" %}
-      {% endif %}
 
       {% if not expired %}
         {% include "chat/_composer.html" %}

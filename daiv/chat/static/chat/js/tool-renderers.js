@@ -429,15 +429,6 @@
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const sigPublishArtifact = (args, result, argsStr) => {
-    const path = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
-    const parsed = parseArtifactResult(result);
-    const badges = [];
-    if (parsed) badges.push(badge(parsed.content_type || "published", "success"));
-    else if (result && ERROR_PREFIX_RE.test(String(result).trim())) badges.push(badge("error", "danger"));
-    return { label: "publish_artifact", path: truncate(parsed?.title || path, 84), badges };
-  };
-
   const SIGNATURE_BY_TOOL = {
     read_file: sigReadFile,
     write_file: sigWriteFile,
@@ -452,7 +443,47 @@
     web_search: sigWebSearch,
     gitlab: sigGitlab,
     gh: sigGh,
-    publish_artifact: sigPublishArtifact,
+  };
+
+  const basename = (p) => {
+    const str = String(p ?? "");
+    const idx = str.lastIndexOf("/");
+    return idx >= 0 ? str.slice(idx + 1) : str;
+  };
+
+  const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
+
+  // `running` wins over everything else; otherwise `published` iff the result
+  // parses as artifact JSON, else `error`. Never throws on a malformed segment.
+  window.artifactItem = (seg) => {
+    const s = seg || {};
+    const argsStr = s.args;
+    const args = parseArgs(argsStr);
+    const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
+    const titleArg = pickKeyOrPartial(args, ["title"], argsStr) ?? "";
+
+    if (s.status === "running") {
+      return { state: "running", label: titleArg || pathArg };
+    }
+
+    const parsed = parseArtifactResult(s.result);
+    if (parsed) {
+      const kind = parsed.kind || "";
+      return {
+        state: "published",
+        title: parsed.title || basename(pathArg) || parsed.filename || parsed.url || "",
+        filename: parsed.filename || "",
+        kind,
+        kindLabel: ARTIFACT_KIND_LABELS[kind] || "",
+        size: parsed.size,
+        sizeLabel: parsed.size != null ? formatBytes(parsed.size) : "",
+        url: parsed.url || "",
+        download_url: parsed.download_url || "",
+      };
+    }
+
+    const message = String(s.result ?? "").trim() || "Publishing failed.";
+    return { state: "error", label: pathArg, message };
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {
@@ -733,18 +764,6 @@
     return block("Shell", bashRunBlock(command, text, null));
   };
 
-  const publishArtifactBody = (argsStr, result) => {
-    const parsed = parseArtifactResult(result);
-    if (!parsed) return genericBody(argsStr, result);
-    const meta = [parsed.filename, parsed.content_type, formatBytes(parsed.size)].filter(Boolean).join(" · ");
-    const download = parsed.download_url ? externalLink(parsed.download_url, "Download") : "";
-    return block(
-      "Artifact",
-      `<div class="chat-artifact">${externalLink(parsed.url, parsed.title || parsed.filename || parsed.url)}` +
-        `<div class="chat-artifact__meta">${escapeHtml(meta)}</div>${download}</div>`,
-    );
-  };
-
   const BODY_BY_TOOL = {
     read_file: (_args, result) => {
       const text = String(result ?? "");
@@ -771,7 +790,6 @@
     web_search: (args, result) => webSearchBody(args, result),
     gitlab: (args, result) => cliBody("gitlab", args, result),
     gh: (args, result) => cliBody("gh", args, result),
-    publish_artifact: (args, result) => publishArtifactBody(args, result),
   };
 
   window.toolBodyHTML = (name, argsStr, result, status) => {
