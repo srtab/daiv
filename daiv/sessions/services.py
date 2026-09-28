@@ -279,7 +279,7 @@ async def asubmit_batch_runs(
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
-    :func:`sandbox_envs.selection.resolve_repo_envs`), so the batch can mix per-repo envs.
+    :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
 
     Best-effort: any per-repo exception (enqueue failure or post-enqueue run-creation
     failure) lands in ``result.failed`` while siblings continue.

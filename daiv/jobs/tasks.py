@@ -51,13 +51,12 @@ async def run_job_task(
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 
     logger.info(
-        "Starting job for repo_id=%s, ref=%s, agent_model=%s, agent_thinking_level=%s, thread_id=%s, sandbox_env_id=%s",
+        "Starting job for repo_id=%s, ref=%s, agent_model=%s, agent_thinking_level=%s, thread_id=%s",
         repo_id,
         ref,
         agent_model or "<auto>",
         agent_thinking_level or "<auto>",
         thread_id,
-        sandbox_environment_id,
     )
 
     session_row = (

@@ -707,12 +707,10 @@ class TestRunJobTaskAfterRunMatrix:
         async def _persist(*, thread_id, current_ref, merge_request):
             calls.append(("persist", current_ref, merge_request))
 
-        class _Watch:
-            def __init__(self, repo_id):
-                pass
-
-            async def aarm_after_run(self, *, run_id, merge_request, published, user_id):
-                calls.append(("arm", published))
+        class _Watch(watch_recorder([])):
+            async def aarm_after_run(self, **kwargs):
+                calls.append(("arm", kwargs["published"]))
+                await super().aarm_after_run(**kwargs)
 
         with (
             _job_scaffolding(agent, real_lock=True),

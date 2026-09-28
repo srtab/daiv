@@ -20,6 +20,7 @@ from codebase.utils import compute_thread_id
 from ..conftest import amake_watched_session, make_pipeline
 
 MR_IID = 91
+MR_THREAD = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=MR_IID)
 
 
 @pytest.fixture
@@ -37,10 +38,21 @@ def stub_enqueue(monkeypatch):
     return calls, holder
 
 
+@pytest.fixture
+def stub_evaluate(monkeypatch):
+    """Swallow the evaluation an arm enqueues."""
+
+    class FakeEvaluate:
+        async def aenqueue(self, **kwargs):
+            pass
+
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeEvaluate())
+
+
 async def _make_watched_session(*, attempts: int = 0, sandbox_environment=None) -> Session:
     """A watch already claimed by this dispatch — the row state ``adispatch`` is called against."""
     return await amake_watched_session(
-        thread_id=compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=MR_IID),
+        thread_id=MR_THREAD,
         merge_request_iid=MR_IID,
         watch_state=WatchState.FIXING,
         watch_attempts=attempts,
@@ -69,7 +81,7 @@ async def test_the_fix_run_row_exists_before_its_task_and_carries_the_run_id(stu
 
 @pytest.mark.django_db(transaction=True)
 async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
-    stub_enqueue, create_db_task_result, monkeypatch
+    stub_enqueue, stub_evaluate, create_db_task_result
 ):
     """The whole loop guard in one pass: dispatch, then the ``trigger_type`` read
     ``WatchStore.ais_fix_run`` does off the Run row, then the arm that consumes it."""
@@ -79,12 +91,6 @@ async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session(attempts=2)
-
-    class FakeEvaluate:
-        async def aenqueue(self, **kwargs):
-            pass
-
-    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeEvaluate())
 
     await FixRunDispatcher().adispatch(
         session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
@@ -130,9 +136,38 @@ async def test_the_fix_run_keeps_the_sessions_environment_after_the_repo_binding
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_fix_run_runs_in_the_environment_of_the_run_that_published_the_mr(
+    stub_enqueue, stub_evaluate, create_db_task_result
+):
+    """The arm, not the publishing run, creates the MR thread, so the environment reaches the fix run only through it.
+    The environment binds no repository: a fresh match would miss it."""
+    from sessions.pipeline_watch.service import PipelineWatch
+
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    picked = await SandboxEnvironment.objects.acreate(
+        scope=SandboxScope.GLOBAL, name="picked", base_image="python:3.14"
+    )
+
+    await PipelineWatch("group/repo").aarm_after_run(
+        run_id=None,
+        merge_request={"merge_request_id": MR_IID, "source_branch": "daiv/branch"},
+        published=True,
+        sandbox_environment_id=str(picked.id),
+    )
+    session = await Session.objects.aget(thread_id=MR_THREAD)
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    assert calls[0]["sandbox_environment_id"] == str(picked.id)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_session_without_an_environment_runs_its_fix_on_the_global_default(stub_enqueue, create_db_task_result):
-    """A session with no environment recorded (a legacy row, or one deleted since) leaves the choice to the GLOBAL
-    default, even when an environment binds the repo now."""
+    """A session with no environment recorded (its publishing run had none, or it was deleted since) leaves the
+    choice to the GLOBAL default, even when an environment binds the repo now."""
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session()

@@ -101,7 +101,7 @@ A repository ID may be claimed by at most one environment **within the same scop
 
 ## How an environment is resolved
 
-When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository), and records it on the run and its session:
+When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository) and records it on the run. A session keeps the environment of its first run:
 
 1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](jobs-api.md)/[MCP](mcp-endpoint.md), or the session header). Selecting an environment overrides all binding/default logic.
 2. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
@@ -111,10 +111,10 @@ When a run is requested — a webhook arrives, a job is submitted, a chat sessio
 
 The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
-!!! note "Webhook-triggered runs"
-    Runs triggered by a webhook (for example, [issue addressing](issue-addressing.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
+!!! note "Issue and merge request webhooks"
+    Runs triggered by an issue or merge request webhook (for example, [issue addressing](issue-addressing.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
 
-The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses the environment its session started with, even if the repository has been bound to another one since, or a later run in the session used a different one. A session with no environment recorded (it started before any existed, or its environment was deleted) runs on the global default.
+The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.
 
 ```mermaid
 flowchart TD

@@ -8,8 +8,8 @@ step sits where it does:
    executor only heartbeats it. Any error here — a ``Wait`` that gives up (``lock.SessionLockTimeoutError``) or
    another failure inside the claim — reaches ``hooks.on_failure`` without the slot, which was never claimed, so the
    trigger can tell its user. A one-shot run (``thread_id=None``, evals) has no session and holds no slot.
-2. The sandbox spec is built once from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that
-   names no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository and opens
+2. The sandbox spec is built from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that names
+   no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository and opens
    the sandbox client; the checkpointer opens, and a one-shot run checkpoints in memory under a fresh thread id
    instead. If the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
    ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask for a

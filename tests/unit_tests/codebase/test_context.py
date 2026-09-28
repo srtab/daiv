@@ -19,25 +19,24 @@ async def test_set_runtime_ctx_reads_no_sandbox_environment():
     """The run's sandbox is the spec it is handed: no environment lookup, so this test needs no database."""
     spec = sandbox_spec(base_image=None)
 
-    with _patch_context_deps():
+    with _context_deps():
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=spec) as ctx:
             assert ctx.sandbox is spec
 
 
-def _patch_context_deps():
+def _repo_client(credential: GitEgressCredential | None = None, working_dir: str = "/tmp/repo"):  # noqa: S108
     repo_client = MagicMock()
-    repo_client.get_repository.return_value = MagicMock()
     repo_client.current_user.username = "daiv"
-    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
-    repo_client.get_git_egress_credential.return_value = None
-    return _context_deps(repo_client)
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
+    repo_client.get_git_egress_credential.return_value = credential
+    return repo_client
 
 
-def _context_deps(repo_client):
+def _context_deps(repo_client=None):
     """Patch ``set_runtime_ctx`` to load ``repo_client``'s repo."""
     return patch.multiple(
         "codebase.context",
-        RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
+        RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client or _repo_client())),
         RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
     )
 
@@ -46,7 +45,7 @@ async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled()
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)
     fake_client.close = AsyncMock()
-    with _patch_context_deps(), patch("codebase.context.DAIVSandboxClient", return_value=fake_client):
+    with _context_deps(), patch("codebase.context.DAIVSandboxClient", return_value=fake_client):
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()):
             assert _run_sandbox_client.get() is fake_client
         fake_client.open.assert_awaited_once()
@@ -55,7 +54,7 @@ async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled()
 
 
 async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
-    with _patch_context_deps(), patch("codebase.context.DAIVSandboxClient") as ctor:
+    with _context_deps(), patch("codebase.context.DAIVSandboxClient") as ctor:
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)):
             assert _run_sandbox_client.get() is None
         ctor.assert_not_called()
@@ -64,11 +63,7 @@ async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
 @contextmanager
 def _sandbox_run(credential: GitEgressCredential | None, working_dir: str = "/tmp/repo"):  # noqa: S108
     """Patch ``set_runtime_ctx``'s collaborators for a run over a fake sandbox transport; yield the repo client."""
-    repo_client = MagicMock()
-    repo_client.current_user.username = "daiv"
-    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir=working_dir))
-    repo_client.get_git_egress_credential.return_value = credential
-
+    repo_client = _repo_client(credential, working_dir)
     with _context_deps(repo_client), patch("codebase.context.DAIVSandboxClient", FakeSandboxClient):
         yield repo_client
 
@@ -214,7 +209,6 @@ async def test_the_run_spec_never_carries_the_platform_token():
     assert egresses[0] != egresses[1]
 
 
-@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
     """With fallback enabled, a gone ref retries the clone on the default branch and records it."""
@@ -252,7 +246,6 @@ async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
     assert client.load_repo.call_args_list[1].kwargs["sha"] == "main"
 
 
-@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
     """Default behavior (fallback disabled) propagates CloneRefNotFoundError unchanged."""
@@ -279,7 +272,6 @@ async def test_set_runtime_ctx_reraises_missing_ref_without_fallback():
                     pass
 
 
-@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_reraises_when_missing_ref_is_the_default_branch():
     """Fallback enabled but the gone ref already IS the default branch: there is nothing to fall
@@ -342,7 +334,6 @@ def test_load_repo_fallback_body_raise_does_not_trigger_fallback():
     good_cm.__exit__.assert_called_once()
 
 
-@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_assembles_references_for_issue_scope():
     """ctx.references carries both declared refs and the derived platform issue ref, deduped.

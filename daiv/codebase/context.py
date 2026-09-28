@@ -191,8 +191,7 @@ async def set_runtime_ctx(
         issue: The issue object if the context is scoped to an issue.
         merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
-        sandbox_spec: The run's sandbox, built once by the executor from the environment its trigger selected
-            (:func:`sandbox_envs.services.build_sandbox_spec`).
+        sandbox_spec: The run's sandbox (:func:`sandbox_envs.services.build_sandbox_spec`).
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
         mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
         references: Caller-declared external references, from ``Session.external_refs``.
@@ -211,11 +210,8 @@ async def set_runtime_ctx(
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
-    # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening
-    # the client is cheap (httpx connects lazily on first request), so idling through the
-    # clone/graph-build phase costs nothing. Gated on `sandbox_spec.enabled` so sandbox-disabled /
-    # file-only flows never construct one.
+    # One run-scoped client (one httpx pool), read by create_daiv_agent and sessions.executor.recovery;
+    # httpx connects lazily, so opening it before the clone is free.
     sandbox_client: DAIVSandboxClient | None = None
     client_token = None
     if sandbox_spec.enabled:

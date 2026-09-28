@@ -102,8 +102,7 @@ class IssueCallback(GitHubCallback):
         thread_id = compute_thread_id(
             repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
         )
-        # user=None: the webhook fires for whoever touched the issue/PR, not the agent owner, so USER envs never
-        # apply (step 2 of the sandbox_envs.selection rule is skipped).
+        # user=None: the webhook fires for whoever touched the issue/PR, not the agent owner, so USER envs never apply.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
         result = await address_issue_task.aenqueue(

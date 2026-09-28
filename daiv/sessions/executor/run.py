@@ -211,6 +211,12 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from core.checkpointer import open_checkpointer
 
     sandbox_spec = await build_sandbox_spec(spec.sandbox_env_id)
+    logger.info(
+        "executor: sandbox env=%s enabled=%s for thread_id=%s",
+        spec.sandbox_env_id or "<global default>",
+        sandbox_spec.enabled,
+        spec.thread_id,
+    )
     if spec.thread_id is None:
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
@@ -307,6 +313,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                 merge_request=merge_request,
                 published=bool(values.get("published")),
                 user_id=spec.acting_user_id,
+                sandbox_environment_id=spec.sandbox_env_id,
             )
         except Exception:
             logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)

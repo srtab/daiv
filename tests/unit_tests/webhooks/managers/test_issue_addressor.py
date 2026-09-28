@@ -159,14 +159,22 @@ class TestIssueAfterRunMatrix:
         issue = _issue(labels=[BOT_LABEL])
 
         with addressor_run(agent, ctx=_ctx()) as run:
-            await _address(issue=issue, ref="fix/42", thread_id="t-issue")
+            await _address(issue=issue, ref="fix/42", thread_id="t-issue", sandbox_env_id="env-1")
 
+        run.build_spec.assert_awaited_once_with("env-1")
         assert run.context_kwargs["fallback_ref_on_missing"] is True
         assert run.context_kwargs["issue"] is issue
         assert run.context_kwargs["ref"] == "fix/42"
         run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr)
         assert run.armed == [
-            {"repo_id": "owner/repo", "run_id": None, "merge_request": mr, "published": True, "user_id": None}
+            {
+                "repo_id": "owner/repo",
+                "run_id": None,
+                "merge_request": mr,
+                "published": True,
+                "user_id": None,
+                "sandbox_environment_id": "env-1",
+            }
         ]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list

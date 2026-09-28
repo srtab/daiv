@@ -34,7 +34,8 @@ class FixRunDispatcher:
 
         Create-then-enqueue is not cosmetic: ``WatchStore.ais_fix_run`` reads ``trigger_type`` back
         off the Run row, which is what keeps a re-arming fix run from resetting ``watch_attempts``.
-        The fix run uses the session's environment as recorded (``None``: the GLOBAL default), never a fresh repo match.
+        The fix run reuses the session's recorded env: it redoes that session's work, and re-matching would lose an
+        explicit pick.
         """
         from jobs.tasks import run_job_task
 

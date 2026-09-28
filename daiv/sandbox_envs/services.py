@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.db.models import Q
 
-from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
+from sandbox_envs.models import SandboxEnvironment, _fmt_cpus, _fmt_memory
 from sandbox_envs.spec import SandboxEnvOverride, SandboxSpec, merge_sandbox_spec
 
 logger = logging.getLogger("daiv.sandbox_envs")
@@ -59,7 +59,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
-    """Load the explicit per-run env.
+    """Load the env a run recorded.
 
     Returns ``None`` only when no env was requested (``env_id`` is falsy).
     Raises :class:`LookupError` when a non-empty ``env_id`` cannot be resolved
@@ -82,15 +82,15 @@ async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
 async def get_global_default() -> SandboxEnvOverride | None:
     """Resolved GLOBAL default — straight from the row. Returns ``None`` when
     no GLOBAL default row exists."""
-    row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+    row = await SandboxEnvironment.objects.aglobal_default()
     return row_to_override(row) if row is not None else None
 
 
 async def build_sandbox_spec(env_id: str | None) -> SandboxSpec:
     """The sandbox a run gets: the environment ``env_id`` names, merged over the GLOBAL default.
 
-    ``None`` means the trigger selected none, so the GLOBAL default applies alone; the choice is
-    :mod:`sandbox_envs.selection`'s. Raises :class:`LookupError` when ``env_id`` names no environment.
+    ``None`` means none was recorded, so the GLOBAL default applies alone; with no GLOBAL default either, the
+    sandbox is disabled. Raises :class:`LookupError` when ``env_id`` names no environment.
     """
     per_run = await resolve_sandbox_env(env_id)
     return merge_sandbox_spec(per_run=per_run, global_default=await get_global_default())
@@ -101,7 +101,7 @@ def humanise_global_default() -> dict[str, str | bool]:
 
     Network is intentionally omitted: the form's Network control is a self-contained On/Off that
     neither displays nor inherits the global default, so only memory/cpus are surfaced here."""
-    row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
+    row = SandboxEnvironment.objects.global_default()
     if row is None:
         return {"memory": "", "cpus": "", "has_memory": False, "has_cpus": False}
     return {

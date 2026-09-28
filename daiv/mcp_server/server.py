@@ -834,7 +834,10 @@ async def schedule_job(
         ThinkingLevelChoices | None, Field(description="Thinking effort: minimal/low/medium/high.")
     ] = None,
     environment: Annotated[
-        str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
+        str | None,
+        Field(
+            description="Sandbox environment name or UUID. Omit to auto-resolve per repo each time the schedule fires."
+        ),
     ] = None,
     muted: Annotated[bool, Field(description="Mute notifications for this schedule's runs.")] = False,
     intent: Annotated[

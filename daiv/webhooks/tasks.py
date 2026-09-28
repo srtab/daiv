@@ -46,9 +46,7 @@ async def address_issue_task(
         ref (str | None): The ref to clone. Defaults to the session's working branch, else the repository default.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the manager computes the deterministic id from the repository and the issue iid.
-        sandbox_environment_id (str | None): The sandbox env the callback selected
-            (:func:`sandbox_envs.selection.resolve_env_for_run`, USER tier skipped). ``None`` runs on the
-            GLOBAL default.
+        sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -84,9 +82,7 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the manager computes the deterministic id from the repository and the merge request iid.
-        sandbox_environment_id (str | None): The sandbox env the callback selected
-            (:func:`sandbox_envs.selection.resolve_env_for_run`, USER tier skipped). ``None`` runs on the
-            GLOBAL default.
+        sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 
