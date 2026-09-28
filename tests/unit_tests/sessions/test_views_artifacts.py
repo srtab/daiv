@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from sessions import views as views_module
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
+from codebase.models import RepositoryAccess
 from tests.unit_tests.sessions.conftest import make_artifact
 
 pytestmark = pytest.mark.django_db
@@ -81,7 +85,7 @@ def test_detail_renders_markdown_inline(member_client, member_user):
     html = resp.content.decode()
     assert "<h1>Findings</h1>" in html
     assert "<script>x</script>" not in html
-    assert [c["label"] for c in resp.context["breadcrumbs"]] == ["Sessions", "group/project", "Findings"]
+    assert [c["label"] for c in resp.context["breadcrumbs"]] == ["Artifacts", "Findings"]
 
 
 def test_detail_embeds_html_in_sandboxed_iframe(member_client, member_user):
@@ -207,3 +211,163 @@ def test_raw_download_flag_forces_attachment(member_client, member_user):
 def test_raw_visible_to_admin(admin_client, member_user):
     artifact = _own_artifact(member_user)
     assert admin_client.get(artifact.get_raw_url()).status_code == 200
+
+
+def test_detail_breadcrumbs_link_to_artifact_list(member_client, member_user):
+    artifact = _own_artifact(member_user, filename="findings.md", title="Findings")
+
+    resp = member_client.get(artifact.get_absolute_url())
+
+    assert resp.context["breadcrumbs"] == [
+        {"label": "Artifacts", "url": reverse("artifact_list")},
+        {"label": "Findings", "url": None},
+    ]
+
+
+def _grant_read_access(user, repo_id: str) -> None:
+    SocialAccount.objects.get_or_create(user=user, provider="gitlab", uid=str(user.pk))
+    RepositoryAccess.objects.create(
+        provider="gitlab",
+        uid=str(user.pk),
+        username=user.username,
+        repo_id=repo_id,
+        access_level="read",
+        synced_at=timezone.now(),
+    )
+
+
+class TestArtifactListView:
+    def test_requires_login(self, client, member_user):
+        resp = client.get(reverse("artifact_list"))
+        assert resp.status_code == 302
+        assert "login" in resp["Location"].lower()
+
+    def test_owner_sees_own_artifact(self, member_client, member_user):
+        artifact = _own_artifact(member_user)
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert resp.status_code == 200
+        assert list(resp.context["artifacts"]) == [artifact]
+
+    def test_user_sees_artifact_of_a_readable_repo_they_dont_own(self, member_client, member_user, other_user):
+        _grant_read_access(member_user, "readable/repo")
+        session = _create_session(user=other_user, repo_id="readable/repo")
+        artifact = make_artifact(_create_run(session))
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert list(resp.context["artifacts"]) == [artifact]
+
+    def test_other_users_artifact_in_unreadable_repo_is_hidden(self, member_client, other_user):
+        session = _create_session(user=other_user, repo_id="unreadable/repo")
+        make_artifact(_create_run(session))
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert list(resp.context["artifacts"]) == []
+
+    def test_admin_sees_every_artifact(self, admin_client, member_user, other_user):
+        mine = _own_artifact(member_user)
+        theirs = _own_artifact(other_user)
+
+        resp = admin_client.get(reverse("artifact_list"))
+
+        pks = {a.pk for a in resp.context["artifacts"]}
+        assert {mine.pk, theirs.pk} <= pks
+
+    def test_orders_newest_first(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        run = _create_run(session)
+        older = make_artifact(run, filename="a.md")
+        older.created_at = timezone.now() - timedelta(minutes=5)
+        older.save(update_fields=["created_at"])
+        newer = make_artifact(run, filename="b.md")
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert list(resp.context["artifacts"]) == [newer, older]
+
+    def test_paginates_at_25(self, member_client, member_user):
+        session = _create_session(user=member_user)
+        run = _create_run(session)
+        for i in range(26):
+            make_artifact(run, filename=f"f{i}.md")
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert len(resp.context["artifacts"]) == 25
+        assert resp.context["page_obj"].has_next()
+
+    def test_htmx_request_uses_results_fragment(self, member_client, member_user):
+        _own_artifact(member_user)
+
+        resp = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true")
+
+        names = [t.name for t in resp.templates if t.name]
+        assert "sessions/_artifact_results.html" in names
+        assert "sessions/artifact_list.html" not in names
+
+    def test_full_page_request_uses_list_template(self, member_client, member_user):
+        _own_artifact(member_user)
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert "sessions/artifact_list.html" in [t.name for t in resp.templates if t.name]
+
+    def test_repos_context_scoped_to_viewer(self, member_client, member_user, other_user):
+        make_artifact(_create_run(_create_session(user=member_user, repo_id="mine/repo")))
+        make_artifact(_create_run(_create_session(user=other_user, repo_id="theirs/repo")))
+
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert resp.context["repos"] == ["mine/repo"]
+
+    def test_repos_context_not_narrowed_by_active_filters(self, member_client, member_user):
+        session = _create_session(user=member_user, repo_id="mine/repo")
+        run = _create_run(session)
+        make_artifact(run, filename="a.md")
+        make_artifact(run, filename="b.html", content=b"<h1>x</h1>")
+
+        resp = member_client.get(reverse("artifact_list"), {"kind": "markdown"})
+
+        assert resp.context["repos"] == ["mine/repo"]
+        assert len(resp.context["artifacts"]) == 1
+
+    def test_empty_state_first_use(self, member_client, member_user):
+        resp = member_client.get(reverse("artifact_list"))
+
+        assert "publishes a report or file" in resp.content.decode()
+
+    def test_empty_state_filtered(self, member_client, member_user):
+        _own_artifact(member_user, filename="a.md")
+
+        resp = member_client.get(reverse("artifact_list"), {"q": "zzz-no-match"})
+
+        html = resp.content.decode()
+        assert "No artifacts match these filters." in html
+        assert reverse("artifact_list") in html
+
+    def test_row_renders_session_title_kind_and_download_link(self, member_client, member_user):
+        session = _create_session(user=member_user, title="My debug session", repo_id="mine/repo")
+        run = _create_run(session)
+        artifact = make_artifact(run, filename="findings.md", title="Findings")
+
+        html = member_client.get(reverse("artifact_list")).content.decode()
+
+        assert f'href="{artifact.get_absolute_url()}"' in html
+        assert "Findings" in html
+        assert "Markdown" in html
+        assert "My debug session" in html
+        assert "mine/repo" in html
+        assert f'href="{artifact.get_download_url()}"' in html
+
+    def test_row_shows_repo_id_when_session_title_is_empty(self, member_client, member_user):
+        session = _create_session(user=member_user, title="", repo_id="untitled/repo")
+        artifact = make_artifact(_create_run(session))
+
+        html = member_client.get(reverse("artifact_list")).content.decode()
+
+        session_url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+        assert f'href="{session_url}#run-{artifact.run_id}"' in html
+        assert "untitled/repo" in html

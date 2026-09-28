@@ -1,0 +1,18 @@
+{% load humanize i18n icon_tags %}
+<li class="artifact-card__row hover:bg-white/[0.03]">
+    <a href="{{ artifact.get_absolute_url }}" class="artifact-card__title" title="{{ artifact.filename }}">{{ artifact.title }}</a>
+    <span class="meta-pill">{{ artifact.kind.label }}</span>
+    <span class="artifact-card__meta">{{ artifact.size|filesizeformat }}</span>
+    <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
+       class="max-w-[200px] truncate text-[13px] text-gray-400 hover:text-white">
+        {{ artifact.run.session.title|default:artifact.run.session.repo_id }}
+    </a>
+    <span class="session-repo shrink-0" title="{{ artifact.run.session.repo_id }}">
+        {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[140px] truncate">{{ artifact.run.session.repo_id }}</span>
+    </span>
+    <span class="artifact-card__meta">{{ artifact.created_at|naturaltime }}</span>
+    <a href="{{ artifact.get_download_url }}" class="artifact-card__download" title="{% translate 'Download' %}">
+        {% icon "arrow-down-tray" "h-4 w-4" %}
+        <span class="sr-only">{% translate "Download" %}</span>
+    </a>
+</li>

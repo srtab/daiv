@@ -38,7 +38,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.artifacts import ArtifactKind
-from sessions.filters import RANGE_CHOICES, SessionFilter
+from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
@@ -479,13 +479,8 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
     context_object_name = "artifact"
 
     def get_breadcrumbs(self) -> list[Breadcrumb]:
-        session = self.object.run.session
         return [
-            {"label": str(_("Sessions")), "url": reverse("session_list")},
-            {
-                "label": session.title or session.repo_id,
-                "url": reverse("session_detail", kwargs={"thread_id": session.thread_id}),
-            },
+            {"label": str(_("Artifacts")), "url": reverse("artifact_list")},
             {"label": self.object.title, "url": None},
         ]
 
@@ -532,6 +527,50 @@ class RunArtifactRawView(RunArtifactMixin, DetailView):
             filename=artifact.filename,
             headers=ARTIFACT_RAW_HEADERS,
         )
+
+
+class ArtifactListView(LoginRequiredMixin, FilterView):
+    model = RunArtifact
+    filterset_class = ArtifactFilter
+    context_object_name = "artifacts"
+    paginate_by = 25
+    # Preserve UX: an invalid URL param (e.g. ?kind=bogus) should silently drop
+    # that filter, not blank the whole list.
+    strict = False
+
+    def get_template_names(self) -> list[str]:
+        if is_htmx(self.request):
+            return ["sessions/_artifact_results.html"]
+        return ["sessions/artifact_list.html"]
+
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return (
+            RunArtifact.objects
+            .visible_to(self.request.user)
+            .select_related("run__session")
+            .order_by("-created_at", "-id")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = context["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        context["current_q"] = cleaned.get("q") or ""
+        context["current_kind"] = cleaned.get("kind") or ""
+        context["current_repo"] = cleaned.get("repo") or ""
+        context["has_active_filters"] = any([context["current_q"], context["current_kind"], context["current_repo"]])
+        context["kinds"] = ArtifactKind.choices
+        # Unfiltered, so the dropdown always offers every repo the viewer could pick.
+        # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.
+        context["repos"] = sorted(
+            RunArtifact.objects
+            .visible_to(self.request.user)
+            .exclude(run__session__repo_id="")
+            .order_by()
+            .values_list("run__session__repo_id", flat=True)
+            .distinct()
+        )
+        return context
 
 
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):

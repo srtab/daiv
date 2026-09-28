@@ -1,0 +1,57 @@
+{% extends "base_app.html" %}
+{% load dashboard_tags i18n icon_tags static %}
+
+{% block title %}{% translate "Artifacts" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'core/js/results-swap.js' %}"></script>
+<script defer src="{% static 'sessions/js/artifact-filters.js' %}"></script>
+{% endblock alpine_plugins %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Artifacts" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Files the agent published across your sessions." %}
+        </p>
+    </div>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms" x-data="artifactFilters()">
+    <div class="flex flex-wrap items-center gap-3">
+        <div class="relative min-w-[240px] flex-1 sm:max-w-sm">
+            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                {% icon "magnifying-glass" "h-4 w-4" %}
+            </span>
+            <input type="text" class="filter-search" x-model="q"
+                   placeholder="{% translate 'Search by title or filename' %}"
+                   @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
+        </div>
+
+        <div class="filter-seg">
+            <a href="?{% querystring_without 'kind' 'page' %}"
+               class="filter-seg-item {% if not current_kind %}filter-seg-item--active{% endif %}"
+               @click.prevent="setKind('')" :class="{ 'filter-seg-item--active': kind === '' }">{% translate "All" %}</a>
+            {% for value, label in kinds %}
+            <a href="?{% querystring_without 'kind' 'page' %}&kind={{ value }}"
+               class="filter-seg-item {% if current_kind == value %}filter-seg-item--active{% endif %}"
+               @click.prevent="setKind('{{ value }}')" :class="{ 'filter-seg-item--active': kind === '{{ value }}' }">{{ label }}</a>
+            {% endfor %}
+        </div>
+
+        <select x-model="repo" @change="_apply()" class="!w-auto min-w-[180px]">
+            <option value="">{% translate "All repositories" %}</option>
+            {% for repo_id in repos %}
+            <option value="{{ repo_id }}">{{ repo_id }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="artifact-results" class="mt-6">
+        {% include "sessions/_artifact_results.html" %}
+    </div>
+</section>
+{% endblock app_content %}

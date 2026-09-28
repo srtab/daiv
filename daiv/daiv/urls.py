@@ -30,6 +30,7 @@ urlpatterns = [
     path("dashboard/configuration/", include("core.urls.configuration")),
     path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
+    path("dashboard/artifacts/", include("sessions.urls_artifacts")),
     path("dashboard/chat/", include(legacy_chat_urlpatterns)),
     path("dashboard/runs/", include("sessions.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
