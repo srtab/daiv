@@ -27,6 +27,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         # so the bare name would never highlight the sidebar on the "Start a run" page.
         "runs:agent_run_new",
     },
+    "artifacts": {"artifact_list", "session_artifact_detail", "session_artifact_raw"},
     "schedules": {
         "schedule_list",
         "schedule_create",
