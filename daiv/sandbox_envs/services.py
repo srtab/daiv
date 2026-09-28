@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from decimal import Decimal
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from uuid import UUID
 
 from django.db.models import Q
 
-from asgiref.sync import async_to_sync
-
-from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
-from sandbox_envs.spec import SandboxEnvOverride
-
-if TYPE_CHECKING:
-    from sessions.services import RepoTarget
+from sandbox_envs.models import SandboxEnvironment, _fmt_cpus, _fmt_memory
+from sandbox_envs.spec import SandboxEnvOverride, SandboxSpec, merge_sandbox_spec
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -65,7 +59,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
-    """Load the explicit per-run env.
+    """Load the env a run recorded.
 
     Returns ``None`` only when no env was requested (``env_id`` is falsy).
     Raises :class:`LookupError` when a non-empty ``env_id`` cannot be resolved
@@ -88,8 +82,18 @@ async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
 async def get_global_default() -> SandboxEnvOverride | None:
     """Resolved GLOBAL default — straight from the row. Returns ``None`` when
     no GLOBAL default row exists."""
-    row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+    row = await SandboxEnvironment.objects.aglobal_default()
     return row_to_override(row) if row is not None else None
+
+
+async def build_sandbox_spec(env_id: str | None) -> SandboxSpec:
+    """The sandbox a run gets: the environment ``env_id`` names, merged over the GLOBAL default.
+
+    ``None`` means none was recorded, so the GLOBAL default applies alone; with no GLOBAL default either, the
+    sandbox is disabled. Raises :class:`LookupError` when ``env_id`` names no environment.
+    """
+    per_run = await resolve_sandbox_env(env_id)
+    return merge_sandbox_spec(per_run=per_run, global_default=await get_global_default())
 
 
 def humanise_global_default() -> dict[str, str | bool]:
@@ -97,7 +101,7 @@ def humanise_global_default() -> dict[str, str | bool]:
 
     Network is intentionally omitted: the form's Network control is a self-contained On/Off that
     neither displays nor inherits the global default, so only memory/cpus are surfaced here."""
-    row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
+    row = SandboxEnvironment.objects.global_default()
     if row is None:
         return {"memory": "", "cpus": "", "has_memory": False, "has_cpus": False}
     return {
@@ -116,77 +120,6 @@ def env_picker_context(form) -> dict:
         return {"sandbox_envs": [], "selected_sandbox_env_id": ""}
     bound = form["sandbox_environment"]
     return {"sandbox_envs": list(bound.field.queryset), "selected_sandbox_env_id": str(bound.value() or "")}
-
-
-async def aresolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
-    """Stamp ``sandbox_environment_id`` on each :class:`sessions.services.RepoTarget`.
-
-    When ``explicit_env_id`` is set every target gets that id; otherwise each repo is
-    matched against a per-call snapshot of USER envs (owned by ``user``), GLOBAL non-default
-    envs, and the GLOBAL default, preserving the precedence in :func:`resolve_env_for_run`.
-
-    One snapshot per call keeps the cost flat regardless of batch size (max-batch = 20
-    repos), instead of repeating ``resolve_env_for_run``'s up-to-three queries per repo.
-    Returns a new list; input is not mutated.
-    """
-    if explicit_env_id is not None:
-        return [replace(t, sandbox_environment_id=explicit_env_id) for t in repos]
-
-    user_envs: list[SandboxEnvironment] = []
-    if user is not None and getattr(user, "is_authenticated", False):
-        user_envs = [e async for e in SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).order_by("name")]
-    global_repo_envs = [
-        e async for e in SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=False).order_by("name")
-    ]
-    global_default = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
-
-    def _match(repo_id: str | None) -> SandboxEnvironment | None:
-        if repo_id:
-            for env in user_envs:
-                if repo_id in (env.repo_ids or []):
-                    return env
-            for env in global_repo_envs:
-                if repo_id in (env.repo_ids or []):
-                    return env
-        return global_default
-
-    resolved = []
-    for t in repos:
-        env = _match(t.repo_id)
-        resolved.append(replace(t, sandbox_environment_id=str(env.id) if env is not None else None))
-    return resolved
-
-
-def resolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
-    """Synchronous wrapper around :func:`aresolve_repo_envs` for view-layer callers."""
-    return async_to_sync(aresolve_repo_envs)(user=user, repos=repos, explicit_env_id=explicit_env_id)
-
-
-def looks_like_uuid(s: str) -> bool:
-    try:
-        UUID(s)
-        return True
-    except TypeError, ValueError:
-        return False
-
-
-async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironment | None:
-    """Resolve a caller-visible env (USER-owned by ``user`` or any GLOBAL) by UUID or
-    name. Returns ``None`` if ``name_or_id`` is falsy; raises ``LookupError`` if a
-    non-empty value doesn't match any visible env."""
-    if not name_or_id:
-        return None
-
-    qs = SandboxEnvironment.objects.visible_to(user)
-    if looks_like_uuid(name_or_id):
-        env = await qs.filter(pk=name_or_id).afirst()
-        if env is not None:
-            return env
-    env = await qs.filter(name=name_or_id).afirst()
-    if env is None:
-        valid = [n async for n in qs.values_list("name", flat=True)]
-        raise LookupError(f"unknown environment '{name_or_id}'; valid: {valid}")
-    return env
 
 
 async def alist_visible_environments(
@@ -210,29 +143,6 @@ async def alist_visible_environments(
     if limit is not None:
         qs = qs[:limit]
     return [env async for env in qs]
-
-
-async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironment | None:
-    """Auto-resolve the SandboxEnvironment to use for a run.
-
-    Resolution chain (per repo):
-      1. USER env owned by ``user`` whose ``repo_ids`` contains ``repo_id``.
-      2. GLOBAL env whose ``repo_ids`` contains ``repo_id``.
-      3. The single GLOBAL env marked ``is_default=True``.
-      4. ``None`` when no env is configured at all.
-
-    ``user`` may be ``None`` (e.g. webhook-triggered runs without a DAIV user);
-    in that case L1 is skipped.
-    """
-    if repo_id:
-        if user is not None and getattr(user, "is_authenticated", False):
-            async for env in SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).order_by("name"):
-                if repo_id in (env.repo_ids or []):
-                    return env
-        async for env in SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=False).order_by("name"):
-            if repo_id in (env.repo_ids or []):
-                return env
-    return await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
 
 
 def build_env_trigger(env: SandboxEnvironment, action: Literal["created", "updated", "deleted"]) -> dict:

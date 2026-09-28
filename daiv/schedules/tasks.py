@@ -42,7 +42,7 @@ def dispatch_scheduled_jobs_cron_task():
     Each schedule is processed in its own savepoint so that one failure
     does not roll back updates for other schedules.
     """
-    from sandbox_envs.services import resolve_repo_envs
+    from sandbox_envs.selection import resolve_repo_envs
     from sessions.models import SessionOrigin
     from sessions.services import RepoTarget, submit_batch_runs
 

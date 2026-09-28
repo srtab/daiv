@@ -18,7 +18,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
-from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
+from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
+from sandbox_envs.services import alist_visible_environments
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
@@ -833,7 +834,10 @@ async def schedule_job(
         ThinkingLevelChoices | None, Field(description="Thinking effort: minimal/low/medium/high.")
     ] = None,
     environment: Annotated[
-        str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
+        str | None,
+        Field(
+            description="Sandbox environment name or UUID. Omit to auto-resolve per repo each time the schedule fires."
+        ),
     ] = None,
     muted: Annotated[bool, Field(description="Mute notifications for this schedule's runs.")] = False,
     intent: Annotated[

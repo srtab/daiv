@@ -79,8 +79,8 @@ def _graph(**values) -> MagicMock:
 @pytest.fixture(autouse=True)
 def _executor_stack():
     """Stub what ``stream_run`` builds around a turn: a clone on ``main`` and an agent whose checkpoint is empty."""
-    with agent_stack(_graph()):
-        yield
+    with agent_stack(_graph()) as stack:
+        yield stack
 
 
 def _streamer(input_data=None) -> ChatRunStreamer:
@@ -918,7 +918,7 @@ async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_events_hands_the_turns_settings_to_the_executor():
+async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
     """A setting ``_run_spec`` drops or renames is swallowed silently: the turn runs on defaults (every footer
     vanishes without ``references``, the pinned model without ``agent_model``)."""
     refs = (ExternalRef(key="RT-77", provider="rt", url="https://rt.example.com/77"),)
@@ -955,8 +955,9 @@ async def test_events_hands_the_turns_settings_to_the_executor():
         async for _ in streamer.events():
             pass
 
-    assert {key: captured[key] for key in ("sandbox_env_id", "acting_user_id", "mcp_overrides", "references")} == {
-        "sandbox_env_id": "env-1",
+    _executor_stack.build_spec.assert_awaited_once_with("env-1")
+    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "mcp_overrides", "references")} == {
+        "sandbox_spec": _executor_stack.build_spec.return_value,
         "acting_user_id": 7,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,

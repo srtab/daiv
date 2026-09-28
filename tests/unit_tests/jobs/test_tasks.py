@@ -9,6 +9,7 @@ from jobs.tasks import run_job_task
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
+from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
 
 
@@ -63,8 +64,8 @@ async def test_run_job_task_rejects_missing_thread_id():
 
 
 @pytest.mark.django_db
-async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
-    """run_job_task must forward sandbox_environment_id to set_runtime_ctx as sandbox_env_id."""
+async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
+    """run_job_task hands sandbox_environment_id to the executor, which builds the run's spec from it once."""
     captured: dict = {}
 
     @asynccontextmanager
@@ -76,6 +77,7 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
     with (
+        stub_sandbox_spec() as build_spec,
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
@@ -90,7 +92,8 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     ):
         await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
 
-    assert captured["sandbox_env_id"] == "env-uuid"
+    build_spec.assert_awaited_once_with("env-uuid")
+    assert captured["sandbox_spec"] is build_spec.return_value
 
 
 @pytest.mark.django_db
@@ -704,12 +707,10 @@ class TestRunJobTaskAfterRunMatrix:
         async def _persist(*, thread_id, current_ref, merge_request):
             calls.append(("persist", current_ref, merge_request))
 
-        class _Watch:
-            def __init__(self, repo_id):
-                pass
-
-            async def aarm_after_run(self, *, run_id, merge_request, published, user_id):
-                calls.append(("arm", published))
+        class _Watch(watch_recorder([])):
+            async def aarm_after_run(self, **kwargs):
+                calls.append(("arm", kwargs["published"]))
+                await super().aarm_after_run(**kwargs)
 
         with (
             _job_scaffolding(agent, real_lock=True),

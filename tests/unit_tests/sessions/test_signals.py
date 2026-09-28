@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django_tasks.signals import task_finished, task_started
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.models import Scope as SandboxScope
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import run_finished
 
@@ -380,15 +382,18 @@ class TestDispatchNextInSession:
         assert statuses[RunStatus.FAILED] == MAX_CONSECUTIVE_DISPATCH_FAILURES
         assert statuses[RunStatus.QUEUED] == 2
 
-    def test_re_enqueue_propagates_agent_override(self, create_db_task_result):
-        """Releasing a QUEUED sibling must forward the per-row agent override pair."""
+    def test_re_enqueue_propagates_the_rows_agent_and_environment(self, create_db_task_result):
+        """Releasing a QUEUED sibling must forward the per-row agent override pair and environment; the run
+        executes on the environment id it's handed, so a dropped one silently runs it on the GLOBAL default."""
         session_id = str(uuid.uuid4())
+        env = SandboxEnvironment.objects.create(scope=SandboxScope.GLOBAL, name="ci", base_image="python:3.14")
         finished = _make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
         _make_run(
             session_id=session_id,
             status=RunStatus.QUEUED,
             agent_model="openrouter:anthropic/claude-opus-4.6",
             agent_thinking_level="high",
+            sandbox_environment=env,
         )
 
         db_task = create_db_task_result()
@@ -401,6 +406,7 @@ class TestDispatchNextInSession:
         assert kwargs["agent_model"] == "openrouter:anthropic/claude-opus-4.6"
         assert kwargs["agent_thinking_level"] == "high"
         assert "use_max" not in kwargs
+        assert kwargs["sandbox_environment_id"] == str(env.id)
 
 
 @pytest.mark.django_db(transaction=True)

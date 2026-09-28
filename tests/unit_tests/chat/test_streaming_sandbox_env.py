@@ -1,7 +1,5 @@
-"""Verifies ``ChatRunStreamer`` hands ``sandbox_environment_id`` to the executor, which threads it
-through ``set_runtime_ctx`` as ``sandbox_env_id``. The runtime resolver consumes that
-kwarg to load the per-run override row — if the streamer drops it, every chat
-run silently falls back to the global default."""
+"""``ChatRunStreamer``'s sandbox-environment fields; the env id's hand-off to the executor is pinned in
+``chat/api/test_streaming.py``."""
 
 from contextlib import asynccontextmanager, suppress
 from unittest.mock import MagicMock, patch
@@ -9,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from chat.api.streaming import ChatRunStreamer
+from tests.unit_tests.conftest import stub_sandbox_spec
 
 
 def test_chat_run_streamer_dataclass_accepts_sandbox_env_id():
@@ -89,6 +88,7 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         auto_resolved_env=None,
     )
     with (
+        stub_sandbox_spec(),
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
         patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
@@ -105,38 +105,3 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         getattr(e, "type", None) and e.type.value == "CUSTOM" and getattr(e, "name", "") == "resolved_env"
         for e in emitted
     )
-
-
-@pytest.mark.asyncio
-async def test_streamer_passes_env_id_into_set_runtime_ctx():
-    captured = {}
-
-    @asynccontextmanager
-    async def _fake_set_runtime_ctx(repo_id, **kwargs):
-        captured.update(kwargs)
-        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
-
-    @asynccontextmanager
-    async def _fake_open_checkpointer():
-        yield MagicMock()
-
-    streamer = ChatRunStreamer(
-        repo_id="r/p",
-        ref="main",
-        thread_id="t",
-        run_id="r",
-        input_data=MagicMock(thread_id="t", run_id="r"),
-        sandbox_environment_id="env-uuid",
-    )
-    with (
-        patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
-        patch("core.checkpointer.open_checkpointer", _fake_open_checkpointer),
-        patch("automation.agent.graph.create_daiv_agent", MagicMock(return_value=MagicMock())),
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", MagicMock()),
-        patch("chat.api.streaming.SubagentEventFilter", MagicMock()),
-        patch("automation.agent.utils.build_langsmith_config", return_value={}),
-        suppress(Exception),
-    ):
-        async for _ in streamer.events():
-            break
-    assert captured.get("sandbox_env_id") == "env-uuid"
