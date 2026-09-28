@@ -1,9 +1,4 @@
-/**
- * Artifacts list filter bar — client-driven, results-only swap.
- *
- * Uses the shared swap core (core/js/results-swap.js). The bar holds q + kind + repo
- * read from the URL and swaps only #artifact-results.
- */
+/** Artifacts list filter bar; swap core lives in core/js/results-swap.js. */
 
 const { swapResults } = window.createResultsSwap("artifact-results", {
     errorMessage: "Couldn't update the artifacts list — check your connection and try again.",

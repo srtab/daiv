@@ -36,7 +36,7 @@
                class="filter-seg-item {% if not current_kind %}filter-seg-item--active{% endif %}"
                @click.prevent="setKind('')" :class="{ 'filter-seg-item--active': kind === '' }">{% translate "All" %}</a>
             {% for value, label in kinds %}
-            <a href="?{% querystring_without 'kind' 'page' %}&kind={{ value }}"
+            <a href="?{% querystring_without 'kind' 'page' %}kind={{ value }}"
                class="filter-seg-item {% if current_kind == value %}filter-seg-item--active{% endif %}"
                @click.prevent="setKind('{{ value }}')" :class="{ 'filter-seg-item--active': kind === '{{ value }}' }">{{ label }}</a>
             {% endfor %}

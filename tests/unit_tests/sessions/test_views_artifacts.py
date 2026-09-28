@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import timedelta
 
@@ -342,22 +343,24 @@ class TestArtifactListView:
     def test_empty_state_filtered(self, member_client, member_user):
         _own_artifact(member_user, filename="a.md")
 
-        resp = member_client.get(reverse("artifact_list"), {"q": "zzz-no-match"})
+        resp = member_client.get(reverse("artifact_list"), {"q": "zzz-no-match"}, HTTP_HX_REQUEST="true")
 
         html = resp.content.decode()
         assert "No artifacts match these filters." in html
-        assert reverse("artifact_list") in html
+        clear_all_url = re.escape(reverse("artifact_list"))
+        assert re.search(rf'href="{clear_all_url}"[^>]*>\s*Clear all\s*</a>', html)
 
     def test_row_renders_session_title_kind_and_download_link(self, member_client, member_user):
         session = _create_session(user=member_user, title="My debug session", repo_id="mine/repo")
         run = _create_run(session)
         artifact = make_artifact(run, filename="findings.md", title="Findings")
 
-        html = member_client.get(reverse("artifact_list")).content.decode()
+        resp = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true")
+        html = resp.content.decode()
 
         assert f'href="{artifact.get_absolute_url()}"' in html
         assert "Findings" in html
-        assert "Markdown" in html
+        assert re.search(r'class="meta-pill">\s*Markdown\s*</span>', html)
         assert "My debug session" in html
         assert "mine/repo" in html
         assert f'href="{artifact.get_download_url()}"' in html
@@ -366,8 +369,9 @@ class TestArtifactListView:
         session = _create_session(user=member_user, title="", repo_id="untitled/repo")
         artifact = make_artifact(_create_run(session))
 
-        html = member_client.get(reverse("artifact_list")).content.decode()
+        resp = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true")
+        html = resp.content.decode()
 
-        session_url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
-        assert f'href="{session_url}#run-{artifact.run_id}"' in html
-        assert "untitled/repo" in html
+        session_url = re.escape(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+        pattern = rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*untitled/repo\s*</a>'
+        assert re.search(pattern, html)
