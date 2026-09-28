@@ -143,6 +143,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return (
             Session.objects
             .visible_to(self.request.user)
+            .without_watch_placeholders()
             .with_latest_status()
             .select_related("user", "scheduled_job")
             # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
@@ -297,6 +298,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             ctx.update({
                 "turns": [],
                 "expired": False,
+                "watch_only": False,
                 "active_run_id": "",
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
@@ -340,6 +342,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # Expired banner only when there is genuinely nothing to show: no checkpoint
         # AND no failed run whose prompt/marker annotate_transcript could recover.
         ctx["expired"] = no_state and not ctx["turns"]
+        ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
