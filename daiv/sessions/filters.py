@@ -8,7 +8,8 @@ from django.utils.translation import gettext_lazy as _
 
 import django_filters
 
-from sessions.models import RunStatus, Session, SessionOrigin
+from sessions.artifacts import KNOWN_KIND_CONTENT_TYPES, ArtifactKind, content_types_for_kind
+from sessions.models import RunArtifact, RunStatus, Session, SessionOrigin
 
 RANGE_CHOICES: list[tuple[str, str]] = [
     ("today", _("Today")),
@@ -67,3 +68,21 @@ class SessionFilter(django_filters.FilterSet):
         else:
             return queryset
         return queryset.filter(last_active_at__gte=start)
+
+
+class ArtifactFilter(django_filters.FilterSet):
+    q = django_filters.CharFilter(method="filter_q")
+    kind = django_filters.ChoiceFilter(choices=ArtifactKind.choices, method="filter_kind")
+    repo = django_filters.CharFilter(field_name="run__session__repo_id")
+
+    class Meta:
+        model = RunArtifact
+        fields: list[str] = []
+
+    def filter_q(self, queryset, name, value):
+        return queryset.filter(Q(title__icontains=value) | Q(filename__icontains=value))
+
+    def filter_kind(self, queryset, name, value):
+        if value == ArtifactKind.OTHER:
+            return queryset.exclude(content_type__in=KNOWN_KIND_CONTENT_TYPES)
+        return queryset.filter(content_type__in=content_types_for_kind(value))
