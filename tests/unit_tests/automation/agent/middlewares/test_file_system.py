@@ -690,9 +690,16 @@ class TestSandboxReadPagination:
         return SandboxFileBackend(client=client, session_id="sess-1")
 
     async def test_mid_file_page_reports_the_exact_remainder(self):
-        """The notice names the window and the exact number of lines left, which only the sandbox's
-        `total_lines` makes possible."""
-        from deepagents.middleware.filesystem import _remaining_lines_notice
+        """The header names the window and carries the total, so the exact number of lines left is
+        derivable — which only the sandbox's `total_lines` makes possible.
+
+        deepagents 0.7.19 replaced the `_remaining_lines_notice` prose ("250 lines remaining from
+        offset 150") with structured `_window_fields` header fields that state the window, the
+        total, and the resume offset. The exact remainder is now encoded as
+        `total_lines - next_offset` rather than spelled out, so both the fields and the derivable
+        remainder are asserted.
+        """
+        from deepagents.middleware.filesystem import _window_fields
 
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
@@ -706,11 +713,13 @@ class TestSandboxReadPagination:
         assert result.end_line == 150
         assert result.total_lines == 400
         assert result.next_offset == 150
-        assert "lines 101-150 of 400 total" in _remaining_lines_notice(result)
-        assert "250 lines remaining from offset 150" in _remaining_lines_notice(result)
+        fields = _window_fields(result)
+        assert "lines 101-150 of 400" in fields
+        assert "next offset 150" in fields
+        assert result.total_lines - result.next_offset == 250
 
     async def test_final_page_emits_no_notice(self):
-        from deepagents.middleware.filesystem import _remaining_lines_notice
+        from deepagents.middleware.filesystem import _window_fields
 
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
@@ -722,7 +731,8 @@ class TestSandboxReadPagination:
 
         assert result.end_line == 400
         assert result.next_offset is None, "the window reached EOF"
-        assert _remaining_lines_notice(result) == ""
+        # A final page advertises no resume offset: `_window_fields` emits only the span.
+        assert _window_fields(result) == ["lines 351-400 of 400"]
 
     async def test_file_length_that_is_an_exact_multiple_of_limit_has_no_next_offset(self):
         """A window ending exactly at `total_lines` is EOF, not a full page — advertising a resume
@@ -908,7 +918,7 @@ class TestSandboxReadPagination:
     async def test_window_without_a_total_still_advertises_a_resume_offset(self):
         """Half-populated metadata must not read as EOF: an over-advertised offset self-corrects on
         the next read, a missing one silently drops the rest of the file."""
-        from deepagents.middleware.filesystem import _remaining_lines_notice
+        from deepagents.middleware.filesystem import _window_fields
 
         from automation.agent.constants import REPO_PATH
         from core.sandbox.schemas import FsReadResponse
@@ -920,7 +930,11 @@ class TestSandboxReadPagination:
 
         assert result.total_lines is None
         assert result.next_offset == 50
-        assert "More lines remain from offset 50" in _remaining_lines_notice(result)
+        # Without a total, `_window_fields` still advertises the resume offset so the
+        # rest of the file is not silently dropped.
+        fields = _window_fields(result)
+        assert "lines 1-50" in fields
+        assert "next offset 50" in fields
 
 
 # ---------------------------------------------------------------------------
