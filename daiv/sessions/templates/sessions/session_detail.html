@@ -166,7 +166,7 @@
         </template>
 
         {# Queued / running state: background run started but no checkpoint yet. #}
-        {% if not turns and is_in_flight %}
+        {% if awaiting_transcript %}
           {% with latest_run=runs|last %}
             {% if latest_run.status == "QUEUED" %}
               <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">

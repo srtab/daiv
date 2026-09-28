@@ -45,7 +45,7 @@ from sessions.locks import stale_cutoff
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.transcript import annotate_transcript
+from sessions.transcript import annotate_transcript, artifact_turns
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
@@ -303,6 +303,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "turns": [],
                 "expired": False,
                 "watch_only": False,
+                "awaiting_transcript": False,
                 "active_run_id": "",
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
@@ -342,11 +343,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # "working" state and transcript poller render the same view a chat session gets.
         no_state = hydrated.expired and not is_in_flight
 
-        ctx["turns"] = annotate_transcript(build_turns(hydrated.messages), runs)
+        turns = annotate_transcript(build_turns(hydrated.messages), runs)
         # Expired banner only when there is genuinely nothing to show: no checkpoint
         # AND no failed run whose prompt/marker annotate_transcript could recover.
-        ctx["expired"] = no_state and not ctx["turns"]
+        ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
+        ctx["awaiting_transcript"] = is_in_flight and not turns
+        ctx["turns"] = turns + artifact_turns(hydrated.messages, runs)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats

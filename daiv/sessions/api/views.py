@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from asgiref.sync import sync_to_async
 from ninja import Router
 from ninja.errors import HttpError
 from ninja.security import django_auth
@@ -11,7 +12,7 @@ from chat.api.security import AuthBearer
 from chat.turns import build_turns
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
-from sessions.transcript import annotate_transcript
+from sessions.transcript import annotate_transcript, artifact_turns
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -35,8 +36,9 @@ async def session_turns(request: HttpRequest, thread_id: str):
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
+    turns = [] if hydrated.expired else annotate_transcript(build_turns(hydrated.messages), runs)
     return {
-        "turns": [] if hydrated.expired else annotate_transcript(build_turns(hydrated.messages), runs),
+        "turns": turns + await sync_to_async(artifact_turns)(hydrated.messages, runs),
         "active": bool(session.active_run_id),
         "expired": hydrated.expired,
     }

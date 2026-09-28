@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import json
 import logging
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from sessions.models import RunStatus, SessionOrigin
-from sessions.transcript import annotate_transcript
+from django.contrib.sites.models import Site
 
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
+from sessions.artifacts import serialize_artifact
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.transcript import annotate_transcript, artifact_turns
+
+from chat.turns import build_turns
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
@@ -323,3 +332,72 @@ def test_sent_at_not_stamped_on_assistant_first_head_segment():
     assert "sent_at" not in result[0]  # assistant-first head turn: guard declines sent_at
     assert result[0]["received_at"] == FINISHED_AT.isoformat()
     assert all("sent_at" not in t for t in result)
+
+
+def _db_run(session: Session) -> Run:
+    return Run.objects.create(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
+    )
+
+
+def _db_session() -> Session:
+    return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/repo")
+
+
+@pytest.mark.django_db
+def test_artifact_turns_empty_while_the_checkpoint_has_messages():
+    run = _db_run(_db_session())
+    make_artifact(run)
+    assert artifact_turns([HumanMessage(content="hi", id="h1")], [run]) == []
+
+
+@pytest.mark.django_db
+def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
+    session = _db_session()
+    first, empty, last = _db_run(session), _db_run(session), _db_run(session)
+    report = make_artifact(first, filename="report.md", title="Findings")
+    chart = make_artifact(first, filename="chart.png")
+    page = make_artifact(last, filename="audit.html", title="Audit")
+
+    result = artifact_turns([], [first, empty, last])
+
+    def segment(artifact):
+        return {
+            "type": "tool_call",
+            "id": f"artifact-{artifact.id}",
+            "name": "publish_artifact",
+            "args": json.dumps({"path": artifact.filename, "title": artifact.title}),
+            "result": json.dumps({"status": "published", **serialize_artifact(artifact).model_dump()}),
+            "status": "done",
+        }
+
+    assert result == [
+        {"id": f"run-{first.id}-artifacts", "role": "assistant", "segments": [segment(report), segment(chart)]},
+        {"id": f"run-{last.id}-artifacts", "role": "assistant", "segments": [segment(page)]},
+    ]
+
+
+@pytest.mark.django_db
+def test_artifact_turn_segments_carry_the_build_turns_tool_call_keys():
+    run = _db_run(_db_session())
+    make_artifact(run)
+    built = build_turns([AIMessage(content="", tool_calls=[{"id": "t1", "name": "publish_artifact", "args": {}}])])
+
+    (turn,) = artifact_turns([], [run])
+
+    assert turn.keys() == built[0].keys()
+    assert turn["segments"][0].keys() == built[0]["segments"][0].keys()
+
+
+@pytest.mark.django_db
+def test_artifact_turns_query_once_for_every_run(django_assert_num_queries):
+    session = _db_session()
+    runs = [_db_run(session) for _ in range(3)]
+    for run in runs:
+        make_artifact(run, filename="a.md")
+        make_artifact(run, filename="b.md")
+    Site.objects.get_current()
+    runs = list(Run.objects.filter(pk__in=[r.pk for r in runs]).order_by("created_at"))
+
+    with django_assert_num_queries(1):
+        assert len(artifact_turns([], runs)) == 3
