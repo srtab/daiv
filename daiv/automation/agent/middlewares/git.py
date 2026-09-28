@@ -389,14 +389,14 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so the run's
-        sandbox backend is never bound and the agent loop never ran — nothing was captured or changed.
+        sandbox session is never acquired and the agent loop never ran — nothing was captured or changed.
         Probing git through the unbound backend would raise (``SandboxFileBackend is not bound to a
         sandbox session``), so detect it and no-op. Disk-backed runs pass ``sandbox_backend=None`` and
         keep a usable local clone, so they fall through and correctly report a clean tree.
         """
-        if self._sandbox_backend is not None and not self._sandbox_backend.is_bound():
+        if self._sandbox_backend is not None and not self._sandbox_backend.session.is_acquired:
             logger.debug(
-                "Sandbox backend not bound at turn end (run short-circuited before the agent loop); "
+                "Sandbox session not acquired at turn end (run short-circuited before the agent loop); "
                 "skipping patch capture and publish"
             )
             return None

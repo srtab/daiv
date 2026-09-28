@@ -18,6 +18,7 @@ from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
@@ -58,6 +59,16 @@ def acquired_session(
     session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
     session._session_id, session._egress = session_id, egress
     return session
+
+
+def sandbox_backend_on(client, session_id: str = "sess-1") -> SandboxFileBackend:
+    """A ``SandboxFileBackend`` over an acquired session on ``client``."""
+    return SandboxFileBackend(acquired_session(client, session_id))
+
+
+def unacquired_backend(client=None) -> SandboxFileBackend:
+    """A ``SandboxFileBackend`` whose session nothing has acquired, as a slash-command turn leaves it."""
+    return SandboxFileBackend(SandboxSession(client or FakeSandboxClient(), sandbox_spec()))
 
 
 @dataclass

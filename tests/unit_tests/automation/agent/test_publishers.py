@@ -38,7 +38,7 @@ from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.conftest import FakeSandboxClient, acquired_session
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
@@ -155,14 +155,12 @@ def _turn_start_egress(
     return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
 
 
-def _make_sandbox_publisher(*, egress="default"):
-    """A sandbox-mode publisher: bound backend mock (with an awaitable ``refresh_egress``) and the
-    turn-start egress on ctx — what the pre-publish refresh reads. Pass ``egress=None`` for a run
-    without an egress proxy."""
+def _make_sandbox_publisher(*, refreshed: bool = False):
+    """A sandbox-mode publisher over a mocked backend whose session refresh reports ``refreshed``; the refresh's own
+    skip rules are ``SandboxSession``'s (``test_session.py``)."""
     publisher = _make_publisher()
     publisher.sandbox_backend = Mock()
-    publisher.sandbox_backend.refresh_egress = AsyncMock()
-    publisher.ctx.sandbox_egress = _turn_start_egress() if egress == "default" else egress
+    publisher.sandbox_backend.session.refresh_credential = AsyncMock(return_value=refreshed)
     return publisher
 
 
@@ -699,7 +697,7 @@ class TestPublishLocalAuthEnv:
     async def test_sandbox_mode_skips_credential_env(self, monkeypatch):
         """Sandbox git authenticates via the egress proxy's injected header; minting a token here
         would be a needless platform API call and a needless secret in memory."""
-        publisher = _make_sandbox_publisher(egress=None)  # no egress proxy → the pre-publish refresh no-ops
+        publisher = _make_sandbox_publisher()
         captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
 
         await publisher.publish(merge_request=None)
@@ -791,17 +789,14 @@ class TestPublishBaseBranchInvariant:
 
 class TestPublishSandboxEgressRefresh:
     async def test_sandbox_publish_refreshes_egress_before_git_ops(self, monkeypatch):
-        """B8: sandbox publishes re-mint the platform token and deliver it onto the live session BEFORE
-        the first in-sandbox network git op, so a turn that outlived the turn-start token (GitHub
-        installation tokens live 1h) still pushes with a fresh credential."""
+        """B8: a sandbox publish refreshes the session's platform token BEFORE its first in-sandbox network git op, so
+        a turn that outlived the turn-start token (GitHub installation tokens live 1h) still pushes."""
         from automation.agent.git_manager import RepoStatus
 
         publisher = _make_sandbox_publisher()
-        fresh = _platform_credential("fresh")
-        publisher.client.get_git_egress_credential.return_value = fresh
-
         order: list[str] = []
-        publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=lambda _egress: order.append("refresh"))
+        refresh = AsyncMock(side_effect=lambda: order.append("refresh") or True)
+        publisher.sandbox_backend.session.refresh_credential = refresh
         gm = _fake_git_manager()
         gm.status_snapshot = AsyncMock(
             side_effect=lambda **_kw: (
@@ -812,12 +807,7 @@ class TestPublishSandboxEgressRefresh:
 
         await publisher.publish(merge_request=None)
 
-        publisher.client.get_git_egress_credential.assert_called_once_with(publisher.ctx.repository)
-        publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(
-            with_platform_credential(
-                publisher.ctx.sandbox_egress, host=fresh.host, header=fresh.header, token=fresh.value
-            )
-        )
+        refresh.assert_awaited_once_with()
         assert order == ["refresh", "snapshot"]
 
     async def test_local_mode_does_not_refresh_egress(self, monkeypatch):
@@ -832,11 +822,10 @@ class TestPublishSandboxEgressRefresh:
         publisher._refresh_sandbox_egress.assert_not_awaited()
 
     async def test_publish_proceeds_when_refresh_fails(self, monkeypatch, caplog):
-        """B8: a failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it
-        degrades to publishing with the turn-start token, the pre-existing behavior — but the
-        failure must stay diagnosable (exception-logged), or the degradation is truly silent."""
+        """B8: a failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it degrades to publishing
+        with the turn-start token — but the failure must stay diagnosable (exception-logged)."""
         publisher = _make_sandbox_publisher()
-        publisher.client.get_git_egress_credential.side_effect = RuntimeError("mint failed")
+        publisher.sandbox_backend.session.refresh_credential = AsyncMock(side_effect=RuntimeError("mint failed"))
         _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
 
         with caplog.at_level("ERROR", logger="daiv.tools"):
@@ -845,53 +834,18 @@ class TestPublishSandboxEgressRefresh:
         assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
         assert "Could not refresh the sandbox egress token" in caplog.text
 
-    @pytest.mark.parametrize(
-        "turn_start",
-        [
-            pytest.param(None, id="no-egress-proxy"),
-            pytest.param(EgressConfigRequest(), id="no-platform-rule"),
-            pytest.param(_turn_start_egress(token=None), id="token-less-turn-start"),
-        ],
-    )
-    async def test_refresh_mints_nothing_without_a_platform_token(self, turn_start):
-        """B8: a session with no platform token is never credentialed at publish time."""
-        publisher = _make_sandbox_publisher(egress=turn_start)
-
-        await publisher._refresh_sandbox_egress()
-
-        publisher.client.get_git_egress_credential.assert_not_called()
-        publisher.sandbox_backend.refresh_egress.assert_not_awaited()
-
-    @pytest.mark.parametrize(
-        "remint",
-        [
-            pytest.param(None, id="no-credential"),
-            pytest.param(_platform_credential(None), id="token-less"),
-            pytest.param(_platform_credential("turn-start"), id="same-token"),
-        ],
-    )
-    async def test_refresh_skips_delivery_when_the_remint_has_nothing_new(self, remint):
-        """B8: a re-mint with no token, or the turn-start one (GitLab's day-cached token), delivers nothing."""
-        publisher = _make_sandbox_publisher()
-        publisher.client.get_git_egress_credential.return_value = remint
-
-        await publisher._refresh_sandbox_egress()
-
-        publisher.client.get_git_egress_credential.assert_called_once()
-        publisher.sandbox_backend.refresh_egress.assert_not_awaited()
-
     async def test_refresh_swallows_delivery_error(self, caplog):
         """B8: a failed delivery after a good re-mint is exception-logged, not raised."""
         import httpx
 
         publisher = _make_sandbox_publisher()
-        publisher.client.get_git_egress_credential.return_value = _platform_credential("fresh")
-        publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=httpx.ConnectError("down"))
+        refresh = AsyncMock(side_effect=httpx.ConnectError("down"))
+        publisher.sandbox_backend.session.refresh_credential = refresh
 
         with caplog.at_level("ERROR", logger="daiv.tools"):
             await publisher._refresh_sandbox_egress()  # must not raise
 
-        publisher.sandbox_backend.refresh_egress.assert_awaited_once()
+        refresh.assert_awaited_once()
         assert "Could not refresh the sandbox egress token" in caplog.text
 
 
@@ -902,14 +856,14 @@ def _injected_values(egress: EgressConfigRequest) -> list[str]:
 async def _publish_on_a_live_session(
     client: FakeSandboxClient, *, remint: Mock, env: EgressConfigRequest | None = None
 ) -> str:
-    """Publish through a real backend bound to a fake session started with the turn-start token
-    layered on the ``env`` policy."""
+    """Publish through a real backend over a fake session started with the turn-start token layered on the ``env``
+    policy; ``remint`` stands in for the platform's mint."""
     turn_start = _turn_start_egress(env=env)
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
-    publisher.sandbox_backend = SandboxFileBackend(client=client, session_id=session_id)
-    publisher.ctx.sandbox_egress = turn_start
-    publisher.client.get_git_egress_credential = remint
+    publisher.sandbox_backend = SandboxFileBackend(
+        acquired_session(client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=remint))
+    )
 
     await publisher.publish(merge_request=None)
     return session_id

@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 import pytest
 from deepagents.backends.protocol import FILE_NOT_FOUND
 
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from core.sandbox.schemas import (
     FsDeleteResponse,
     FsEditResponse,
@@ -21,6 +20,7 @@ from core.sandbox.schemas import (
     RunCommandsRequest,
     RunCommandsResponse,
 )
+from tests.unit_tests.conftest import sandbox_backend_on, unacquired_backend
 
 
 def _err(code: FsErrorCode, message: str = "boom") -> FsError:
@@ -35,9 +35,7 @@ def client():
 
 @pytest.fixture
 def backend(client):
-    be = SandboxFileBackend(client=client)
-    be.bind_session("sid")
-    return be
+    return sandbox_backend_on(client, "sid")
 
 
 @pytest.mark.parametrize(
@@ -68,34 +66,19 @@ def test_abs_path_resolution(given, expected):
     """The only normalisation is the path-less default ("" / "/") → the workspace root. Every other
     path — including an out-of-workspace path or a dropped-prefix repo slip — passes through unchanged
     so the sandbox can accept it (when under /workspace) or reject it with ``invalid_path``."""
-    be = SandboxFileBackend()
+    be = unacquired_backend()
     assert be._abs(given) == expected
     assert be._rel("/workspace/repo/x.py") == "/workspace/repo/x.py"
 
 
 async def test_calls_before_bind_raise():
-    be = SandboxFileBackend()
+    be = unacquired_backend()
     with pytest.raises(RuntimeError, match="not bound"):
         await be.als("/")
 
 
-def test_rebind_same_session_is_noop(client):
-    be = SandboxFileBackend(client=client)
-    be.bind_session("sid")
-    be.bind_session("sid")  # must not raise (subagents share the parent-bound backend)
-    assert be._session_id == "sid"
-
-
-def test_rebind_different_session_raises(client):
-    be = SandboxFileBackend(client=client)
-    be.bind_session("sid")
-    with pytest.raises(RuntimeError, match="already bound to session"):
-        be.bind_session("other-sid")
-
-
 async def test_bound_backend_sends_absolute_paths_unchanged(client):
-    be = SandboxFileBackend(client=client)
-    be.bind_session("sid")
+    be = sandbox_backend_on(client, "sid")
     client.fs_read.return_value = FsReadResponse(content="x", encoding="utf-8")
     await be.aread("/workspace/repo/pkg/mod.py")
     assert client.fs_read.call_args.args[0] == "sid"
@@ -440,24 +423,6 @@ async def test_unlink_transport_error_returns_false_and_logs(backend, client, ca
     assert "transport failure" in caplog.text
 
 
-async def test_refresh_egress_forwards_to_client(backend, client):
-    from core.sandbox.schemas import EgressConfigRequest
-
-    egress = EgressConfigRequest()
-    await backend.refresh_egress(egress)
-
-    # Forwarded to update_egress under the bound session id with the given config.
-    client.update_egress.assert_awaited_once_with("sid", egress)
-
-
-async def test_refresh_egress_before_bind_raises(client):
-    from core.sandbox.schemas import EgressConfigRequest
-
-    unbound = SandboxFileBackend(client=client)
-    with pytest.raises(RuntimeError, match="not bound"):
-        await unbound.refresh_egress(EgressConfigRequest())
-
-
 async def test_run_commands_forwards_to_client(backend, client):
     client.run_commands.return_value = RunCommandsResponse(
         results=[RunCommandResult(command="echo hi", output="hi", exit_code=0)]
@@ -474,7 +439,7 @@ async def test_run_commands_forwards_to_client(backend, client):
 
 
 async def test_run_commands_before_bind_raises():
-    be = SandboxFileBackend()
+    be = unacquired_backend()
     with pytest.raises(RuntimeError, match="not bound"):
         await be.run_commands(["echo hi"], fail_fast=True)
 
@@ -499,50 +464,18 @@ def test_backend_does_not_advertise_execution():
     from deepagents.backends.protocol import SandboxBackendProtocol
     from deepagents.middleware.filesystem import supports_execution
 
-    be = SandboxFileBackend(client=AsyncMock())
-    be.bind_session("sid")
+    be = sandbox_backend_on(AsyncMock(), "sid")
     assert not isinstance(be, SandboxBackendProtocol)
     assert supports_execution(be) is False
-
-
-def test_bind_session_sets_session_with_construction_client():
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-
-    backend = SandboxFileBackend(client=object())
-    backend.bind_session("sess-1")
-    assert backend._session_id == "sess-1"
-
-
-def test_bind_session_rejects_cross_session_rebind():
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-
-    backend = SandboxFileBackend(client=object(), session_id="sess-1")
-    with pytest.raises(RuntimeError, match="refusing"):
-        backend.bind_session("sess-2")
-
-
-def test_is_bound_requires_both_client_and_session():
-    # is_bound is the non-raising counterpart of _require_bound and drives GitMiddleware's
-    # slash-command short-circuit. BOTH conditions must hold (client AND session): an `or` slip,
-    # or checking only the session, would pass the git tests (which always supply a client) yet
-    # wrongly report a client-less backend as bound — so guard the two-condition logic directly.
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-
-    assert SandboxFileBackend(client=None).is_bound() is False
-    assert SandboxFileBackend(client=object()).is_bound() is False  # client, no session
-    assert SandboxFileBackend(client=object(), session_id="sess-1").is_bound() is True
 
 
 class TestSandboxGrepTruncation:
     def _bound_backend(self, fs_grep_response):
         from unittest.mock import AsyncMock
 
-        from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-
         client = AsyncMock()
         client.fs_grep = AsyncMock(return_value=fs_grep_response)
-        backend = SandboxFileBackend(client=client, session_id="sess-1")
-        return backend
+        return sandbox_backend_on(client, "sess-1")
 
     async def test_truncated_response_sets_the_flag_without_a_synthetic_match(self):
         from automation.agent.constants import REPO_PATH
@@ -615,11 +548,9 @@ class TestSandboxReadPagination:
     def _bound_backend(self, fs_read_response):
         from unittest.mock import AsyncMock
 
-        from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-
         client = AsyncMock()
         client.fs_read = AsyncMock(return_value=fs_read_response)
-        return SandboxFileBackend(client=client, session_id="sess-1")
+        return sandbox_backend_on(client, "sess-1")
 
     async def test_mid_file_page_reports_the_exact_remainder(self):
         """The header names the window and carries the total, so the exact number of lines left is

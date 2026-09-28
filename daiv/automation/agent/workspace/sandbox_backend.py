@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 from deepagents.backends.protocol import (
@@ -27,7 +27,6 @@ from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
 from automation.agent.constants import WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
-    EgressConfigRequest,
     FsDeleteRequest,
     FsEditRequest,
     FsError,
@@ -40,6 +39,9 @@ from core.sandbox.schemas import (
     RunCommandsRequest,
     RunCommandsResponse,
 )
+
+if TYPE_CHECKING:
+    from automation.agent.workspace.session import SandboxSession
 
 logger = logging.getLogger("daiv.tools")
 
@@ -172,10 +174,9 @@ class SandboxFileBackend(BackendProtocol):
     (when under ``/workspace``) or reject. Every op is one RPC over ``DAIVSandboxClient``; there is no
     local copy, so no rollback/desync machinery.
 
-    The client is supplied at construction; the backend is **bound** to the run's session via
-    :meth:`bind_session` once ``SandboxMiddleware.abefore_agent`` has started (or reused) it. Any
-    file op before binding raises ``RuntimeError`` (a programming error — the middleware must bind
-    first).
+    The backend wraps the run's :class:`~automation.agent.workspace.session.SandboxSession` and reaches the container
+    it holds. Any file op before ``SandboxMiddleware.abefore_agent`` acquires the session raises ``RuntimeError`` (a
+    programming error — the middleware must acquire first).
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
@@ -189,37 +190,21 @@ class SandboxFileBackend(BackendProtocol):
     edits in place and leaves the existing file's mode untouched.
     """
 
-    def __init__(self, *, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
-        self._client = client
-        self._session_id = session_id
+    def __init__(self, session: SandboxSession) -> None:
+        self._session = session
         self._logged_read_faults: set[str] = set()
 
-    def bind_session(self, session_id: str) -> None:
-        """Attach the run's session id. The client is supplied at construction; this only sets the
-        workspace (session). Subagents share the parent's backend instance, so re-binding the *same*
-        session is a no-op; re-binding to a *different* session is a programming error and raises,
-        rather than silently redirecting every file op to another workspace.
-        """
-        if self._session_id is not None and self._session_id != session_id:
-            raise RuntimeError(
-                f"SandboxFileBackend is already bound to session {self._session_id!r}; "
-                f"refusing to rebind to {session_id!r}"
-            )
-        self._session_id = session_id
-
-    def is_bound(self) -> bool:
-        """Whether a client and session are attached, i.e. :meth:`_require_bound` would succeed.
-
-        The non-raising counterpart of :meth:`_require_bound`, for callers that may legitimately
-        run before binding (see ``GitMiddleware.aafter_agent``) and want to skip rather than raise.
-        """
-        return self._client is not None and bool(self._session_id)
+    @property
+    def session(self) -> SandboxSession:
+        """The run's sandbox session, shared with the middleware that acquires it and the publisher that refreshes its
+        credential."""
+        return self._session
 
     def _require_bound(self) -> tuple[DAIVSandboxClient, str]:
-        # Inline (not via is_bound) so the type checker narrows _client/_session_id for the return.
-        if self._client is None or not self._session_id:
+        session_id = self._session.session_id
+        if session_id is None:
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
-        return self._client, self._session_id
+        return self._session.client, session_id
 
     async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
@@ -235,21 +220,6 @@ class SandboxFileBackend(BackendProtocol):
         """
         client, session_id = self._require_bound()
         return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
-
-    async def refresh_egress(self, egress: EgressConfigRequest) -> None:
-        """Push a freshly-resolved egress config onto this run's live session (the proxy hot-reloads
-        on its next request). Raises ``httpx.HTTPError`` on failure, like the other client calls here.
-
-        Used by the publisher's pre-publish token refresh: the platform token embedded at turn start
-        expires (GitHub installation tokens live 1h), so the publisher re-mints one and delivers it
-        here before running the in-sandbox publish git ops. This is the turn-END counterpart of the
-        delivery ``SandboxMiddleware._arefresh_egress`` makes when reusing a warm session at turn
-        START (both wrap ``DAIVSandboxClient.update_egress``); they differ in orchestration —
-        turn-start recreates the session on failure, turn-end lets the caller degrade to publishing
-        with the turn-start token.
-        """
-        client, session_id = self._require_bound()
-        await client.update_egress(session_id, egress)
 
     # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path

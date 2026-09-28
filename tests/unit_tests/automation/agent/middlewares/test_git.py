@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -8,8 +9,11 @@ from langchain_core.messages import AIMessage
 from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
+from tests.unit_tests.conftest import sandbox_backend_on, unacquired_backend
+
+if TYPE_CHECKING:
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 
 def _fake_open_git_manager(gm, calls: dict):
@@ -39,10 +43,8 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
 def _bound_backend() -> SandboxFileBackend:
     """A ``SandboxFileBackend`` already bound to a session, as ``SandboxMiddleware.abefore_agent``
     leaves it on a normal run. The client is a bare sentinel: the publisher is mocked in these
-    tests, so no client method is ever called — only ``is_bound()`` is consulted."""
-    backend = SandboxFileBackend(client=object())
-    backend.bind_session("sid")
-    return backend
+    tests, so no client method is ever called — only ``session.is_acquired`` is consulted."""
+    return sandbox_backend_on(object(), "sid")
 
 
 def _mr(iid=7, branch="feat/y") -> MergeRequest:
@@ -316,7 +318,7 @@ class TestGitMiddleware:
         — so the run's ``SandboxFileBackend`` is never bound and the agent loop never ran. Probing
         git through the unbound backend raised ``SandboxFileBackend is not bound to a sandbox
         session``; aafter_agent must no-op instead (nothing to publish)."""
-        backend = SandboxFileBackend(client=object())  # constructed but never bound
+        backend = unacquired_backend()  # constructed but never bound
         mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=backend)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
@@ -329,7 +331,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_skips_patch_capture_when_sandbox_unbound(self):
         """The capture-patch branch also opens a git manager against the sandbox, so the unbound
         short-circuit must skip it too — before the publish gate, so it never touches the backend."""
-        backend = SandboxFileBackend(client=object())
+        backend = unacquired_backend()
         mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=backend)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 

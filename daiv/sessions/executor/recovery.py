@@ -5,22 +5,36 @@ if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
 
+    from automation.agent.workspace.session import SandboxSession
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.sessions")
 
 
-async def recover_draft(ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableConfig, *, thread_id: str) -> bool:
+async def recover_draft(
+    ctx: RuntimeCtx,
+    agent: CompiledAgent,
+    config: RunnableConfig,
+    *,
+    thread_id: str,
+    sandbox_session: SandboxSession | None,
+) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
-    Runs inside the run's context, so the clone and the context's sandbox client are still open. Sandbox-mode
-    publish runs git through a backend bound to the turn's session, rebuilt here from the persisted session id.
+    Runs inside the run's context, so the clone and the sandbox session are still open. A sandbox run publishes through
+    ``sandbox_session``, the one the agent worked in, and recovers nothing when the agent raised before acquiring it.
     Never raises: this is the last attempt to save the run's work, and a failure only means no draft.
     """
     from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.utils import get_repo_ref
 
+    if sandbox_session is not None and not sandbox_session.is_acquired:
+        logger.info(
+            "executor: no draft to recover for thread_id=%s: the agent raised before its sandbox session was acquired",
+            thread_id,
+        )
+        return False
     try:
         snapshot = await agent.aget_state(config=config)
         # ``strict=False``: raising here would land in the catch-all below and discard the work this saves.
@@ -29,12 +43,7 @@ async def recover_draft(ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableC
             state_mr=checkpointed_merge_request(snapshot.values, strict=False),
             current_ref=get_repo_ref(ctx.gitrepo),
         )
-
-        sandbox_backend = None
-        if ctx.sandbox is not None and ctx.sandbox.enabled and (sid := snapshot.values.get("session_id")):
-            sandbox_backend = SandboxFileBackend(client=ctx.sandbox_client)
-            sandbox_backend.bind_session(sid)
-
+        sandbox_backend = SandboxFileBackend(sandbox_session) if sandbox_session is not None else None
         publisher = GitChangePublisher(ctx, sandbox_backend=sandbox_backend, thread_id=thread_id)
         outcome = await publisher.publish(
             merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)

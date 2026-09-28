@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from codebase.context import RuntimeCtx
-    from core.sandbox.client import DAIVSandboxClient
 
 logger = logging.getLogger("daiv.agent")
 
@@ -130,14 +129,13 @@ def _build_general_purpose_middleware(
     web_search_enabled: bool,
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
 
-    ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
+    The subagent's ``SandboxMiddleware`` shares the parent's backend, whose session the parent already acquired.
 
     ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
     subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
@@ -165,9 +163,7 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        middleware.append(
-            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
-        )
+        middleware.append(SandboxMiddleware(agent_root=REPO_PATH, sandbox_backend=sandbox_backend))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -319,7 +315,6 @@ def create_general_purpose_subagent(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> CompiledSubAgent:
@@ -338,7 +333,6 @@ def create_general_purpose_subagent(
             web_search_enabled,
             web_fetch_enabled,
             fallback_models,
-            client,
             sandbox_backend,
             mcp_tools=mcp_tools,
         ),
@@ -604,7 +598,6 @@ async def load_custom_subagents(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> list[CompiledSubAgent]:
@@ -692,7 +685,6 @@ async def load_custom_subagents(
                 web_search_enabled,
                 web_fetch_enabled,
                 fallback_models,
-                client,
                 sandbox_backend,
                 mcp_tools=mcp_tools,
             )

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from deepagents.backends.protocol import BackendProtocol
 
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent
@@ -13,6 +14,7 @@ from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.session import SandboxSession
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 
@@ -35,10 +37,11 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(*, base_image: str | None, **agent_kwargs) -> SimpleNamespace:
-    """Build the agent with its collaborators stubbed and return the stubs plus the run's client."""
+async def _build(*, base_image: str | None, with_session: bool = True, **agent_kwargs) -> SimpleNamespace:
+    """Build the agent with its collaborators stubbed and return the stubs plus the run's client and session."""
     run_client = FakeSandboxClient.opened()
     sandbox = sandbox_spec(base_image=base_image)
+    sandbox_session = SandboxSession(run_client, sandbox) if sandbox.enabled and with_session else None
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
@@ -57,9 +60,8 @@ async def _build(*, base_image: str | None, **agent_kwargs) -> SimpleNamespace:
         ctx.gitrepo.working_dir = "/repo"
         ctx.sandbox = sandbox
         ctx.config.context_file_name = "AGENTS.md"
-        ctx.sandbox_client = run_client if sandbox.enabled else None
-        await create_daiv_agent(ctx=ctx, auto_commit_changes=False, **agent_kwargs)
-    return SimpleNamespace(run_client=run_client, **mocks)
+        await create_daiv_agent(ctx=ctx, sandbox_session=sandbox_session, auto_commit_changes=False, **agent_kwargs)
+    return SimpleNamespace(run_client=run_client, sandbox_session=sandbox_session, **mocks)
 
 
 def _middleware(built: SimpleNamespace) -> list:
@@ -81,7 +83,6 @@ async def test_disk_mode_builds_no_sandbox():
     assert built.git_middleware.call_args.kwargs["sandbox_backend"] is None
     general_purpose_kwargs = built.create_general_purpose.call_args.kwargs
     assert general_purpose_kwargs["sandbox_enabled"] is False
-    assert general_purpose_kwargs["client"] is None
     assert general_purpose_kwargs["sandbox_backend"] is None
     assert built.create_explore.call_args.kwargs["sandbox_enabled"] is False
     assert built.load_custom.await_args.kwargs["sandbox_enabled"] is False
@@ -89,19 +90,24 @@ async def test_disk_mode_builds_no_sandbox():
 
 async def test_sandbox_mode_shares_one_backend_across_the_run():
     """B6: the parent's SandboxFileBackend also backs the git middleware and the general-purpose and custom
-    subagents, which get the run's client too; explore gets it through the composite backend."""
+    subagents, all over the run's one session; explore gets it through the composite backend."""
     built = await _build(base_image="python:3.12")
 
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
     backend = sandbox_middleware._sandbox_backend
     assert isinstance(backend, SandboxFileBackend)
+    assert backend.session is built.sandbox_session
     assert built.composite_backend.call_args.kwargs["default"] is backend
     assert built.create_explore.call_args.args[0] is built.composite_backend.return_value
     assert built.git_middleware.call_args.kwargs["sandbox_backend"] is backend
     for kwargs in (built.create_general_purpose.call_args.kwargs, built.load_custom.await_args.kwargs):
         assert kwargs["sandbox_backend"] is backend
-        assert kwargs["client"] is built.run_client
     assert built.run_client.calls == []
+
+
+async def test_a_sandbox_agent_needs_its_session():
+    with pytest.raises(ValueError, match="SandboxSession"):
+        await _build(base_image="python:3.12", with_session=False)
 
 
 def test_ask_user_question_is_always_loaded():

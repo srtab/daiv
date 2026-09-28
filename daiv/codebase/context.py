@@ -1,21 +1,22 @@
 import logging
 import sys
+from collections.abc import Awaitable, Callable  # noqa: TC003
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from asgiref.sync import sync_to_async
 from git import Repo  # noqa: TC002
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
+from codebase.clients.base import GitEgressCredential  # noqa: TC001
 from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.egress import with_platform_credential
-from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Sequence
@@ -59,13 +60,15 @@ class RuntimeCtx:
     bot_username: str
     repos: tuple[RepoHandle, ...] = ()
     sandbox: SandboxSpec | None = None
-    """The environment's resolved sandbox spec; its ``egress`` is the environment's own policy.
-    The session is provisioned with :attr:`sandbox_egress`."""
-    sandbox_egress: EgressConfigRequest | None = None
-    """The egress config the run's sandbox is provisioned with: ``sandbox.egress`` plus the git-platform
-    rule and credential (see :func:`_run_egress`). ``None`` means no network."""
+    """The environment's resolved sandbox spec; the run's ``SandboxSession`` adds the git-platform rule to its
+    egress."""
     sandbox_client: DAIVSandboxClient | None = field(default=None, compare=False, repr=False)
     """The run's sandbox transport: opened by :func:`set_runtime_ctx` for an enabled sandbox and closed with it."""
+    credential_source: Callable[[], Awaitable[GitEgressCredential | None]] | None = field(
+        default=None, compare=False, repr=False
+    )
+    """Mints the git platform's egress credential for the run's sandbox session; ``None`` without a sandbox. Built
+    after the clone, so it mints after any token the clone's self-heal re-minted."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -87,9 +90,6 @@ class RuntimeCtx:
             object.__setattr__(self, "references", tuple(self.references))
         if len(self.repos) != 1:
             raise SingleRepoRequiredError(actual=len(self.repos))
-        sandbox = self.sandbox
-        if sandbox is not None and sandbox.enabled and sandbox.egress is not None and self.sandbox_egress is None:
-            raise ValueError("A sandbox environment with egress needs sandbox_egress, or its session gets no network")
 
     @property
     def repo(self) -> RepoHandle:
@@ -151,21 +151,15 @@ def _load_repo_with_optional_fallback(
         cm.__exit__(*sys.exc_info())
 
 
-def _run_egress(sandbox: SandboxSpec, repo_client: RepoClient, repository: Repository) -> EgressConfigRequest | None:
-    """The egress config the run's sandbox starts with: the environment's policy plus the git-platform rule.
+def _credential_source(
+    repo_client: RepoClient, repository: Repository
+) -> Callable[[], Awaitable[GitEgressCredential | None]]:
+    """Mint the repository's git egress credential on each call: a turn can outlive the token minted at its start."""
 
-    DAIV pushes from inside the sandbox, so a network-off environment is still opened to the git host
-    when the run holds a push token. Without one (e.g. evals' token-less platform) it stays isolated:
-    there is nothing to push, and opening it would force the egress proxy onto hermetic runs.
-    """
-    if not sandbox.enabled:
-        return None
-    credential = repo_client.get_git_egress_credential(repository)
-    if credential is None or (sandbox.egress is None and credential.value is None):
-        return sandbox.egress
-    return with_platform_credential(
-        sandbox.egress, host=credential.host, header=credential.header, token=credential.value
-    )
+    async def mint() -> GitEgressCredential | None:
+        return await sync_to_async(repo_client.get_git_egress_credential)(repository)
+
+    return mint
 
 
 @asynccontextmanager
@@ -223,9 +217,6 @@ async def set_runtime_ctx(
         with _load_repo_with_optional_fallback(
             repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
         ) as (repo, effective_ref):
-            # After the clone, so the credential is any token the clone's self-heal re-minted, not the
-            # stale one it discarded (the egress proxy overrides Authorization on every platform request).
-            sandbox_egress = _run_egress(sandbox_spec, repo_client, repository)
             handle = RepoHandle(
                 repo_id=repo_id,
                 git_platform=repo_client.git_platform,
@@ -238,8 +229,8 @@ async def set_runtime_ctx(
                 bot_username=repo_client.current_user.username,
                 repos=(handle,),
                 sandbox=sandbox_spec,
-                sandbox_egress=sandbox_egress,
                 sandbox_client=sandbox_client,
+                credential_source=_credential_source(repo_client, repository) if sandbox_client is not None else None,
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,
