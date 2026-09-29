@@ -1,5 +1,6 @@
 import inspect
 import uuid
+from typing import TYPE_CHECKING
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -13,9 +14,17 @@ from accounts.models import User
 from codebase.base import Job, Pipeline
 from core.site_settings import site_settings
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 
 def make_artifact(
-    run: Run, *, filename: str = "report.md", content: bytes = b"# Report", title: str = ""
+    run: Run,
+    *,
+    filename: str = "report.md",
+    content: bytes = b"# Report",
+    title: str = "",
+    created_at: datetime | None = None,
 ) -> RunArtifact:
     """A ``RunArtifact`` whose bytes are in the default storage, shaped as ``astore_artifact`` stores it. SYNC ONLY."""
     artifact = RunArtifact(
@@ -25,6 +34,8 @@ def make_artifact(
         content_type=guess_content_type(filename),
         size=len(content),
     )
+    if created_at is not None:
+        artifact.created_at = created_at
     artifact.file.save(filename, ContentFile(content), save=True)
     return artifact
 

@@ -482,6 +482,9 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
     template_name = "sessions/artifact_detail.html"
     context_object_name = "artifact"
 
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return super().get_queryset().select_related("run__session")
+
     def get_breadcrumbs(self) -> list[Breadcrumb]:
         return [
             {"label": str(_("Artifacts")), "url": reverse("artifact_list")},
@@ -500,7 +503,13 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
         if inline_text and not too_large and not unavailable:
             with artifact.file.open("rb") as fh:
                 text = fh.read().decode("utf-8", errors="replace")
-        ctx.update({"text": text, "too_large": too_large, "unavailable": unavailable, "sandbox": ARTIFACT_SANDBOX})
+        ctx.update({
+            "text": text,
+            "too_large": too_large,
+            "unavailable": unavailable,
+            "previewable": not (unavailable or too_large or artifact.kind == ArtifactKind.OTHER),
+            "sandbox": ARTIFACT_SANDBOX,
+        })
         return ctx
 
 
@@ -554,6 +563,7 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
         if is_htmx(self.request):
             return context
         context["current_kind"] = cleaned.get("kind") or ""
+        context["current_repo"] = cleaned.get("repo") or ""
         context["kinds"] = ArtifactKind.choices
         # Unfiltered, so the dropdown always offers every repo the viewer could pick.
         # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.

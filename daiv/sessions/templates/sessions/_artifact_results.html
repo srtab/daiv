@@ -1,11 +1,14 @@
-{% load i18n icon_tags %}
+{% load i18n icon_tags session_tags %}
 {% if artifacts %}
-<div class="artifact-card">
-    <ul class="artifact-card__list">
-        {% for artifact in artifacts %}
+<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% for artifact in artifacts %}
+        {% ifchanged %}
+        <div class="session-group-header">
+            <span>{{ artifact.created_at|date_bucket }}</span>
+        </div>
+        {% endifchanged %}
         {% include "sessions/_artifact_row.html" with artifact=artifact %}
-        {% endfor %}
-    </ul>
+    {% endfor %}
 </div>
 {% include "accounts/_pagination.html" with paginate_swap=True %}
 {% elif has_active_filters %}
@@ -16,10 +19,16 @@
     </a>
 </div>
 {% else %}
-<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
-    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
-        {% icon "clipboard-document" "h-6 w-6 text-gray-400" %}
+<div class="empty-state">
+    <div class="empty-state__icon">
+        {% icon "document-text" "h-6 w-6 text-gray-400" %}
     </div>
-    <p class="text-[15px] text-gray-300">{% translate "Artifacts appear here when the agent publishes a report or file." %}</p>
+    <h2 class="empty-state__title">{% translate "No artifacts yet" %}</h2>
+    <p class="empty-state__body">
+        {% translate "When the agent publishes a report, document or image during a run, it shows up here." %}
+    </p>
+    <a href="{% url 'session_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">
+        {% icon "plus" "h-4 w-4" %}{% translate "New session" %}
+    </a>
 </div>
 {% endif %}

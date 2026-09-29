@@ -315,7 +315,7 @@
                         <template x-if="seg.type === 'artifact_group'">
                           <div class="artifact-card">
                             <div class="artifact-card__header">
-                              {% icon "clipboard-document" "h-4 w-4 shrink-0 text-gray-400" %}
+                              {% icon "document-text" "h-4 w-4 shrink-0 text-gray-400" %}
                               <span>{% translate "Artifacts" %}</span>
                               <span class="artifact-card__meta font-normal tracking-normal normal-case"
                                     x-text="seg.items.filter((it) => it.state === 'published').length"></span>
@@ -343,7 +343,7 @@
                                          x-text="item.title" target="_blank" rel="noopener noreferrer"></a>
                                       <span class="meta-pill" x-show="item.kindLabel" x-text="item.kindLabel"></span>
                                       <span class="artifact-card__meta" x-show="item.sizeLabel" x-text="item.sizeLabel"></span>
-                                      <a class="artifact-card__download" x-show="item.download_url" :href="item.download_url"
+                                      <a class="artifact-download" x-show="item.download_url" :href="item.download_url"
                                          title="{% translate 'Download' %}">
                                         {% icon "arrow-down-tray" "h-4 w-4" %}
                                         <span class="sr-only">{% translate "Download" %}</span>

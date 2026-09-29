@@ -95,17 +95,17 @@ What the viewer shows depends on the file type:
 
 | File type | Viewer |
 |-----------|--------|
-| Markdown (`.md`) | Rendered server-side, sanitized, in the DAIV shell |
-| HTML (`.html`) | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS |
-| Images (`.png`, `.svg`, `.jpg`, `.gif`, `.webp`) | Displayed inline |
-| Text, CSV, JSON, XML, YAML, logs | Shown as preformatted text |
+| Markdown (`.md`) | Rendered server-side, sanitized, in the DAIV shell; **Copy source** copies the raw Markdown |
+| HTML (`.html`) | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS. **Full screen** expands the frame |
+| Images (`.png`, `.svg`, `.jpg`, `.gif`, `.webp`) | Displayed inline on a checkerboard, so transparency shows; click to open at full size |
+| Text, CSV, JSON, XML, YAML, logs | Shown as preformatted text; **Copy source** copies it |
 | Anything else (`.pdf`, archives, …) | Download only |
 
 Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.
 
-**Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
+The viewer's header shows the artifact's kind, its repository, and a link back to the session run that produced it. **Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
 
-Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
+Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
 
 Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 

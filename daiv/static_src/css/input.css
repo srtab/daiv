@@ -1619,7 +1619,7 @@ html {
     @apply flex justify-end gap-2;
   }
 
-  /* Artifact card: grouped publish_artifact calls in the transcript, and the Artifacts list page */
+  /* Artifact card: grouped publish_artifact calls in the transcript, and the artifact viewer frame */
 
   .artifact-card {
     @apply overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02];
@@ -1646,16 +1646,53 @@ html {
     @apply hover:text-violet-200;
   }
 
-  .artifact-card__download {
-    @apply rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white;
-  }
-
   .artifact-card__meta {
     @apply font-mono text-[12px] text-gray-500 tabular-nums;
   }
 
   .artifact-card__meta--error {
     @apply text-red-300;
+  }
+
+  .artifact-download {
+    @apply rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white;
+  }
+
+  .artifact-tile {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08]
+      bg-white/[0.03] text-gray-400;
+  }
+
+  .artifact-tile--lg {
+    @apply h-10 w-10 rounded-xl;
+  }
+
+  .artifact-tile--html {
+    @apply border-sky-400/20 bg-sky-400/10 text-sky-300;
+  }
+
+  .artifact-tile--markdown {
+    @apply border-indigo-400/20 bg-indigo-400/10 text-indigo-300;
+  }
+
+  .artifact-tile--image {
+    @apply border-pink-400/20 bg-pink-400/10 text-pink-300;
+  }
+
+  .artifact-tile--text {
+    @apply border-amber-400/20 bg-amber-400/10 text-amber-300;
+  }
+
+  .artifact-card__bar {
+    @apply flex min-h-12 items-center gap-3 border-b border-white/[0.06] px-4 py-2;
+  }
+
+  .artifact-card__checkerboard {
+    background-color: var(--color-ground);
+    background-image: conic-gradient(
+      rgb(255 255 255 / 0.04) 25%, transparent 0 50%, rgb(255 255 255 / 0.04) 0 75%, transparent 0
+    );
+    background-size: 20px 20px;
   }
 
   /* Thinking ticker */
@@ -3131,6 +3168,16 @@ html {
   .skill-usage-chart-fallback {
     @apply mt-3 text-sm text-gray-400;
   }
+
+  .empty-state {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center;
+  }
+  .empty-state__icon {
+    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08]
+      bg-white/[0.03];
+  }
+  .empty-state__title { @apply text-[16px] font-semibold text-white; }
+  .empty-state__body { @apply mx-auto mt-1.5 max-w-sm text-[14px] font-light text-gray-400; }
 }
 
 /* -- Session list & filter bar ------------------------------------------- */

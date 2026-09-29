@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags i18n icon_tags static %}
+{% load dashboard_tags i18n icon_tags session_tags static %}
 
 {% block title %}{% translate "Artifacts" %} — DAIV{% endblock %}
 
@@ -15,44 +15,68 @@
     <div class="page-header__title">
         <h1 class="text-2xl font-bold tracking-tight">{% translate "Artifacts" %}</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">
-            {% translate "Files the agent published across your sessions." %}
+            {% translate "Reports, documents and images the agent published across your sessions." %}
         </p>
     </div>
 </div>
 
-<section class="animate-fade-up mt-8" style="animation-delay: 100ms" x-data="artifactFilters()">
-    <div class="flex flex-wrap items-center gap-3">
-        <div class="relative min-w-[240px] flex-1 sm:max-w-sm">
-            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                {% icon "magnifying-glass" "h-4 w-4" %}
-            </span>
-            <input type="text" class="filter-search" x-model="q"
-                   placeholder="{% translate 'Search by title or filename' %}"
-                   @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
-        </div>
+<div class="animate-fade-up relative z-10 mt-8 flex flex-wrap items-center gap-3" style="animation-delay: 50ms"
+     x-data="artifactFilters()">
+    <div class="relative min-w-[240px] flex-1">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+            {% icon "magnifying-glass" "h-4 w-4" %}
+        </span>
+        <input type="text" class="filter-search" x-model="q"
+               placeholder="{% translate 'Search by title or filename' %}"
+               @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
+    </div>
 
-        <div class="filter-seg">
-            <a href="?{% querystring_without 'kind' 'page' %}"
-               class="filter-seg-item {% if not current_kind %}filter-seg-item--active{% endif %}"
-               @click.prevent="setKind('')" :class="{ 'filter-seg-item--active': kind === '' }">{% translate "All" %}</a>
-            {% for value, label in kinds %}
-            <a href="?{% querystring_without 'kind' 'page' %}kind={{ value }}"
-               class="filter-seg-item {% if current_kind == value %}filter-seg-item--active{% endif %}"
-               @click.prevent="setKind('{{ value }}')" :class="{ 'filter-seg-item--active': kind === '{{ value }}' }">{{ label }}</a>
-            {% endfor %}
-        </div>
+    {% querystring_without 'kind' 'page' as kind_qs %}
+    <div class="filter-seg">
+        <a href="?{{ kind_qs }}"
+           class="filter-seg-item {% if not current_kind %}filter-seg-item--active{% endif %}"
+           @click.prevent="setFilter('kind', '')" :class="{ 'filter-seg-item--active': kind === '' }">{% translate "All" %}</a>
+        {% for value, label in kinds %}
+        <a href="?{{ kind_qs }}kind={{ value }}"
+           class="filter-seg-item {% if current_kind == value %}filter-seg-item--active{% endif %}"
+           @click.prevent="setFilter('kind', '{{ value }}')" :class="{ 'filter-seg-item--active': kind === '{{ value }}' }">
+            {% icon value|artifact_icon "h-3.5 w-3.5" %}{{ label }}
+        </a>
+        {% endfor %}
+    </div>
 
-        <select x-model="repo" @change="_apply()" class="!w-auto min-w-[180px]"
-                aria-label="{% translate 'Repository' %}">
-            <option value="">{% translate "All repositories" %}</option>
+    {% if repos %}
+    {% querystring_without 'repo' 'page' as repo_qs %}
+    <div class="relative" @click.outside="open = false" @keydown.escape="open = false">
+        <button type="button" class="filter-control {% if current_repo %}filter-control--active{% endif %}"
+                :class="{ 'filter-control--active': !!repo }" @click="open = !open"
+                aria-haspopup="true" :aria-expanded="open">
+            {% icon "repo" "h-4 w-4" %}
+            <span class="max-w-[200px] truncate" x-text="repo || $el.dataset.defaultLabel"
+                  data-default-label="{% translate 'Repository' %}">{% if current_repo %}{{ current_repo }}{% else %}{% translate "Repository" %}{% endif %}</span>
+            <a href="?{{ repo_qs }}" @click.stop.prevent="setFilter('repo', '')"
+               x-show="!!repo" style="{% if not current_repo %}display:none{% endif %}"
+               class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
+            <span x-show="!repo" style="{% if current_repo %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
+        </button>
+        <div class="filter-menu right-0 max-h-80 max-w-[20rem] overflow-y-auto" x-show="open" x-cloak>
+            <a href="?{{ repo_qs }}"
+               class="filter-menu-item {% if not current_repo %}filter-menu-item--active{% endif %}"
+               @click.prevent="setFilter('repo', '')" :class="{ 'filter-menu-item--active': !repo }">{% translate "All repositories" %}</a>
             {% for repo_id in repos %}
-            <option value="{{ repo_id }}">{{ repo_id }}</option>
+            <a href="?{{ repo_qs }}repo={{ repo_id|urlencode }}"
+               class="filter-menu-item {% if current_repo == repo_id %}filter-menu-item--active{% endif %}"
+               @click.prevent="setFilter('repo', $el.dataset.repo)" data-repo="{{ repo_id }}"
+               :class="{ 'filter-menu-item--active': repo === $el.dataset.repo }">
+                {% icon "repo" "h-4 w-4 shrink-0 text-gray-500" %}<span class="truncate">{{ repo_id }}</span>
+            </a>
             {% endfor %}
-        </select>
+        </div>
     </div>
+    {% endif %}
+</div>
 
-    <div id="artifact-results" class="mt-6">
-        {% include "sessions/_artifact_results.html" %}
-    </div>
-</section>
+<div id="artifact-results" class="animate-fade-up isolate mt-6" style="animation-delay: 100ms">
+    {% include "sessions/_artifact_results.html" %}
+</div>
 {% endblock app_content %}

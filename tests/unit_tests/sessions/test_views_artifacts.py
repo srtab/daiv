@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.urls import reverse
 from django.utils import timezone
@@ -143,6 +143,30 @@ def test_detail_large_text_is_flagged_too_large_not_unpreviewable(member_client,
     assert "not previewed" not in html
 
 
+@pytest.mark.parametrize(
+    ("filename", "state", "download_links", "raw_links"),
+    [
+        ("notes.md", "previewable", 1, 1),
+        ("report.pdf", "unpreviewable", 1, 0),
+        ("big.md", "too_large", 1, 0),
+        ("gone.md", "unavailable", 0, 0),
+    ],
+)
+def test_detail_offers_each_file_link_at_most_once(
+    member_client, member_user, monkeypatch, filename, state, download_links, raw_links
+):
+    if state == "too_large":
+        monkeypatch.setattr(views_module, "ARTIFACT_INLINE_TEXT_MAX_BYTES", 4)
+    artifact = _own_artifact(member_user, filename=filename, content=b"# content")
+    if state == "unavailable":
+        artifact.file.storage.delete(artifact.file.name)
+
+    html = member_client.get(artifact.get_absolute_url()).content.decode()
+
+    assert html.count(f'href="{artifact.get_download_url()}"') == download_links
+    assert html.count(f'href="{artifact.get_raw_url()}"') == raw_links
+
+
 def test_missing_file_renders_unavailable_and_raw_404s(member_client, member_user, caplog):
     artifact = _own_artifact(member_user, filename="audit.html", content=b"<p>x</p>")
     artifact.file.storage.delete(artifact.file.name)
@@ -225,6 +249,25 @@ def test_detail_breadcrumbs_link_to_artifact_list(member_client, member_user):
     ]
 
 
+def test_detail_links_back_to_its_session_and_repo(member_client, member_user):
+    session = _create_session(user=member_user, title="Nightly audit", repo_id="acme/api")
+    artifact = make_artifact(_create_run(session), filename="audit.md")
+
+    html = member_client.get(artifact.get_absolute_url()).content.decode()
+
+    session_url = re.escape(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+    assert re.search(rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*Nightly audit\s*</a>', html)
+    assert "acme/api" in html
+
+
+def test_detail_embeds_markdown_source_for_copy(member_client, member_user):
+    artifact = _own_artifact(member_user, filename="notes.md", content=b"# Notes\n\n- a <b>")
+
+    html = member_client.get(artifact.get_absolute_url()).content.decode()
+
+    assert '<script id="artifact-source" type="application/json">"# Notes\\n\\n- a \\u003Cb\\u003E"</script>' in html
+
+
 def _grant_read_access(user, repo_id: str) -> None:
     SocialAccount.objects.get_or_create(user=user, provider="gitlab", uid=str(user.pk))
     RepositoryAccess.objects.create(
@@ -280,9 +323,7 @@ class TestArtifactListView:
     def test_orders_newest_first(self, member_client, member_user):
         session = _create_session(user=member_user)
         run = _create_run(session)
-        older = make_artifact(run, filename="a.md")
-        older.created_at = timezone.now() - timedelta(minutes=5)
-        older.save(update_fields=["created_at"])
+        older = make_artifact(run, filename="a.md", created_at=timezone.now() - timedelta(minutes=5))
         newer = make_artifact(run, filename="b.md")
 
         resp = member_client.get(reverse("artifact_list"))
@@ -335,10 +376,22 @@ class TestArtifactListView:
         assert resp.context["repos"] == ["mine/repo"]
         assert len(resp.context["artifacts"]) == 1
 
-    def test_empty_state_first_use(self, member_client, member_user):
-        resp = member_client.get(reverse("artifact_list"))
+    def test_empty_state_first_use_offers_a_new_session(self, member_client, member_user):
+        resp = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true")
 
-        assert "publishes a report or file" in resp.content.decode()
+        assert f'href="{reverse("session_new")}"' in resp.content.decode()
+
+    def test_groups_rows_under_date_headers_and_dates_older_rows(self, member_client, member_user):
+        run = _create_run(_create_session(user=member_user))
+        make_artifact(run, filename="new.md")
+        make_artifact(run, filename="newer.md")
+        make_artifact(run, filename="old.md", created_at=timezone.make_aware(datetime(2024, 3, 9, 12, 0)))
+
+        html = member_client.get(reverse("artifact_list"), HTTP_HX_REQUEST="true").content.decode()
+
+        headers = re.findall(r'class="session-group-header">\s*<span>([^<]+)</span>', html)
+        assert headers == ["Today", "March 2024"]
+        assert re.search(r'<time[^>]*datetime="2024-03-09[^"]*"[^>]*>\s*Mar 9\s*</time>', html)
 
     def test_empty_state_filtered(self, member_client, member_user):
         _own_artifact(member_user, filename="a.md")
@@ -360,12 +413,12 @@ class TestArtifactListView:
 
         assert f'href="{artifact.get_absolute_url()}"' in html
         assert "Findings" in html
-        assert re.search(r'class="meta-pill">\s*Markdown\s*</span>', html)
+        assert re.search(r'class="meta-pill[^"]*">\s*Markdown\s*</span>', html)
         assert "My debug session" in html
         assert "mine/repo" in html
         assert f'href="{artifact.get_download_url()}"' in html
 
-    def test_row_shows_repo_id_when_session_title_is_empty(self, member_client, member_user):
+    def test_row_shows_repo_beside_an_untitled_session_link(self, member_client, member_user):
         session = _create_session(user=member_user, title="", repo_id="untitled/repo")
         artifact = make_artifact(_create_run(session))
 
@@ -373,8 +426,8 @@ class TestArtifactListView:
         html = resp.content.decode()
 
         session_url = re.escape(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-        pattern = rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*untitled/repo\s*</a>'
-        assert re.search(pattern, html)
+        assert re.search(rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*<em[^>]*>generating title…</em>', html)
+        assert re.search(r'class="session-repo[^"]*"[^>]*>.*?untitled/repo', html, re.S)
 
     def test_row_without_session_title_or_repo_has_no_empty_link_or_bare_repo_pill(self, member_client, member_user):
         session = _create_session(user=member_user, title="", repo_id="")
@@ -387,7 +440,20 @@ class TestArtifactListView:
         assert re.search(rf'href="{session_url}#run-{artifact.run_id}"[^>]*>\s*<em[^>]*>generating title…</em>', html)
         assert "session-repo" not in html
 
-    def test_repo_filter_select_has_an_accessible_name(self, member_client, member_user):
-        resp = member_client.get(reverse("artifact_list"))
+    def test_repo_filter_menu_keeps_the_other_active_filters(self, member_client, member_user):
+        _own_artifact(member_user)
 
-        assert re.search(r'<select x-model="repo"[^>]*aria-label="Repository"', resp.content.decode())
+        html = member_client.get(reverse("artifact_list"), {"kind": "markdown"}).content.decode()
+
+        assert 'href="?kind=markdown&amp;repo=group/project"' in html
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [({}, ""), ({"repo": "group/project"}, "group/project"), ({"repo": "nope/nope"}, "nope/nope")],
+    )
+    def test_current_repo_echoes_the_repo_filter(self, member_client, member_user, query, expected):
+        _own_artifact(member_user)
+
+        resp = member_client.get(reverse("artifact_list"), query)
+
+        assert resp.context["current_repo"] == expected
