@@ -67,8 +67,8 @@ class RuntimeCtx:
     credential_source: Callable[[], Awaitable[GitEgressCredential | None]] | None = field(
         default=None, compare=False, repr=False
     )
-    """Mints the git platform's egress credential for the run's sandbox session; ``None`` without a sandbox. Built
-    after the clone, so it mints after any token the clone's self-heal re-minted."""
+    """Mints the git platform's egress credential for the run's sandbox session; ``None`` without a sandbox. Each call
+    mints anew, so the session gets any token the clone's self-heal re-minted."""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None

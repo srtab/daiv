@@ -31,8 +31,9 @@ step sits where it does:
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch
    arm is logged; none of them fails a run the agent already finished.
 6. The sandbox session is released — stopped for a session run, whose next turn can reuse it, and removed for a
-   one-shot run — even when the agent or its stream raised, was stopped or lost its reader. Then the context and the
-   checkpointer close.
+   one-shot run — even when the agent or its stream raised, was stopped or lost its reader. A stream that lost its
+   slot leaves the container running while the checkpoint still names it, since the holder that took over reuses it.
+   Then the context and the checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,
    ``hooks.on_failure(exc, draft_published=..., snapshot=...)`` and then the error is re-raised.
 8. The heartbeat is cancelled and a ``Wait`` claim released, even when an earlier step raised.

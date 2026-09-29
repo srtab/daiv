@@ -118,11 +118,11 @@ class TestBashTool:
         assert "do not call" in output.lower()
 
     async def test_bash_tool_raises_when_backend_not_set(self):
-        """Calling the bash tool before abefore_agent bound the backend must fail loud."""
+        """The bash tool of a middleware built without a backend fails loud."""
         runtime = _make_bash_runtime(Mock())
         middleware = _make_middleware()  # no backend installed
         bash_tool = middleware.tools[0]
-        with pytest.raises(RuntimeError, match="bound the sandbox backend"):
+        with pytest.raises(RuntimeError, match="without a sandbox backend"):
             await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
 
@@ -661,7 +661,7 @@ class TestPinnedSessionLifecycle:
 
         assert state["session_id"] != stale
         assert client.calls_to("run_commands")[-1] == (state["session_id"], _PROBE)
-        assert f"Failed to stop stale sandbox session {stale}" in caplog.text
+        assert f"Failed to close sandbox session {stale} after egress refresh failure" in caplog.text
 
     async def test_a_missing_egress_proxy_fails_closed(self, repo_dir: Path):
         """B3: a create-time 400 naming the egress proxy raises `SandboxEgressUnavailableError`; nothing follows."""
@@ -706,7 +706,7 @@ class TestPinnedSessionLifecycle:
             await _turn(client, {}, _make_agent_runtime(repo_dir))
 
         assert client.calls_to("close_session") == [("sess-1", True)]
-        assert "Failed to close session sess-1 after seed failure" in caplog.text
+        assert "Failed to close sandbox session sess-1 after an interrupted seed" in caplog.text
 
     async def test_a_resumable_run_stops_the_container_and_keeps_its_id(self, repo_dir: Path):
         """B5: a run with a thread id stops the container and leaves the id in state."""
@@ -726,21 +726,6 @@ class TestPinnedSessionLifecycle:
         assert client.calls_to("close_session") == [("sess-1", True)]
         assert client.sessions == {}
 
-    @pytest.mark.parametrize(("status", "leak_logged"), [(404, False), (409, False), (500, True), (None, True)])
-    @pytest.mark.parametrize("thread_id", ["t-1", None])
-    async def test_a_failed_close_is_logged_not_raised(
-        self, repo_dir: Path, status: int | None, leak_logged: bool, thread_id, caplog
-    ):
-        """B5: close errors never fail the run; any but 404/409 are logged as a possibly leaked container."""
-        client = FakeSandboxClient.opened()
-        client.fail("close_session", status=status)
-
-        with caplog.at_level("ERROR", logger="daiv.tools"):
-            await _turn(client, {}, _make_agent_runtime(repo_dir), thread_id=thread_id)
-
-        assert client.calls_to("close_session") == [("sess-1", thread_id is None)]
-        assert ("sess-1 close" in caplog.text and "may have leaked" in caplog.text) is leak_logged
-
     async def test_a_subagent_shares_the_parent_session(self, repo_dir: Path):
         """B6: a subagent's sandbox hook never opens, refreshes or closes a session."""
         client = FakeSandboxClient.opened()
@@ -759,7 +744,8 @@ class TestPinnedSessionLifecycle:
         assert client.calls_to("run_commands") == [(state["session_id"], ("true",))]
 
     async def test_a_session_started_for_another_environment_is_replaced(self, repo_dir: Path):
-        """B12: a warm session whose recorded spec fingerprint differs from this run's is force-closed and replaced."""
+        """A warm session whose recorded spec fingerprint differs from this run's is removed, without waking it first,
+        and replaced."""
         client = FakeSandboxClient.opened()
         state = await _turn(client, {}, _make_agent_runtime(repo_dir))
         stale = state["session_id"]
@@ -768,8 +754,8 @@ class TestPinnedSessionLifecycle:
 
         state = await _turn(client, state, changed)
 
-        assert client.calls[mark : mark + 2] == [("session_exists", (stale,)), ("close_session", (stale, True))]
-        assert client.method_names()[mark + 2 :] == _FRESH_SESSION_TURN
+        assert client.calls[mark] == ("close_session", (stale, True))
+        assert client.method_names()[mark + 1 :] == _FRESH_SESSION_TURN
         assert stale not in client.sessions
         assert client.sessions[state["session_id"]].request.base_image == "python:3.13"
         assert state["sandbox_fingerprint"] == changed.context.sandbox.fingerprint

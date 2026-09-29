@@ -8,6 +8,7 @@ parent's session.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -44,10 +45,10 @@ class SandboxSession:
     """One run's hold on a sandbox container.
 
     ``acquire`` reuses the thread's warm container when it still exists and was started from the same spec (a
-    checkpoint from before fingerprints counts as the same), and otherwise starts and seeds a fresh one. Either way the
-    container runs with the egress this run provisions: the environment's policy plus the git-platform rule and a
-    freshly minted token. ``refresh_credential`` re-mints that token before a publish. ``release`` stops the container
-    so the thread's next turn can reuse it, or removes it for a one-shot run.
+    checkpoint with no recorded fingerprint counts as the same), and otherwise starts and seeds a fresh one. Either way
+    the container runs with the egress this run provisions, when it provisions any: the environment's policy plus the
+    git-platform rule and a freshly minted token. ``refresh_credential`` re-mints that token before a publish.
+    ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run.
 
     Args:
         client: The run's sandbox transport, opened by ``set_runtime_ctx``; the session never opens or closes it.
@@ -69,6 +70,7 @@ class SandboxSession:
         self._credential_source = credential_source
         self._session_id: str | None = None
         self._egress: EgressConfigRequest | None = None
+        self._cleanups: set[asyncio.Task[None]] = set()
 
     @property
     def client(self) -> DAIVSandboxClient:
@@ -95,8 +97,9 @@ class SandboxSession:
         ``prior_id`` and ``prior_fingerprint`` are what the thread's checkpoint recorded. ``seed`` builds the repository
         and global-skills archives, and runs only for a freshly started container. Raises
         ``SandboxEgressUnavailableError`` when the sandbox has no egress proxy for an environment that needs one, and
-        re-raises a failed start, or a failed seed after removing the new container. Cancelled while reusing the warm
-        container, it stops that container before the cancellation propagates.
+        re-raises a failed start, or a failed seed after removing the new container. A reuse that fails or is cancelled
+        stops the warm container, and a start cancelled in flight removes the container the sandbox still creates,
+        before the error propagates.
         """
         if self._session_id is not None:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
@@ -105,9 +108,9 @@ class SandboxSession:
         if prior_id is not None:
             try:
                 reused = await self._reuse(prior_id, prior_fingerprint, egress)
-            except BaseException as exc:
-                if not isinstance(exc, Exception):
-                    await self._stop_after_cancel(prior_id)
+            except BaseException:
+                # Not held yet, so ``release`` would leave running the container the probe may have restarted.
+                await self._finish(self._close(prior_id, force=False, after="a failed or cancelled reuse"))
                 raise
             if reused:
                 self._session_id, self._egress = prior_id, egress
@@ -157,23 +160,44 @@ class SandboxSession:
     async def release(self, *, resumable: bool) -> None:
         """Stop the container, keeping it for the thread's next turn (``resumable``), or remove it.
 
-        Idempotent. An ``httpx`` error from the close is logged, not raised.
+        Idempotent, and a failed close is logged, not raised. It also finishes any cleanup ``acquire`` started that a
+        repeated chat Stop abandoned. A repeated Stop does not cut either short: the cancellation is re-raised after.
         """
         session_id, self._session_id, self._egress = self._session_id, None, None
-        if session_id is None:
-            return
+        if session_id is not None:
+            self._track(self._close(session_id, force=not resumable, after="the run"))
+        await _wait_out(self._cleanups)
+
+    def _track(self, cleanup: Awaitable[None]) -> asyncio.Task[None]:
+        task = asyncio.ensure_future(cleanup)
+        self._cleanups.add(task)
+        task.add_done_callback(self._cleanups.discard)
+        return task
+
+    async def _finish(self, cleanup: Awaitable[None]) -> None:
+        await _wait_out({self._track(cleanup)})
+
+    async def _close(self, session_id: str, *, force: bool, after: str) -> None:
+        """Stop ``session_id``, or remove it with ``force``; a failure is logged as a possible leak, never raised.
+
+        A 409 is a failure too: the sandbox's per-session lock was busy, so the container was never closed.
+        """
         try:
-            await self._client.close_session(session_id, force=not resumable)
+            await self._client.close_session(session_id, force=force)
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status in (404, 409):
-                logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
+            if exc.response.status_code == 404:
+                logger.debug("Sandbox session %s already gone", session_id)
             else:
                 logger.exception(
-                    "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
+                    "Failed to close sandbox session %s after %s (status=%s); the container may have leaked",
+                    session_id,
+                    after,
+                    exc.response.status_code,
                 )
-        except httpx.RequestError:
-            logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
+        except Exception:
+            logger.exception(
+                "Failed to close sandbox session %s after %s; the container may have leaked", session_id, after
+            )
 
     async def _provision_egress(self) -> EgressConfigRequest | None:
         """The spec's egress plus the git-platform rule.
@@ -192,29 +216,19 @@ class SandboxSession:
     async def _reuse(self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None) -> bool:
         """Ready the thread's warm container for this run; return whether it may be reused.
 
-        One started from another spec, or whose egress push failed, is removed instead.
+        One started from another spec is removed without being woken first; one whose egress push failed is removed too.
         """
-        if not await self._exists(prior_id):
-            return False
         if prior_fingerprint is not None and prior_fingerprint != self._spec.fingerprint:
             logger.info("Sandbox environment changed since session %s started; replacing it", prior_id)
-            await self._discard(prior_id, after="an environment change")
+            await self._close(prior_id, force=True, after="an environment change")
+            return False
+        if not await self._exists(prior_id):
             return False
         if not await self._push_egress(prior_id, egress):
-            await self._discard(prior_id, after="egress refresh failure")
+            await self._close(prior_id, force=True, after="egress refresh failure")
             return False
         logger.info("Reusing warm sandbox session %s", prior_id)
         return True
-
-    async def _stop_after_cancel(self, session_id: str) -> None:
-        """Stop the warm container a cancelled reuse leaves running: it is not held yet, so ``release`` would not.
-
-        Stopped, not removed, so the thread's next turn can still reuse it; a one-shot run has no warm container.
-        """
-        try:
-            await self._client.close_session(session_id, force=False)
-        except httpx.HTTPError:
-            logger.warning("Failed to stop warm sandbox session %s after a cancelled reuse", session_id, exc_info=True)
 
     async def _exists(self, session_id: str) -> bool:
         """Whether ``session_id`` still exists on the sandbox, restarting it if stopped.
@@ -236,10 +250,10 @@ class SandboxSession:
     async def _push_egress(self, session_id: str, egress: EgressConfigRequest | None) -> bool:
         """Push this run's egress onto a warm container before reusing it; return whether it may be reused.
 
-        The container's proxy still injects the token minted when an earlier run started it, which expires in a day or
-        so. ``None`` (a token-less or network-off run) has nothing to push. A failed push (a sandbox too old for the
-        route → 404, a container without the egress proxy → 409, a transport error) returns ``False``, so the caller
-        starts a fresh container, whose start carries a valid token. Only ``httpx`` errors degrade that way.
+        The container's proxy still injects the token an earlier run gave it, which may have expired since. ``None`` (a
+        token-less or network-off run) has nothing to push. A failed push (a sandbox too old for the route → 404, a
+        container without the egress proxy → 409, a transport error) returns ``False``, so the caller starts a fresh
+        container, whose start carries a valid token. Only ``httpx`` errors degrade that way.
         """
         if egress is None:
             return True
@@ -254,17 +268,10 @@ class SandboxSession:
             return False
         return True
 
-    async def _discard(self, session_id: str, *, after: str) -> None:
-        """Remove a warm container this run will not reuse, instead of leaving it to the reaper."""
-        try:
-            await self._client.close_session(session_id, force=True)
-        except httpx.HTTPError:
-            logger.warning("Failed to stop stale sandbox session %s after %s", session_id, after, exc_info=True)
-
     async def _start(self, egress: EgressConfigRequest | None) -> str:
         spec = self._spec
-        try:
-            return await self._client.start_session(
+        start = asyncio.ensure_future(
+            self._client.start_session(
                 StartSessionRequest(
                     base_image=spec.base_image,
                     egress=egress,
@@ -273,6 +280,12 @@ class SandboxSession:
                     environment=spec.env_vars or None,
                 )
             )
+        )
+        try:
+            return await asyncio.shield(start)
+        except asyncio.CancelledError:
+            await self._finish(self._remove_once_started(start))
+            raise
         except httpx.HTTPStatusError as exc:
             detail = (exc.response.text or "").lower()
             if exc.response.status_code == 400 and _EGRESS_PROXY_UNAVAILABLE_MARKER in detail:
@@ -287,17 +300,40 @@ class SandboxSession:
                 ) from exc
             raise
 
+    async def _remove_once_started(self, start: asyncio.Future[str]) -> None:
+        """Remove the container a cancelled start still creates: the sandbox finishes the start, and only this run
+        could learn the container's id. A start that got no answer may have created one this run cannot name."""
+        try:
+            session_id = await start
+        except httpx.HTTPStatusError, httpx.ConnectError:
+            return
+        except Exception:
+            logger.exception("Sandbox start for a cancelled run got no answer; the container may have leaked")
+            return
+        await self._close(session_id, force=True, after="a cancelled start")
+
     async def _seed(self, session_id: str, seed: Callable[[], Awaitable[tuple[bytes, bytes | None]]]) -> None:
         try:
             repo_archive, skills_archive = await seed()
             await self._client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-        # BaseException: a stopped turn cancels mid-seed too, and the new container must not outlive it;
-        # only a genuine Exception is logged as a failure (a cancellation is not one).
+        # BaseException: a stopped turn must not leave the new container behind.
         except BaseException as exc:
             if isinstance(exc, Exception):
                 logger.exception("Failed to build or seed sandbox session %s", session_id)
-            try:
-                await self._client.close_session(session_id, force=True)
-            except Exception:
-                logger.exception("Failed to close session %s after seed failure", session_id)
+            await self._finish(self._close(session_id, force=True, after="an interrupted seed"))
             raise
+
+
+async def _wait_out(tasks: set[asyncio.Task[None]]) -> None:
+    """Wait for ``tasks`` even when the caller is cancelled meanwhile, then re-raise that cancellation."""
+    cancelled: asyncio.CancelledError | None = None
+    while pending := {task for task in tasks if not task.done()}:
+        try:
+            await asyncio.wait(pending)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+    if cancelled is not None:
+        try:
+            raise cancelled
+        finally:
+            del cancelled

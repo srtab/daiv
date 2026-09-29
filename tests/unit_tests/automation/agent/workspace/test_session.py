@@ -180,18 +180,116 @@ class TestAcquire:
         assert not session.is_acquired
         assert not caplog.records
 
-    async def test_a_failed_stop_after_a_cancelled_reuse_is_a_warning_under_the_cancellation(self, caplog):
+    @pytest.mark.parametrize(
+        "error", [httpx.ConnectError("refused"), RuntimeError("close bug")], ids=["transport", "bug"]
+    )
+    async def test_a_failed_stop_after_a_cancelled_reuse_is_logged_under_the_cancellation(self, error, caplog):
         client = FakeSandboxClient.opened()
         prior_id = await _running(client, _started_egress("turn-start"))
         session = _session(client, credential=_credential("fresh", host="gitlab.com"))
         _cancel_after(client, "session_exists")
-        client.fail("close_session")
+        client.close_session = AsyncMock(side_effect=error)
 
         with caplog.at_level("WARNING", logger="daiv.tools"), pytest.raises(asyncio.CancelledError):
             await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
 
+        assert [record.levelname for record in caplog.records] == ["ERROR"]
+        assert "may have leaked" in caplog.text
+
+    async def test_a_failed_warm_reuse_stops_the_prior_container(self):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start"))
+        client.sessions[prior_id].state = "stopped"
+        client.update_egress = AsyncMock(side_effect=ValueError("unserializable egress"))
+        session = _session(client, credential=_credential("fresh", host="gitlab.com"))
+
+        with pytest.raises(ValueError, match="unserializable"):
+            await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+
         assert client.calls_to("close_session") == [(prior_id, False)]
-        assert [record.levelname for record in caplog.records] == ["WARNING"]
+        assert client.sessions[prior_id].state == "stopped"
+
+    async def test_an_environment_change_removes_the_warm_container_without_waking_it(self):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, None)
+        client.sessions[prior_id].state = "stopped"
+        session = _session(client, sandbox_spec(base_image="python:3.13"))
+
+        session_id, _ = await session.acquire(
+            prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed()
+        )
+
+        assert client.calls_to("session_exists") == []
+        assert client.calls_to("close_session") == [(prior_id, True)]
+        assert prior_id not in client.sessions
+        assert session_id != prior_id
+
+    @pytest.mark.parametrize("stops", [1, 2])
+    async def test_a_start_cancelled_in_flight_removes_the_container_it_still_creates(self, stops):
+        client = FakeSandboxClient.opened()
+        in_flight = _in_flight(client, "start_session", acts_first=True)
+        session = _session(client)
+
+        task = asyncio.create_task(session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed()))
+        await _stop_in_flight(task, *in_flight, stops=stops)
+
+        assert client.calls_to("close_session") == [("sess-1", True)]
+        assert client.sessions == {}
+        assert not session.is_acquired
+
+    @pytest.mark.parametrize(
+        ("answer", "leak_logged"),
+        [
+            pytest.param(httpx.ReadTimeout("no answer"), True, id="no-answer"),
+            pytest.param(httpx.ConnectError("refused"), False, id="never-sent"),
+            pytest.param(httpx.HTTPStatusError("500", request=None, response=httpx.Response(500)), False, id="refused"),
+        ],
+    )
+    async def test_a_cancelled_start_that_then_fails_is_still_a_cancellation(self, answer, leak_logged, caplog):
+        client = FakeSandboxClient.opened()
+        client.start_session = AsyncMock(side_effect=answer)
+        in_flight = _in_flight(client, "start_session")
+        task = asyncio.create_task(_session(client).acquire(prior_id=None, prior_fingerprint=None, seed=_seed()))
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await _stop_in_flight(task, *in_flight, stops=1)
+
+        assert ("may have leaked" in caplog.text) is leak_logged
+
+    async def test_a_reaped_container_of_a_changed_environment_is_replaced_quietly(self, caplog):
+        client = FakeSandboxClient.opened()
+        client.fail("close_session", status=404)
+        session = _session(client, sandbox_spec(base_image="python:3.13"))
+
+        with caplog.at_level("WARNING", logger="daiv.tools"):
+            await session.acquire(prior_id="sess-gone", prior_fingerprint=sandbox_spec().fingerprint, seed=_seed())
+
+        assert session.is_acquired
+        assert not caplog.records
+
+    async def test_a_repeated_stop_still_removes_a_cancelled_seeds_container(self):
+        client = FakeSandboxClient.opened()
+        in_flight = _in_flight(client, "close_session")
+        session = _session(client)
+
+        task = asyncio.create_task(
+            session.acquire(prior_id=None, prior_fingerprint=None, seed=AsyncMock(side_effect=asyncio.CancelledError))
+        )
+        await _stop_in_flight(task, *in_flight, stops=1)
+
+        assert client.sessions == {}
+
+    async def test_a_repeated_stop_still_stops_a_cancelled_reuses_container(self):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start"))
+        session = _session(client, credential=_credential("fresh", host="gitlab.com"))
+        _cancel_after(client, "session_exists")
+        in_flight = _in_flight(client, "close_session")
+
+        task = asyncio.create_task(session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed()))
+        await _stop_in_flight(task, *in_flight, stops=1)
+
+        assert client.sessions[prior_id].state == "stopped"
 
 
 def _cancel_after(client: FakeSandboxClient, method: str) -> None:
@@ -203,6 +301,37 @@ def _cancel_after(client: FakeSandboxClient, method: str) -> None:
         raise asyncio.CancelledError
 
     setattr(client, method, _cancelled)
+
+
+def _in_flight(
+    client: FakeSandboxClient, method: str, *, acts_first: bool = False
+) -> tuple[asyncio.Event, asyncio.Event]:
+    """Hold ``method``'s request in flight until ``gate`` is set, setting ``reached`` once it is held.
+
+    ``acts_first`` has the sandbox act before the response is held, as it finishes a start DAIV stopped waiting for.
+    """
+    call = getattr(client, method)
+    reached, gate = asyncio.Event(), asyncio.Event()
+
+    async def _held(*args, **kwargs):
+        result = await call(*args, **kwargs) if acts_first else None
+        reached.set()
+        await gate.wait()
+        return result if acts_first else await call(*args, **kwargs)
+
+    setattr(client, method, _held)
+    return reached, gate
+
+
+async def _stop_in_flight(task: asyncio.Task, reached: asyncio.Event, gate: asyncio.Event, *, stops: int) -> None:
+    """Cancel ``task`` ``stops`` times while its request is held, as repeated chat Stops do, then let it answer."""
+    await asyncio.wait_for(reached.wait(), timeout=5)
+    for _ in range(stops):
+        task.cancel("stop")
+        await asyncio.sleep(0)
+    gate.set()
+    with pytest.raises(asyncio.CancelledError, match="stop"):
+        await asyncio.wait_for(task, timeout=5)
 
 
 def _started_egress(token: str | None, env: EgressConfigRequest | None = None) -> EgressConfigRequest:
@@ -290,6 +419,19 @@ class TestRefreshCredential:
         with pytest.raises(RuntimeError, match="acquired"):
             await _session(FakeSandboxClient.opened()).refresh_credential()
 
+    @pytest.mark.parametrize("reuse", [pytest.param(False, id="fresh"), pytest.param(True, id="reused")])
+    async def test_it_refreshes_the_token_acquire_provisioned(self, reuse):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start")) if reuse else None
+        rotated = _credential("tok-2", host="gitlab.com")
+        source = AsyncMock(side_effect=[_credential("tok-1", host="gitlab.com"), rotated])
+        session = SandboxSession(client, sandbox_spec(), credential_source=source)
+        session_id, _ = await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+
+        assert await session.refresh_credential() is True
+
+        assert _injected(client.sessions[session_id].egress) == [rotated.value.get_secret_value()]
+
 
 class TestRelease:
     async def test_it_is_idempotent(self):
@@ -301,6 +443,48 @@ class TestRelease:
 
         assert client.calls_to("close_session") == [("sess-1", False)]
         assert not session.is_acquired
+
+    @pytest.mark.parametrize(("status", "leak_logged"), [(404, False), (409, True), (500, True), (None, True)])
+    @pytest.mark.parametrize("resumable", [True, False])
+    async def test_a_failed_close_is_logged_not_raised(self, status, leak_logged, resumable, caplog):
+        client = FakeSandboxClient.opened()
+        session = acquired_session(client, client.add_running_session("sess-1"))
+        client.fail("close_session", status=status)
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await session.release(resumable=resumable)
+
+        assert client.calls_to("close_session") == [("sess-1", not resumable)]
+        assert ("sandbox session sess-1" in caplog.text and "may have leaked" in caplog.text) is leak_logged
+
+    async def test_it_finishes_a_cleanup_a_repeated_stop_abandoned(self):
+        client = FakeSandboxClient.opened()
+        reached, gate = _in_flight(client, "start_session", acts_first=True)
+        session = _session(client)
+        node = asyncio.create_task(session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed()))
+        await asyncio.wait_for(reached.wait(), timeout=5)
+        node.cancel()
+        await asyncio.sleep(0)
+
+        release = asyncio.create_task(session.release(resumable=True))
+        await asyncio.sleep(0)
+        gate.set()
+        await asyncio.wait_for(release, timeout=5)
+        client.is_open = False
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(node, timeout=5)
+
+        assert client.sessions == {}
+
+    async def test_a_repeated_stop_does_not_interrupt_the_close(self):
+        client = FakeSandboxClient.opened()
+        session = acquired_session(client, client.add_running_session("sess-1"))
+        in_flight = _in_flight(client, "close_session")
+
+        task = asyncio.create_task(session.release(resumable=True))
+        await _stop_in_flight(task, *in_flight, stops=2)
+
+        assert client.sessions["sess-1"].state == "stopped"
 
     async def test_an_unacquired_session_closes_nothing(self):
         client = FakeSandboxClient.opened()

@@ -243,6 +243,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         checkpoints as checkpointer,
     ):
         sandbox_session = _sandbox_session(ctx)
+        handed_over = False
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
@@ -278,7 +279,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 configurable={"thread_id": thread_id},
             )
             with track_usage_metadata() as usage:
-                yield AgentRun(
+                run = AgentRun(
                     ctx=ctx,
                     agent=agent,
                     config=config,
@@ -286,8 +287,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                     thread_id=thread_id,
                     sandbox_session=sandbox_session,
                 )
+                try:
+                    yield run
+                except SessionLockLostError:
+                    handed_over = await _handed_over(run)
+                    raise
         finally:
-            if sandbox_session is not None:
+            if sandbox_session is not None and not handed_over:
                 await _release_sandbox(sandbox_session, resumable=spec.thread_id is not None, thread_id=thread_id)
 
 
@@ -301,9 +307,34 @@ def _sandbox_session(ctx: RuntimeCtx) -> SandboxSession | None:
     return SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
 
 
+async def _handed_over(run: AgentRun) -> bool:
+    """Whether the holder that took this run's slot over holds its container: the checkpoint still names it, as that
+    holder's reuse leaves it. Stopping it would stop that turn; one the holder replaced is this run's to stop."""
+    if run.sandbox_session is None or (session_id := run.sandbox_session.session_id) is None:
+        return False
+    try:
+        snapshot = await run.agent.aget_state(config=run.config)
+    except Exception:
+        logger.exception(
+            "executor: lost the slot for thread_id=%s and could not read its checkpoint; leaving sandbox session %s "
+            "running, as the new holder may be using it",
+            run.thread_id,
+            session_id,
+        )
+        return True
+    if snapshot.values.get("session_id") != session_id:
+        return False
+    logger.info(
+        "executor: lost the slot for thread_id=%s; leaving sandbox session %s to its new holder",
+        run.thread_id,
+        session_id,
+    )
+    return True
+
+
 async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_id: str) -> None:
-    """``release`` logs its own close errors; anything else it raises is logged here, so it never replaces the run's
-    own error or skips the closes after it."""
+    """``release`` logs its own close errors; anything else it raises is logged here, so it never fails a finished run
+    or replaces a failed run's error."""
     try:
         await session.release(resumable=resumable)
     except Exception:

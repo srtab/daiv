@@ -365,7 +365,8 @@ class SandboxState(AgentState):
     The sandbox session ID.
     """
     sandbox_fingerprint: NotRequired[Annotated[str | None, OmitFromOutput]]
-    """The fingerprint of the sandbox spec ``session_id`` was started from (``SandboxSpec.fingerprint``)."""
+    """``SandboxSpec.fingerprint`` of the run that last acquired ``session_id``; ``None`` (an older checkpoint) skips
+    the environment-change check."""
 
 
 class SandboxMiddleware(AgentMiddleware):
@@ -418,7 +419,7 @@ class SandboxMiddleware(AgentMiddleware):
                 return denial_error
 
             if self._sandbox_backend is None:
-                raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent bound the sandbox backend")
+                raise RuntimeError("SandboxMiddleware was built without a sandbox backend")
 
             result = await _run_bash_commands(self._sandbox_backend, [command])
             if isinstance(result, BashFailure):

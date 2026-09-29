@@ -1147,3 +1147,33 @@ class TestStreamRun:
                 await task
 
         assert client.calls_to("close_session") == [(session_id, False)]
+
+    @pytest.mark.parametrize(
+        ("checkpointed", "closes"),
+        [
+            pytest.param("sess-1", [], id="reused-by-the-new-holder"),
+            pytest.param("sess-2", [("sess-1", False)], id="replaced-by-the-new-holder"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_slot_taken_over_mid_stream_leaves_the_container_only_to_a_holder_that_reused_it(
+        self, checkpointed, closes
+    ):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+        client = FakeSandboxClient.opened()
+        session_id = client.add_running_session("sess-1")
+
+        async def _acquiring(run):
+            await _acquire(run.sandbox_session, session_id)
+            yield "a"
+            yield "b"
+
+        with (
+            agent_stack(_agent(state={"session_id": checkpointed}), ctx=_sandbox_ctx(client)),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
+            pytest.raises(SessionLockLostError),
+        ):
+            await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _acquiring)
+
+        assert client.calls_to("close_session") == closes
