@@ -1,6 +1,6 @@
 import inspect
 from contextlib import asynccontextmanager, nullcontext
-from unittest.mock import AsyncMock, Mock, PropertyMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 from django.contrib.sites.models import Site
@@ -119,7 +119,8 @@ def _make_publisher(
     ctx.references = ()
     ctx.acting_user_id = None
     # The clone's ref: what run_base_branch reads to pick the diff base and the MR target.
-    ctx.gitrepo.active_branch.name = base_ref
+    ctx.repo.current_ref = base_ref
+    ctx.repo.head_detached = False
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -725,11 +726,8 @@ class TestRunBaseBranch:
     def _ctx(self, *, branch: str | None, default_branch: str = "main"):
         ctx = Mock()
         ctx.config.default_branch = default_branch
-        if branch is None:
-            # What GitPython raises for a detached HEAD, which is how a tag ref clones.
-            type(ctx.gitrepo).active_branch = PropertyMock(side_effect=TypeError)
-        else:
-            ctx.gitrepo.active_branch.name = branch
+        ctx.repo.current_ref = branch or "80e486c6dce6d10b13ef1705a8e9255bbc4a521b"
+        ctx.repo.head_detached = branch is None
         return ctx
 
     def test_attached_head_names_the_branch_the_clone_is_on(self):
@@ -1547,7 +1545,7 @@ class TestEffectiveMergeRequest:
 
     def test_prefers_the_context_mr(self):
         """MR-scope runs clone the MR's own source branch, so the context MR is authoritative even
-        when ``get_repo_ref`` reports something else (a commit-pinned clone reports a SHA)."""
+        when the clone's recorded ref is something else (a commit-pinned clone records a SHA)."""
         context_mr = _make_merge_request(merge_request_id=1, source_branch="a")
         state_mr = _make_merge_request(merge_request_id=2, source_branch="b")
 

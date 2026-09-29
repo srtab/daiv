@@ -62,7 +62,6 @@ from automation.agent.subagents import (
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
-from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
 from core.site_settings import site_settings
 
@@ -147,7 +146,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         github_platform=context.git_platform == GitPlatform.GITHUB,
         bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
         working_directory=working_directory,
-        current_branch=get_repo_ref(context.gitrepo),
+        current_branch=context.repo.current_ref,
     )
 
     # The harness profile sets ``base_system_prompt=""`` to suppress upstream's

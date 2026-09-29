@@ -22,7 +22,6 @@ from automation.agent.utils import conversation_thread_id, final_assistant_text
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import get_repo_ref
 
 # Platform / transport errors that warrant a soft "no MR" fallback. The platform
 # SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures
@@ -281,10 +280,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         Soft-fails on platform/transport errors so the agent can still run — the publisher
         will create a fresh MR if needed. Programming bugs propagate.
         """
-        if context.gitrepo.head.is_detached:
+        if context.repo.head_detached:
             logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
             return None
-        current_branch = get_repo_ref(context.gitrepo)
+        current_branch = context.repo.current_ref
         if not current_branch or current_branch == context.config.default_branch:
             return None
         try:
@@ -314,7 +313,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         this project turns into a Sentry event. Elsewhere the caller chose it — a chat turn
         retargeting the branch pill lands here legitimately, and paging on it trains the signal away.
         """
-        current_ref = get_repo_ref(runtime.context.gitrepo)
+        current_ref = runtime.context.repo.current_ref
         publish_mr = self._effective_mr(state, runtime.context, current_ref=current_ref)
         if publish_mr is None and (state_mr := self._state_merge_request(state)) is not None:
             log = logger.error if runtime.context.scope == Scope.ISSUE else logger.warning
@@ -346,7 +345,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # pick a different MR than the publisher will write to.
         # A dropped MR is not logged here: this hop runs once per model call, and
         # ``_publish_target`` reports the same condition once, at the end of the turn.
-        current_ref = get_repo_ref(request.runtime.context.gitrepo)
+        current_ref = request.runtime.context.repo.current_ref
         effective_mr = self._effective_mr(
             cast("GitState", request.state), request.runtime.context, current_ref=current_ref
         )

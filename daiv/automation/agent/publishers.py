@@ -20,7 +20,7 @@ from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scop
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import render_agent_context, render_commit_trailers, render_references_block
-from codebase.utils import diff_line_stats, get_repo_branch, redact_diff_content
+from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
 from core.utils import build_absolute_url
@@ -95,11 +95,13 @@ def effective_merge_request(
 def run_base_branch(ctx: RuntimeCtx) -> str:
     """The branch the run's work is based on, for a publish that has no MR to read a target off.
 
-    Read from the clone's HEAD rather than ``ctx.repo.ref``, which records the same ref but can
-    hold a tag — and a tag detaches HEAD, naming no branch. The default branch stands in there,
-    since the hexsha ``get_repo_ref`` would return is an unusable diff base and MR target.
+    The branch the clone was made on rather than ``ctx.repo.ref``, which records the same ref but can hold a tag —
+    and a tag detaches HEAD, naming no branch. The default branch stands in there, since the recorded commit sha is
+    an unusable diff base and MR target.
     """
-    return get_repo_branch(ctx.gitrepo) or cast("str", ctx.config.default_branch)
+    if ctx.repo.head_detached:
+        return cast("str", ctx.config.default_branch)
+    return ctx.repo.current_ref
 
 
 def append_trailer(commit_message: str, trailer: str) -> str:

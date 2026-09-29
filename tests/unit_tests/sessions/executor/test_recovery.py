@@ -40,12 +40,13 @@ def _mr(*, source_branch: str) -> MergeRequest:
     )
 
 
-def _ctx(*, sandbox=None) -> Mock:
+def _ctx(*, sandbox=None, current_ref: str = "daiv/issue-10") -> Mock:
     ctx = Mock()
     ctx.repository = Mock(slug="owner/repo")
     ctx.sandbox = sandbox
     ctx.merge_request = None
-    ctx.gitrepo = Mock()
+    ctx.repo.current_ref = current_ref
+    del ctx.gitrepo
     return ctx
 
 
@@ -58,13 +59,10 @@ def _agent(values: dict) -> Mock:
 
 async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
     """Recover over a checkpoint naming ``checkpointed_mr``; return the publisher class mock."""
-    with (
-        patch("automation.agent.publishers.GitChangePublisher") as pub_cls,
-        patch("codebase.utils.get_repo_ref", return_value=current_ref),
-    ):
+    with patch("automation.agent.publishers.GitChangePublisher") as pub_cls:
         pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
         await recover_draft(
-            _ctx(),
+            _ctx(current_ref=current_ref),
             _agent({"merge_request": checkpointed_mr, "session_id": None}),
             {},
             thread_id="t-1",
@@ -115,10 +113,7 @@ class TestSandboxMode:
     @staticmethod
     async def _recover(session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
-        with (
-            patch("automation.agent.publishers.GitChangePublisher", publisher),
-            patch("codebase.utils.get_repo_ref", return_value="daiv/issue-10"),
-        ):
+        with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
                 _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", sandbox_session=session
             )

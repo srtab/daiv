@@ -27,7 +27,6 @@ async def recover_draft(
     """
     from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-    from codebase.utils import get_repo_ref
 
     if sandbox_session is not None and not sandbox_session.is_acquired:
         logger.info(
@@ -41,7 +40,7 @@ async def recover_draft(
         snapshot_mr = effective_merge_request(
             context_mr=ctx.merge_request,
             state_mr=checkpointed_merge_request(snapshot.values, strict=False),
-            current_ref=get_repo_ref(ctx.gitrepo),
+            current_ref=ctx.repo.current_ref,
         )
         sandbox_backend = SandboxFileBackend(sandbox_session) if sandbox_session is not None else None
         publisher = GitChangePublisher(ctx, sandbox_backend=sandbox_backend, thread_id=thread_id)

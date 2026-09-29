@@ -35,8 +35,7 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.merge_request = None
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
-    runtime.context.gitrepo = Mock()
-    runtime.context.gitrepo.head.is_detached = False
+    runtime.context.repo.head_detached = False
     return runtime
 
 
@@ -70,7 +69,6 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     runtime.context.issue = None
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
-    runtime.context.gitrepo = Mock()
     runtime.context.git_platform = Mock(value="gitlab")
     return runtime
 
@@ -190,7 +188,7 @@ class TestGitMiddleware:
 
         with (
             patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="daiv/feature"),
+            patch.object(runtime.context.repo, "current_ref", "daiv/feature"),
         ):
             publisher_cls.return_value.publish = AsyncMock(
                 return_value=PublishOutcome(merge_request=state_mr, published=False)
@@ -225,7 +223,7 @@ class TestGitMiddleware:
 
         with (
             patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value=current_ref),
+            patch.object(runtime.context.repo, "current_ref", current_ref),
             caplog.at_level("WARNING"),
         ):
             publisher = MagicMock()
@@ -242,7 +240,7 @@ class TestGitMiddleware:
 
     async def test_aafter_agent_publishes_onto_the_context_mr_on_an_mr_scope_run(self):
         """An MR-scope run's context MR is authoritative — it is the ref the clone was made on.
-        A commit-pinned clone reports a SHA from ``get_repo_ref``, which matches no branch name,
+        A commit-pinned clone records a SHA as its ref, which matches no branch name,
         so the guard must defer to the context MR instead of dropping it."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
@@ -251,7 +249,7 @@ class TestGitMiddleware:
 
         with (
             patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="deadbeef"),
+            patch.object(runtime.context.repo, "current_ref", "deadbeef"),
         ):
             publisher = MagicMock()
             publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=context_mr, published=True))
@@ -358,7 +356,7 @@ class TestGitMiddleware:
         existing_mr = MagicMock(source_branch="feature-x")
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch(
                 "automation.agent.middlewares.git.GitMiddleware._alookup_open_mr",
                 new=AsyncMock(return_value=existing_mr),
@@ -382,7 +380,7 @@ class TestGitMiddleware:
         state_mr = _mr(branch="feature-x")
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock()) as lookup,
         ):
             result = await middleware.abefore_agent({"merge_request": state_mr}, runtime)
@@ -397,7 +395,7 @@ class TestGitMiddleware:
         stale_state_mr = _mr(branch="feature-x")
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-y"),
+            patch.object(runtime.context.repo, "current_ref", "feature-y"),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock()) as lookup,
         ):
             result = await middleware.abefore_agent({"merge_request": stale_state_mr}, runtime)
@@ -524,7 +522,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -540,7 +538,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -552,12 +550,10 @@ class TestGitMiddleware:
         """Commit-pinned runs (SWE-bench evals check out a raw SHA) have no branch, so
         no MR can exist — the lookup must short-circuit before any platform call."""
         runtime = _make_runtime()
-        runtime.context.gitrepo.head.is_detached = True
+        runtime.context.repo.head_detached = True
 
         with (
-            patch(
-                "automation.agent.middlewares.git.get_repo_ref", return_value="80e486c6dce6d10b13ef1705a8e9255bbc4a521b"
-            ),
+            patch.object(runtime.context.repo, "current_ref", "80e486c6dce6d10b13ef1705a8e9255bbc4a521b"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance") as create,
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -574,7 +570,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(return_value=None)
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client) as create,
         ):
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -585,7 +581,7 @@ class TestGitMiddleware:
         runtime = _make_runtime()
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="main"),
+            patch.object(runtime.context.repo, "current_ref", "main"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance") as create,
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -601,7 +597,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -619,7 +615,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(side_effect=requests.ConnectionError("dns failure"))
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
         ):
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
@@ -635,7 +631,7 @@ class TestGitMiddleware:
         client.get_merge_request_by_branches = MagicMock(side_effect=KeyError("missing field"))
 
         with (
-            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
             pytest.raises(KeyError),
         ):
@@ -686,7 +682,7 @@ class TestGitMiddleware:
         request.system_prompt = ""
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
-        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             await middleware.awrap_model_call(request, fake_handler)
 
         assert "merge request #42" in captured["system_prompt"]
@@ -712,7 +708,7 @@ class TestGitMiddleware:
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
         # Current ref now differs from the state MR's source_branch.
-        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="other-branch"):
+        with patch.object(runtime.context.repo, "current_ref", "other-branch"):
             await middleware.awrap_model_call(request, fake_handler)
 
         assert "merge request #42" not in captured["system_prompt"]
@@ -736,7 +732,7 @@ class TestGitMiddleware:
         request.system_prompt = ""
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
-        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             await middleware.awrap_model_call(request, fake_handler)
 
         assert "merge request #" not in captured["system_prompt"]
@@ -755,7 +751,7 @@ class TestGitMiddleware:
         request.system_prompt = ""
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
-        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             await middleware.awrap_model_call(request, fake_handler)
         return captured["system_prompt"]
 
@@ -784,7 +780,7 @@ class TestGitMiddleware:
         request.system_prompt = ""
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
-        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+        with patch.object(runtime.context.repo, "current_ref", "feature-x"):
             await middleware.awrap_model_call(request, fake_handler)
 
         assert "merge request #7" in captured["system_prompt"]

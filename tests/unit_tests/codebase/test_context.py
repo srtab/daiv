@@ -2,6 +2,7 @@ from contextlib import contextmanager, nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from git import Repo
 
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -67,6 +68,55 @@ def _sandbox_run(credential: GitEgressCredential | None, working_dir: str = "/tm
         yield repo_client
 
 
+def _clone_on_main(path) -> Repo:
+    """A real clone with one commit on ``main``, as ``load_repo`` yields one."""
+    repo = Repo.init(path)
+    with repo.config_writer() as writer:
+        writer.set_value("user", "name", "Test User")
+        writer.set_value("user", "email", "test@example.com")
+    (path / "README.md").write_text("x\n")
+    repo.index.add(["README.md"])
+    repo.index.commit("init")
+    repo.git.branch("-M", "main")
+    return repo
+
+
+def _loading(repo: Repo):
+    repo_client = _repo_client()
+    repo_client.load_repo.return_value = nullcontext(repo)
+    return _context_deps(repo_client)
+
+
+async def test_the_handle_records_the_branch_the_clone_is_on(tmp_path):
+    with _loading(_clone_on_main(tmp_path)):
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            assert (ctx.repo.current_ref, ctx.repo.head_detached) == ("main", False)
+
+
+async def test_the_handle_records_a_tag_clone_by_its_commit(tmp_path):
+    """A tag detaches HEAD, so no branch names it: the handle carries the commit and says it is detached."""
+    repo = _clone_on_main(tmp_path)
+    repo.create_tag("v1.0")
+    repo.git.checkout("--detach", "v1.0")
+
+    with _loading(repo):
+        async with set_runtime_ctx(
+            "repo-1", scope=RepoScope.GLOBAL, ref="v1.0", sandbox_spec=sandbox_spec(base_image=None)
+        ) as ctx:
+            assert (ctx.repo.current_ref, ctx.repo.head_detached) == (repo.head.commit.hexsha, True)
+            assert ctx.repo.ref == "v1.0"
+
+
+async def test_the_handle_keeps_the_ref_the_clone_was_made_on(tmp_path):
+    """Recorded once: a sandbox run's git runs in the sandbox, so the worker clone's HEAD is not where the run is."""
+    repo = _clone_on_main(tmp_path)
+
+    with _loading(repo):
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            repo.git.checkout("-b", "elsewhere")
+            assert ctx.repo.current_ref == "main"
+
+
 async def test_the_credential_source_mints_after_the_clone():
     """The session mints through the context's credential source, which exists only once the clone is done: the
     egress proxy then injects any token the clone's self-heal re-minted, never the stale one it discarded."""
@@ -128,7 +178,9 @@ async def test_set_runtime_ctx_mints_nothing_for_a_disabled_sandbox():
 @pytest.mark.asyncio
 async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
     """With fallback enabled, a gone ref retries the clone on the default branch and records it."""
-    fake_repo = type("Repo", (), {})()
+    fake_repo = MagicMock()
+    fake_repo.active_branch.name = "main"
+    fake_repo.head.is_detached = False
     good_cm = MagicMock()
     good_cm.__enter__ = MagicMock(return_value=fake_repo)
     good_cm.__exit__ = MagicMock(return_value=False)
@@ -156,6 +208,7 @@ async def test_set_runtime_ctx_falls_back_to_default_when_ref_missing():
                 sandbox_spec=sandbox_spec(base_image=None),
             ) as ctx:
                 assert ctx.repo.ref == "main"
+                assert ctx.repo.current_ref == "main"
 
     assert client.load_repo.call_count == 2
     assert client.load_repo.call_args_list[0].kwargs["sha"] == "gone"
@@ -273,7 +326,7 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
         client.current_user.username = "bot"
         client.get_git_egress_credential.return_value = None
         ctx_mgr = client.load_repo.return_value
-        ctx_mgr.__enter__.return_value = type("Repo", (), {})()
+        ctx_mgr.__enter__.return_value = MagicMock()
         ctx_mgr.__exit__ = lambda *a: None
 
         with patch("codebase.context.RepositoryConfig.get_config") as gc:
