@@ -186,6 +186,19 @@ Interactive (linked) cards add hover:
 </a>
 ```
 
+### Empty State
+
+Centered card for "nothing here yet" and "can't show this" states, classes in `input.css`:
+
+```html
+<div class="empty-state">
+    <div class="empty-state__icon">{% icon "bolt" "h-6 w-6 text-gray-400" %}</div>
+    <h2 class="empty-state__title">...</h2>
+    <p class="empty-state__body">...</p>
+    <!-- optional: <a class="btn-primary mt-5 ..."> call to action -->
+</div>
+```
+
 ### Quick Link Card
 
 Reusable partial at `accounts/templates/accounts/_quick_link_card.html`:

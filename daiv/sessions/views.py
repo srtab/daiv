@@ -12,13 +12,16 @@ from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, HttpResponseBase
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.generic import DetailView, FormView, TemplateView
+from django.views.generic.detail import SingleObjectMixin
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
@@ -27,7 +30,7 @@ from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
-from accounts.mixins import BreadcrumbMixin
+from accounts.mixins import Breadcrumb, BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
@@ -35,14 +38,15 @@ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessD
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
-from sessions.filters import RANGE_CHOICES, SessionFilter
+from sessions.artifacts import ArtifactKind
+from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.transcript import annotate_transcript
+from sessions.transcript import annotate_transcript, artifact_turns
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
@@ -300,6 +304,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "turns": [],
                 "expired": False,
                 "watch_only": False,
+                "awaiting_transcript": False,
                 "active_run_id": "",
                 "chat_active_run_id": "",
                 "chat_active_run_started_at": "",
@@ -339,11 +344,13 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         # "working" state and transcript poller render the same view a chat session gets.
         no_state = hydrated.expired and not is_in_flight
 
-        ctx["turns"] = annotate_transcript(build_turns(hydrated.messages), runs)
+        turns = annotate_transcript(build_turns(hydrated.messages), runs)
         # Expired banner only when there is genuinely nothing to show: no checkpoint
         # AND no failed run whose prompt/marker annotate_transcript could recover.
-        ctx["expired"] = no_state and not ctx["turns"]
+        ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
+        ctx["awaiting_transcript"] = is_in_flight and not turns
+        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
@@ -430,6 +437,144 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
         repo_slug = slugify(run.repo_id.replace("/", "-")) or "unknown"
         date_str = run.created_at.strftime("%Y-%m-%d")
         return f"daiv-{repo_slug}-{date_str}.md"
+
+
+ARTIFACT_SANDBOX = "allow-scripts allow-popups"
+# connect-src 'none' stops fetch/XHR/WebSocket, but https: subresources (scripts, styles, images, fonts,
+# media) still load, so a report can reach third-party hosts.
+ARTIFACT_CONTENT_SECURITY_POLICY = (
+    f"sandbox {ARTIFACT_SANDBOX}; default-src 'none'; script-src 'unsafe-inline' https:; "
+    "style-src 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; "
+    "media-src data: blob: https:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+)
+ARTIFACT_RAW_HEADERS = {
+    "Content-Security-Policy": ARTIFACT_CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "private, no-store",
+}
+ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
+
+
+def _log_missing_artifact_file(artifact: RunArtifact) -> None:
+    logger.error(
+        "Artifact %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+        artifact.pk,
+        artifact.file.name,
+    )
+
+
+class RunArtifactMixin(LoginRequiredMixin):
+    """Scopes an artifact lookup to the URL's session and to the sessions the viewer may see."""
+
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return (
+            RunArtifact.objects
+            .visible_to(self.request.user)
+            .filter(run__session_id=self.kwargs["thread_id"])
+            .select_related("run")
+        )
+
+
+class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
+    """Render one artifact: Markdown and text inline, HTML and images through the sandboxed raw endpoint."""
+
+    template_name = "sessions/artifact_detail.html"
+    context_object_name = "artifact"
+
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return super().get_queryset().select_related("run__session")
+
+    def get_breadcrumbs(self) -> list[Breadcrumb]:
+        return [
+            {"label": str(_("Artifacts")), "url": reverse("artifact_list")},
+            {"label": self.object.title, "url": None},
+        ]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        ctx = super().get_context_data(**kwargs)
+        artifact: RunArtifact = self.object
+        unavailable = not artifact.file.storage.exists(artifact.file.name)
+        if unavailable:
+            _log_missing_artifact_file(artifact)
+        inline_text = artifact.kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT)
+        too_large = inline_text and artifact.size > ARTIFACT_INLINE_TEXT_MAX_BYTES
+        text = None
+        if inline_text and not too_large and not unavailable:
+            with artifact.file.open("rb") as fh:
+                text = fh.read().decode("utf-8", errors="replace")
+        ctx.update({
+            "text": text,
+            "too_large": too_large,
+            "unavailable": unavailable,
+            "previewable": not (unavailable or too_large or artifact.kind == ArtifactKind.OTHER),
+            "sandbox": ARTIFACT_SANDBOX,
+        })
+        return ctx
+
+
+@method_decorator(xframe_options_sameorigin, name="dispatch")
+class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
+    """Stream the stored bytes as their declared type; ``?download=1`` forces an attachment."""
+
+    def get(self, request, *args, **kwargs):
+        artifact: RunArtifact = self.get_object()
+        try:
+            fh = artifact.file.open("rb")
+        except FileNotFoundError:
+            _log_missing_artifact_file(artifact)
+            raise Http404("Artifact file is missing.") from None
+        content_type = artifact.content_type
+        if content_type.startswith("text/"):
+            content_type = f"{content_type}; charset=utf-8"
+        return FileResponse(
+            fh,
+            content_type=content_type,
+            as_attachment=request.GET.get("download") == "1",
+            filename=artifact.filename,
+            headers=ARTIFACT_RAW_HEADERS,
+        )
+
+
+class ArtifactListView(LoginRequiredMixin, FilterView):
+    model = RunArtifact
+    filterset_class = ArtifactFilter
+    context_object_name = "artifacts"
+    paginate_by = 25
+    strict = False
+
+    def get_template_names(self) -> list[str]:
+        if is_htmx(self.request):
+            return ["sessions/_artifact_results.html"]
+        return ["sessions/artifact_list.html"]
+
+    @cached_property
+    def visible_artifacts(self) -> QuerySet[RunArtifact]:
+        return RunArtifact.objects.visible_to(self.request.user)
+
+    def get_queryset(self) -> QuerySet[RunArtifact]:
+        return self.visible_artifacts.select_related("run__session").order_by("-created_at", "-id")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = context["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        context["has_active_filters"] = any(cleaned.get(name) for name in ("q", "kind", "repo"))
+        if is_htmx(self.request):
+            return context
+        context["current_kind"] = cleaned.get("kind") or ""
+        context["current_repo"] = cleaned.get("repo") or ""
+        context["kinds"] = ArtifactKind.choices
+        # Unfiltered, so the dropdown always offers every repo the viewer could pick.
+        # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.
+        context["repos"] = sorted(
+            self.visible_artifacts
+            .exclude(run__session__repo_id="")
+            .order_by()
+            .values_list("run__session__repo_id", flat=True)
+            .distinct()
+        )
+        return context
 
 
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):

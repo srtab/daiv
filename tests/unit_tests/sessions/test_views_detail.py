@@ -12,6 +12,8 @@ from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
+from tests.unit_tests.sessions.conftest import make_artifact
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -802,3 +804,60 @@ def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(m
 
     assert resp.context["thread_ref"] == "main"
     assert 'ref: "main"' in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_context_has_no_artifacts_key(member_client, member_user):
+    session = _create_session(user=member_user)
+    make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert "artifacts" not in resp.context
+
+
+@pytest.mark.django_db
+def test_detail_never_renders_the_bottom_artifacts_card(member_client, member_user):
+    session = _create_session(user=member_user)
+    make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert 'id="session-artifacts-heading"' not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_expired_session_keeps_the_banner_and_renders_its_artifacts(member_client, member_user):
+    session = _create_session(user=member_user, ref="")
+    run = _create_run(session, trigger_type=SessionOrigin.UI_JOB)
+    artifact = make_artifact(run, filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
+
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+    assert resp.context["watch_only"] is False
+    (turn,) = resp.context["turns"]
+    assert turn["id"] == f"run-{run.id}-artifacts"
+    assert [(s["name"], s["id"]) for s in turn["segments"]] == [("publish_artifact", f"artifact-{artifact.id}")]
+    content = resp.content.decode()
+    assert "has expired" in content
+    assert "chat-composer" not in content
+
+
+@pytest.mark.django_db
+def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(member_client, member_user):
+    session = _create_session(user=member_user, ref="")
+    make_artifact(_create_run(session, trigger_type=SessionOrigin.UI_JOB))
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+
+    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["expired"] is False
+    assert len(resp.context["turns"]) == 1
+    assert "Agent is working" in resp.content.decode()

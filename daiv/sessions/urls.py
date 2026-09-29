@@ -1,6 +1,8 @@
 from django.urls import path
 
 from sessions.views import (
+    RunArtifactDetailView,
+    RunArtifactRawView,
     RunDownloadMarkdownView,
     SessionDetailView,
     SessionListView,
@@ -22,4 +24,6 @@ urlpatterns = [
         RunDownloadMarkdownView.as_view(),
         name="session_run_download_md",
     ),
+    path("<slug:thread_id>/artifacts/<uuid:pk>/", RunArtifactDetailView.as_view(), name="session_artifact_detail"),
+    path("<slug:thread_id>/artifacts/<uuid:pk>/raw/", RunArtifactRawView.as_view(), name="session_artifact_raw"),
 ]

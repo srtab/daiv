@@ -6,12 +6,14 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 @pytest.fixture
@@ -178,6 +180,50 @@ async def test_session_turns_expired(client, authed):
     assert data["expired"] is True
     assert data["turns"] == []
     assert data["active"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_expired_still_returns_the_sessions_artifacts(client, authed):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project", status=RunStatus.SUCCESSFUL
+    )
+    artifact = await sync_to_async(make_artifact)(run)
+
+    with patch(
+        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["expired"] is True
+    assert [t["id"] for t in data["turns"]] == [f"run-{run.id}-artifacts"]
+    assert [s["id"] for s in data["turns"][0]["segments"]] == [f"artifact-{artifact.id}"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_with_a_checkpoint_adds_no_artifact_turns(client, authed):
+    from langchain_core.messages import HumanMessage
+
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project", status=RunStatus.SUCCESSFUL
+    )
+    await sync_to_async(make_artifact)(run)
+    hydrated = HydratedThread([HumanMessage(content="hi", id="h1")], False, None, None, None)
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert not any(t["id"].endswith("-artifacts") for t in resp.json()["turns"])
 
 
 @pytest.mark.django_db(transaction=True)

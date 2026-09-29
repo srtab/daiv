@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django import template
-from django.utils import timezone
+from django.contrib.humanize.templatetags.humanize import naturaltime
+from django.utils import formats, timezone
 from django.utils.translation import gettext
 
 register = template.Library()
@@ -99,15 +100,16 @@ def origin_icon(origin) -> str:
     return _ORIGIN_ICONS.get(origin, "jobs")
 
 
+def _local_days_ago(dt) -> int:
+    return (timezone.localtime(timezone.now()).date() - timezone.localtime(dt).date()).days
+
+
 @register.filter
-def day_bucket(session) -> str:
-    """Group label for a session's last_active_at, relative to the local calendar day."""
-    dt = getattr(session, "last_active_at", None)
+def date_bucket(dt) -> str:
+    """Group label for a datetime, relative to the local calendar day."""
     if dt is None:
         return gettext("Earlier")
-    local = timezone.localtime(dt)
-    today = timezone.localtime(timezone.now()).date()
-    days = (today - local.date()).days
+    days = _local_days_ago(dt)
     if days <= 0:
         return gettext("Today")
     if days == 1:
@@ -116,7 +118,24 @@ def day_bucket(session) -> str:
         return gettext("Previous 7 days")
     if days <= 30:
         return gettext("Previous 30 days")
-    return local.strftime("%B %Y")
+    return timezone.localtime(dt).strftime("%B %Y")
+
+
+@register.filter
+def short_timestamp(dt) -> str:
+    """Relative time for today's datetimes, the local month and day for older ones."""
+    if _local_days_ago(dt) <= 0:
+        return naturaltime(dt)
+    return formats.date_format(timezone.localtime(dt), "M j")
+
+
+_ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}
+
+
+@register.filter
+def artifact_icon(kind) -> str:
+    """Map an ArtifactKind value to an icon name; anything else is a generic file."""
+    return _ARTIFACT_ICONS.get(kind, "paper-clip")
 
 
 @register.simple_tag

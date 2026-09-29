@@ -1,9 +1,10 @@
 """Interleave per-run terminal-status markers into a build_turns() transcript.
 
-Kept free of Django query code (it only reads attributes off already-fetched run
-rows) so the segmentation logic is unit-testable without the database, mirroring
-``chat.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
-and messages, then zip them here.
+``annotate_transcript`` is kept free of Django query code (it only reads attributes off
+already-fetched run rows) so the segmentation logic is unit-testable without the database,
+mirroring ``chat.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
+and messages, then zip them here; for a checkpoint with no messages, ``artifact_turns``
+queries the artifacts it no longer carries.
 """
 
 from __future__ import annotations
@@ -11,8 +12,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
+from automation.agent.middlewares.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from chat.turns import _tool_call_segment
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
-from sessions.models import RunStatus, SessionOrigin
+from sessions.artifacts import published_tool_result, serialize_artifact
+from sessions.models import RunArtifact, RunStatus, SessionOrigin
 
 if TYPE_CHECKING:
     from sessions.models import Run
@@ -146,3 +150,24 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
         result.extend(segments[cursor]["turns"])
         cursor += 1
     return result
+
+
+def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
+    segment = _tool_call_segment({"id": f"artifact-{artifact.id}", "name": PUBLISH_ARTIFACT_TOOL_NAME})
+    return {**segment, "result": published_tool_result(serialize_artifact(artifact))}
+
+
+def artifact_turns(runs: list[Run]) -> list[dict[str, Any]]:
+    """SYNC ONLY: the runs' artifacts as synthetic ``publish_artifact`` turns, for a checkpoint with no messages.
+
+    Artifact rows outlive the checkpoint TTL, so once the transcript is gone each run that published
+    gets one assistant turn (``runs`` order, artifacts oldest first) shaped like ``build_turns`` output.
+    """
+    by_run: dict[Any, list[dict[str, Any]]] = {}
+    for artifact in RunArtifact.objects.filter(run__in=runs).select_related("run"):
+        by_run.setdefault(artifact.run_id, []).append(_artifact_segment(artifact))
+    return [
+        {"id": f"run-{run.id}-artifacts", "role": "assistant", "segments": by_run[run.id]}
+        for run in runs
+        if run.id in by_run
+    ]

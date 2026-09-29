@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
+from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
@@ -319,9 +320,10 @@ async def submit_job(
     return await _poll_batch_until_complete(str(result.batch_id), job_ids, response, mcp_user)
 
 
-def _build_job_response_dict(run: Run) -> dict:
+async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
     error = "Job execution failed." if run.status == RunStatus.FAILED else None
+    artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return {
         "job_id": str(run.id),
         "status": str(run.status),
@@ -329,6 +331,8 @@ def _build_job_response_dict(run: Run) -> dict:
         "result": run.result_summary or None,
         "question": run.question,
         "merge_request_url": run.merge_request_web_url or None,
+        "artifacts": [artifact.model_dump() for artifact in artifacts],
+        "artifacts_error": artifacts_error,
         "error": error,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "started_at": run.started_at.isoformat() if run.started_at else None,
@@ -336,18 +340,18 @@ def _build_job_response_dict(run: Run) -> dict:
     }
 
 
-def _build_job_response(run: Run) -> str:
+async def _build_job_response(run: Run) -> str:
     """Build a JSON response string from a Run."""
-    return json.dumps(_build_job_response_dict(run))
+    return json.dumps(await _build_job_response_dict(run))
 
 
-def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Run]) -> str:
+async def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Run]) -> str:
     return json.dumps({
         "batch_id": batch_id,
         "jobs": enqueue_response["jobs"],
         "failed": enqueue_response["failed"],
         "statuses": [
-            _build_job_response_dict(results_by_id[jid])
+            await _build_job_response_dict(results_by_id[jid])
             if jid in results_by_id
             else {"job_id": jid, "status": str(RunStatus.RUNNING)}
             for jid in [j["job_id"] for j in enqueue_response["jobs"]]
@@ -366,7 +370,7 @@ async def _poll_batch_until_complete(
     """
     results_by_id: dict[str, Run] = {}
     if not job_ids:
-        return _batch_response(batch_id, enqueue_response, results_by_id)
+        return await _batch_response(batch_id, enqueue_response, results_by_id)
 
     elapsed = 0.0
     outstanding = {uuid_mod.UUID(j) for j in job_ids}
@@ -384,7 +388,7 @@ async def _poll_batch_until_complete(
             logger.exception("Failed to poll batch_id=%s", batch_id)
             break
 
-    return _batch_response(batch_id, enqueue_response, results_by_id)
+    return await _batch_response(batch_id, enqueue_response, results_by_id)
 
 
 async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
@@ -407,14 +411,14 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
             return json.dumps({"error": "Failed to retrieve job status. Please try again later.", "job_id": job_id})
 
         if last.status in TERMINAL_STATUSES:
-            return _build_job_response(last)
+            return await _build_job_response(last)
 
     # Timeout — return current status so the caller isn't left without info
     if last is not None:
         logger.info(
             "Polling timeout for job_id=%s after %.0fs, returning current status: %s", job_id, elapsed, last.status
         )
-        return _build_job_response(last)
+        return await _build_job_response(last)
 
     logger.warning("Polling timeout for job_id=%s after %.0fs, job never appeared in database", job_id, elapsed)
     return json.dumps({
@@ -466,7 +470,7 @@ async def get_job_status(
     if wait and run.status not in TERMINAL_STATUSES:
         return await _poll_job_until_complete(job_id, mcp_user)
 
-    return _build_job_response(run)
+    return await _build_job_response(run)
 
 
 async def _resolve_mcp_user() -> tuple[object | None, dict | None]:

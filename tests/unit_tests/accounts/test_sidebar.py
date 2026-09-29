@@ -78,6 +78,15 @@ class TestSecurityGroupVisibility:
 
 
 @pytest.mark.django_db
+class TestArtifactsNavItem:
+    def test_sidebar_shows_artifacts_link(self, member):
+        response = _client(member).get(reverse("dashboard"))
+        content = response.content.decode()
+        assert reverse("artifact_list") in content
+        assert "Artifacts" in content
+
+
+@pytest.mark.django_db
 class TestRunningJobsBadge:
     """The badge's text is Alpine-bound to the `nav` store, so what the server controls
     is the seed handed to `$store.nav.start(...)` and the store expressions on the badge
@@ -147,6 +156,7 @@ class TestNavActiveState:
             ("sandbox_envs:list", "sandbox_envs"),
             ("user_channels", "channels"),
             ("api_keys", "api_keys"),
+            ("artifact_list", "artifacts"),
         ],
     )
     def test_active_section_matches_url(self, admin, url_name, expected_section):

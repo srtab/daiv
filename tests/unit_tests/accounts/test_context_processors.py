@@ -162,3 +162,9 @@ class TestResolveActiveSection:
         request = RequestFactory().get("/dashboard/mcp-servers/1/edit/")
         request.nav_section_override = "mcp_servers_global"
         assert _resolve_active_section(request) == "mcp_servers_global"
+
+    @pytest.mark.parametrize("view_name", ["artifact_list", "session_artifact_detail", "session_artifact_raw"])
+    def test_artifacts_section_covers_list_detail_and_raw(self, view_name):
+        request = RequestFactory().get("/")
+        request.resolver_match = type("Match", (), {"view_name": view_name})()
+        assert _resolve_active_section(request) == "artifacts"

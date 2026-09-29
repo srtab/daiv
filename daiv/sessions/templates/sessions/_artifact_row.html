@@ -1,0 +1,41 @@
+{% load i18n icon_tags session_tags %}
+{% with session=artifact.run.session %}
+<div class="session-row group">
+    <a href="{{ artifact.get_absolute_url }}" class="absolute inset-0"
+       aria-label="{% blocktranslate with title=artifact.title %}Open {{ title }}{% endblocktranslate %}"></a>
+
+    <span class="artifact-tile artifact-tile--{{ artifact.kind }}" title="{{ artifact.kind.label }}">
+        {% icon artifact.kind|artifact_icon "h-4 w-4" %}
+    </span>
+
+    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
+        <div class="flex min-w-0 items-baseline gap-2">
+            <span class="truncate text-[14px] font-medium text-white">{{ artifact.title }}</span>
+            {% if artifact.filename != artifact.title %}
+            <span class="hidden min-w-0 truncate font-mono text-[11.5px] text-gray-500 sm:inline">{{ artifact.filename }}</span>
+            {% endif %}
+        </div>
+        <div class="flex min-w-0 items-center gap-x-2.5 overflow-hidden">
+            {% if session.repo_id %}
+            <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+                {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
+            </span>
+            {% endif %}
+            <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
+               class="relative z-10 min-w-0 truncate text-[12.5px] text-gray-400 transition-colors hover:text-white">{% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}</a>
+        </div>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-3">
+        <span class="meta-pill hidden md:inline-flex">{{ artifact.kind.label }}</span>
+        <span class="session-num hidden sm:inline">{{ artifact.size|filesizeformat }}</span>
+        <time datetime="{{ artifact.created_at|date:'c' }}" title="{{ artifact.created_at|date:'DATETIME_FORMAT' }}"
+              class="min-w-[76px] whitespace-nowrap text-right text-[12.5px] tabular-nums text-gray-500">{{ artifact.created_at|short_timestamp }}</time>
+        <a href="{{ artifact.get_download_url }}" class="artifact-download relative z-10" title="{% translate 'Download' %}">
+            {% icon "arrow-down-tray" "h-4 w-4" %}
+            <span class="sr-only">{% translate "Download" %}</span>
+        </a>
+        {% icon "chevron-right" "h-3.5 w-3.5 text-gray-700 transition-colors group-hover:text-gray-400" %}
+    </div>
+</div>
+{% endwith %}

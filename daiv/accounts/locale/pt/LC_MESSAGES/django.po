@@ -226,5 +226,8 @@ msgstr "Autorizar"
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
 
+msgid "Artifacts"
+msgstr "Artefactos"
+
 #~ msgid "Activity"
 #~ msgstr "Atividade"

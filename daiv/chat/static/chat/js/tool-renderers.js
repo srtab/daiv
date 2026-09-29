@@ -1,10 +1,13 @@
-// Per-tool UI strategies. Two exports on window:
+// Per-tool UI strategies. Three exports on window:
 //
 //   toolSignature(name, argsStr, result, status)
 //     -> { label, path, badges: [{text, tone}] }
 //
 //   toolBodyHTML(name, argsStr, result, status)
 //     -> HTML string rendered inside <details> when the card is expanded.
+//
+//   artifactItem(seg)
+//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... }
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral signature/body rather than throwing. Unknown tools fall
@@ -414,6 +417,21 @@
     };
   };
 
+  // publish_artifact returns JSON ({"status":"published","url":...}) on success and an
+  // "Error publishing artifact..." string otherwise.
+  const parseArtifactResult = (result) => {
+    const parsed = parseArgs(result);
+    return parsed.url ? parsed : null;
+  };
+
+  const formatBytes = (n) => {
+    const size = Number(n);
+    if (!Number.isFinite(size)) return "";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const SIGNATURE_BY_TOOL = {
     read_file: sigReadFile,
     write_file: sigWriteFile,
@@ -428,6 +446,41 @@
     web_search: sigWebSearch,
     gitlab: sigGitlab,
     gh: sigGh,
+  };
+
+  const basename = (p) => {
+    const str = String(p ?? "");
+    const idx = str.lastIndexOf("/");
+    return idx >= 0 ? str.slice(idx + 1) : str;
+  };
+
+  const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
+
+  // A server-built segment reads `done` with a null result until its ToolMessage is
+  // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
+  window.artifactItem = (seg) => {
+    const argsStr = seg.args;
+    const args = parseArgs(argsStr);
+    const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
+
+    if (seg.status === "running" || (seg.result == null && seg.status !== "error")) {
+      return { state: "running", title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg };
+    }
+
+    const parsed = parseArtifactResult(seg.result);
+    if (parsed) {
+      return {
+        state: "published",
+        title: parsed.title || basename(pathArg),
+        filename: parsed.filename || "",
+        kindLabel: ARTIFACT_KIND_LABELS[parsed.kind] || "",
+        sizeLabel: parsed.size != null ? formatBytes(parsed.size) : "",
+        url: parsed.url,
+        download_url: parsed.download_url || "",
+      };
+    }
+
+    return { state: "error", title: pathArg, message: String(seg.result ?? "").trim() || "Publishing failed." };
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {

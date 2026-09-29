@@ -842,6 +842,7 @@
           const at = evt.timestamp || Date.now();
           this._lastFrameAt = at;
           if (this._isReplayDuplicate(evt)) {
+            if (evt.type === AGUI.TOOL_CALL_RESULT) this._fillReplayedResult(evt);
             this._dropReplayedThinking(turn);
             return;
           }
@@ -871,6 +872,20 @@
       if (evt.messageId && d.messages.has(evt.messageId)) return true;
       if (evt.toolCallId && d.tools.has(evt.toolCallId)) return true;
       return false;
+    },
+
+    // A call rendered from the checkpoint before its ToolMessage landed has no result, and
+    // this deduped event is the only place it arrives — so fill it in place.
+    _fillReplayedResult(evt) {
+      for (let i = this.turns.length - 1; i >= 0; i--) {
+        const seg = this.turns[i].segments?.find((s) => s.type === "tool_call" && s.id === evt.toolCallId);
+        if (!seg) continue;
+        if (seg.result == null) {
+          seg.result = evt.content;
+          seg.status = "done";
+        }
+        return;
+      }
     },
 
     // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
@@ -1114,10 +1129,23 @@
       return window.renderMarkdown ? window.renderMarkdown(raw) : "";
     },
 
+    // Recomputed on every render (no memoization), so a publish streaming mid-group
+    // joins the existing card as its args/result grow.
     visibleSegments(turn) {
-      return turn.segments.filter(
-        (s) => !(s.type === "tool_call" && s.name === "write_todos"),
-      );
+      const out = [];
+      for (const s of turn.segments) {
+        if (s.type === "tool_call" && s.name === "write_todos") continue;
+        if (s.type === "text" && !String(s.content ?? "").trim()) continue;
+        if (s.type === "tool_call" && s.name === "publish_artifact") {
+          const last = out[out.length - 1];
+          const item = window.artifactItem(s);
+          if (last && last.type === "artifact_group") last.items.push(item);
+          else out.push({ type: "artifact_group", items: [item] });
+        } else {
+          out.push(s);
+        }
+      }
+      return out;
     },
 
     // ---------- ask_user_question card ---------------------------------

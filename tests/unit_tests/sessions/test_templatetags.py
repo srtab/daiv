@@ -10,17 +10,21 @@ import types
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from django.contrib.staticfiles import finders
 from django.utils import timezone
 
 import pytest
+from sessions.artifacts import ArtifactKind
 from sessions.templatetags.session_tags import (
-    day_bucket,
+    artifact_icon,
+    date_bucket,
     duration,
     format_cost,
     format_tokens,
     origin_icon,
     session_cost,
     session_title,
+    short_timestamp,
     status_variant,
 )
 
@@ -104,41 +108,45 @@ class _Runs:
         return self._runs
 
 
-def _session_at(dt):
-    return types.SimpleNamespace(last_active_at=dt)
-
-
-def test_day_bucket_today_and_yesterday():
+def test_date_bucket_today_and_yesterday():
     now = timezone.localtime(timezone.now())
-    assert day_bucket(_session_at(now)) == "Today"
-    assert day_bucket(_session_at(now - timedelta(days=1))) == "Yesterday"
+    assert date_bucket(now) == "Today"
+    assert date_bucket(now - timedelta(days=1)) == "Yesterday"
 
 
-def test_day_bucket_week_and_month_windows():
+def test_date_bucket_week_and_month_windows():
     now = timezone.localtime(timezone.now())
-    assert day_bucket(_session_at(now - timedelta(days=4))) == "Previous 7 days"
-    assert day_bucket(_session_at(now - timedelta(days=15))) == "Previous 30 days"
+    assert date_bucket(now - timedelta(days=4)) == "Previous 7 days"
+    assert date_bucket(now - timedelta(days=15)) == "Previous 30 days"
 
 
-def test_day_bucket_older_returns_month_year():
-    dt = timezone.make_aware(datetime(2024, 3, 9, 12, 0))
-    assert day_bucket(_session_at(dt)) == "March 2024"
+def test_date_bucket_older_returns_month_year():
+    assert date_bucket(timezone.make_aware(datetime(2024, 3, 9, 12, 0))) == "March 2024"
 
 
-def test_day_bucket_none_or_missing_returns_earlier():
-    assert day_bucket(_session_at(None)) == "Earlier"
-    assert day_bucket(types.SimpleNamespace()) == "Earlier"  # attribute absent entirely
+def test_date_bucket_none_returns_earlier():
+    assert date_bucket(None) == "Earlier"
 
 
-def test_day_bucket_exact_window_edges(monkeypatch):
+def test_short_timestamp_is_relative_today_and_a_date_before():
+    assert short_timestamp(timezone.now()) == "now"
+    assert short_timestamp(timezone.make_aware(datetime(2024, 3, 9, 12, 0))) == "Mar 9"
+
+
+@pytest.mark.parametrize("kind", [*ArtifactKind.values, "unknown-kind"])
+def test_artifact_icon_resolves_to_a_shipped_icon(kind):
+    assert finders.find(f"core/img/icons/{artifact_icon(kind)}.svg")
+
+
+def test_date_bucket_exact_window_edges(monkeypatch):
     # Pin the <= 7 / <= 30 cutoffs at their exact edge (interior points are covered above).
     # Freeze "now" so days lands on exactly 7 / 30 with no midnight-crossing race.
     from sessions.templatetags import session_tags
 
     fixed = timezone.make_aware(datetime(2026, 6, 15, 12, 0))
     monkeypatch.setattr(session_tags.timezone, "now", lambda: fixed)
-    assert day_bucket(_session_at(fixed - timedelta(days=7))) == "Previous 7 days"
-    assert day_bucket(_session_at(fixed - timedelta(days=30))) == "Previous 30 days"
+    assert date_bucket(fixed - timedelta(days=7)) == "Previous 7 days"
+    assert date_bucket(fixed - timedelta(days=30)) == "Previous 30 days"
 
 
 @pytest.mark.parametrize(

@@ -39,6 +39,12 @@
             class="sidebar__collapsible inline-flex items-center rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium tabular-nums text-text-muted"></span>
     </a>
 
+    <a href="{% url 'artifact_list' %}"
+       class="sidebar__nav-item {% nav_active 'artifacts' %}">
+      {% icon "document-text" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Artifacts" %}</span>
+    </a>
+
     <a href="{% url 'schedule_list' %}"
        class="sidebar__nav-item {% nav_active 'schedules' %}">
       {% icon "clock" "h-4 w-4 shrink-0" %}

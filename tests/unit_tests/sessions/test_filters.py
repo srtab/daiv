@@ -6,11 +6,13 @@ from datetime import UTC, datetime, time, timedelta
 from django.utils import timezone
 
 import pytest
-from sessions.filters import SessionFilter
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.artifacts import ArtifactKind, content_types_for_kind
+from sessions.filters import ArtifactFilter, SessionFilter
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
+from tests.unit_tests.sessions.conftest import make_artifact
 
 
 @pytest.fixture
@@ -349,3 +351,67 @@ class TestSessionFilter:
         pks = set(SessionFilter({"range": "7d"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert just_in.pk in pks
         assert just_out.pk not in pks
+
+
+@pytest.mark.django_db
+class TestArtifactFilter:
+    def test_q_matches_title_case_insensitive(self, user):
+        session = _create_session()
+        run = _create_run(session)
+        match = make_artifact(run, filename="report.md", title="Findings")
+        other = make_artifact(run, filename="notes.txt", title="Something else")
+        pks = list(ArtifactFilter({"q": "FIND"}, queryset=RunArtifact.objects.all()).qs.values_list("pk", flat=True))
+        assert match.pk in pks
+        assert other.pk not in pks
+
+    def test_q_matches_filename_case_insensitive(self, user):
+        session = _create_session()
+        run = _create_run(session)
+        match = make_artifact(run, filename="Audit-Report.html", title="Something")
+        other = make_artifact(run, filename="data.csv", title="Different")
+        pks = list(ArtifactFilter({"q": "audit"}, queryset=RunArtifact.objects.all()).qs.values_list("pk", flat=True))
+        assert match.pk in pks
+        assert other.pk not in pks
+
+    def test_kind_known_matches_only_that_kind(self, user):
+        session = _create_session()
+        run = _create_run(session)
+        image = make_artifact(run, filename="chart.png")
+        text = make_artifact(run, filename="data.csv")
+        pks = list(
+            ArtifactFilter({"kind": ArtifactKind.IMAGE}, queryset=RunArtifact.objects.all()).qs.values_list(
+                "pk", flat=True
+            )
+        )
+        assert image.pk in pks
+        assert text.pk not in pks
+
+    @pytest.mark.parametrize("known_kind", [kind for kind in ArtifactKind if kind != ArtifactKind.OTHER])
+    def test_kind_other_excludes_every_known_kind(self, user, known_kind):
+        session = _create_session()
+        run = _create_run(session)
+        unrecognized = make_artifact(run, filename="report.pdf")
+        known = []
+        for content_type in content_types_for_kind(known_kind):
+            artifact = make_artifact(run)
+            RunArtifact.objects.filter(pk=artifact.pk).update(content_type=content_type)
+            known.append(artifact.pk)
+        pks = list(
+            ArtifactFilter({"kind": ArtifactKind.OTHER}, queryset=RunArtifact.objects.all()).qs.values_list(
+                "pk", flat=True
+            )
+        )
+        assert unrecognized.pk in pks
+        assert known
+        assert not set(known) & set(pks)
+
+    def test_repo_filter(self, user):
+        here = make_artifact(_create_run(_create_session(repo_id="group/project")))
+        elsewhere = make_artifact(_create_run(_create_session(repo_id="group/other")))
+        pks = list(
+            ArtifactFilter({"repo": "group/project"}, queryset=RunArtifact.objects.all()).qs.values_list(
+                "pk", flat=True
+            )
+        )
+        assert here.pk in pks
+        assert elsewhere.pk not in pks

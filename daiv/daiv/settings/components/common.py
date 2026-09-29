@@ -147,8 +147,15 @@ X_FRAME_OPTIONS = "DENY"
 STATIC_URL = "/static/"
 STATIC_ROOT = Path.home() / "data" / "static"
 STATICFILES_DIRS = [Path(__file__).resolve().parents[2] / "static"]
-STORAGES = {"staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}}
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 WHITENOISE_ROOT = Path(__file__).resolve().parents[2] / "public"
+
+# MEDIA FILES - must be shared between the web and worker containers.
+
+MEDIA_ROOT = Path.home() / "data" / "media"
 
 
 # EMAIL

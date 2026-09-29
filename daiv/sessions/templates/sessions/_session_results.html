@@ -3,9 +3,9 @@
 {% if sessions %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
     {% for session in sessions %}
-        {% ifchanged session|day_bucket %}
+        {% ifchanged %}
         <div class="session-group-header">
-            <span>{{ session|day_bucket }}</span>
+            <span>{{ session.last_active_at|date_bucket }}</span>
         </div>
         {% endifchanged %}
         {% include "sessions/_session_row.html" with session=session %}
@@ -20,12 +20,12 @@
     </a>
 </div>
 {% else %}
-<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
-    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+<div class="empty-state">
+    <div class="empty-state__icon">
         {% icon "bolt" "h-6 w-6 text-gray-400" %}
     </div>
-    <h2 class="text-[16px] font-semibold text-white">{% translate "Start your first run" %}</h2>
-    <p class="mx-auto mt-1.5 max-w-sm text-[14px] font-light text-gray-400">
+    <h2 class="empty-state__title">{% translate "Start your first run" %}</h2>
+    <p class="empty-state__body">
         {% translate "Kick off an agent on one of your repositories and it will show up here." %}
     </p>
     <a href="{% url 'session_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">

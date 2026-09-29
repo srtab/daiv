@@ -461,6 +461,86 @@ msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
 msgid "Some repositories failed to submit: %(ids)s"
 msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
+msgid "Markdown"
+msgstr "Markdown"
+
+msgid "HTML"
+msgstr "HTML"
+
+msgid "Image"
+msgstr "Imagem"
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "File"
+msgstr "Ficheiro"
+
+msgid "Artifacts"
+msgstr "Artefactos"
+
+msgid "Reports, documents and images the agent published across your sessions."
+msgstr "Relatórios, documentos e imagens que o agente publicou nas suas sessões."
+
+msgid "Search by title or filename"
+msgstr "Pesquisar por título ou nome de ficheiro"
+
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "All repositories"
+msgstr "Todos os repositórios"
+
+msgid "No artifacts match these filters."
+msgstr "Nenhum artefacto corresponde a estes filtros."
+
+msgid "No artifacts yet"
+msgstr "Ainda não há artefactos"
+
+msgid "When the agent publishes a report, document or image during a run, it shows up here."
+msgstr "Quando o agente publica um relatório, documento ou imagem durante uma execução, aparece aqui."
+
+#, python-format
+msgid "Open %(title)s"
+msgstr "Abrir %(title)s"
+
+msgid "Download"
+msgstr "Transferir"
+
+msgid "View run"
+msgstr "Ver execução"
+
+#, python-format
+msgid "Published %(when)s"
+msgstr "Publicado %(when)s"
+
+msgid "Open raw"
+msgstr "Abrir original"
+
+msgid "File unavailable"
+msgstr "Ficheiro indisponível"
+
+msgid "This artifact's file is no longer available."
+msgstr "O ficheiro deste artefacto já não está disponível."
+
+msgid "No preview"
+msgstr "Sem pré-visualização"
+
+msgid "This file is too large to preview in the browser."
+msgstr "Este ficheiro é demasiado grande para pré-visualizar no navegador."
+
+msgid "This file type is not previewed in the browser."
+msgstr "Este tipo de ficheiro não é pré-visualizado no navegador."
+
+msgid "Copy source"
+msgstr "Copiar conteúdo"
+
+msgid "Full screen"
+msgstr "Ecrã inteiro"
+
+msgid "Open full size"
+msgstr "Abrir em tamanho real"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 
@@ -472,9 +552,6 @@ msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
 #~ msgid "Show all"
 #~ msgstr "Mostrar tudo"
-
-#~ msgid "Markdown"
-#~ msgstr "Markdown"
 
 #~ msgid "No recorded runs — this conversation predates run tracking."
 #~ msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."

@@ -1,0 +1,131 @@
+{% extends "base_app.html" %}
+{% load humanize i18n icon_tags markdown_tags session_tags %}
+
+{% block title %}{{ artifact.title }} — {% translate "Artifacts" %} — DAIV{% endblock %}
+
+{% block container_width %}{% if artifact.kind == "html" %}max-w-screen-2xl{% else %}max-w-4xl{% endif %}{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+{% with session=artifact.run.session %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <div class="flex min-w-0 items-center gap-3">
+            <span class="artifact-tile artifact-tile--lg artifact-tile--{{ artifact.kind }}" title="{{ artifact.kind.label }}">
+                {% icon artifact.kind|artifact_icon "h-5 w-5" %}
+            </span>
+            <h1 class="min-w-0 truncate text-2xl font-bold tracking-tight">{{ artifact.title }}</h1>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-gray-400">
+            <span class="meta-pill">{{ artifact.kind.label }}</span>
+            {% if session.repo_id %}
+            <span class="session-repo" title="{{ session.repo_id }}">
+                {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[220px] truncate">{{ session.repo_id }}</span>
+            </span>
+            {% endif %}
+            <span class="inline-flex min-w-0 items-center gap-1.5">
+                {% icon session.origin|origin_icon "h-3.5 w-3.5 shrink-0 text-gray-500" %}
+                <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
+                   class="min-w-0 max-w-[320px] truncate transition-colors hover:text-white">{% if session.title %}{{ session.title }}{% else %}{% translate "View run" %}{% endif %}</a>
+            </span>
+            <span class="text-gray-500">
+                {% blocktranslate with when=artifact.created_at|naturaltime %}Published {{ when }}{% endblocktranslate %}
+            </span>
+        </div>
+    </div>
+    {% if previewable %}
+    <div class="page-header__actions flex items-center gap-2">
+        <a href="{{ artifact.get_raw_url }}" target="_blank" rel="noopener noreferrer"
+           class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "link" "h-4 w-4 shrink-0" %}
+            {% translate "Open raw" %}
+        </a>
+        <a href="{{ artifact.get_download_url }}"
+           class="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
+            {% translate "Download" %}
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endwith %}
+
+<section class="animate-fade-up mt-6" style="animation-delay: 100ms">
+    {% if unavailable %}
+    <div class="empty-state">
+        <div class="empty-state__icon">
+            {% icon "exclamation-triangle" "h-6 w-6 text-gray-400" %}
+        </div>
+        <h2 class="empty-state__title">{% translate "File unavailable" %}</h2>
+        <p class="empty-state__body">
+            {% translate "This artifact's file is no longer available." %}
+        </p>
+    </div>
+    {% elif not previewable %}
+    <div class="empty-state">
+        <div class="empty-state__icon">
+            {% icon artifact.kind|artifact_icon "h-6 w-6 text-gray-400" %}
+        </div>
+        <h2 class="empty-state__title">{% translate "No preview" %}</h2>
+        <p class="empty-state__body">
+            {% if too_large %}
+            {% translate "This file is too large to preview in the browser." %}
+            {% else %}
+            {% translate "This file type is not previewed in the browser." %}
+            {% endif %}
+        </p>
+        <p class="mt-3 font-mono text-[12px] text-gray-500">
+            {{ artifact.filename }} &middot; {{ artifact.content_type }} &middot; {{ artifact.size|filesizeformat }}
+        </p>
+        <a href="{{ artifact.get_download_url }}" class="btn-primary mt-5 inline-flex items-center gap-2">
+            {% icon "arrow-down-tray" "h-4 w-4" %}{% translate "Download" %}
+        </a>
+    </div>
+    {% else %}
+    <div class="artifact-card">
+        <div class="artifact-card__bar">
+            <span class="min-w-0 truncate font-mono text-[12px] text-gray-400" title="{{ artifact.filename }}">{{ artifact.filename }}</span>
+            <span class="session-num shrink-0 text-gray-500">{{ artifact.size|filesizeformat }}</span>
+            <span class="flex-1"></span>
+            {% if text is not None %}
+            {{ text|json_script:"artifact-source" }}
+            {% translate "Copy source" as copy_label %}
+            <span class="shrink-0 whitespace-nowrap">
+                {% include "activity/_copy_markdown_button.html" with source_id="artifact-source" label=copy_label %}
+            </span>
+            {% elif artifact.kind == "html" %}
+            <button type="button" class="btn-secondary shrink-0 gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm"
+                    x-data x-show="document.fullscreenEnabled" x-cloak
+                    @click="$el.closest('.artifact-card').querySelector('iframe').requestFullscreen()">
+                {% icon "arrows-pointing-out" "h-4 w-4" %}{% translate "Full screen" %}
+            </button>
+            {% endif %}
+        </div>
+        {% if artifact.kind == "markdown" %}
+        <div class="prose-dark overflow-x-auto px-6 py-6 sm:px-8">
+            {{ text|render_markdown }}
+        </div>
+        {% elif artifact.kind == "html" %}
+        {# The frame gets no ``allow-same-origin``: the report runs in an opaque origin and the raw #}
+        {# endpoint repeats the same sandbox in its Content-Security-Policy for direct opens. #}
+        <iframe src="{{ artifact.get_raw_url }}"
+                title="{{ artifact.title }}"
+                sandbox="{{ sandbox }}"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+                class="block h-[calc(100vh-16rem)] min-h-[32rem] w-full bg-white"></iframe>
+        {% elif artifact.kind == "image" %}
+        <a href="{{ artifact.get_raw_url }}" target="_blank" rel="noopener noreferrer"
+           class="artifact-card__checkerboard flex justify-center p-6" title="{% translate 'Open full size' %}">
+            <img src="{{ artifact.get_raw_url }}" alt="{{ artifact.title }}" class="max-w-full rounded-lg">
+        </a>
+        {% else %}
+        <pre class="overflow-x-auto p-5 font-mono text-[13px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ text }}</pre>
+        {% endif %}
+    </div>
+    {% endif %}
+</section>
+{% endblock app_content %}
