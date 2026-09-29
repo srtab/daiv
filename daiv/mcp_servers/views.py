@@ -4,6 +4,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -352,6 +353,11 @@ class MCPServerTestView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request):
+        try:
+            transport = MCPServer._meta.get_field("transport").clean(request.POST.get("transport"), None)
+            url = MCPServer._meta.get_field("url").clean(request.POST.get("url", "").strip(), None)
+        except ValidationError as exc:
+            return JsonResponse({"ok": False, "error": " ".join(exc.messages)}, status=400)
         formset = MCPServerHeaderFormSet(
             request.POST, prefix="headers", form_kwargs={"literal_only": not request.user.is_admin}
         )
@@ -383,7 +389,7 @@ class MCPServerTestView(LoginRequiredMixin, View):
         headers = build_headers_from_formset(formset, existing=existing_headers)
         if not request.user.is_admin and any(h.get("mode") == MCPServer.HeaderMode.ENV_REF for h in headers):
             return JsonResponse({"ok": False, "error": "env_ref headers are not allowed"}, status=400)
-        payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
+        payload = {"transport": transport, "url": url, "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
         # Always 200: the probe ran and produced a structured answer. A failed probe
         # is a negative *result*, not a server error — returning 5xx would log as a

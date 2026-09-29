@@ -3,7 +3,7 @@ ASGI config for daiv project.
 
 Combines the Django ASGI application with the MCP server under /mcp.
 The MCP streamable HTTP app includes built-in OAuth2 token validation
-via FastMCP's auth system (token_verifier + AuthSettings).
+via MCPServer's auth system (token_verifier + AuthSettings).
 
 For more information on this file, see
 https://docs.djangoproject.com/en/stable/howto/deployment/asgi/
@@ -39,7 +39,7 @@ def _get_mcp_application() -> ASGIApp:
     """
     Lazily build the MCP ASGI application.
 
-    The Starlette app returned by FastMCP includes built-in auth middleware,
+    The Starlette app returned by MCPServer includes built-in auth middleware,
     the /.well-known/oauth-protected-resource metadata endpoint, and a
     lifespan that manages the MCP session manager.
     """
@@ -51,9 +51,12 @@ def _get_mcp_application() -> ASGIApp:
         if _mcp_application is not None:
             return _mcp_application
 
+        from mcp.server.transport_security import TransportSecuritySettings
         from mcp_server.server import mcp
 
-        _mcp_application = mcp.streamable_http_app()
+        _mcp_application = mcp.streamable_http_app(
+            stateless_http=True, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        )
         return _mcp_application
 
 
