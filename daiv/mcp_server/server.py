@@ -76,7 +76,12 @@ Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polli
 continue polling with `get_job_status` if the result is not yet available.\
 """,
     version=__version__,
-    auth=AuthSettings(issuer_url=_external_url, resource_server_url=f"{_external_url}/mcp", required_scopes=["mcp"]),
+    auth=AuthSettings(
+        issuer_url=_external_url,
+        resource_server_url=f"{_external_url}/mcp",
+        required_scopes=["mcp"],
+        validate_token_resource=False,
+    ),
     token_verifier=DjangoTokenVerifier(),
 )
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx2
 import pytest
@@ -93,6 +94,7 @@ async def test_api_key_client_can_call_list_jobs(mcp_app, api_key):
     message = await list_jobs.ainvoke({"id": "1", "name": "list_jobs", "args": {}, "type": "tool_call"})
 
     assert message.status != "error"
+    assert json.loads(message.content[0]["text"]) == {"jobs": [], "next_cursor": None}
 
 
 async def test_bad_token_is_rejected(mcp_app):
