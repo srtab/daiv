@@ -486,6 +486,44 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("transport", "url", "error"),
+    [
+        ("http", "", "Enter a valid http(s) URL, e.g. http://mcp-server:8000/mcp."),
+        ("http", "mcp.example.com/mcp", "Enter a valid http(s) URL, e.g. http://mcp-server:8000/mcp."),
+        ("stdio", "http://demo.test", "unsupported transport"),
+    ],
+    ids=["blank-url", "scheme-less-url", "unknown-transport"],
+)
+def test_test_endpoint_rejects_an_invalid_target_without_probing(
+    client, admin_user, monkeypatch, transport, url, error
+):
+    called = {}
+
+    async def fake_test_connection(payload):
+        called["invoked"] = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": transport,
+            "url": url,
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json() == {"ok": False, "error": error}
+    assert "invoked" not in called
+
+
+@pytest.mark.django_db
 def test_test_endpoint_failure_returns_200_not_502(client, admin_user, monkeypatch):
     """A failed probe is a successful *operation* that reports a negative result:
     it must return HTTP 200 with {ok: False}, not a 5xx. A 5xx would log as a
