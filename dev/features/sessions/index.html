@@ -734,6 +734,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#chat-sessions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1646,6 +1657,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#chat-sessions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1982,6 +2004,50 @@
 </ul>
 <p>For in-flight sessions the detail page updates in real time until the run completes.</p>
 <hr />
+<h2 id="artifacts">Artifacts</h2>
+<p>A run's final message is a paragraph of text, and the agent's workspace is thrown away when the run ends. Tasks whose deliverable is a <em>document</em> — a dependency audit, a code-quality report, a changelog draft, a chart — need somewhere else to put it. That is what <strong>artifacts</strong> are for.</p>
+<p>The agent has a <code>publish_artifact</code> tool: it writes the file to its scratchpad (<code>/workspace/tmp/...</code>), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and without committing anything to the repository.</p>
+<p>Published files appear inline in the transcript, as part of the turn that published them: adjacent <code>publish_artifact</code> calls in one turn group into a single <strong>Artifacts</strong> card, one row per file. Each row shows the title (linking to the viewer page, <code>/dashboard/sessions/&lt;thread_id&gt;/artifacts/&lt;id&gt;/</code>, opened in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows "Publishing…"; a publish that failed shows its path with a red × and the error message in red — in the same card as any files that did publish. Reloading the page renders the same rows, though publishes from consecutive model steps can land in separate cards. After a session's transcript expires, its artifacts still show on the session page, one card per run, below the expired notice.</p>
+<p>What the viewer shows depends on the file type:</p>
+<table>
+<thead>
+<tr>
+<th>File type</th>
+<th>Viewer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Markdown (<code>.md</code>)</td>
+<td>Rendered server-side, sanitized, in the DAIV shell; <strong>Copy source</strong> copies the raw Markdown</td>
+</tr>
+<tr>
+<td>HTML (<code>.html</code>)</td>
+<td>Rendered inside a <strong>sandboxed frame</strong> — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS. <strong>Full screen</strong> expands the frame</td>
+</tr>
+<tr>
+<td>Images (<code>.png</code>, <code>.svg</code>, <code>.jpg</code>, <code>.gif</code>, <code>.webp</code>)</td>
+<td>Displayed inline on a checkerboard, so transparency shows; click to open at full size</td>
+</tr>
+<tr>
+<td>Text, CSV, JSON, XML, YAML, logs</td>
+<td>Shown as preformatted text; <strong>Copy source</strong> copies it</td>
+</tr>
+<tr>
+<td>Anything else (<code>.pdf</code>, archives, …)</td>
+<td>Download only</td>
+</tr>
+</tbody>
+</table>
+<p>Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.</p>
+<p>The viewer's header shows the artifact's kind, its repository, and a link back to the session run that produced it. <strong>Open raw</strong> serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.</p>
+<p>Navigate to <strong>Dashboard &gt; Artifacts</strong> (<code>/dashboard/artifacts/</code>) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.</p>
+<p>Artifacts are also listed in the <a href="../jobs-api/#poll-job-status">Jobs API</a> and <a href="../mcp-endpoint/">MCP</a> job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.</p>
+<div class="admonition note">
+<p class="admonition-title">Limits and storage</p>
+<p>A file is capped at <code>DAIV_ARTIFACT_MAX_BYTES</code> (default 10 MiB) and a run at <code>DAIV_ARTIFACTS_PER_RUN_MAX</code> files (default 20). Files live in Django's default file storage under <code>MEDIA_ROOT</code> (<code>/home/daiv/data/media</code> in the containers), which the <code>app</code> and <code>worker</code> containers must share through one volume — see the <a href="../../getting-started/deployment/">deployment guide</a>. Deleting a run deletes its artifacts and their files.</p>
+</div>
+<hr />
 <h2 id="chat-sessions">Chat sessions</h2>
 <p>Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to <strong>Dashboard &gt; Sessions</strong> and click <strong>New session</strong> (<code>/dashboard/sessions/new/</code>) to open the empty workspace.</p>
 <p>Before the composer appears, pick a <strong>repository</strong> in the hero picker. Each session is bound to a repository and a ref:</p>
@@ -2148,7 +2214,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 27, 2026 19:21:52 UTC">September 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 29, 2026 20:50:22 UTC">September 29, 2026</span>
   </span>
 
     

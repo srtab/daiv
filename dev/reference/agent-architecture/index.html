@@ -1378,6 +1378,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#mcp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1680,6 +1691,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#mcp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1921,7 +1943,7 @@
 <p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
 <div class="admonition note">
 <p class="admonition-title">Tools are deferred by default</p>
-<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
+<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, <code>publish_artifact</code>, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
 </div>
 <h3 id="filesystem">Filesystem</h3>
 <table>
@@ -2023,6 +2045,21 @@
 </tr>
 </tbody>
 </table>
+<h3 id="artifacts">Artifacts</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>publish_artifact</code></td>
+<td>Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run <a href="../../features/sessions/#artifacts">artifact</a> and return its viewer URL</td>
+</tr>
+</tbody>
+</table>
 <h3 id="mcp">MCP</h3>
 <p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
 <h3 id="asking-the-user">Asking the user</h3>
@@ -2067,6 +2104,10 @@
 <tr>
 <td><code>SkillsMiddleware</code></td>
 <td>Skill loading and slash command execution</td>
+</tr>
+<tr>
+<td><code>ArtifactsMiddleware</code></td>
+<td>The <code>publish_artifact</code> tool and its system-prompt section — stores a workspace file as a run artifact</td>
 </tr>
 <tr>
 <td><code>SubAgentMiddleware</code></td>

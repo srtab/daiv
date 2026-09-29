@@ -85,6 +85,38 @@ For in-flight sessions the detail page updates in real time until the run comple
 
 ______________________________________________________________________
 
+## Artifacts
+
+A run's final message is a paragraph of text, and the agent's workspace is thrown away when the run ends. Tasks whose deliverable is a *document* — a dependency audit, a code-quality report, a changelog draft, a chart — need somewhere else to put it. That is what **artifacts** are for.
+
+The agent has a `publish_artifact` tool: it writes the file to its scratchpad (`/workspace/tmp/...`), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and without committing anything to the repository.
+
+Published files appear inline in the transcript, as part of the turn that published them: adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card, one row per file. Each row shows the title (linking to the viewer page, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, opened in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows "Publishing…"; a publish that failed shows its path with a red × and the error message in red — in the same card as any files that did publish. Reloading the page renders the same rows, though publishes from consecutive model steps can land in separate cards. After a session's transcript expires, its artifacts still show on the session page, one card per run, below the expired notice.
+
+What the viewer shows depends on the file type:
+
+| File type                                        | Viewer                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Markdown (`.md`)                                 | Rendered server-side, sanitized, in the DAIV shell; **Copy source** copies the raw Markdown                                                                                                                                                                                        |
+| HTML (`.html`)                                   | Rendered inside a **sandboxed frame** — inline CSS and scripts run, but in an opaque origin with no access to DAIV cookies, storage or pages. Fetch/XHR and form posts are blocked; scripts, styles, images and fonts may still load over HTTPS. **Full screen** expands the frame |
+| Images (`.png`, `.svg`, `.jpg`, `.gif`, `.webp`) | Displayed inline on a checkerboard, so transparency shows; click to open at full size                                                                                                                                                                                              |
+| Text, CSV, JSON, XML, YAML, logs                 | Shown as preformatted text; **Copy source** copies it                                                                                                                                                                                                                              |
+| Anything else (`.pdf`, archives, …)              | Download only                                                                                                                                                                                                                                                                      |
+
+Markdown and text files over 1 MiB are not previewed; the viewer offers the download instead.
+
+The viewer's header shows the artifact's kind, its repository, and a link back to the session run that produced it. **Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
+
+Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
+
+Artifacts are also listed in the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#poll-job-status) and [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
+
+Limits and storage
+
+A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`/home/daiv/data/media` in the containers), which the `app` and `worker` containers must share through one volume — see the [deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md). Deleting a run deletes its artifacts and their files.
+
+______________________________________________________________________
+
 ## Chat sessions
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.

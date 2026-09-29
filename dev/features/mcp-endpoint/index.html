@@ -1722,11 +1722,11 @@
 <tbody>
 <tr>
 <td><code>submit_job</code></td>
-<td>Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a <code>batch_id</code> and a <code>jobs</code> list, or set <code>wait=True</code> to block until every job in the batch completes (up to 10 minutes total).</td>
+<td>Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a <code>batch_id</code> and a <code>jobs</code> list, or set <code>wait=True</code> to block until every job in the batch completes (up to 10 minutes total); each finished job's status then includes its <code>artifacts</code>.</td>
 </tr>
 <tr>
 <td><code>get_job_status</code></td>
-<td>Get the status and result of a previously submitted job. A <code>WAITING_INPUT</code> status means the agent stopped to ask a question: <code>question</code> holds it and <code>result</code> its rendered text — answer with <code>submit_job</code> using the same <code>thread_id</code>. Also supports <code>wait=True</code> to block until completion (a <code>WAITING_INPUT</code> result also ends the wait, since it's terminal).</td>
+<td>Get the status and result of a previously submitted job, plus the <code>artifacts</code> it published (reports and other files, with viewer and download URLs — see <a href="../sessions/#artifacts">Artifacts</a>). A <code>WAITING_INPUT</code> status means the agent stopped to ask a question: <code>question</code> holds it and <code>result</code> its rendered text — answer with <code>submit_job</code> using the same <code>thread_id</code>. Also supports <code>wait=True</code> to block until completion (a <code>WAITING_INPUT</code> result also ends the wait, since it's terminal).</td>
 </tr>
 <tr>
 <td><code>list_repositories</code></td>

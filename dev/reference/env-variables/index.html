@@ -1521,6 +1521,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#mcp-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2060,6 +2071,17 @@
     <span class="md-ellipsis">
       
         Web Fetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
       
     </span>
   </a>
@@ -3146,6 +3168,32 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <td>Domain-to-headers mapping for authenticated fetches (JSON, env-only)</td>
 <td style="text-align: center;"><code>{}</code></td>
 <td><code>{"example.com": {"X-API-Key": "sk-abc"}}</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="artifacts">Artifacts</h3>
+<p>The <code>publish_artifact</code> tool stores files the agent generates (reports, datasets, charts) as run <a href="../../features/sessions/#artifacts">artifacts</a>, served from the dashboard. Files are written to Django's default file storage (<code>MEDIA_ROOT</code>, <code>~/data/media</code> in the containers), which the web and worker containers must share.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_ARTIFACT_MAX_BYTES</code></td>
+<td>Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit)</td>
+<td style="text-align: center;"><code>10485760</code> (10 MiB)</td>
+<td><code>52428800</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ARTIFACTS_PER_RUN_MAX</code></td>
+<td>Maximum number of files one run may publish</td>
+<td style="text-align: center;"><code>20</code></td>
+<td><code>50</code></td>
 </tr>
 </tbody>
 </table>
