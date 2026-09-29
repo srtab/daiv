@@ -14,7 +14,8 @@ from django.urls import reverse
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.git_utils import open_git_manager
+from automation.agent.git_manager import GitManager
+from automation.agent.git_runners import LocalGitRunner, SandboxGitRunner
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
@@ -31,8 +32,8 @@ from .diff_to_metadata.prompts import sanitize_agent_report
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from automation.agent.git_runners import GitRunner
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-    from codebase.clients.base import GitAuthEnv
     from codebase.context import RuntimeCtx
 
 
@@ -195,101 +196,93 @@ class GitChangePublisher(ChangePublisher):
             else run_base_branch(self.ctx)
         )
 
-        # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
-        # .git/config deliberately holds no credential — overlay the per-run credential on its git
-        # subprocesses. Sandbox runs skip the lookup — in-sandbox git authenticates via the egress
-        # proxy's platform token, minted at turn start with a platform-specific TTL (GitHub
-        # installation tokens live 1h). A turn that outlives it would fail this publish's network git ops
-        # (ls-remote/push) and lose the run's work, so re-mint and deliver a fresh token onto the
-        # live session first. Best-effort: a failed refresh degrades to publishing with the
-        # turn-start token, i.e. the pre-existing behavior.
-        auth_env: GitAuthEnv | None = None
-        if self.sandbox_backend is None:
+        # A local clone's .git/config holds no credential, so its git carries the run's; sandbox git authenticates
+        # through the egress proxy, whose turn-start token a long turn can outlive (GitHub's live 1h).
+        backend = self.sandbox_backend
+        runner: GitRunner
+        if backend is None:
             auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
+            runner = LocalGitRunner(self.ctx.gitrepo, auth_env=auth_env)
         else:
             await self._refresh_sandbox_egress()
+            runner = SandboxGitRunner(backend)
+        git_manager = GitManager(runner)
 
-        async with open_git_manager(
-            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
-        ) as git_manager:
-            snapshot = await git_manager.status_snapshot(
-                base_branch=base_branch,
-                mr_source_branch=merge_request.source_branch if merge_request is not None else None,
+        snapshot = await git_manager.status_snapshot(
+            base_branch=base_branch, mr_source_branch=merge_request.source_branch if merge_request is not None else None
+        )
+
+        # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
+        diff_stats = diff_line_stats(snapshot.diff)
+
+        if not snapshot.dirty and not snapshot.diff.strip():
+            logger.info("No changes to publish.")
+            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+
+        if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+            logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
+            return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
+
+        fallback_from_mr: MergeRequest | None = None
+        if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
+            self.ctx.repository.slug, merge_request.source_branch
+        ):
+            logger.warning(
+                "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
+                merge_request.source_branch,
+                merge_request.merge_request_id,
             )
+            fallback_from_mr = merge_request
+            protected_branch_fallback_source = merge_request.source_branch
+            merge_request = None
 
-            # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
-            diff_stats = diff_line_stats(snapshot.diff)
+        pr_metadata_diff = (
+            snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
+        )
+        changes_metadata = await self._diff_to_metadata(
+            pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
+        )
 
-            if not snapshot.dirty and not snapshot.diff.strip():
-                logger.info("No changes to publish.")
-                return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+        if snapshot.dirty:
+            commit_message = changes_metadata["commit_message"].commit_message
+            if skip_ci:
+                commit_message = f"[skip ci] {commit_message}"
+            await git_manager.commit_all(await self._with_trailers(commit_message))
 
-            if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
-                logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-                return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
-
-            fallback_from_mr: MergeRequest | None = None
-            if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
-                self.ctx.repository.slug, merge_request.source_branch
-            ):
-                logger.warning(
-                    "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
-                    merge_request.source_branch,
-                    merge_request.merge_request_id,
-                )
-                fallback_from_mr = merge_request
-                protected_branch_fallback_source = merge_request.source_branch
-                merge_request = None
-
-            pr_metadata_diff = (
-                snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
+        if merge_request is None:
+            branch_name = git_manager.unique_branch_name(
+                changes_metadata["pr_metadata"].branch, snapshot.remote_branches
             )
-            changes_metadata = await self._diff_to_metadata(
-                pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
-            )
+        else:
+            branch_name = merge_request.source_branch
 
-            if snapshot.dirty:
-                commit_message = changes_metadata["commit_message"].commit_message
-                if skip_ci:
-                    commit_message = f"[skip ci] {commit_message}"
-                await git_manager.commit_all(await self._with_trailers(commit_message))
+        # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
+        # private cross-project CI includes, so suppress that push's CI. The client capability
+        # answers False for platforms without ephemeral tokens, so no platform check is needed
+        # here; an explicit skip_ci ("no CI at all") leaves nothing to suppress.
+        suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
+            self.ctx.repository
+        )
+        # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
+        # already-open MR needs the heal — and only it needs the pushed sha.
+        will_heal = suppress_bot_pipeline and merge_request is not None
 
-            if merge_request is None:
-                branch_name = git_manager.unique_branch_name(
-                    changes_metadata["pr_metadata"].branch, snapshot.remote_branches
-                )
-            else:
-                branch_name = merge_request.source_branch
-
-            # An ephemeral-token push (GitLab's project-scoped bot) yields a pipeline that can't read
-            # private cross-project CI includes, so suppress that push's CI. The client capability
-            # answers False for platforms without ephemeral tokens, so no platform check is needed
-            # here; an explicit skip_ci ("no CI at all") leaves nothing to suppress.
-            suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
-                self.ctx.repository
-            )
-            # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
-            # already-open MR needs the heal — and only it needs the pushed sha.
-            will_heal = suppress_bot_pipeline and merge_request is not None
-
-            # Only an existing MR's source branch may have advanced under the run (a dependabot
-            # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
-            # A fresh, unique branch can't, so leave integration off for new MRs.
-            await git_manager.push_head_to(
-                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
-            )
-            # Read after the push: an integrate-on-reject rebase rewrites HEAD, and the heal below
-            # needs the sha that actually landed on the remote.
-            pushed_sha = None
-            if will_heal:
-                try:
-                    pushed_sha = await git_manager.head_sha()
-                except Exception:
-                    # The branch is already pushed (skip-ci'd): raising here would orphan it and
-                    # discard the agent's reply over a sha the heal can degrade without.
-                    logger.exception(
-                        "Could not read HEAD after pushing '%s'; the CI heal cannot verify it", branch_name
-                    )
+        # Only an existing MR's source branch may have advanced under the run (a dependabot
+        # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
+        # A fresh, unique branch can't, so leave integration off for new MRs.
+        await git_manager.push_head_to(
+            branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
+        )
+        # Read after the push: an integrate-on-reject rebase rewrites HEAD, and the heal below
+        # needs the sha that actually landed on the remote.
+        pushed_sha = None
+        if will_heal:
+            try:
+                pushed_sha = await git_manager.head_sha()
+            except Exception:
+                # The branch is already pushed (skip-ci'd): raising here would orphan it and
+                # discard the agent's reply over a sha the heal can degrade without.
+                logger.exception("Could not read HEAD after pushing '%s'; the CI heal cannot verify it", branch_name)
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
