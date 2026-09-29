@@ -7,7 +7,7 @@ import pytest
 
 from automation.agent.mcp.client import MCPHTTPStatusError, build_client
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
-from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.mcp.toolkits import MCPToolkit, _load_server_tools
 from tests.unit_tests.automation.agent.mcp.helpers import serve
 
 APP_TOOLS = {"echo", "write", "plain", "boom", "structured", "capabilities"}
@@ -15,6 +15,11 @@ APP_TOOLS = {"echo", "write", "plain", "boom", "structured", "capabilities"}
 
 def _dto(url: str, tool_filter: ToolFilter | None = None) -> UserMcpServer:
     return UserMcpServer(type="http", url=url, tool_filter=tool_filter)
+
+
+async def _until_requested(gate) -> None:
+    while not gate.request_headers:
+        await asyncio.sleep(0.01)
 
 
 @pytest.fixture
@@ -134,13 +139,14 @@ class TestGetTools:
 
         assert {tool.name for tool in tools} == {f"good_{name}" for name in APP_TOOLS}
 
-    async def test_outer_cancellation_propagates(self, gates, servers):
+
+class TestLoadServerTools:
+    async def test_outer_cancellation_propagates(self, gates):
         async with serve(hang=True) as gate:
             gates["http://slow/mcp"] = gate
-            servers(("slow", _dto("http://slow/mcp")))
 
-            task = asyncio.create_task(MCPToolkit.get_tools())
-            await asyncio.sleep(0.1)
+            task = asyncio.create_task(_load_server_tools("slow", _dto("http://slow/mcp")))
+            await asyncio.wait_for(_until_requested(gate), timeout=5)
             task.cancel()
 
             with pytest.raises(asyncio.CancelledError):
