@@ -206,6 +206,27 @@ async def test_session_turns_expired_still_returns_the_sessions_artifacts(client
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_session_turns_with_a_checkpoint_adds_no_artifact_turns(client, authed):
+    from langchain_core.messages import HumanMessage
+
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project", status=RunStatus.SUCCESSFUL
+    )
+    await sync_to_async(make_artifact)(run)
+    hydrated = HydratedThread([HumanMessage(content="hi", id="h1")], False, None, None, None)
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert not any(t["id"].endswith("-artifacts") for t in resp.json()["turns"])
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_session_turns_404_for_other_users_session(client, authed):
     """turns goes through the same by_owner scoping as status — a stranger's thread_id
     must 404 (no re-hydrated transcript leak), and ahydrate_thread is never reached."""

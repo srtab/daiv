@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from django.contrib.sites.models import Site
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
@@ -345,13 +345,6 @@ def _db_session() -> Session:
 
 
 @pytest.mark.django_db
-def test_artifact_turns_empty_while_the_checkpoint_has_messages():
-    run = _db_run(_db_session())
-    make_artifact(run)
-    assert artifact_turns([HumanMessage(content="hi", id="h1")], [run]) == []
-
-
-@pytest.mark.django_db
 def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
     session = _db_session()
     first, empty, last = _db_run(session), _db_run(session), _db_run(session)
@@ -359,14 +352,14 @@ def test_artifact_turns_synthesizes_a_publish_turn_per_run_with_artifacts():
     chart = make_artifact(first, filename="chart.png")
     page = make_artifact(last, filename="audit.html", title="Audit")
 
-    result = artifact_turns([], [first, empty, last])
+    result = artifact_turns([first, empty, last])
 
     def segment(artifact):
         return {
             "type": "tool_call",
             "id": f"artifact-{artifact.id}",
             "name": "publish_artifact",
-            "args": json.dumps({"path": artifact.filename, "title": artifact.title}),
+            "args": "",
             "result": json.dumps({"status": "published", **serialize_artifact(artifact).model_dump()}),
             "status": "done",
         }
@@ -383,7 +376,7 @@ def test_artifact_turn_segments_carry_the_build_turns_tool_call_keys():
     make_artifact(run)
     built = build_turns([AIMessage(content="", tool_calls=[{"id": "t1", "name": "publish_artifact", "args": {}}])])
 
-    (turn,) = artifact_turns([], [run])
+    (turn,) = artifact_turns([run])
 
     assert turn.keys() == built[0].keys()
     assert turn["segments"][0].keys() == built[0]["segments"][0].keys()
@@ -400,4 +393,4 @@ def test_artifact_turns_query_once_for_every_run(django_assert_num_queries):
     runs = list(Run.objects.filter(pk__in=[r.pk for r in runs]).order_by("created_at"))
 
     with django_assert_num_queries(1):
-        assert len(artifact_turns([], runs)) == 3
+        assert len(artifact_turns(runs)) == 3

@@ -21,6 +21,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.generic import DetailView, FormView, TemplateView
+from django.views.generic.detail import SingleObjectMixin
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
@@ -349,7 +350,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["expired"] = no_state and not turns
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
         ctx["awaiting_transcript"] = is_in_flight and not turns
-        ctx["turns"] = turns + artifact_turns(hydrated.messages, runs)
+        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["diff_stats"] = hydrated.diff_stats
@@ -471,7 +472,7 @@ class RunArtifactMixin(LoginRequiredMixin):
             RunArtifact.objects
             .visible_to(self.request.user)
             .filter(run__session_id=self.kwargs["thread_id"])
-            .select_related("run", "run__session")
+            .select_related("run")
         )
 
 
@@ -499,18 +500,12 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
         if inline_text and not too_large and not unavailable:
             with artifact.file.open("rb") as fh:
                 text = fh.read().decode("utf-8", errors="replace")
-        ctx.update({
-            "kind": artifact.kind,
-            "text": text,
-            "too_large": too_large,
-            "unavailable": unavailable,
-            "sandbox": ARTIFACT_SANDBOX,
-        })
+        ctx.update({"text": text, "too_large": too_large, "unavailable": unavailable, "sandbox": ARTIFACT_SANDBOX})
         return ctx
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
-class RunArtifactRawView(RunArtifactMixin, DetailView):
+class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
     """Stream the stored bytes as their declared type; ``?download=1`` forces an attachment."""
 
     def get(self, request, *args, **kwargs):
@@ -537,8 +532,6 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
     filterset_class = ArtifactFilter
     context_object_name = "artifacts"
     paginate_by = 25
-    # Preserve UX: an invalid URL param (e.g. ?kind=bogus) should silently drop
-    # that filter, not blank the whole list.
     strict = False
 
     def get_template_names(self) -> list[str]:
@@ -546,28 +539,26 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
             return ["sessions/_artifact_results.html"]
         return ["sessions/artifact_list.html"]
 
+    @cached_property
+    def visible_artifacts(self) -> QuerySet[RunArtifact]:
+        return RunArtifact.objects.visible_to(self.request.user)
+
     def get_queryset(self) -> QuerySet[RunArtifact]:
-        return (
-            RunArtifact.objects
-            .visible_to(self.request.user)
-            .select_related("run__session")
-            .order_by("-created_at", "-id")
-        )
+        return self.visible_artifacts.select_related("run__session").order_by("-created_at", "-id")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         form = context["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
-        context["current_q"] = cleaned.get("q") or ""
+        context["has_active_filters"] = any(cleaned.get(name) for name in ("q", "kind", "repo"))
+        if is_htmx(self.request):
+            return context
         context["current_kind"] = cleaned.get("kind") or ""
-        context["current_repo"] = cleaned.get("repo") or ""
-        context["has_active_filters"] = any([context["current_q"], context["current_kind"], context["current_repo"]])
         context["kinds"] = ArtifactKind.choices
         # Unfiltered, so the dropdown always offers every repo the viewer could pick.
         # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.
         context["repos"] = sorted(
-            RunArtifact.objects
-            .visible_to(self.request.user)
+            self.visible_artifacts
             .exclude(run__session__repo_id="")
             .order_by()
             .values_list("run__session__repo_id", flat=True)

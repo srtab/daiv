@@ -3,7 +3,7 @@
 
 {% block title %}{{ artifact.title }} — {% translate "Artifacts" %} — DAIV{% endblock %}
 
-{% block container_width %}{% if kind == "html" %}max-w-screen-2xl{% else %}max-w-4xl{% endif %}{% endblock %}
+{% block container_width %}{% if artifact.kind == "html" %}max-w-screen-2xl{% else %}max-w-4xl{% endif %}{% endblock %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" %}
@@ -23,7 +23,7 @@
         </div>
     </div>
     <div class="page-header__actions flex items-center gap-2">
-        {% if kind != "other" and not too_large and not unavailable %}
+        {% if artifact.kind != "other" and not too_large and not unavailable %}
         <a href="{{ artifact.get_raw_url }}" target="_blank" rel="noopener noreferrer"
            class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
             {% icon "link" "h-4 w-4 shrink-0" %}
@@ -52,11 +52,11 @@
             {% icon "arrow-down-tray" "h-4 w-4" %}{% translate "Download" %}
         </a>
     </div>
-    {% elif kind == "markdown" %}
+    {% elif artifact.kind == "markdown" %}
     <div class="prose-dark rounded-2xl border border-white/[0.06] bg-black/30 p-6">
         {{ text|render_markdown }}
     </div>
-    {% elif kind == "html" %}
+    {% elif artifact.kind == "html" %}
     {# The frame gets no ``allow-same-origin``: the report runs in an opaque origin and the raw #}
     {# endpoint repeats the same sandbox in its Content-Security-Policy for direct opens. #}
     <iframe src="{{ artifact.get_raw_url }}"
@@ -65,11 +65,11 @@
             referrerpolicy="no-referrer"
             loading="lazy"
             class="h-[calc(100vh-14rem)] min-h-[32rem] w-full rounded-2xl border border-white/[0.06] bg-white"></iframe>
-    {% elif kind == "image" %}
+    {% elif artifact.kind == "image" %}
     <div class="flex justify-center rounded-2xl border border-white/[0.06] bg-black/30 p-6">
         <img src="{{ artifact.get_raw_url }}" alt="{{ artifact.title }}" class="max-w-full rounded-xl">
     </div>
-    {% elif kind == "text" %}
+    {% elif artifact.kind == "text" %}
     <pre class="overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/30 p-6 font-mono text-[13px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ text }}</pre>
     {% else %}
     <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">

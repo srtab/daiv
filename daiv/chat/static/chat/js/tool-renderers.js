@@ -459,34 +459,28 @@
   // A server-built segment reads `done` with a null result until its ToolMessage is
   // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
   window.artifactItem = (seg) => {
-    const s = seg || {};
-    const argsStr = s.args;
+    const argsStr = seg.args;
     const args = parseArgs(argsStr);
     const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
-    const titleArg = pickKeyOrPartial(args, ["title"], argsStr) ?? "";
 
-    if (s.status === "running" || (s.result == null && s.status !== "error")) {
-      return { state: "running", label: titleArg || pathArg };
+    if (seg.status === "running" || (seg.result == null && seg.status !== "error")) {
+      return { state: "running", title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg };
     }
 
-    const parsed = parseArtifactResult(s.result);
+    const parsed = parseArtifactResult(seg.result);
     if (parsed) {
-      const kind = parsed.kind || "";
       return {
         state: "published",
-        title: parsed.title || basename(pathArg) || parsed.filename || parsed.url || "",
+        title: parsed.title || basename(pathArg),
         filename: parsed.filename || "",
-        kind,
-        kindLabel: ARTIFACT_KIND_LABELS[kind] || "",
-        size: parsed.size,
+        kindLabel: ARTIFACT_KIND_LABELS[parsed.kind] || "",
         sizeLabel: parsed.size != null ? formatBytes(parsed.size) : "",
-        url: parsed.url || "",
+        url: parsed.url,
         download_url: parsed.download_url || "",
       };
     }
 
-    const message = String(s.result ?? "").trim() || "Publishing failed.";
-    return { state: "error", label: pathArg, message };
+    return { state: "error", title: pathArg, message: String(seg.result ?? "").trim() || "Publishing failed." };
   };
 
   window.toolSignature = (name, argsStr, result, _status) => {

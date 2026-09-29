@@ -164,10 +164,10 @@ def _decode_download(output: str) -> bytes | None:
 
 
 def _download_response(path: str, result: RunCommandResult | None) -> FileDownloadResponse:
-    if result is not None and result.exit_code in _DOWNLOAD_EXIT_ERRORS:
-        return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
     if result is None:
         error = "the sandbox returned no result for this file"
+    elif result.exit_code in _DOWNLOAD_EXIT_ERRORS:
+        return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
     elif result.exit_code == _SANDBOX_TIMEOUT_EXIT:
         error = "reading the file timed out in the sandbox"
     elif result.exit_code != 0:

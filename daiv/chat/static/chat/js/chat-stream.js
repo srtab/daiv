@@ -877,8 +877,8 @@
     // A call rendered from the checkpoint before its ToolMessage landed has no result, and
     // this deduped event is the only place it arrives — so fill it in place.
     _fillReplayedResult(evt) {
-      for (const t of this.turns) {
-        const seg = t.segments?.find((s) => s.type === "tool_call" && s.id === evt.toolCallId);
+      for (let i = this.turns.length - 1; i >= 0; i--) {
+        const seg = this.turns[i].segments?.find((s) => s.type === "tool_call" && s.id === evt.toolCallId);
         if (!seg) continue;
         if (seg.result == null) {
           seg.result = evt.content;

@@ -13,11 +13,16 @@ from httpx import HTTPError
 from langchain.agents.middleware import AgentMiddleware
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
-from sessions.artifacts import ArtifactError, aresolve_active_run, astore_artifact, serialize_artifact
+from sessions.artifacts import (
+    ArtifactError,
+    aresolve_active_run,
+    astore_artifact,
+    published_tool_result,
+    serialize_artifact,
+)
 from sessions.conf import settings as sessions_settings
 
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
-from automation.agent.utils import conversation_thread_id
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 from codebase.context import RuntimeCtx  # noqa: TC001
 
@@ -117,7 +122,7 @@ class ArtifactsMiddleware(AgentMiddleware):
         if path_error := _workspace_path_error(path):
             return f"Error publishing artifact: {path_error}"
 
-        thread_id = (runtime.config.get("configurable") or {}).get("thread_id") or conversation_thread_id()
+        thread_id = (runtime.config.get("configurable") or {}).get("thread_id")
         run = await aresolve_active_run(thread_id) if thread_id else None
         if run is None:
             logger.warning("publish_artifact: no active run for thread_id=%s", thread_id)
@@ -168,7 +173,7 @@ class ArtifactsMiddleware(AgentMiddleware):
                 "url": artifact.get_absolute_url(),
                 "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
             })
-        return json.dumps({"status": "published", **payload.model_dump()})
+        return published_tool_result(payload)
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

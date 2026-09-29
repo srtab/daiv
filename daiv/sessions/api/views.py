@@ -37,8 +37,6 @@ async def session_turns(request: HttpRequest, thread_id: str):
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     turns = [] if hydrated.expired else annotate_transcript(build_turns(hydrated.messages), runs)
-    return {
-        "turns": turns + await sync_to_async(artifact_turns)(hydrated.messages, runs),
-        "active": bool(session.active_run_id),
-        "expired": hydrated.expired,
-    }
+    if not hydrated.messages:
+        turns += await sync_to_async(artifact_turns)(runs)
+    return {"turns": turns, "active": bool(session.active_run_id), "expired": hydrated.expired}

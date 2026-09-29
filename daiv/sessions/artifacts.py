@@ -8,6 +8,7 @@ never runs in DAIV's origin.
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 from contextlib import contextmanager
@@ -84,23 +85,19 @@ _CONTENT_TYPES = {
     ".pdf": "application/pdf",
 }
 
-_TEXT_CONTENT_TYPES = frozenset({
-    "text/plain",
-    "text/csv",
-    "text/tab-separated-values",
-    "application/json",
-    "application/xml",
-    "text/xml",
-    "application/yaml",
-})
-
-_IMAGE_CONTENT_TYPES = frozenset({"image/svg+xml", "image/png", "image/jpeg", "image/gif", "image/webp"})
-
 _KIND_CONTENT_TYPES: dict[ArtifactKind, frozenset[str]] = {
     ArtifactKind.MARKDOWN: frozenset({"text/markdown"}),
     ArtifactKind.HTML: frozenset({"text/html"}),
-    ArtifactKind.IMAGE: _IMAGE_CONTENT_TYPES,
-    ArtifactKind.TEXT: _TEXT_CONTENT_TYPES,
+    ArtifactKind.IMAGE: frozenset({"image/svg+xml", "image/png", "image/jpeg", "image/gif", "image/webp"}),
+    ArtifactKind.TEXT: frozenset({
+        "text/plain",
+        "text/csv",
+        "text/tab-separated-values",
+        "application/json",
+        "application/xml",
+        "text/xml",
+        "application/yaml",
+    }),
     ArtifactKind.OTHER: frozenset(),
 }
 
@@ -221,6 +218,11 @@ def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
         url=build_absolute_url(artifact.get_absolute_url()),
         download_url=build_absolute_url(artifact.get_download_url()),
     )
+
+
+def published_tool_result(payload: ArtifactPayload) -> str:
+    """The ``publish_artifact`` success result, which the transcript's artifact card parses."""
+    return json.dumps({"status": "published", **payload.model_dump()})
 
 
 async def aserialize_run_artifacts(run: Run) -> list[ArtifactPayload]:

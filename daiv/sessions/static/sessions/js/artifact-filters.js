@@ -6,6 +6,8 @@ const { swapResults } = window.createResultsSwap("artifact-results", {
 });
 
 document.addEventListener("alpine:init", () => {
+    const FIELDS = ["q", "kind", "repo"];
+
     Alpine.data("artifactFilters", () => ({
         q: "",
         kind: "",
@@ -18,16 +20,12 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
-            this.q = p.get("q") || "";
-            this.kind = p.get("kind") || "";
-            this.repo = p.get("repo") || "";
+            for (const field of FIELDS) this[field] = p.get(field) || "";
         },
 
         _apply() {
             const params = new URLSearchParams();
-            if (this.q) params.set("q", this.q);
-            if (this.kind) params.set("kind", this.kind);
-            if (this.repo) params.set("repo", this.repo);
+            for (const field of FIELDS) if (this[field]) params.set(field, this[field]);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
         },

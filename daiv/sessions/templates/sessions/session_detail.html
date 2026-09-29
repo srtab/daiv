@@ -324,38 +324,31 @@
                               <template x-for="(item, ii) in seg.items" :key="ii">
                                 <li class="artifact-card__row">
                                   <template x-if="item.state === 'running'">
-                                    <span class="chat-tool__spinner text-amber-400" aria-hidden="true"></span>
+                                    <div class="contents">
+                                      <span class="chat-tool__spinner text-amber-400" aria-hidden="true"></span>
+                                      <span class="artifact-card__title" x-text="item.title"></span>
+                                      <span class="artifact-card__meta">{% translate "Publishing…" %}</span>
+                                    </div>
                                   </template>
                                   <template x-if="item.state === 'error'">
-                                    <span class="shrink-0 text-red-400" aria-hidden="true">×</span>
+                                    <div class="contents">
+                                      <span class="shrink-0 text-red-400" aria-hidden="true">×</span>
+                                      <span class="artifact-card__title" x-text="item.title"></span>
+                                      <span class="artifact-card__meta artifact-card__meta--error" x-text="item.message"></span>
+                                    </div>
                                   </template>
-
                                   <template x-if="item.state === 'published'">
-                                    <a class="artifact-card__title" :href="item.url" :title="item.filename"
-                                       x-text="item.title" target="_blank" rel="noopener noreferrer"></a>
-                                  </template>
-                                  <template x-if="item.state !== 'published'">
-                                    <span class="artifact-card__title" x-text="item.label"></span>
-                                  </template>
-
-                                  <template x-if="item.state === 'published' && item.kindLabel">
-                                    <span class="meta-pill" x-text="item.kindLabel"></span>
-                                  </template>
-                                  <template x-if="item.state === 'published' && item.sizeLabel">
-                                    <span class="artifact-card__meta" x-text="item.sizeLabel"></span>
-                                  </template>
-                                  <template x-if="item.state === 'running'">
-                                    <span class="artifact-card__meta">{% translate "Publishing…" %}</span>
-                                  </template>
-                                  <template x-if="item.state === 'error'">
-                                    <span class="artifact-card__meta artifact-card__meta--error" x-text="item.message"></span>
-                                  </template>
-                                  <template x-if="item.state === 'published' && item.download_url">
-                                    <a class="artifact-card__download" :href="item.download_url"
-                                       title="{% translate 'Download' %}">
-                                      {% icon "arrow-down-tray" "h-4 w-4" %}
-                                      <span class="sr-only">{% translate "Download" %}</span>
-                                    </a>
+                                    <div class="contents">
+                                      <a class="artifact-card__title" :href="item.url" :title="item.filename"
+                                         x-text="item.title" target="_blank" rel="noopener noreferrer"></a>
+                                      <span class="meta-pill" x-show="item.kindLabel" x-text="item.kindLabel"></span>
+                                      <span class="artifact-card__meta" x-show="item.sizeLabel" x-text="item.sizeLabel"></span>
+                                      <a class="artifact-card__download" x-show="item.download_url" :href="item.download_url"
+                                         title="{% translate 'Download' %}">
+                                        {% icon "arrow-down-tray" "h-4 w-4" %}
+                                        <span class="sr-only">{% translate "Download" %}</span>
+                                      </a>
+                                    </div>
                                   </template>
                                 </li>
                               </template>

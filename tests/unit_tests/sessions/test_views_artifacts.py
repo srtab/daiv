@@ -82,7 +82,7 @@ def test_detail_renders_markdown_inline(member_client, member_user):
     resp = member_client.get(artifact.get_absolute_url())
 
     assert resp.status_code == 200
-    assert resp.context["kind"] == "markdown"
+    assert resp.context["artifact"].kind == "markdown"
     html = resp.content.decode()
     assert "<h1>Findings</h1>" in html
     assert "<script>x</script>" not in html
@@ -95,7 +95,7 @@ def test_detail_embeds_html_in_sandboxed_iframe(member_client, member_user):
     resp = member_client.get(artifact.get_absolute_url())
 
     html = resp.content.decode()
-    assert resp.context["kind"] == "html"
+    assert resp.context["artifact"].kind == "html"
     assert "<h1>Audit</h1>" not in html
     assert f'<iframe src="{artifact.get_raw_url()}"' in html
     assert 'sandbox="allow-scripts allow-popups"' in html
@@ -106,7 +106,7 @@ def test_detail_renders_text_escaped(member_client, member_user):
 
     resp = member_client.get(artifact.get_absolute_url())
 
-    assert resp.context["kind"] == "text"
+    assert resp.context["artifact"].kind == "text"
     assert "1,&lt;2&gt;" in resp.content.decode()
 
 
@@ -115,7 +115,7 @@ def test_detail_renders_image_from_raw_endpoint(member_client, member_user):
 
     resp = member_client.get(artifact.get_absolute_url())
 
-    assert resp.context["kind"] == "image"
+    assert resp.context["artifact"].kind == "image"
     assert f'<img src="{artifact.get_raw_url()}"' in resp.content.decode()
 
 
@@ -124,7 +124,7 @@ def test_detail_offers_download_for_unpreviewable_types(member_client, member_us
 
     resp = member_client.get(artifact.get_absolute_url())
 
-    assert resp.context["kind"] == "other"
+    assert resp.context["artifact"].kind == "other"
     assert resp.context["text"] is None
     assert "not previewed" in resp.content.decode()
 
@@ -135,7 +135,7 @@ def test_detail_large_text_is_flagged_too_large_not_unpreviewable(member_client,
 
     resp = member_client.get(artifact.get_absolute_url())
 
-    assert resp.context["kind"] == "markdown"
+    assert resp.context["artifact"].kind == "markdown"
     assert resp.context["too_large"] is True
     assert resp.context["text"] is None
     html = resp.content.decode()
