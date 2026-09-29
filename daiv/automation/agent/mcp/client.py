@@ -13,6 +13,7 @@ with suppress_langchain_beta_warning():
     from langchain.mcp import as_langchain_tool
 
 if TYPE_CHECKING:
+    from fastmcp.client.logging import LogMessage
     from langchain_core.tools.base import BaseTool
 
 _BENIGN_405_METHODS = frozenset({"GET", "DELETE"})
@@ -55,9 +56,13 @@ class StatusRecorder:
         self.last = FailedResponse(response.status_code, response.reason_phrase, str(response.request.url))
 
 
+async def _drop_server_log(message: LogMessage) -> None:
+    """fastmcp's default handler would re-emit server-chosen log levels on its own unfiltered logger."""
+
+
 class StatusTrackingClient(Client):
     def __init__(self, transport, status_recorder: StatusRecorder):
-        super().__init__(transport)
+        super().__init__(transport, log_handler=_drop_server_log)
         self.status_recorder = status_recorder
 
 

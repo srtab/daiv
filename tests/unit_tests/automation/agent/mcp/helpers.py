@@ -90,8 +90,8 @@ class Gate:
 
 
 @asynccontextmanager
-async def serve(**gate_options) -> AsyncIterator[Gate]:
-    app = build_app().streamable_http_app(
+async def serve(server: MCPServer | None = None, **gate_options) -> AsyncIterator[Gate]:
+    app = (server or build_app()).streamable_http_app(
         stateless_http=True, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
     async with app.router.lifespan_context(app):

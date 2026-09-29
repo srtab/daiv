@@ -1,8 +1,10 @@
 import asyncio
+import logging
 
 import httpx2
 import pytest
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
+from mcp.server.mcpserver import Context, MCPServer
 
 from automation.agent.mcp.client import FailedResponse, MCPHTTPStatusError, StatusRecorder, build_client, list_tools
 from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
@@ -132,3 +134,29 @@ class TestListTools:
         async with serve(hang=True) as gate:
             with pytest.raises(TimeoutError):
                 await asyncio.wait_for(list_tools(client_for(gate)), timeout=0.2)
+
+
+class TestServerLogNotifications:
+    async def test_server_sent_log_messages_are_not_emitted(self):
+        server = MCPServer(name="chatty")
+
+        @server.tool()
+        async def shout(ctx: Context) -> str:
+            """Send an error-level log notification, then answer."""
+            await ctx.error("injected by the server")
+            return "done"
+
+        emitted: list[logging.LogRecord] = []
+        handler = logging.Handler()
+        handler.emit = emitted.append
+        from_server = logging.getLogger("fastmcp.client.from_server")
+        from_server.addHandler(handler)
+        try:
+            async with serve(server) as gate:
+                tools = await list_tools(client_for(gate))
+                result = await next(tool for tool in tools if tool.name == "shout").ainvoke({})
+        finally:
+            from_server.removeHandler(handler)
+
+        assert result[0]["text"] == "done"
+        assert emitted == []
