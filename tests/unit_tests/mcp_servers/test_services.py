@@ -186,27 +186,19 @@ def test_tool_filter_none_when_mode_is_none():
     assert dto.tool_filter is None
 
 
-async def test_test_connection_returns_tools_on_success(monkeypatch):
-    from unittest.mock import AsyncMock, MagicMock
-
+async def test_test_connection_returns_tools_with_tristate_read_only(monkeypatch):
     from mcp_servers.services import test_connection
 
-    fake_client = MagicMock()
-    ro_tool = MagicMock(name="demo_tool", description="demo", metadata={"readOnlyHint": True})
-    ro_tool.name = "demo_tool"  # `name` is a MagicMock ctor kwarg, so set it explicitly
-    rw_tool = MagicMock(description="mutates", metadata={"readOnlyHint": False})
-    rw_tool.name = "write_tool"
-    plain_tool = MagicMock(description="", metadata=None)  # server left it unannotated
-    plain_tool.name = "plain_tool"
-    fake_client.get_tools = AsyncMock(return_value=[ro_tool, rw_tool, plain_tool])
+    from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
 
-    monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: fake_client)
+    async with serve() as gate:
+        monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: client_for(gate))
+        result = await test_connection({"transport": "http", "url": "http://test/mcp", "headers": []})
 
-    result = await test_connection({"transport": "http", "url": "http://demo.test/mcp", "headers": []})
     assert result["ok"] is True
-    assert [t["name"] for t in result["tools"]] == ["demo_tool", "write_tool", "plain_tool"]
-    # readOnlyHint is surfaced tri-state: True / False / None (unannotated).
-    assert [t["read_only"] for t in result["tools"]] == [True, False, None]
+    read_only = {tool["name"]: tool["read_only"] for tool in result["tools"]}
+    assert (read_only["echo"], read_only["write"], read_only["plain"]) == (True, False, None)
+    assert next(tool for tool in result["tools"] if tool["name"] == "echo")["description"] == "Echo the text back."
 
 
 async def test_test_connection_reports_error(monkeypatch):
@@ -276,21 +268,76 @@ async def test_test_connection_unwraps_nested_exception_groups(monkeypatch):
     assert "unhandled errors in a TaskGroup" not in result["error"]
 
 
-def test_format_error_trims_httpx_noise_line():
-    """httpx exceptions append a "For more information check: <url>" line that is
-    noise in the UI — only the first line of the underlying cause is kept."""
-    import httpx
-    from mcp_servers.services import _flatten_exception, _format_error
+def _service_records(caplog):
+    return [r for r in caplog.records if r.name == "daiv.mcp_servers"]
 
-    real = httpx.HTTPStatusError(
-        "Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'\n"
-        "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
-        request=httpx.Request("POST", "https://mcp.sentry.dev/mcp"),
-        response=httpx.Response(401),
-    )
-    message = _format_error(_flatten_exception(ExceptionGroup("unhandled errors in a TaskGroup", [real])))
-    assert message == "HTTPStatusError: Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'"
-    assert "For more information check" not in message
+
+@pytest.mark.parametrize(("status", "reason"), [(401, "Unauthorized"), (503, "Service Unavailable")])
+async def test_test_connection_reports_http_status(monkeypatch, caplog, status, reason):
+    from mcp_servers.services import test_connection
+
+    from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
+
+    async with serve(status=status) as gate:
+        monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: client_for(gate))
+        with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+            result = await test_connection({"transport": "http", "url": "http://test/mcp", "headers": []})
+
+    assert result == {"ok": False, "error": f"HTTP {status} {reason} for url 'http://test/mcp'"}
+    assert [r.levelname for r in _service_records(caplog)] == ["WARNING"]
+
+
+async def test_test_connection_reports_unreachable_host_as_warning(caplog):
+    from mcp_servers.services import test_connection
+
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        result = await test_connection({"transport": "http", "url": "http://127.0.0.1:1/mcp", "headers": []})
+
+    assert result["ok"] is False
+    assert result["error"].startswith("ConnectError:")
+    assert [r.levelname for r in _service_records(caplog)] == ["WARNING"]
+
+
+async def test_test_connection_logs_unexpected_failures_with_traceback(monkeypatch, caplog):
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        raise ValueError("bug")
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+
+    assert result == {"ok": False, "error": "ValueError: bug"}
+    records = _service_records(caplog)
+    assert [r.levelname for r in records] == ["ERROR"]
+    assert records[0].exc_info is not None
+
+
+async def test_test_connection_survives_a_200_response_that_is_not_mcp(monkeypatch):
+    from mcp_servers.services import test_connection
+
+    from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
+
+    async with serve(status=200, body=b"<html>not mcp</html>", content_type=b"text/html") as gate:
+        monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: client_for(gate))
+        result = await test_connection({"transport": "http", "url": "http://test/mcp", "headers": []})
+
+    assert result["ok"] is False
+    assert result["error"]
+
+
+async def test_test_connection_times_out_on_a_hanging_server(monkeypatch):
+    from mcp_servers.services import test_connection
+
+    from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
+
+    monkeypatch.setattr("mcp_servers.services._TEST_CONNECTION_TIMEOUT", 0.3)
+    async with serve(hang=True) as gate:
+        monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: client_for(gate))
+        result = await test_connection({"transport": "http", "url": "http://test/mcp", "headers": []})
+
+    assert result == {"ok": False, "error": "Connection timed out after 0.3s"}
 
 
 @pytest.mark.django_db
@@ -364,8 +411,7 @@ def test_server_health_flags_undecryptable_headers():
 
 
 def test_build_client_maps_http_transport_and_resolves_env_ref(monkeypatch):
-    """``_build_client`` is the only place a form's transport string becomes a real
-    Connection — exercise it directly rather than through a mock."""
+    from fastmcp.client.transports import StreamableHttpTransport
     from mcp_servers.services import _build_client
 
     monkeypatch.setenv("TOK", "from-env")
@@ -377,21 +423,21 @@ def test_build_client_maps_http_transport_and_resolves_env_ref(monkeypatch):
             {"name": "X-Env", "mode": "env_ref", "value": "TOK"},
         ],
     })
-    conn = client.connections["__probe__"]
-    assert conn["transport"] == "streamable_http"
-    assert conn["url"] == "http://demo.test/mcp"
-    assert conn["headers"] == {"X-Lit": "lit", "X-Env": "from-env"}
+
+    assert isinstance(client.transport, StreamableHttpTransport)
+    assert client.transport.url == "http://demo.test/mcp"
+    assert client.transport.headers == {"X-Lit": "lit", "X-Env": "from-env"}
 
 
 def test_build_client_maps_sse_transport():
+    from fastmcp.client.transports import SSETransport
     from mcp_servers.services import _build_client
 
     client = _build_client({"transport": "sse", "url": "http://demo.test/sse", "headers": []})
-    conn = client.connections["__probe__"]
-    assert conn["transport"] == "sse"
-    assert conn["url"] == "http://demo.test/sse"
-    # No headers → None, not an empty dict.
-    assert conn["headers"] is None
+
+    assert isinstance(client.transport, SSETransport)
+    assert client.transport.url == "http://demo.test/sse"
+    assert client.transport.headers == {}
 
 
 def test_build_client_rejects_unknown_transport():
@@ -402,8 +448,6 @@ def test_build_client_rejects_unknown_transport():
 
 
 def test_build_client_warns_on_missing_env_ref(caplog, monkeypatch):
-    """Test-connection resolution must warn on a missing env var, matching the
-    runtime adapter (the two paths share ``_resolve_header_entries``)."""
     from mcp_servers.services import _build_client
 
     monkeypatch.delenv("ABSENT", raising=False)
@@ -413,7 +457,8 @@ def test_build_client_warns_on_missing_env_ref(caplog, monkeypatch):
             "url": "http://x.test",
             "headers": [{"name": "X-Env", "mode": "env_ref", "value": "ABSENT"}],
         })
-    assert client.connections["__probe__"]["headers"] is None
+
+    assert client.transport.headers == {}
     assert "ABSENT" in caplog.text
 
 

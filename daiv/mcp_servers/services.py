@@ -8,13 +8,10 @@ from typing import Any, Literal, TypedDict
 from django.db.models import Q
 from django.utils import timezone
 
-import anyio
-import httpx
 from asgiref.sync import async_to_sync
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from mcp.shared.exceptions import McpError
 
-from automation.agent.mcp.connections import build_connection
+from automation.agent.mcp.client import StatusTrackingClient, build_client, list_tools
+from automation.agent.mcp.errors import FailureKind, classify
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
@@ -180,100 +177,46 @@ def _resolve_header_entries(entries: list[HeaderEntry] | None, *, server_name: s
     return resolved
 
 
-def _build_client(payload: dict[str, Any]) -> MultiServerMCPClient:
-    """Build a transient ``MultiServerMCPClient`` from a form-shaped payload.
+def _build_client(payload: dict[str, Any]) -> StatusTrackingClient:
+    """Build a transient client from a form-shaped payload.
 
-    ``payload`` is ``{"transport": "http"|"sse", "url": str, "headers":
-    [{"name", "mode", "value"}, ...]}``. ``mode=env_ref`` values are resolved
-    against ``os.environ``; missing ones are dropped (see
+    ``payload`` is ``{"transport": "http"|"sse", "url": str, "headers": [{"name", "mode", "value"}, ...]}``.
+    ``mode=env_ref`` values are resolved against ``os.environ``; missing ones are dropped (see
     ``_resolve_header_entries``).
     """
     url = payload.get("url")
-    resolved = _resolve_header_entries(payload.get("headers"), server_name=url or "test-connection")
-    transport = payload.get("transport")
-    connection = build_connection(transport, url, resolved or None)
-    if connection is None:
-        raise ValueError(f"Unsupported transport: {transport!r}")
-    return MultiServerMCPClient({"__probe__": connection})
+    headers = _resolve_header_entries(payload.get("headers"), server_name=url or "test-connection")
+    return build_client(payload.get("transport"), url, headers or None)
 
 
-def _flatten_exception(err: BaseException) -> list[BaseException]:
-    """Recursively expand ``ExceptionGroup``s into their leaf exceptions.
-
-    The MCP streamable-http client runs its request inside an anyio task group,
-    so a real failure (e.g. an httpx 401) surfaces wrapped in an
-    ``ExceptionGroup`` whose ``str()`` is the useless "unhandled errors in a
-    TaskGroup (N sub-exceptions)". Flattening lets ``_format_error`` report the
-    underlying cause instead of the wrapper. Groups can nest, so recurse."""
-    if isinstance(err, BaseExceptionGroup):
-        return [leaf for sub in err.exceptions for leaf in _flatten_exception(sub)]
-    return [err]
-
-
-_EXPECTED_CONNECTION_ERRORS = (
-    TimeoutError,
-    OSError,
-    httpx.HTTPError,
-    httpx.InvalidURL,
-    McpError,
-    anyio.BrokenResourceError,
-    anyio.ClosedResourceError,
-)
-
-
-def _is_connection_failure(leaves: list[BaseException]) -> bool:
-    """True when every leaf is an anticipated connection-level failure (unreachable host,
-    auth rejection, protocol error) rather than a bug in our own code."""
-    return bool(leaves) and all(isinstance(leaf, _EXPECTED_CONNECTION_ERRORS) for leaf in leaves)
-
-
-def _format_error(leaves: list[BaseException]) -> str:
-    """Build a human-readable one-liner for a test-connection failure from the
-    ``_flatten_exception`` leaves of the raised error.
-
-    ``str(err)`` is empty for many httpx/asyncio exceptions, so the class name is
-    always included to keep the message greppable. Only the first non-blank line
-    of each leaf is kept — httpx messages tack on a "For more information check:"
-    URL that is noise in the UI. Duplicate leaves (a group can carry repeats) are
-    collapsed while preserving order."""
-    parts: list[str] = []
-    for leaf in leaves:
-        first_line = next((line for line in str(leaf).splitlines() if line.strip()), "")
-        parts.append(f"{type(leaf).__name__}: {first_line}" if first_line else type(leaf).__name__)
-    return "; ".join(dict.fromkeys(parts))
+def _read_only_hint(tool) -> bool | None:
+    """MCP's optional ``readOnlyHint`` annotation; ``None`` means the server left it unannotated."""
+    node: Any = tool.metadata
+    for key in ("mcp", "tool", "annotations"):
+        node = node.get(key) if isinstance(node, dict) else None
+    return node.get("read_only_hint") if isinstance(node, dict) else None
 
 
 async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     """Open a transient MCP session against ``payload`` and return either
     ``{ok: True, tools: [...]}`` or ``{ok: False, error: ...}``."""
     try:
-        client = _build_client(payload)
-        tools = await asyncio.wait_for(client.get_tools(), timeout=_TEST_CONNECTION_TIMEOUT)
+        tools = await asyncio.wait_for(list_tools(_build_client(payload)), timeout=_TEST_CONNECTION_TIMEOUT)
     except TimeoutError:
         logger.warning("MCP test_connection timed out for url=%s", payload.get("url"))
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
-    except Exception as err:  # noqa: BLE001 — surface any failure to the UI
-        leaves = _flatten_exception(err)
-        error = _format_error(leaves)
-        # Connection-level failures are expected, user-facing results — warn without a
-        # traceback so a routine 401/403/network error doesn't mint a Sentry error event.
-        if _is_connection_failure(leaves):
-            logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), error)
-        else:
+    except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
+        failure = classify(exc)
+        if failure.kind is FailureKind.UNEXPECTED:
             logger.exception("MCP test_connection failed unexpectedly for url=%s", payload.get("url"))
-        return {"ok": False, "error": error}
+        else:
+            logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), failure.message)
+        return {"ok": False, "error": failure.message}
     return {
         "ok": True,
         "tools": [
-            {
-                "name": t.name,
-                "description": getattr(t, "description", ""),
-                # MCP's optional readOnlyHint annotation, surfaced by
-                # langchain-mcp-adapters on the tool's metadata. bool | None —
-                # None means the server left it unannotated (unknown), not writable.
-                "read_only": (getattr(t, "metadata", None) or {}).get("readOnlyHint"),
-            }
-            for t in tools
+            {"name": tool.name, "description": tool.description or "", "read_only": _read_only_hint(tool)}
+            for tool in tools
         ],
     }
 
@@ -312,7 +255,7 @@ def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
     discovered catalog passed through the configured allow/block filter. Pure
     and network-free — reads only persisted fields (``discovered_tools`` plus
     the tool filter); never probes the network. Mirrors the runtime
-    filter (``automation.agent.mcp.toolkits._apply_tool_filters``) via the
+    filter (``automation.agent.mcp.toolkits._load_server_tools``) via the
     shared ``ToolFilter.allows`` predicate so the two cannot drift."""
     discovered = server.discovered_tools or []
     if server.tool_filter_mode == MCPServer.FilterMode.NONE:
