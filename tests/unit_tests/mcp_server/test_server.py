@@ -185,7 +185,7 @@ async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatc
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
-    """The MCP tool's direct (in-process) call path bypasses FastMCP's protocol-layer
+    """The MCP tool's direct (in-process) call path bypasses MCPServer's protocol-layer
     Pydantic validation, so the explicit ``validate_agent_override`` call inside the
     tool must catch out-of-enum thinking levels."""
     with _patch_acreate():
