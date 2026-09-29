@@ -69,7 +69,7 @@ def _sandbox_run(credential: GitEgressCredential | None, working_dir: str = "/tm
 
 
 def _clone_on_main(path) -> Repo:
-    """A real clone with one commit on ``main``, as ``load_repo`` yields one."""
+    """A real repo with one commit on ``main``, standing in for what ``load_repo`` yields."""
     repo = Repo.init(path)
     with repo.config_writer() as writer:
         writer.set_value("user", "name", "Test User")

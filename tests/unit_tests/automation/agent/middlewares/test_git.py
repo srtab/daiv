@@ -803,7 +803,8 @@ class TestGitMiddleware:
 
     async def test_a_sandbox_turn_never_reads_the_worker_clone(self):
         """On a sandbox run the worker clone is only the seed's source: the pre-run check, the MR lookup, the prompt,
-        the patch capture and the publish target read the ref recorded at clone time and run git in the sandbox."""
+        the patch capture and the publish target read the ref recorded at clone time, and their git goes to the
+        sandbox."""
         backend = _bound_backend()
         mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=backend)
         runtime = Mock(

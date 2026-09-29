@@ -46,10 +46,10 @@ class RepoHandle:
     """The branch/ref actually checked out — may differ from the requested ref when a
     vanished branch triggered a fallback to the default branch."""
     current_ref: str
-    """What the clone's HEAD named when it was made: its branch, or the commit sha when HEAD is detached (a tag or a
-    commit ref). The run reads this, never the clone's live HEAD: a sandbox run's git runs in the sandbox."""
+    """The clone's branch, or its commit sha when HEAD is detached, recorded once at clone time. Unlike ``ref`` it is
+    never a tag name. Read this, not the clone's live HEAD, which a sandbox run's git never moves."""
     head_detached: bool
-    """Whether the clone's HEAD named no branch (a tag or a commit ref)."""
+    """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
 
 
 @dataclass(frozen=True)

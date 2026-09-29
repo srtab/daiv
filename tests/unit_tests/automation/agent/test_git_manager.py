@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 # ---------------------------------------------------------------------------
-# Local-mode helpers (GitPython clone; sandbox-disabled / repoless runs)
+# Real GitPython repos for LocalGitRunner
 # ---------------------------------------------------------------------------
 
 
@@ -33,14 +33,6 @@ def _configure_repo_identity(repo: Repo) -> None:
     with repo.config_writer() as writer:
         writer.set_value("user", "name", "Test User")
         writer.set_value("user", "email", "test@example.com")
-
-
-def _init_repo(tmp_path: Path) -> Repo:
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    repo = Repo.init(repo_dir)
-    _configure_repo_identity(repo)
-    return repo
 
 
 def _create_initial_commit(repo: Repo, repo_dir: Path) -> None:
@@ -69,11 +61,6 @@ def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tup
     return GitManager(SandboxGitRunner(backend)), client
 
 
-# ---------------------------------------------------------------------------
-# Pure branch-name logic (mode-independent)
-# ---------------------------------------------------------------------------
-
-
 def test_gen_unique_branch_name_returns_original_when_available() -> None:
     gm, _ = _sandbox_manager()
     assert gm.unique_branch_name("feature", ["main"]) == "feature"
@@ -96,17 +83,6 @@ def test_gen_unique_branch_name_never_returns_an_existing_name() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _shell_quote (sandbox command construction)
-# ---------------------------------------------------------------------------
-
-
-async def test_shell_quote_applied_to_commit_message_with_apostrophe() -> None:
-    gm, client = _sandbox_manager()
-    await gm.commit_all("fix: don't break")
-    assert client.ran("commit -m 'fix: don'\\''t break'")
-
-
-# ---------------------------------------------------------------------------
 # _git error-propagation contract (check=True must raise)
 # ---------------------------------------------------------------------------
 
@@ -124,20 +100,17 @@ async def test_local_git_check_raises_on_nonzero_exit(tmp_path: Path) -> None:
         await GitManager(LocalGitRunner(repo)).commit_all("nothing staged")
 
 
-async def test_sandbox_empty_results_raises_runtime_error() -> None:
-    class _EmptyClient:
-        async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
-            return RunCommandsResponse(results=[])
-
-    backend = sandbox_backend_on(_EmptyClient(), "sid")
-    gm = GitManager(SandboxGitRunner(backend))
-    with pytest.raises(RuntimeError, match="no result"):
-        await gm.commit_all("msg")
-
-
 # ---------------------------------------------------------------------------
-# push_head_to failure classification
+# push_head_to (publish + failure classification)
 # ---------------------------------------------------------------------------
+
+
+async def test_local_push_publishes_head_to_the_origin_branch(tmp_path: Path) -> None:
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+
+    assert await GitManager(LocalGitRunner(repo)).push_head_to("feature") == "feature"
+
+    assert "feature" in Repo(origin_dir).heads
 
 
 async def test_push_head_to_raises_permission_error_on_auth_failure() -> None:
@@ -183,9 +156,6 @@ async def test_status_snapshot_raises_on_no_index_hard_error() -> None:
 
 
 async def test_status_snapshot_classifies_lsremote_auth_failure() -> None:
-    # In local mode the FIRST network op of a publish is status_snapshot's `ls-remote`, not the push.
-    # A rejected/absent credential there must surface as the actionable typed GitPushPermissionError
-    # (same as a push auth failure), not a raw GitCommandError that bypasses the classifier.
     gm, _ = _sandbox_manager({
         "ls-remote --heads origin": (128, "fatal: could not read Username for 'https://x': terminal prompts disabled")
     })
@@ -611,15 +581,6 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
-
-
-async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
-    # The sandbox returns one result per command; a short list is a wire anomaly, not a parse-to-empty.
-    client = MagicMock()
-    client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))  # 2 results for 4 commands
-    gm = GitManager(SandboxGitRunner(_backend_for(client)))
-    with pytest.raises(RuntimeError, match="results for"):
-        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
 
 
 # ---------------------------------------------------------------------------

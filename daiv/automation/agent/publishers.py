@@ -94,11 +94,10 @@ def effective_merge_request(
 
 
 def run_base_branch(ctx: RuntimeCtx) -> str:
-    """The branch the run's work is based on, for a publish that has no MR to read a target off.
+    """The branch a publish with no MR bases its diff on and targets a fresh MR at.
 
-    The branch the clone was made on rather than ``ctx.repo.ref``, which records the same ref but can hold a tag —
-    and a tag detaches HEAD, naming no branch. The default branch stands in there, since the recorded commit sha is
-    an unusable diff base and MR target.
+    The clone's recorded branch, not ``ctx.repo.ref``, which can be a tag. A tag or commit ref detaches HEAD and names
+    no branch, so the default branch stands in: the recorded sha is not a usable diff base or MR target.
     """
     if ctx.repo.head_detached:
         return cast("str", ctx.config.default_branch)
@@ -196,8 +195,6 @@ class GitChangePublisher(ChangePublisher):
             else run_base_branch(self.ctx)
         )
 
-        # A local clone's .git/config holds no credential, so its git carries the run's; sandbox git authenticates
-        # through the egress proxy, whose turn-start token a long turn can outlive (GitHub's live 1h).
         backend = self.sandbox_backend
         runner: GitRunner
         if backend is None:

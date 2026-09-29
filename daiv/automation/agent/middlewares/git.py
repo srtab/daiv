@@ -408,8 +408,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             try:
                 update["model_patch"] = await self._git_manager(runtime.context).get_diff()
             except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
-                # Narrow on purpose: sandbox wire anomalies degrade, but wiring bugs (bare
-                # RuntimeError from the unbound-session guard, asyncio misuse) always propagate.
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
                 if not self.auto_commit_changes:

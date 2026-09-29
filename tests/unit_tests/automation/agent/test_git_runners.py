@@ -1,9 +1,11 @@
+import shlex
 import subprocess  # noqa: S404
+import traceback
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from git import Repo
+from git import GitCommandError, Repo
 
 from automation.agent.git_runners import (
     GitResult,
@@ -14,7 +16,7 @@ from automation.agent.git_runners import (
 )
 from codebase.clients.base import GitAuthEnv
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
-from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on, unacquired_backend
 
 
 def _init_repo(tmp_path: Path) -> Repo:
@@ -34,9 +36,15 @@ def _replying(*results: RunCommandResult) -> MagicMock:
     return client
 
 
-# ---------------------------------------------------------------------------
-# _shell_quote (sandbox command construction)
-# ---------------------------------------------------------------------------
+def _capture_subprocess(monkeypatch) -> dict[str, dict[str, str]]:
+    captured: dict[str, dict[str, str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("automation.agent.git_runners.subprocess.run", fake_run)
+    return captured
 
 
 def test_shell_quote_passes_safe_args_through() -> None:
@@ -45,24 +53,27 @@ def test_shell_quote_passes_safe_args_through() -> None:
     assert _shell_quote("origin/main..HEAD") == "origin/main..HEAD"
 
 
-def test_shell_quote_single_quotes_args_with_spaces() -> None:
-    assert _shell_quote("fix: thing") == "'fix: thing'"
-
-
-def test_shell_quote_escapes_embedded_single_quote() -> None:
-    # The POSIX idiom: close the quote, emit an escaped quote, reopen — `'\''`.
-    assert _shell_quote("don't") == "'don'\\''t'"
-
-
-def test_shell_quote_preserves_newlines_inside_quotes() -> None:
-    quoted = _shell_quote("line1\nline2")
-    assert quoted.startswith("'") and quoted.endswith("'")
-    assert "\n" in quoted
-
-
-# ---------------------------------------------------------------------------
-# SandboxGitRunner
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "arg",
+    [
+        "fix: thing",
+        "don't",
+        "line1\nline2",
+        "$(id)",
+        "`id`",
+        "a;b",
+        "a|b",
+        "a&&b",
+        "a*",
+        'say "hi"',
+        "back\\slash",
+        "!bang",
+        "#c",
+        "",
+    ],
+)
+def test_shell_quote_makes_a_shell_read_the_argument_verbatim(arg: str) -> None:
+    assert shlex.split(_shell_quote(arg)) == [arg]
 
 
 async def test_sandbox_runner_runs_git_in_the_workspace_repo() -> None:
@@ -105,6 +116,15 @@ async def test_sandbox_runner_raises_on_a_missing_result() -> None:
         await runner.run(("status",))
 
 
+async def test_sandbox_runner_lets_the_unbound_session_guard_propagate_unwrapped() -> None:
+    runner = SandboxGitRunner(unacquired_backend())
+
+    with pytest.raises(RuntimeError, match="not bound") as exc_info:
+        await runner.run(("status",))
+
+    assert type(exc_info.value) is RuntimeError
+
+
 async def test_sandbox_runner_batch_raises_on_a_short_result_list() -> None:
     runner = SandboxGitRunner(
         sandbox_backend_on(_replying(RunCommandResult(command="git", exit_code=0, output="")), "sid")
@@ -112,11 +132,6 @@ async def test_sandbox_runner_batch_raises_on_a_short_result_list() -> None:
 
     with pytest.raises(SandboxGitProtocolError, match="1 results for 2 git commands"):
         await runner.run_batch([("status",), ("ls-files",)])
-
-
-# ---------------------------------------------------------------------------
-# LocalGitRunner
-# ---------------------------------------------------------------------------
 
 
 async def test_local_runner_batch_returns_results_in_input_order(tmp_path: Path) -> None:
@@ -128,14 +143,47 @@ async def test_local_runner_batch_returns_results_in_input_order(tmp_path: Path)
     assert results[1].exit_code != 0
 
 
+async def test_local_runner_folds_stderr_into_the_output(tmp_path: Path) -> None:
+    result = await LocalGitRunner(_init_repo(tmp_path)).run(("rev-parse", "--verify", "missing"))
+
+    assert result.exit_code != 0
+    assert "fatal" in result.output
+
+
+async def test_local_runner_reads_non_utf8_output_lossily(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    latin1_file = Path(repo.working_dir) / "latin1.txt"
+    latin1_file.write_bytes(b"caf\xe9\n")
+
+    result = await LocalGitRunner(repo).run(("diff", "--no-index", "/dev/null", str(latin1_file)))
+
+    assert result.exit_code == 1
+    assert "caf" in result.output
+
+
+async def test_local_runner_spawn_failure_raises_without_the_credential_in_any_frame(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("automation.agent.git_runners.subprocess.run", MagicMock(side_effect=OSError("boom")))
+    auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
+    secret = auth_env.header.get_secret_value()
+
+    with pytest.raises(GitCommandError) as exc_info:
+        await LocalGitRunner(_init_repo(tmp_path), auth_env=auth_env).run(("status",))
+
+    assert exc_info.value.__context__ is None
+    runner_frames = [
+        frame
+        for frame, _ in traceback.walk_tb(exc_info.value.__traceback__)
+        if frame.f_globals["__name__"] == "automation.agent.git_runners"
+    ]
+    assert runner_frames
+    assert all(secret not in repr(frame.f_locals) for frame in runner_frames)
+    assert secret not in str(exc_info.value)
+
+
 async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path: Path) -> None:
-    """``LocalGitRunner(auth_env=...)`` must overlay the credential on every local git invocation via
-    git's own ``GIT_CONFIG_*`` env mechanism — this is how the ephemeral credential reaches git now
-    that the clone's ``.git/config`` carries none — AND that credential must stay ephemeral: it must
-    never be written into ``.git/config``. Reading it back in-process proves the overlay reaches git;
-    reading the on-disk config proves it did not persist (guarding the core security contract against
-    a future switch to a persisted ``git config`` write, which would re-seed the token into the
-    sandbox)."""
+    """The credential reaches git through ``GIT_CONFIG_*`` env and is never written to ``.git/config``."""
     repo = _init_repo(tmp_path)
     auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
     runner = LocalGitRunner(repo, auth_env=auth_env)
@@ -150,20 +198,9 @@ async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path:
 
 
 async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypatch) -> None:
-    """Every local git invocation must run with prompting fully disabled. With no credential in
-    ``.git/config``, an auth-required remote otherwise makes git prompt — on the tty, or via an
-    inherited ``SSH_ASKPASS`` GUI helper — hanging an unattended publish forever. Both
-    ``GIT_TERMINAL_PROMPT=0`` (no tty prompt) and ``GIT_ASKPASS=''`` (no askpass fallback) are
-    required; together they make a rejected credential fail fast with ``could not read Username``,
-    a marker ``is_git_auth_error_text`` classifies."""
+    """Prompting is disabled with or without a credential, so a rejected one fails fast as an auth error."""
     repo = _init_repo(tmp_path)
-    captured: dict[str, dict[str, str] | None] = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["env"] = kwargs.get("env")
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("automation.agent.git_runners.subprocess.run", fake_run)
+    captured = _capture_subprocess(monkeypatch)
 
     await LocalGitRunner(repo).run(("status",))
     assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
@@ -176,9 +213,11 @@ async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypat
     assert captured["env"]["GIT_ASKPASS"] == ""
 
 
-async def test_local_env_overlay_keeps_process_environment(tmp_path: Path) -> None:
-    """The overlay must extend the inherited environment, not replace it — wiping PATH/HOME
-    would break git itself (and drop e.g. commit identity from the environment)."""
-    result = await LocalGitRunner(_init_repo(tmp_path)).run(("status", "--porcelain"))
+async def test_local_env_overlay_keeps_process_environment(tmp_path: Path, monkeypatch) -> None:
+    """The overlay extends the inherited environment: replacing it would drop PATH/HOME and break git."""
+    monkeypatch.setenv("DAIV_TEST_SENTINEL", "kept")
+    captured = _capture_subprocess(monkeypatch)
 
-    assert result.exit_code == 0
+    await LocalGitRunner(_init_repo(tmp_path)).run(("status",))
+
+    assert captured["env"]["DAIV_TEST_SENTINEL"] == "kept"

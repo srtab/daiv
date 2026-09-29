@@ -34,9 +34,6 @@ class RepoStatus:
 class GitManager:
     """Run git operations against the run's repository through a :class:`~automation.agent.git_runners.GitRunner`.
 
-    The runner decides where git runs: ``SandboxGitRunner`` in the sandbox's ``/workspace/repo`` (a sandbox run, whose
-    changes live there) or ``LocalGitRunner`` over the worker's clone (a disk-backed run). Every operation is async.
-
     Args:
         runner: Where the git commands run.
     """
@@ -181,9 +178,8 @@ class GitManager:
         else:
             self._require_ok(batch_a[1], mergebase_res)  # exit 128 (bad ref) raises; exit-0-no-SHA keeps the tip
 
-        # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent
-        # credential lands here before the push. Classify it as the same actionable transport error a
-        # push would raise instead of a raw GitCommandError; non-transport failures fall through.
+        # On a local runner ls-remote is the publish's first network op, so a bad credential fails here:
+        # classify it as a push would. Non-transport failures fall through to _require_ok.
         if lsremote_res.exit_code != 0:
             _raise_for_transport_failure(list(batch_a[3]), lsremote_res)
         self._require_ok(batch_a[3], lsremote_res)

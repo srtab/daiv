@@ -118,7 +118,6 @@ def _make_publisher(
     ctx.git_platform = git_platform
     ctx.references = ()
     ctx.acting_user_id = None
-    # The clone's ref: what run_base_branch reads to pick the diff base and the MR target.
     ctx.repo.current_ref = base_ref
     ctx.repo.head_detached = False
 
