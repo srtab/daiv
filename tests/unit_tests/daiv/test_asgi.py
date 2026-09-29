@@ -1,13 +1,14 @@
 import asyncio
 import json
 
+import django
+
 import httpx2
 import pytest
 
 import daiv
 from accounts.models import APIKey, User
 from automation.agent.mcp.client import MCPHTTPStatusError, build_client, list_tools
-from daiv import asgi
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -45,6 +46,10 @@ async def api_key(user):
 
 @pytest.fixture
 async def mcp_app(monkeypatch):
+    # Importing daiv.asgi re-runs django.setup(), and the test LOGGING then disables every existing logger.
+    monkeypatch.setattr(django, "setup", lambda **kwargs: None)
+    from daiv import asgi
+
     monkeypatch.setattr(asgi, "_mcp_application", None)
     app = asgi._get_mcp_application()
     started, stop = asyncio.Event(), asyncio.Event()
