@@ -1,52 +1,24 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import re
-import subprocess  # noqa: S404
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from git import GitCommandError
 
-from automation.agent.constants import REPO_PATH
 from core.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
     from typing import NoReturn
 
-    from git import Repo
-
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-    from codebase.clients.base import GitAuthEnv
+    from automation.agent.git_runners import GitResult, GitRunner
 
 logger = logging.getLogger("daiv.tools")
 
 
-_SHELL_SAFE_ARG = re.compile(r"^[A-Za-z0-9_./@=:,+-]+$")
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
-
-
-def _shell_quote(arg: str) -> str:
-    """POSIX single-quote ``arg`` unless it is already shell-safe.
-
-    Flags/refs/paths (``status``, ``--porcelain``, ``origin/main..HEAD``) pass through
-    unquoted for readability; anything with spaces or shell metacharacters (commit
-    messages, ``--format=%(...)``) is single-quoted so the sandbox shell sees it verbatim.
-    """
-    if arg and _SHELL_SAFE_ARG.match(arg):
-        return arg
-    return "'" + arg.replace("'", "'\\''") + "'"
-
-
-@dataclass
-class _GitResult:
-    """Normalized result of one git invocation (sandbox or local)."""
-
-    exit_code: int
-    output: str
 
 
 @dataclass(frozen=True)
@@ -59,147 +31,41 @@ class RepoStatus:
     has_unpushed: bool
 
 
-class SandboxGitProtocolError(RuntimeError):
-    """The sandbox returned a malformed/missing result for a git command (wire-level anomaly).
-
-    Distinct from a bare ``RuntimeError`` so callers that degrade git faults to soft
-    failures can catch this without also swallowing programming bugs (mode-mismatch
-    guards, asyncio misuse), which must propagate.
-    """
-
-
 class GitManager:
-    """Run git operations against a repository in one of two mutually-exclusive modes:
+    """Run git operations against the run's repository through a :class:`~automation.agent.git_runners.GitRunner`.
 
-    - **Sandbox mode** (``sandbox_backend``): git runs *in the sandbox* via the bound
-      backend's ``run_commands`` in ``repo_path`` (``/workspace/repo``). Used for
-      sandbox-enabled runs, where the agent's changes are sandbox-authoritative (no local copy).
-    - **Local mode** (``repo``): git runs as a subprocess against a GitPython clone's
-      working tree. Used for sandbox-disabled / repoless runs, where changes live on disk.
-
-    Exactly one mode must be configured. Every operation is async; local-mode git runs in
-    a worker thread so the event loop is never blocked.
+    The runner decides where git runs: ``SandboxGitRunner`` in the sandbox's ``/workspace/repo`` (a sandbox run, whose
+    changes live there) or ``LocalGitRunner`` over the worker's clone (a disk-backed run). Every operation is async.
 
     Args:
-        repo: GitPython repo for local mode.
-        sandbox_backend: The run's bound :class:`SandboxFileBackend` for sandbox mode.
-        repo_path: Repo path inside the sandbox (defaults to ``REPO_PATH``).
+        runner: Where the git commands run.
     """
 
-    def __init__(
-        self,
-        repo: Repo | None = None,
-        *,
-        sandbox_backend: SandboxFileBackend | None = None,
-        repo_path: str | None = None,
-        auth_env: GitAuthEnv | None = None,
-    ) -> None:
-        if (repo is None) == (sandbox_backend is None):
-            raise ValueError("GitManager requires exactly one of `repo` (local) or `sandbox_backend` (sandbox).")
-        if repo_path is None:
-            repo_path = REPO_PATH
-        self.repo = repo
-        self._sandbox_backend = sandbox_backend
-        self._repo_path = repo_path
-        self._auth_env = auth_env
-
-    @classmethod
-    def for_local(cls, repo: Repo, *, auth_env: GitAuthEnv | None = None) -> GitManager:
-        """Local-mode manager over a GitPython clone (sandbox-disabled / repoless runs).
-
-        Preferred over ``GitManager(repo)`` at call sites: it names the mode and makes the
-        "exactly one mode" invariant unrepresentable by construction.
-
-        ``auth_env`` (from ``RepoClient.get_git_auth_env``) is overlaid on every git subprocess's
-        environment. Network operations (push/fetch/ls-remote) require it: the clone's
-        ``.git/config`` deliberately holds no credential — the credential is carried per invocation
-        instead — so without it those operations run unauthenticated.
-        """
-        return cls(repo=repo, auth_env=auth_env)
-
-    @classmethod
-    def for_sandbox(cls, sandbox_backend: SandboxFileBackend, *, repo_path: str | None = None) -> GitManager:
-        """Sandbox-mode manager that runs git in the session's ``repo_path`` (``/workspace/repo``).
-
-        Takes the run's already-bound :class:`SandboxFileBackend` — the single session handle.
-        The backend's ``_require_bound`` guard surfaces an unbound-session programming error on
-        the first command, so no session id is threaded here.
-        """
-        return cls(sandbox_backend=sandbox_backend, repo_path=repo_path)
+    def __init__(self, runner: GitRunner) -> None:
+        self._runner = runner
 
     # -- git invocation ------------------------------------------------------
-    async def _git(self, *args: str, check: bool = True) -> _GitResult:
+    async def _git(self, *args: str, check: bool = True) -> GitResult:
         """Run one git command in the repo. Raises ``GitCommandError`` on a non-zero
         exit when ``check`` is True; otherwise returns the result for the caller to inspect.
         """
-        result = await (self._git_sandbox(args) if self._sandbox_backend is not None else self._git_local(args))
+        result = await self._runner.run(args)
         if check and result.exit_code != 0:
             raise GitCommandError(["git", *args], result.exit_code, result.output)
         return result
 
-    async def _git_sandbox(self, args: tuple[str, ...]) -> _GitResult:
-        backend = self._sandbox_backend
-        if backend is None:  # pragma: no cover - guaranteed by __init__
-            raise RuntimeError("GitManager is not in sandbox mode")
-        command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
-        response = await backend.run_commands([command], fail_fast=True)
-        if not response.results:
-            # The sandbox always returns one result per command; an empty list is a wire-level
-            # anomaly. Fail with context rather than a bare IndexError on ``results[0]``.
-            raise SandboxGitProtocolError(f"Sandbox returned no result for: git {' '.join(args)}")
-        result = response.results[0]
-        return _GitResult(exit_code=result.exit_code, output=result.output)
-
-    async def _git_local(self, args: tuple[str, ...]) -> _GitResult:
-        repo = self.repo
-        if repo is None:  # pragma: no cover - guaranteed by __init__
-            raise RuntimeError("GitManager is not in local mode")
-
-        # Disable every credential prompt path: with no credential in .git/config, an auth-required
-        # remote otherwise makes git prompt (tty, or an inherited SSH_ASKPASS GUI helper) and hang an
-        # unattended publish forever. GIT_TERMINAL_PROMPT=0 kills the tty prompt; empty GIT_ASKPASS
-        # short-circuits the askpass fallback chain. Failing fast yields "could not read Username",
-        # which is_git_auth_error_text classifies as an auth rejection. The credential overlay carries
-        # the same prompt-disabling vars (via as_env), so the no-credential branch sets them itself.
-        # Materialised here, at the innermost boundary, so the plaintext credential never lives as a
-        # named local in an outer frame.
-        overlay = self._auth_env.as_env() if self._auth_env else {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
-
-        def _run() -> _GitResult:
-            proc = subprocess.run(  # noqa: S603
-                ["git", "-C", repo.working_dir, *args],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=False,
-                env={**os.environ, **overlay},
-            )
-            return _GitResult(exit_code=proc.returncode, output=proc.stdout + proc.stderr)
-
-        return await asyncio.to_thread(_run)
-
-    async def _git_batch(self, commands: list[tuple[str, ...]]) -> list[_GitResult]:
-        """Run several git commands in a single round-trip (sandbox) or concurrently (local).
+    async def _git_batch(self, commands: list[tuple[str, ...]]) -> list[GitResult]:
+        """Run several git commands, in one round-trip where the runner allows it; results in input order.
 
         Never raises on a non-zero exit — callers inspect each result's exit_code, mirroring the
-        per-command ``check=False`` discipline. ``fail_fast=False`` so an expected non-zero (e.g.
-        ``diff --no-index`` finding differences) doesn't abort the batch. Results are in input order.
+        per-command ``check=False`` discipline.
         """
         if not commands:
             return []
-        if self._sandbox_backend is not None:
-            cmd_strs = [
-                " ".join(_shell_quote(tok) for tok in ("git", "-C", self._repo_path, *args)) for args in commands
-            ]
-            response = await self._sandbox_backend.run_commands(cmd_strs, fail_fast=False)
-            if len(response.results) != len(commands):
-                raise SandboxGitProtocolError(
-                    f"Sandbox returned {len(response.results)} results for {len(commands)} git commands"
-                )
-            return [_GitResult(exit_code=r.exit_code, output=r.output) for r in response.results]
-        return list(await asyncio.gather(*(self._git_local(args) for args in commands)))
+        return await self._runner.run_batch(commands)
 
     @staticmethod
-    def _append_untracked(diff: str, files: list[str], results: list[_GitResult]) -> str:
+    def _append_untracked(diff: str, files: list[str], results: list[GitResult]) -> str:
         """Fold per-untracked-file ``diff --no-index`` results into ``diff`` and normalise the trailing newline.
 
         ``diff --no-index`` exits 1 when it finds differences (expected — keep the output); exit >1 is a
@@ -224,7 +90,7 @@ class GitManager:
         return diff
 
     @staticmethod
-    def _require_ok(args: tuple[str, ...], res: _GitResult) -> _GitResult:
+    def _require_ok(args: tuple[str, ...], res: GitResult) -> GitResult:
         """Raise ``GitCommandError`` if a batched git command exited non-zero; else return it.
 
         Query methods run their commands with ``check=False`` (via ``_git_batch``) and gate each
@@ -363,7 +229,7 @@ class GitManager:
     async def head_sha(self) -> str:
         """The full sha of the current ``HEAD``.
 
-        ``_GitResult.output`` is stdout *and* stderr, so a benign git warning (an unreadable
+        ``GitResult.output`` is stdout *and* stderr, so a benign git warning (an unreadable
         ``.gitconfig``, a gc hint) would otherwise be returned as part of the sha; take the last
         line and refuse anything that is not a full sha rather than hand a caller a poisoned one.
         """
@@ -568,7 +434,7 @@ def _is_push_stale_error_text(output: str) -> bool:
     )
 
 
-def _raise_for_transport_failure(args: list[str], result: _GitResult) -> None:
+def _raise_for_transport_failure(args: list[str], result: GitResult) -> None:
     """Raise a typed error for an auth/permission or unreachable-host git failure; return otherwise.
 
     Operation-neutral on purpose: a credential or host-reachability problem (and its remedy) is the
@@ -594,7 +460,7 @@ def _raise_for_transport_failure(args: list[str], result: _GitResult) -> None:
         )
 
 
-def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> NoReturn:
+def _raise_for_push_failure(push_args: list[str], result: GitResult) -> NoReturn:
     """Translate a failed ``git push`` into a typed, actionable error (always raises).
 
     Auth/permission → ``GitPushPermissionError``; an unreachable host → ``GitPushNetworkError`` (both

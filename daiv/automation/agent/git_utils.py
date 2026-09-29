@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, cast
 
 from automation.agent.git_manager import GitManager
+from automation.agent.git_runners import LocalGitRunner, SandboxGitRunner
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -32,6 +33,6 @@ async def open_git_manager(
     authenticates via the egress proxy's injected header.
     """
     if sandbox_backend is not None:
-        yield GitManager.for_sandbox(sandbox_backend)
+        yield GitManager(SandboxGitRunner(sandbox_backend))
     else:
-        yield GitManager.for_local(cast("Repo", gitrepo), auth_env=auth_env)
+        yield GitManager(LocalGitRunner(cast("Repo", gitrepo), auth_env=auth_env))

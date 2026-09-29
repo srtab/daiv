@@ -13,10 +13,9 @@ from automation.agent.git_manager import (
     GitPushNetworkError,
     GitPushPermissionError,
     GitPushStaleError,
-    _GitResult,
     _is_push_stale_error_text,
-    _shell_quote,
 )
+from automation.agent.git_runners import GitResult, LocalGitRunner, SandboxGitRunner
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on
 
@@ -67,21 +66,7 @@ def _init_repo_with_origin(tmp_path: Path) -> tuple[Repo, Path]:
 def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
     client = FakeSandboxClient.opened(responses)
     backend = sandbox_backend_on(client, client.add_running_session("sid"))
-    return GitManager.for_sandbox(backend), client
-
-
-# ---------------------------------------------------------------------------
-# Constructor / mode validation
-# ---------------------------------------------------------------------------
-
-
-def test_requires_exactly_one_mode(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="exactly one"):
-        GitManager()
-    repo = _init_repo(tmp_path)
-    backend = sandbox_backend_on(FakeSandboxClient(), "sid")
-    with pytest.raises(ValueError, match="exactly one"):
-        GitManager(repo, sandbox_backend=backend)
+    return GitManager(SandboxGitRunner(backend)), client
 
 
 # ---------------------------------------------------------------------------
@@ -111,116 +96,8 @@ def test_gen_unique_branch_name_never_returns_an_existing_name() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Constructors / mode validation (classmethods)
-# ---------------------------------------------------------------------------
-
-
-def test_classmethod_constructors(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    assert GitManager.for_local(repo).repo is repo
-
-    backend = sandbox_backend_on(FakeSandboxClient(), "sid")
-    gm = GitManager.for_sandbox(backend)
-    assert gm._sandbox_backend is backend
-    assert gm.repo is None
-
-
-async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path: Path) -> None:
-    """``for_local(auth_env=...)`` must overlay the credential on every local git invocation via
-    git's own ``GIT_CONFIG_*`` env mechanism — this is how the ephemeral credential reaches git now
-    that the clone's ``.git/config`` carries none — AND that credential must stay ephemeral: it must
-    never be written into ``.git/config``. Reading it back in-process proves the overlay reaches git;
-    reading the on-disk config proves it did not persist (guarding the core security contract against
-    a future switch to a persisted ``git config`` write, which would re-seed the token into the
-    sandbox)."""
-    from pathlib import Path as _Path
-
-    from codebase.clients.base import GitAuthEnv
-
-    repo = _init_repo(tmp_path)
-    auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
-    manager = GitManager.for_local(repo, auth_env=auth_env)
-
-    # The extraheader is visible to git during the invocation (proves the overlay is applied).
-    result = await manager._git("config", "--get", "http.https://gitlab.com/.extraheader")
-    assert "Authorization: Basic" in result.output
-
-    # …but it was never written to disk.
-    config_on_disk = (_Path(repo.working_dir) / ".git" / "config").read_text()
-    assert "sekret-token" not in config_on_disk
-    assert "extraheader" not in config_on_disk
-    assert "GIT_CONFIG" not in config_on_disk
-
-
-async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypatch) -> None:
-    """Every local git invocation must run with prompting fully disabled. With no credential in
-    ``.git/config``, an auth-required remote otherwise makes git prompt — on the tty, or via an
-    inherited ``SSH_ASKPASS`` GUI helper — hanging an unattended publish forever. Both
-    ``GIT_TERMINAL_PROMPT=0`` (no tty prompt) and ``GIT_ASKPASS=''`` (no askpass fallback) are
-    required; together they make a rejected credential fail fast with ``could not read Username``,
-    a marker ``is_git_auth_error_text`` classifies."""
-    import subprocess as subprocess_module  # noqa: S404
-
-    from codebase.clients.base import GitAuthEnv
-
-    repo = _init_repo(tmp_path)
-    captured: dict[str, dict[str, str] | None] = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["env"] = kwargs.get("env")
-        return subprocess_module.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("automation.agent.git_manager.subprocess.run", fake_run)
-
-    # No credential: the prompt-disabling defaults must still be present.
-    await GitManager.for_local(repo)._git("status")
-    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
-    assert captured["env"]["GIT_ASKPASS"] == ""
-
-    # With a credential: the header is applied and the prompt-disabling vars remain.
-    auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "tok")
-    await GitManager.for_local(repo, auth_env=auth_env)._git("status")
-    assert "Authorization: Basic" in captured["env"]["GIT_CONFIG_VALUE_0"]
-    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
-    assert captured["env"]["GIT_ASKPASS"] == ""
-
-
-async def test_local_env_overlay_keeps_process_environment(tmp_path: Path) -> None:
-    """The overlay must extend the inherited environment, not replace it — wiping PATH/HOME
-    would break git itself (and drop e.g. commit identity from the environment)."""
-    repo = _init_repo(tmp_path)
-    manager = GitManager.for_local(repo)
-
-    # Succeeds only if git is still resolvable and the repo readable under the merged env.
-    result = await manager._git("status", "--porcelain")
-
-    assert result.exit_code == 0
-
-
-# ---------------------------------------------------------------------------
 # _shell_quote (sandbox command construction)
 # ---------------------------------------------------------------------------
-
-
-def test_shell_quote_passes_safe_args_through() -> None:
-    assert _shell_quote("status") == "status"
-    assert _shell_quote("--porcelain") == "--porcelain"
-    assert _shell_quote("origin/main..HEAD") == "origin/main..HEAD"
-
-
-def test_shell_quote_single_quotes_args_with_spaces() -> None:
-    assert _shell_quote("fix: thing") == "'fix: thing'"
-
-
-def test_shell_quote_escapes_embedded_single_quote() -> None:
-    # The POSIX idiom: close the quote, emit an escaped quote, reopen — `'\''`.
-    assert _shell_quote("don't") == "'don'\\''t'"
-
-
-def test_shell_quote_preserves_newlines_inside_quotes() -> None:
-    quoted = _shell_quote("line1\nline2")
-    assert quoted.startswith("'") and quoted.endswith("'")
-    assert "\n" in quoted
 
 
 async def test_shell_quote_applied_to_commit_message_with_apostrophe() -> None:
@@ -244,7 +121,7 @@ async def test_local_git_check_raises_on_nonzero_exit(tmp_path: Path) -> None:
     # Clean tree -> `git commit` exits non-zero ("nothing to commit"); check=True must raise.
     repo, _ = _init_repo_with_origin(tmp_path)
     with pytest.raises(GitCommandError):
-        await GitManager(repo).commit_all("nothing staged")
+        await GitManager(LocalGitRunner(repo)).commit_all("nothing staged")
 
 
 async def test_sandbox_empty_results_raises_runtime_error() -> None:
@@ -253,7 +130,7 @@ async def test_sandbox_empty_results_raises_runtime_error() -> None:
             return RunCommandsResponse(results=[])
 
     backend = sandbox_backend_on(_EmptyClient(), "sid")
-    gm = GitManager.for_sandbox(backend)
+    gm = GitManager(SandboxGitRunner(backend))
     with pytest.raises(RuntimeError, match="no result"):
         await gm.commit_all("msg")
 
@@ -365,7 +242,7 @@ async def test_push_head_to_integrates_remote_and_retries_on_non_fast_forward() 
     client.run_commands = AsyncMock(
         side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     assert await gm.push_head_to("b", integrate_on_reject=True) == "b"
 
@@ -388,7 +265,7 @@ async def test_push_head_to_raises_stale_on_rebase_conflict() -> None:
             _resp(("", 0)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     with pytest.raises(GitPushStaleError):
         await gm.push_head_to("b", integrate_on_reject=True)
@@ -406,7 +283,7 @@ async def test_push_head_to_raises_stale_when_retry_still_rejected() -> None:
     client.run_commands = AsyncMock(
         side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp((_NON_FF_REJECT, 1))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     with pytest.raises(GitPushStaleError):
         await gm.push_head_to("b", integrate_on_reject=True)
@@ -460,7 +337,7 @@ async def test_push_head_to_integrate_classifies_fetch_failure() -> None:
     client.run_commands = AsyncMock(
         side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("The requested URL returned error: 403", 128))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     with pytest.raises(GitPushPermissionError):
         await gm.push_head_to("b", integrate_on_reject=True)
@@ -484,7 +361,7 @@ async def test_push_head_to_classifies_stale_when_abort_fails() -> None:
             _resp(("fatal: could not abort", 1)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     with pytest.raises(GitPushStaleError, match="inconsistent state"):
         await gm.push_head_to("b", integrate_on_reject=True)
@@ -545,7 +422,7 @@ async def test_status_snapshot_diffs_against_merge_base_in_batch_b() -> None:
             _resp(("", 0)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert (snap.dirty, snap.diff, snap.remote_branches, snap.has_unpushed) == (False, "", ["main"], False)
     assert client.run_commands.await_count == 2
@@ -562,7 +439,7 @@ async def test_status_snapshot_falls_back_to_tip_when_no_merge_base(caplog) -> N
     client.run_commands = AsyncMock(
         side_effect=[_resp(("", 0), ("", 1), ("", 0), ("abc\trefs/heads/main\n", 0)), _resp(("", 0))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with caplog.at_level(logging.WARNING, logger="daiv.tools"):
         snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.diff == ""
@@ -577,7 +454,7 @@ async def test_status_snapshot_falls_back_to_tip_on_empty_merge_base_output() ->
     client.run_commands = AsyncMock(
         side_effect=[_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0)), _resp(("", 0))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.diff == ""
     batch_b = client.run_commands.await_args_list[1].args[1]
@@ -591,7 +468,7 @@ async def test_status_snapshot_raises_on_merge_base_hard_failure() -> None:
     client.run_commands = AsyncMock(
         return_value=_resp(("", 0), ("fatal: Not a valid object name", 128), ("", 0), ("abc\trefs/heads/main\n", 0))
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert "merge-base origin/main HEAD" in str(exc_info.value)
@@ -608,7 +485,7 @@ async def test_status_snapshot_raises_when_batch_b_main_diff_fails() -> None:
             _resp(("fatal: bad object", 128)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert "diff mb123" in str(exc_info.value)
@@ -623,7 +500,7 @@ async def test_status_snapshot_folds_untracked_into_batch_b() -> None:
             _resp(("", 0), ("+++ b/new.py\n+hello\n", 1)),  # diff <mb>, then diff --no-index for new.py
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.dirty is True
     assert "new.py" in snap.diff
@@ -635,13 +512,13 @@ async def test_status_snapshot_folds_untracked_into_batch_b() -> None:
 _UNTRACKED_EMPTY_THEN_REAL_FILES = ["a_empty.py", "b_real.py"]
 
 
-def _untracked_empty_then_real() -> list[_GitResult]:
+def _untracked_empty_then_real() -> list[GitResult]:
     return [
         # empty file: header only, no @@ hunk (the section that trips unidiff when a blank follows)
-        _GitResult(
+        GitResult(
             exit_code=1, output="diff --git a/a_empty.py b/a_empty.py\nnew file mode 100644\nindex 0000000..e69de29\n"
         ),
-        _GitResult(
+        GitResult(
             exit_code=1,
             output=(
                 "diff --git a/b_real.py b/b_real.py\nnew file mode 100644\nindex 0000000..17e3475\n"
@@ -698,7 +575,7 @@ async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: 
     outputs[failing_index] = ("boom", 128)
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(*outputs))
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert command_fragment in str(exc_info.value)
@@ -716,7 +593,7 @@ async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
             _resp(("", 0)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
 
@@ -731,7 +608,7 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
             _resp(("", 0)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
 
@@ -740,7 +617,7 @@ async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
     # The sandbox returns one result per command; a short list is a wire anomaly, not a parse-to-empty.
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))  # 2 results for 4 commands
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
     with pytest.raises(RuntimeError, match="results for"):
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
 
@@ -756,7 +633,7 @@ async def test_get_diff_local_includes_tracked_changes_and_untracked(tmp_path: P
     (repo_dir / "README.md").write_text("changed\n")
     (repo_dir / "new.py").write_text("print('hi')\n")
 
-    diff = await GitManager.for_local(repo).get_diff()
+    diff = await GitManager(LocalGitRunner(repo)).get_diff()
 
     assert "a/README.md" in diff
     assert "+changed" in diff
@@ -767,13 +644,13 @@ async def test_get_diff_local_includes_tracked_changes_and_untracked(tmp_path: P
 
 async def test_get_diff_local_empty_when_clean(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
-    assert await GitManager.for_local(repo).get_diff() == ""
+    assert await GitManager(LocalGitRunner(repo)).get_diff() == ""
 
 
 async def test_get_diff_sandbox_single_round_trip_when_no_untracked() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(("diff --git a/x b/x\n", 0), ("", 0)))
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     diff = await gm.get_diff()
 
@@ -793,7 +670,7 @@ async def test_get_diff_sandbox_folds_untracked_in_second_round_trip() -> None:
             _resp(("+++ b/new.py\n+hello\n", 1)),
         ]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     diff = await gm.get_diff()
 
@@ -806,7 +683,7 @@ async def test_get_diff_sandbox_folds_untracked_in_second_round_trip() -> None:
 async def test_get_diff_diffs_against_given_ref() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     await gm.get_diff("abc123")
 
@@ -833,7 +710,7 @@ async def test_get_changed_files_local_includes_tracked_and_untracked(tmp_path: 
     (repo_dir / "README.md").write_text("changed\n")
     (repo_dir / "my file.txt").write_text("with space\n")
 
-    changed = await GitManager.for_local(repo).get_changed_files()
+    changed = await GitManager(LocalGitRunner(repo)).get_changed_files()
 
     assert "README.md" in changed
     assert "my file.txt" in changed
@@ -841,13 +718,13 @@ async def test_get_changed_files_local_includes_tracked_and_untracked(tmp_path: 
 
 async def test_get_changed_files_local_empty_when_clean(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
-    assert await GitManager.for_local(repo).get_changed_files() == []
+    assert await GitManager(LocalGitRunner(repo)).get_changed_files() == []
 
 
 async def test_get_changed_files_sandbox_single_round_trip() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(("a.py\nb.py\n", 0), ("new.py\n", 0)))
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     changed = await gm.get_changed_files()
 
@@ -891,7 +768,7 @@ async def test_push_head_to_skip_ci_survives_the_integrate_on_reject_retry() -> 
     client.run_commands = AsyncMock(
         side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
     )
-    gm = GitManager.for_sandbox(_backend_for(client))
+    gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
     assert await gm.push_head_to("b", integrate_on_reject=True, skip_ci=True) == "b"
 

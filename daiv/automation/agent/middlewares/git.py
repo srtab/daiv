@@ -15,7 +15,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_manager import SandboxGitProtocolError
+from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 from automation.agent.utils import conversation_thread_id, final_assistant_text

@@ -6,7 +6,8 @@ import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
 
-from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
+from automation.agent.git_manager import GitPushPermissionError
+from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
