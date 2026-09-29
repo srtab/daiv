@@ -3239,7 +3239,7 @@ Network access is off by default
 
 Installing or updating dependencies reaches out to package registries (npm, PyPI, etc.), which needs network access. The sandbox runs with networking **disabled** by default, so these commands fail until you turn **Network** on for the relevant [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md).
 
-Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
+Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next. When a run ends — finished, failed or stopped — DAIV stops its container, and the session's next turn restarts and reuses it, so what the agent installed is still there. The turn starts from a fresh container instead when the session's [environment changed](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) or the sandbox has since reclaimed the old one.
 
 ## Command policy
 
@@ -3404,6 +3404,8 @@ Issue and merge request webhooks
 Runs triggered by an issue or merge request webhook (for example, [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
 
 The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.
+
+Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.
 
 ```
 flowchart TD

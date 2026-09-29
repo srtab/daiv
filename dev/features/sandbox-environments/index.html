@@ -2042,6 +2042,7 @@
 <p>Runs triggered by an issue or merge request webhook (for example, <a href="../issue-addressing/">issue addressing</a>) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.</p>
 </div>
 <p>The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A <a href="../pipeline-watch/">pipeline-watch</a> fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.</p>
+<p>Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.</p>
 <pre class="mermaid"><code>flowchart TD
     A[Run requested for a repo] --&gt; B{Environment&lt;br/&gt;explicitly selected?}
     B -- Yes --&gt; Z[Use it]
@@ -2130,7 +2131,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 28, 2026 15:01:31 UTC">September 28, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 29, 2026 06:32:38 UTC">September 29, 2026</span>
   </span>
 
     

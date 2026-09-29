@@ -18,7 +18,7 @@ Network access is off by default
 
 Installing or updating dependencies reaches out to package registries (npm, PyPI, etc.), which needs network access. The sandbox runs with networking **disabled** by default, so these commands fail until you turn **Network** on for the relevant [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md).
 
-Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
+Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next. When a run ends — finished, failed or stopped — DAIV stops its container, and the session's next turn restarts and reuses it, so what the agent installed is still there. The turn starts from a fresh container instead when the session's [environment changed](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) or the sandbox has since reclaimed the old one.
 
 ## Command policy
 
