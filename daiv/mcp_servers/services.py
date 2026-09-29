@@ -207,7 +207,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI
         failure = classify(exc)
-        if failure.kind is FailureKind.UNEXPECTED:
+        if FailureKind.UNEXPECTED in failure.kinds:
             logger.exception("MCP test_connection failed unexpectedly for url=%s", payload.get("url"))
         else:
             logger.warning("MCP test_connection failed for url=%s: %s", payload.get("url"), failure.message)

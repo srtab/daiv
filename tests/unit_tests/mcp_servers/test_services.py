@@ -233,10 +233,7 @@ async def test_test_connection_reports_blank_exception_with_class_name(monkeypat
 
 
 async def test_test_connection_unwraps_exception_group(monkeypatch):
-    """The MCP streamable-http client runs inside an anyio task group, so a real
-    failure (e.g. an httpx 401) surfaces wrapped in an ExceptionGroup whose str()
-    is the useless "unhandled errors in a TaskGroup (N sub-exceptions)". The error
-    must unwrap to the underlying cause, not the wrapper."""
+    """An ExceptionGroup's str() is the useless "unhandled errors in a TaskGroup"; the error must name the leaf."""
     from mcp_servers.services import test_connection
 
     def _fail(payload):
@@ -247,7 +244,6 @@ async def test_test_connection_unwraps_exception_group(monkeypatch):
     assert result["ok"] is False
     assert "401 Unauthorized" in result["error"]
     assert "RuntimeError" in result["error"]
-    # The opaque wrapper must NOT be what the user sees.
     assert "unhandled errors in a TaskGroup" not in result["error"]
     assert "ExceptionGroup" not in result["error"]
 
@@ -296,6 +292,23 @@ async def test_test_connection_reports_unreachable_host_as_warning(caplog):
     assert result["ok"] is False
     assert result["error"].startswith("ConnectError:")
     assert [r.levelname for r in _service_records(caplog)] == ["WARNING"]
+
+
+async def test_test_connection_warns_on_a_group_of_anticipated_failures(monkeypatch, caplog):
+    import anyio
+    import httpx2
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        raise ExceptionGroup("g", [httpx2.ConnectError("refused"), anyio.ClosedResourceError()])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+
+    assert result == {"ok": False, "error": "ConnectError: refused; ClosedResourceError"}
+    [record] = _service_records(caplog)
+    assert record.levelname == "WARNING"
 
 
 async def test_test_connection_logs_unexpected_failures_with_traceback(monkeypatch, caplog):

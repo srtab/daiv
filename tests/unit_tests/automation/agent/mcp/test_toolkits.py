@@ -4,17 +4,19 @@ from contextlib import AsyncExitStack
 import anyio
 import httpx2
 import pytest
+from mcp.shared.exceptions import MCPError
+from mcp_types import CONNECTION_CLOSED
 
 from automation.agent.mcp.client import MCPHTTPStatusError, build_client
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from automation.agent.mcp.toolkits import MCPToolkit, _load_server_tools
-from tests.unit_tests.automation.agent.mcp.helpers import serve
+from tests.unit_tests.automation.agent.mcp.helpers import empty_event_stream, serve
 
 APP_TOOLS = {"echo", "write", "plain", "boom", "structured", "capabilities"}
 
 
-def _dto(url: str, tool_filter: ToolFilter | None = None) -> UserMcpServer:
-    return UserMcpServer(type="http", url=url, tool_filter=tool_filter)
+def _dto(url: str, tool_filter: ToolFilter | None = None, headers: dict[str, str] | None = None) -> UserMcpServer:
+    return UserMcpServer(type="http", url=url, tool_filter=tool_filter, headers=headers)
 
 
 async def _until_requested(gate) -> None:
@@ -74,6 +76,28 @@ class TestGetTools:
 
         assert result[0]["text"] == "hi"
 
+    async def test_server_headers_reach_the_server(self, gates, servers):
+        async with serve() as gate:
+            gates["http://acme/mcp"] = gate
+            servers(("acme", _dto("http://acme/mcp", headers={"Authorization": "Bearer t0k"})))
+
+            await MCPToolkit.get_tools()
+
+        assert gate.request_headers
+        assert all(h.get("authorization") == "Bearer t0k" for h in gate.request_headers)
+
+    async def test_failing_tool_returns_an_error_tool_message(self, gates, servers):
+        async with serve() as gate:
+            gates["http://acme/mcp"] = gate
+            servers(("acme", _dto("http://acme/mcp")))
+
+            tools = await MCPToolkit.get_tools()
+            boom = next(tool for tool in tools if tool.name == "acme_boom")
+            message = await boom.ainvoke({"id": "call-1", "name": "acme_boom", "args": {}, "type": "tool_call"})
+
+        assert message.status == "error"
+        assert message.name == "acme_boom"
+
     @pytest.mark.parametrize(
         ("tool_filter", "expected"),
         [
@@ -90,12 +114,16 @@ class TestGetTools:
 
         assert {tool.name for tool in tools} == {f"acme_{name}" for name in expected}
 
-    async def test_filter_that_removes_every_tool_contributes_nothing(self, gates, servers):
+    async def test_filter_that_removes_every_tool_contributes_nothing(self, gates, servers, caplog):
         async with serve() as gate:
             gates["http://acme/mcp"] = gate
             servers(("acme", _dto("http://acme/mcp", ToolFilter(mode="allow", items=["does-not-exist"]))))
 
-            assert await MCPToolkit.get_tools() == []
+            with caplog.at_level("WARNING", logger="daiv.tools"):
+                assert await MCPToolkit.get_tools() == []
+
+        assert gate.request_headers
+        assert [r for r in caplog.records if r.name == "daiv.tools"] == []
 
     async def test_overlapping_server_names_do_not_cross_match_filters(self, gates, servers):
         async with AsyncExitStack() as stack:
@@ -169,8 +197,12 @@ class TestLogPolicy:
             anyio.BrokenResourceError(),
             anyio.ClosedResourceError(),
             MCPHTTPStatusError(503, "Service Unavailable", "http://x/mcp"),
+            MCPError(CONNECTION_CLOSED, "Connection closed"),
+            ExceptionGroup(
+                "g", [MCPHTTPStatusError(503, "Service Unavailable", "http://x/mcp"), anyio.BrokenResourceError()]
+            ),
         ],
-        ids=["timeout", "broken-stream", "closed-stream", "http-5xx"],
+        ids=["timeout", "broken-stream", "closed-stream", "http-5xx", "connection-closed", "all-soft-group"],
     )
     async def test_soft_failures_warn_without_traceback(self, servers, monkeypatch, caplog, exc):
         async def _fail(client):
@@ -220,6 +252,18 @@ class TestLogPolicy:
                 assert await MCPToolkit.get_tools() == []
 
         assert [r.levelname for r in caplog.records if r.name == "daiv.tools"] == ["WARNING"]
+
+    async def test_stream_dropped_mid_request_through_the_real_client_stack_is_a_warning(self, gates, servers, caplog):
+        async with serve(routes={"tools/list": empty_event_stream()}) as gate:
+            gates["http://bad/mcp"] = gate
+            servers(("bad", _dto("http://bad/mcp")))
+
+            with caplog.at_level("WARNING", logger="daiv.tools"):
+                assert await MCPToolkit.get_tools() == []
+
+        [record] = [r for r in caplog.records if r.name == "daiv.tools"]
+        assert record.levelname == "WARNING"
+        assert "SSE stream ended without a response" in record.getMessage()
 
 
 @pytest.mark.django_db(transaction=True)

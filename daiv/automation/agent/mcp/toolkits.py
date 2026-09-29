@@ -21,7 +21,7 @@ _SOFT_FAILURES = frozenset({FailureKind.TIMEOUT, FailureKind.SERVER_ERROR, Failu
 
 
 async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]:
-    """Load, filter and prefix one server's tools. Bounded by ``TOOL_LOAD_TIMEOUT`` and never raises:
+    """Load, filter and prefix one server's tools. Bounded by ``TOOL_LOAD_TIMEOUT``; no ``Exception`` escapes:
     a hang or any error degrades to an empty list so one endpoint can neither freeze nor blank its peers.
     """
     try:
@@ -30,10 +30,10 @@ async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]
         )
     except Exception as exc:  # never BaseException: CancelledError must propagate
         failure = classify(exc)
-        if failure.kind in _SOFT_FAILURES:
+        if failure.kinds <= _SOFT_FAILURES:
             detail = (
                 f"timed out after {settings.TOOL_LOAD_TIMEOUT:g}s"
-                if failure.kind is FailureKind.TIMEOUT
+                if failure.kinds == {FailureKind.TIMEOUT}
                 else failure.message
             )
             logger.warning("Failed to load tools from MCP server %r (%s): %s; skipping it", name, server.url, detail)

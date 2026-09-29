@@ -6,10 +6,13 @@ from enum import StrEnum
 import anyio
 import httpx2
 from mcp.shared.exceptions import MCPError
+from mcp_types import CONNECTION_CLOSED
 
 from .client import MCPHTTPStatusError
 
 _CONNECT_WRAPPER_PREFIX = "Client failed to connect"
+# How mcp's own client reports a dropped stream; servers may reuse the code for their own errors.
+_STREAM_CLOSED_PREFIXES = ("Connection closed", "SSE stream ended")
 
 
 class FailureKind(StrEnum):
@@ -24,19 +27,20 @@ class FailureKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class MCPFailure:
-    kind: FailureKind
+    kinds: frozenset[FailureKind]
     message: str
 
 
 def classify(exc: BaseException) -> MCPFailure:
-    """Classify an MCP load/probe failure and render its user-facing message.
+    """Classify an MCP load/probe failure into the kinds of its leaf exceptions and a one-line message.
 
-    Shared by the runtime toolkit (log level) and test-connection (log level + UI message).
+    Callers decide which kinds are soft: the runtime toolkit's ``_SOFT_FAILURES``; test-connection, all but
+    ``UNEXPECTED``.
     """
     leaves = _leaves(exc)
-    kinds = {_kind(leaf) for leaf in leaves}
-    kind = kinds.pop() if len(kinds) == 1 else FailureKind.UNEXPECTED
-    return MCPFailure(kind, "; ".join(dict.fromkeys(_message(leaf) for leaf in leaves)))
+    return MCPFailure(
+        frozenset(_kind(leaf) for leaf in leaves), "; ".join(dict.fromkeys(_message(leaf) for leaf in leaves))
+    )
 
 
 def _leaves(exc: BaseException) -> list[BaseException]:
@@ -66,6 +70,8 @@ def _kind(leaf: BaseException) -> FailureKind:
     if isinstance(leaf, OSError | httpx2.TransportError | httpx2.InvalidURL):
         return FailureKind.UNREACHABLE
     if isinstance(leaf, MCPError):
+        if leaf.code == CONNECTION_CLOSED and leaf.message.startswith(_STREAM_CLOSED_PREFIXES):
+            return FailureKind.STREAM_BROKEN
         return FailureKind.PROTOCOL
     return FailureKind.UNEXPECTED
 
