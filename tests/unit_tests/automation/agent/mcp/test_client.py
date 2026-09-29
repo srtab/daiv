@@ -5,9 +5,11 @@ import httpx2
 import pytest
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 
 from automation.agent.mcp.client import FailedResponse, MCPHTTPStatusError, StatusRecorder, build_client, list_tools
-from tests.unit_tests.automation.agent.mcp.helpers import client_for, serve
+from automation.agent.mcp.errors import classify
+from tests.unit_tests.automation.agent.mcp.helpers import LEGACY_SERVER, client_for, http_status, jsonrpc_error, serve
 
 APP_TOOLS = {"echo", "write", "plain", "boom", "structured", "capabilities"}
 
@@ -63,10 +65,20 @@ class TestStatusRecorder:
         assert recorder.last is None
 
     @pytest.mark.parametrize("method", ["GET", "DELETE"])
-    async def test_ignores_405_on_get_and_delete(self, method):
+    @pytest.mark.parametrize("status", [404, 405, 502])
+    async def test_ignores_non_post_responses(self, method, status):
         recorder = StatusRecorder()
 
-        await recorder(httpx2.Response(405, request=httpx2.Request(method, "http://demo.test/mcp")))
+        await recorder(httpx2.Response(status, request=httpx2.Request(method, "http://demo.test/mcp")))
+
+        assert recorder.last is None
+
+    async def test_successful_post_clears_an_earlier_failure(self):
+        recorder = StatusRecorder()
+        request = httpx2.Request("POST", "http://demo.test/mcp")
+
+        await recorder(httpx2.Response(400, request=request))
+        await recorder(httpx2.Response(200, request=request))
 
         assert recorder.last is None
 
@@ -114,12 +126,12 @@ class TestListTools:
         assert str(error) == f"HTTP {status} {reason} for url 'http://test/mcp'"
         assert error.__cause__ is not None
 
-    async def test_sse_http_failure_raises_status_error(self):
+    async def test_sse_http_failure_keeps_its_status(self):
         async with serve(status=503) as gate:
-            with pytest.raises(MCPHTTPStatusError) as exc_info:
+            with pytest.raises(BaseException) as exc_info:  # noqa: PT011
                 await list_tools(client_for(gate, transport="sse", url="http://test/sse"))
 
-        assert exc_info.value.status_code == 503
+        assert classify(exc_info.value).message == "HTTP 503 Service Unavailable for url 'http://test/sse'"
 
     async def test_connect_failure_is_not_relabelled_by_a_stale_recorded_status(self):
         client = build_client("http", "http://127.0.0.1:1/mcp", None)
@@ -129,6 +141,26 @@ class TestListTools:
             await list_tools(client)
 
         assert not isinstance(exc_info.value, MCPHTTPStatusError)
+
+    async def test_lists_tools_from_a_legacy_server(self):
+        async with serve(stateless=False, routes=LEGACY_SERVER) as gate:
+            tools = await list_tools(client_for(gate))
+
+        assert {tool.name for tool in tools} == APP_TOOLS
+
+    async def test_protocol_error_is_not_blamed_on_the_rejected_discover_probe(self):
+        routes = {**LEGACY_SERVER, "tools/list": jsonrpc_error("upstream catalog unavailable")}
+        async with serve(stateless=False, routes=routes) as gate:
+            with pytest.raises(MCPError, match="upstream catalog unavailable"):
+                await list_tools(client_for(gate))
+
+    async def test_teardown_failure_does_not_mask_the_request_failure(self):
+        routes = {**LEGACY_SERVER, "tools/list": http_status(503), "DELETE": http_status(404)}
+        async with serve(stateless=False, routes=routes) as gate:
+            with pytest.raises(MCPHTTPStatusError) as exc_info:
+                await list_tools(client_for(gate))
+
+        assert exc_info.value.status_code == 503
 
     async def test_timeout_propagates_unchanged(self):
         async with serve(hang=True) as gate:

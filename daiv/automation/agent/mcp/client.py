@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from fastmcp.client.logging import LogMessage
     from langchain_core.tools.base import BaseTool
 
-_BENIGN_405_METHODS = frozenset({"GET", "DELETE"})
 # mcp's own defaults; httpx2's 5s read timeout would cut off slow tool calls.
 _DEFAULT_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
@@ -39,21 +38,23 @@ class FailedResponse:
 
 
 class StatusRecorder:
-    """httpx2 response hook keeping the last failed (>= 400) response.
+    """httpx2 response hook keeping the failure (>= 400) of the latest ``POST``, cleared when one succeeds.
 
-    A ``405`` on ``GET``/``DELETE`` is ignored: streamable HTTP lets a server refuse the standalone
-    stream and session termination that way.
+    Only a ``POST`` failure reaches the caller as an ``MCPError``: mcp recovers from a rejected
+    ``server/discover`` probe and swallows failures of the standalone ``GET`` stream and the teardown ``DELETE``.
     """
 
     def __init__(self) -> None:
         self.last: FailedResponse | None = None
 
     async def __call__(self, response: httpx2.Response) -> None:
-        if response.status_code < 400:
+        if response.request.method != "POST":
             return
-        if response.status_code == 405 and response.request.method in _BENIGN_405_METHODS:
-            return
-        self.last = FailedResponse(response.status_code, response.reason_phrase, str(response.request.url))
+        self.last = (
+            FailedResponse(response.status_code, response.reason_phrase, str(response.request.url))
+            if response.status_code >= 400
+            else None
+        )
 
 
 async def _drop_server_log(message: LogMessage) -> None:
