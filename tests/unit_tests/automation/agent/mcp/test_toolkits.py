@@ -126,7 +126,7 @@ class TestGetTools:
 
         assert {tool.name for tool in tools} == {f"good_{name}" for name in APP_TOOLS}
 
-    async def test_hanging_server_times_out_without_blanking_peers(self, gates, servers, monkeypatch):
+    async def test_hanging_server_times_out_without_blanking_peers(self, gates, servers, monkeypatch, caplog):
         monkeypatch.setattr("automation.agent.mcp.toolkits.settings.TOOL_LOAD_TIMEOUT", 1.0)
         async with AsyncExitStack() as stack:
             good = await stack.enter_async_context(serve())
@@ -135,9 +135,17 @@ class TestGetTools:
             gates["http://slow/mcp"] = slow
             servers(("slow", _dto("http://slow/mcp")), ("good", _dto("http://good/mcp")))
 
-            tools = await MCPToolkit.get_tools()
+            with caplog.at_level("WARNING", logger="daiv.tools"):
+                tools = await MCPToolkit.get_tools()
 
         assert {tool.name for tool in tools} == {f"good_{name}" for name in APP_TOOLS}
+        [record] = [r for r in caplog.records if r.name == "daiv.tools"]
+        assert record.levelname == "WARNING"
+        assert record.exc_info is None
+        message = record.getMessage()
+        assert "'slow'" in message
+        assert "http://slow/mcp" in message
+        assert "timed out after 1s" in message
 
 
 class TestLoadServerTools:

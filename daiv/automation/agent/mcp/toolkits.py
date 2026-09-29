@@ -31,9 +31,12 @@ async def _load_server_tools(name: str, server: UserMcpServer) -> list[BaseTool]
     except Exception as exc:  # never BaseException: CancelledError must propagate
         failure = classify(exc)
         if failure.kind in _SOFT_FAILURES:
-            logger.warning(
-                "Failed to load tools from MCP server %r (%s): %s; skipping it", name, server.url, failure.message
+            detail = (
+                f"timed out after {settings.TOOL_LOAD_TIMEOUT:g}s"
+                if failure.kind is FailureKind.TIMEOUT
+                else failure.message
             )
+            logger.warning("Failed to load tools from MCP server %r (%s): %s; skipping it", name, server.url, detail)
         else:
             logger.exception("Error getting tools from MCP server %r (%s); skipping it", name, server.url)
         return []
