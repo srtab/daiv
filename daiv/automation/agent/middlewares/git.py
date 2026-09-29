@@ -246,7 +246,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         so besides the ERROR log, the file list is tagged on the LangSmith run tree and
         returned for the state update (see ``GitState.pre_run_dirty_files``). Non-fatal by
         design: the check is diagnostic, and a check failure must not abort an otherwise
-        healthy run. The catch is deliberately narrow — wiring bugs (mode-mismatch
+        healthy run. The catch is deliberately narrow — wiring bugs (unbound-session
         ``RuntimeError``, asyncio misuse) must propagate, not degrade into a skipped check.
         """
         try:
@@ -409,7 +409,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 update["model_patch"] = await self._git_manager(runtime.context).get_diff()
             except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
                 # Narrow on purpose: sandbox wire anomalies degrade, but wiring bugs (bare
-                # RuntimeError from mode-mismatch guards, asyncio misuse) always propagate.
+                # RuntimeError from the unbound-session guard, asyncio misuse) always propagate.
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
                 if not self.auto_commit_changes:

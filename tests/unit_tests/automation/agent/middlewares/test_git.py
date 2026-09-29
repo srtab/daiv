@@ -490,17 +490,17 @@ class TestGitMiddleware:
 
     async def test_abefore_agent_dirty_check_propagates_wiring_bugs(self):
         """The non-fatal catch is deliberately narrow: a bare RuntimeError signals a
-        programming error (mode mismatch, asyncio misuse) and must fail the run loudly,
+        programming error (unbound-session guard, asyncio misuse) and must fail the run loudly,
         not degrade into a silently skipped check."""
         middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
-        gm.get_changed_files.side_effect = RuntimeError("GitManager is not in sandbox mode")
+        gm.get_changed_files.side_effect = RuntimeError("SandboxFileBackend is not bound to a sandbox session")
 
         with (
             patch("automation.agent.middlewares.git.GitManager", return_value=gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
-            pytest.raises(RuntimeError, match="not in sandbox mode"),
+            pytest.raises(RuntimeError, match="not bound to a sandbox session"),
         ):
             await middleware.abefore_agent({}, runtime)
 
@@ -913,16 +913,17 @@ class TestGitMiddleware:
 
     async def test_aafter_agent_capture_wiring_bug_propagates_even_when_publishing(self):
         """The capture catch is deliberately narrow: a bare RuntimeError is a programming
-        error (mode mismatch, asyncio misuse), not a degradable git fault — it must fail
+        error (unbound-session guard, asyncio misuse), not a degradable git fault — it must fail
         the run loudly instead of being masked as "publishing without model_patch"."""
         mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=_bound_backend())
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        gm = MagicMock(get_diff=AsyncMock(side_effect=RuntimeError("GitManager is not in sandbox mode")))
+        unbound = RuntimeError("SandboxFileBackend is not bound to a sandbox session")
+        gm = MagicMock(get_diff=AsyncMock(side_effect=unbound))
 
         with (
             patch("automation.agent.middlewares.git.GitManager", return_value=gm),
             patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
-            pytest.raises(RuntimeError, match="not in sandbox mode"),
+            pytest.raises(RuntimeError, match="not bound to a sandbox session"),
         ):
             await mw.aafter_agent({"merge_request": None}, runtime)
 

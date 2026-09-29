@@ -156,10 +156,10 @@ def _turn_start_egress(
     return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
 
 
-def _make_sandbox_publisher():
+def _make_sandbox_publisher(*, base_ref: str = "main"):
     """A sandbox-mode publisher over a mocked backend whose session refresh pushes no new token; the refresh's own
     skip rules are ``SandboxSession``'s (``test_session.py``)."""
-    publisher = _make_publisher()
+    publisher = _make_publisher(base_ref=base_ref)
     publisher.sandbox_backend = Mock()
     publisher.sandbox_backend.session.refresh_credential = AsyncMock(return_value=False)
     return publisher
@@ -709,14 +709,14 @@ class TestPublishLocalAuthEnv:
     async def test_a_sandbox_publish_never_reads_the_worker_clone(self, monkeypatch):
         """On a sandbox run the worker clone is only the seed's source: the diff base comes from the ref recorded
         at clone time and git runs in the sandbox."""
-        publisher = _make_sandbox_publisher()
+        publisher = _make_sandbox_publisher(base_ref="feature")
         del publisher.ctx.gitrepo
         gm = _fake_git_manager(dirty=False, diff="")
         _patch_git_manager(monkeypatch, gm)
 
         await publisher.publish(merge_request=None)
 
-        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "main"
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "feature"
 
 
 class TestPublishDiffBase:
@@ -733,7 +733,7 @@ class TestPublishDiffBase:
 
 
 class TestRunBaseBranch:
-    """The branch a fresh MR targets and its diff is taken against, read off the clone's HEAD."""
+    """The branch a fresh MR targets and its diff is taken against, recorded at clone time."""
 
     def _ctx(self, *, branch: str | None, default_branch: str = "main"):
         ctx = Mock()

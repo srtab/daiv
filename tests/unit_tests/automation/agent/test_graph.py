@@ -7,14 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from deepagents.backends.protocol import BackendProtocol
+from langchain.agents.middleware import ModelRequest, ModelResponse
 
-from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent
+from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
+from codebase.base import GitPlatform
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 
@@ -124,3 +126,25 @@ async def test_ask_user_can_be_disabled_for_the_run():
     built = await _build(base_image=None, ask_user_enabled=False)
 
     assert not any(isinstance(m, AskUserQuestionMiddleware) for m in _middleware(built))
+
+
+async def test_system_prompt_names_the_ref_recorded_on_the_repo_handle():
+    context = SimpleNamespace(
+        bot_username="daiv",
+        repository=SimpleNamespace(html_url="https://gitlab.test/group/repo"),
+        git_platform=GitPlatform.GITLAB,
+        repo=SimpleNamespace(current_ref="feature-x"),
+    )
+    request = ModelRequest(
+        model=MagicMock(), messages=[], system_prompt=None, state=MagicMock(), runtime=SimpleNamespace(context=context)
+    )
+    seen: list[str | None] = []
+
+    async def handler(req: ModelRequest) -> ModelResponse:
+        seen.append(req.system_prompt)
+        return ModelResponse(result=[])
+
+    await dynamic_daiv_system_prompt.awrap_model_call(request, handler)
+
+    assert "You are on branch `feature-x`" in seen[0]
+    assert "https://gitlab.test/group/repo/-/blob/feature-x/" in seen[0]

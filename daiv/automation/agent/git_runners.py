@@ -43,8 +43,8 @@ class SandboxGitProtocolError(RuntimeError):
     """The sandbox returned a malformed/missing result for a git command (wire-level anomaly).
 
     Distinct from a bare ``RuntimeError`` so callers that degrade git faults to soft
-    failures can catch this without also swallowing programming bugs (mode-mismatch
-    guards, asyncio misuse), which must propagate.
+    failures can catch this without also swallowing programming bugs (the unbound-session
+    guard, asyncio misuse), which must propagate.
     """
 
 
