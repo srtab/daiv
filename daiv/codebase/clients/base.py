@@ -44,7 +44,7 @@ def is_transient_platform_error(exc: BaseException) -> bool:
 
     Callers that poll on a schedule log a transient failure at WARNING without a traceback, so an
     hours-long platform outage does not mint one Sentry error per sweep — the same split
-    ``is_transient_bus_error`` and ``_is_transient_mcp_error`` draw. Auth (401/403) counts as
+    ``is_transient_bus_error`` and ``automation.agent.mcp.errors.classify`` draw. Auth (401/403) counts as
     transient: DAIV's project-scoped tokens are ephemeral and expire mid-watch by design.
     """
     from github import GithubException

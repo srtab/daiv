@@ -52,7 +52,7 @@ def is_transient_bus_error(exc: BaseException) -> bool:
 
     Readers log a dropped bus at WARNING without a traceback and reconnect on a back-off,
     so one Sentry error per tab per retry would bury the real failures — the same split
-    ``_is_transient_mcp_error`` draws for an external MCP outage. ``RedisError`` covers the
+    ``automation.agent.mcp.errors.classify`` draws for an external MCP outage. ``RedisError`` covers the
     client's own failures, ``OSError`` the socket beneath it (builtin ``ConnectionError``
     and ``TimeoutError`` are both ``OSError``). Both are ``Exception`` subclasses, so
     ``CancelledError`` is never classified here and keeps propagating.

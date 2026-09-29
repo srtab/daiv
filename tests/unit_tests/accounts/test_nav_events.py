@@ -173,7 +173,7 @@ class TestNavFrames:
 
     async def test_a_dropped_bus_is_logged_without_a_traceback(self, member_user, caplog):
         """The client reconnects every 30s, so an outage would mint one Sentry error event
-        per tab per retry — the same split ``_is_transient_mcp_error`` draws."""
+        per tab per retry — the same split ``automation.agent.mcp.errors.classify`` draws."""
         await read_frames(member_user, FakeStream(error=ConnectionError("redis went away")), count=3)
         assert "lost the bus" in caplog.text
         assert "Traceback" not in caplog.text

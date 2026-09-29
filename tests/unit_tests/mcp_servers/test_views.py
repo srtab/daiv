@@ -493,7 +493,7 @@ def test_test_endpoint_failure_returns_200_not_502(client, admin_user, monkeypat
     proxy before the JSON body reaches the browser."""
 
     async def fake_test_connection(payload):
-        return {"ok": False, "error": "HTTPStatusError: 401 Unauthorized"}
+        return {"ok": False, "error": "HTTP 401 Unauthorized for url 'http://demo.test'"}
 
     monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
     client.force_login(admin_user)

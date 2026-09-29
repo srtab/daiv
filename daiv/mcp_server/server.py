@@ -80,6 +80,7 @@ continue polling with `get_job_status` if the result is not yet available.\
         issuer_url=_external_url,
         resource_server_url=f"{_external_url}/mcp",
         required_scopes=["mcp"],
+        # DjangoTokenVerifier never sets AccessToken.resource (no RFC 8707 binding), so True would reject every token.
         validate_token_resource=False,
     ),
     token_verifier=DjangoTokenVerifier(),

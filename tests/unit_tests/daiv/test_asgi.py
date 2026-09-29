@@ -5,6 +5,7 @@ import django
 
 import httpx2
 import pytest
+from mcp_server.server import mcp
 
 import daiv
 from accounts.models import APIKey, User
@@ -68,6 +69,10 @@ async def mcp_app(monkeypatch):
     yield app
     stop.set()
     await lifespan
+
+
+async def test_mcp_application_runs_stateless(mcp_app):
+    assert mcp.session_manager.stateless is True
 
 
 async def test_unauthenticated_request_is_rejected_with_resource_metadata(mcp_app):
