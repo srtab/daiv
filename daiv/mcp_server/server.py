@@ -14,8 +14,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
@@ -32,9 +31,10 @@ from codebase.authorization import (
 )
 from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn
 from core.conf import settings as core_settings
-from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
+from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
+from daiv import __version__
 from mcp_server.auth import DjangoTokenVerifier, get_current_user
-from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
+from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for MCPServer
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ logger = logging.getLogger("daiv.mcp_server")
 
 _external_url = str(core_settings.EXTERNAL_URL).rstrip("/")
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="DAIV",
     instructions="""\
 DAIV is an autonomous coding agent that operates on Git repositories (GitLab and GitHub). \
@@ -75,9 +75,14 @@ in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new 
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
 """,
-    stateless_http=True,
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-    auth=AuthSettings(issuer_url=_external_url, resource_server_url=f"{_external_url}/mcp", required_scopes=["mcp"]),
+    version=__version__,
+    auth=AuthSettings(
+        issuer_url=_external_url,
+        resource_server_url=f"{_external_url}/mcp",
+        required_scopes=["mcp"],
+        # DjangoTokenVerifier never sets AccessToken.resource (no RFC 8707 binding), so True would reject every token.
+        validate_token_resource=False,
+    ),
     token_verifier=DjangoTokenVerifier(),
 )
 
@@ -87,7 +92,7 @@ _THREAD_NOT_FOUND = "thread_id not found"
 def _allow_job_submission(user) -> bool:
     """Apply the shared per-user jobs budget (same cache bucket as the REST/chat endpoints).
 
-    FastMCP has no ninja throttle layer, so reuse ``JobsRateThrottle`` with a minimal
+    MCPServer has no ninja throttle layer, so reuse ``JobsRateThrottle`` with a minimal
     request stand-in — ``AuthRateThrottle`` only reads ``request.auth``.
     """
     from types import SimpleNamespace
@@ -198,7 +203,7 @@ async def submit_job(
     Returns ``{batch_id, jobs: [{job_id, repo_id, ref, thread_id, status}], failed: [...]}``. Each job runs
     independently; poll with ``get_job_status`` per job_id or pass ``wait=true``.
     """
-    # FastMCP validates only at the protocol layer; direct calls bypass it.
+    # MCPServer validates only at the protocol layer; direct calls bypass it.
     if not repos:
         return json.dumps({"error": "At least one repository is required."})
     if len(repos) > MAX_REPOS_PER_BATCH:
@@ -245,7 +250,7 @@ async def submit_job(
 
     thread_id_str: str | None = None
     if thread_id is not None:
-        # FastMCP's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
+        # MCPServer's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
         # use) may still pass a raw string, so normalise either input through UUID() once.
         try:
             thread_id_str = str(uuid_mod.UUID(str(thread_id)))
@@ -498,7 +503,7 @@ LimitParam = Annotated[int, Field(ge=1, le=MAX_LIST_LIMIT, description="Max rows
 
 
 def _cap_limit(limit: int) -> int:
-    """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]``. FastMCP validates ``ge``/``le`` at the
+    """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]``. MCPServer validates ``ge``/``le`` at the
     protocol layer, but direct (in-process/test) callers bypass it, so re-clamp here."""
     return max(1, min(limit, MAX_LIST_LIMIT))
 
