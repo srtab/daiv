@@ -18,8 +18,6 @@ from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
-from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
-from automation.agent.utils import conversation_thread_id
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 from automation.agent.workspace.bash_policy.command_policy import (
     CommandPolicy,
@@ -27,16 +25,18 @@ from automation.agent.workspace.bash_policy.command_policy import (
     evaluate_command_policy,
     parse_rule,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend  # noqa: TC001
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
-from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
-from core.sandbox.schemas import EgressConfigRequest, RunCommandsResponse, StartSessionRequest
+from core.sandbox.client import is_transient_sandbox_error
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langgraph.runtime import Runtime
+
+    from core.sandbox.schemas import RunCommandsResponse
 
 
 logger = logging.getLogger("daiv.tools")
@@ -287,19 +287,12 @@ def _make_global_skills_archive() -> bytes | None:
     return buf.getvalue()
 
 
-class SandboxEgressUnavailableError(RuntimeError):
-    """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
-    no egress proxy configured (no shared egress CA). daiv-sandbox rejects such a session up front
-    with HTTP 400 and a detail naming the egress proxy (see its ``POST /session/`` handler).
-    Fail-closed: an environment that requires a restricted egress policy must not run without that
-    policy in force."""
-
-
-# Substring that distinguishes the "egress proxy not configured" 400 from any other create-time 400.
-# Couples to daiv-sandbox's FastAPI ``detail`` ("egress requires the egress proxy, which is not
-# configured on this deployment" — its ``POST /session/`` handler). The sandbox exposes no
-# machine-readable error code, so this is the single greppable point of that prose coupling.
-_EGRESS_PROXY_UNAVAILABLE_MARKER = "egress proxy"
+async def _seed_archives(working_dir: str) -> tuple[bytes, bytes | None]:
+    """The repository and global-skills archives a fresh sandbox session is seeded with."""
+    repo_archive, skills_archive = await asyncio.gather(
+        asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
+    )
+    return repo_archive, skills_archive
 
 
 class BashFailure(Enum):
@@ -371,36 +364,27 @@ class SandboxState(AgentState):
     """
     The sandbox session ID.
     """
+    sandbox_fingerprint: NotRequired[Annotated[str | None, OmitFromOutput]]
+    """``SandboxSpec.fingerprint`` of the run that last acquired ``session_id``; ``None`` (an older checkpoint) skips
+    the environment-change check."""
 
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware to manage a sandbox session for running commands against the workspace.
+    Middleware that gives the agent its run's sandbox: the ``bash`` tool, the sandbox system prompt, and the run's
+    :class:`~automation.agent.workspace.session.SandboxSession`, acquired in ``abefore_agent``. The agent's file tools
+    (``read_file``/``write_file``/``edit_file``/``ls``/``glob``/``grep``) then operate on the sandbox through the
+    ``/workspace`` :class:`SandboxFileBackend`; it is the one true store, with no local mirror to keep in sync.
 
-    Manages the per-run sandbox *session* lifecycle (start + seed in ``abefore_agent``, stop/remove
-    in ``aafter_agent``) and exposes:
-
-    - The ``bash`` tool for running shell commands inside the sandbox.
-    - Late-binding of the run's session onto the injected ``/workspace`` :class:`SandboxFileBackend`,
-      so the agent's file tools (``read_file``/``write_file``/``edit_file``/``ls``/``glob``/``grep``)
-      operate directly against the sandbox — it is the one true store, with no local mirror to keep
-      in sync.
-
-    The ``DAIVSandboxClient`` (transport) is **injected** — opened once per run by
-    ``set_runtime_ctx`` and injected here by ``create_daiv_agent`` at graph-build time. The
-    middleware borrows it; it never opens or closes it.
+    The session is the run executor's: it builds it before the graph runs and releases it afterwards, whatever the
+    agent did, so nothing here closes it. Subagents receive the parent's backend, whose session the parent has already
+    acquired, so their hook does nothing.
 
     Args:
-        agent_root: Virtual path prefix the agent's filesystem tools see (e.g.
-            ``/workspace/repo``); the agent's repo root.
-        client: The run-scoped sandbox client opened by ``set_runtime_ctx`` and injected here.
-        sandbox_backend: The concrete ``SandboxFileBackend`` the run's session is bound onto and
-            that backs the ``bash`` tool. Subagents receive the *same* instance the parent agent
-            uses (forwarded from ``create_daiv_agent``), so they share the parent-bound backend
-            rather than binding their own.
-        close_session: Whether to close the session after the agent finishes the execution
-            loop. Set to ``False`` when used in subagents so the parent agent owns session
-            lifecycle.
+        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
+            root.
+        sandbox_backend: The run's backend over its sandbox session; it backs the ``bash`` tool. Subagents receive the
+            *same* instance the parent agent uses.
 
     Example:
         ```python
@@ -408,26 +392,17 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=backend)],
+            middleware=[SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=SandboxFileBackend(session))],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(
-        self,
-        *,
-        agent_root: str,
-        client: DAIVSandboxClient | None = None,
-        sandbox_backend: SandboxFileBackend | None = None,
-        close_session: bool = True,
-    ):
+    def __init__(self, *, agent_root: str, sandbox_backend: SandboxFileBackend | None = None):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
         self._agent_root = agent_root
-        self.close_session = close_session
-        self._client = client
         self._sandbox_backend = sandbox_backend
         self.tools = [self._build_bash_tool()]
 
@@ -444,7 +419,7 @@ class SandboxMiddleware(AgentMiddleware):
                 return denial_error
 
             if self._sandbox_backend is None:
-                raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent bound the sandbox backend")
+                raise RuntimeError("SandboxMiddleware was built without a sandbox backend")
 
             result = await _run_bash_commands(self._sandbox_backend, [command])
             if isinstance(result, BashFailure):
@@ -456,188 +431,20 @@ class SandboxMiddleware(AgentMiddleware):
 
         return bash_tool
 
-    def _bind_session(self, session_id: str) -> None:
-        """Bind the run's session onto the injected SandboxFileBackend (main agent only).
-
-        Subagents receive the already-bound parent backend and short-circuit in ``abefore_agent``
-        (``close_session=False`` + ``session_id`` already in state) before reaching this method, so
-        they never re-bind. The ``is not None`` guard below stays defensive regardless.
-        """
-        if self._sandbox_backend is not None:
-            self._sandbox_backend.bind_session(session_id)
-
-    @staticmethod
-    async def _session_exists(client: DAIVSandboxClient, session_id: str) -> bool:
-        """Whether ``session_id`` still exists on the sandbox (restarting it if stopped).
-
-        ``client.session_exists`` already maps a 404 (container genuinely gone) to ``False`` without
-        raising, so reaching the ``except`` means a non-404 status or a transport error: we couldn't
-        confirm the session, not that it's gone. We soft-fail to ``False`` so a flaky liveness check
-        triggers a fresh create rather than failing the run — but the prior container may still be
-        alive and is now abandoned (state["session_id"] gets overwritten), so log that it may have
-        leaked and will be reclaimed by the sandbox reaper.
-        """
-        try:
-            return await client.session_exists(session_id)
-        except httpx.HTTPError:
-            logger.exception(
-                "Could not validate sandbox session %s for reuse; creating a fresh session. The prior "
-                "container may have leaked and will be reclaimed by the sandbox reaper.",
-                session_id,
-            )
-            return False
-
-    async def _arefresh_egress(
-        self, client: DAIVSandboxClient, session_id: str, egress: EgressConfigRequest | None
-    ) -> bool:
-        """Push this run's freshly-resolved egress credential onto a warm session before reuse.
-
-        A resumed session's proxy still injects the token embedded when the container was created,
-        which expires after a day-plus — so ``git ls-remote``/push at publish time would be rejected.
-        ``set_runtime_ctx`` has already resolved a fresh, cache-valid token into ``egress``; this
-        delivers it to the live proxy (which hot-reloads on the next request).
-
-        Returns ``True`` when the session is safe to reuse — refreshed, or nothing to refresh for a
-        token-less / network-off run (``egress is None``). Returns ``False`` when the refresh could not
-        be applied (route absent on an older sandbox → 404, session lost the egress triad → 409, or
-        a transport error); the caller then recreates the session, whose fresh ``start_session`` carries
-        a valid token. Only ``httpx`` errors degrade to recreate — a programming bug propagates.
-        """
-        if egress is None:
-            return True
-        try:
-            await client.update_egress(session_id, egress)
-        except httpx.HTTPError:
-            logger.warning(
-                "Egress refresh failed for warm sandbox session %s; recreating the session instead",
-                session_id,
-                exc_info=True,
-            )
-            return False
-        return True
-
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
-        """
-        Bind a sandbox session — reusing the prior turn's warm session when possible.
-
-        The run-scoped client is supplied at construction (opened by set_runtime_ctx); this hook only
-        manages the *session*. Warm reuse reads ``state["session_id"]`` — the checkpointer persists it
-        per thread_id, so a prior turn's session is reachable directly from state (no separate store).
-        We confirm it still exists on the sandbox (``session_exists`` also restarts a stopped
-        container); a reaped/missing session falls through to a fresh create + seed. A confirmed-alive
-        session additionally has this run's fresh egress credential pushed onto it before binding; if
-        that refresh fails (older sandbox or transport error) the session is stopped and recreated
-        instead.
-        """
-        client = self._client
-        if client is None:
-            raise RuntimeError("SandboxMiddleware requires an injected run-scoped sandbox client.")
-
-        if not self.close_session and "session_id" in state:
-            # Subagent path: the parent owns the session and already bound the shared backend (which
-            # this subagent received and uses for its bash tool). Our injected client serves only the
-            # non-None guard above. Nothing to set up.
+        """Acquire the run's sandbox session, reusing the thread's warm container when ``SandboxSession.acquire`` can,
+        and record it in the checkpoint for the next turn."""
+        if self._sandbox_backend is None:
+            raise RuntimeError("SandboxMiddleware requires the run's sandbox backend")
+        session = self._sandbox_backend.session
+        if session.is_acquired:
             return None
-
-        prior_session_id = state.get("session_id")
-        if prior_session_id and await self._session_exists(client, prior_session_id):
-            # The warm container's egress proxy still injects the token embedded when it was created
-            # (expired after a day-plus). Push this run's fresh credential before binding; if that
-            # can't be applied (older sandbox / transport error), recreate the session instead so the
-            # run never reaches publish with a stale token.
-            if await self._arefresh_egress(client, prior_session_id, runtime.context.sandbox_egress):
-                self._bind_session(prior_session_id)
-                logger.info("Reusing warm sandbox session %s", prior_session_id)
-                return {"session_id": prior_session_id}
-            # Egress refresh failed (cause already logged with a stack trace by _arefresh_egress). Stop the
-            # stale container now rather than leaving it for the reaper, then fall through to a fresh
-            # create + seed below (whose start_session carries a valid credential).
-            try:
-                await client.close_session(prior_session_id, force=True)
-            except httpx.HTTPError:
-                logger.warning(
-                    "Failed to stop stale sandbox session %s after egress refresh failure",
-                    prior_session_id,
-                    exc_info=True,
-                )
-            # fall through to fresh create + seed below
-
-        sb = runtime.context.sandbox
-        try:
-            session_id = await client.start_session(
-                StartSessionRequest(
-                    base_image=sb.base_image,
-                    egress=runtime.context.sandbox_egress,
-                    memory_bytes=sb.memory_bytes,
-                    cpus=sb.cpus,
-                    environment=sb.env_vars or None,
-                )
-            )
-        except httpx.HTTPStatusError as exc:
-            # A network-enabled env on a sandbox with no egress proxy (no shared CA) is rejected up
-            # front with HTTP 400 (see _EGRESS_PROXY_UNAVAILABLE_MARKER). Match that specific signal so
-            # an unrelated 400 (e.g. an invalid base image) re-raises as-is instead of being mislabelled.
-            detail = (exc.response.text or "").lower()
-            if exc.response.status_code == 400 and _EGRESS_PROXY_UNAVAILABLE_MARKER in detail:
-                logger.error(
-                    "Sandbox rejected egress-required session (400): the egress proxy/CA is not configured "
-                    "on the sandbox deployment. Aborting run (fail-closed)."
-                )
-                raise SandboxEgressUnavailableError(
-                    "The resolved sandbox environment requires the egress proxy, but the sandbox rejected "
-                    "the session (400). Configure the shared egress CA (DAIV_SANDBOX_EGRESS_CA_CERT_FILE + "
-                    "DAIV_SANDBOX_EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
-                ) from exc
-            raise
-        try:
-            working_dir = Path(runtime.context.gitrepo.working_dir)
-            repo_archive, skills_archive = await asyncio.gather(
-                asyncio.to_thread(_make_repo_archive, str(working_dir)), asyncio.to_thread(_make_global_skills_archive)
-            )
-            await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-        except Exception:
-            # Build/seed failure on an already-created session (the egress-unavailable case fails earlier).
-            logger.exception("Failed to build or seed sandbox session %s", session_id)
-            try:
-                await client.close_session(session_id, force=True)
-            except Exception:
-                logger.exception("Failed to close session %s after seed failure", session_id)
-            raise
-        self._bind_session(session_id)
-        return {"session_id": session_id}
-
-    async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
-        """
-        Stop the sandbox session after the agent finishes.
-
-        The run-scoped transport is closed by set_runtime_ctx, not here. A resumable conversation
-        (thread_id present) keeps its session warm (server *stop*) AND leaves ``session_id`` in state
-        so the next turn reuses it. A one-shot run (no thread) force-removes the container and clears
-        ``session_id`` from state.
-        """
-        client = self._client
-        if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
-            session_id = state["session_id"]
-            resumable = conversation_thread_id() is not None
-            if not resumable:
-                # Breadcrumb so an invocation path that unexpectedly lacks the run config — and thus
-                # never reuses sessions — is diagnosable rather than invisible.
-                logger.debug("No conversation thread_id; sandbox session reuse disabled for this run")
-            try:
-                await client.close_session(session_id, force=not resumable)
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if status in (404, 409):
-                    logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
-                else:
-                    logger.exception(
-                        "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
-                    )
-            except httpx.RequestError:
-                logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
-            # Resumable: keep session_id in state (warm reuse next turn). One-shot: clear it.
-            return None if resumable else {"session_id": None}
-        return None
+        session_id, fingerprint = await session.acquire(
+            prior_id=state.get("session_id"),
+            prior_fingerprint=state.get("sandbox_fingerprint"),
+            seed=lambda: _seed_archives(str(runtime.context.gitrepo.working_dir)),
+        )
+        return {"session_id": session_id, "sandbox_fingerprint": fingerprint}
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

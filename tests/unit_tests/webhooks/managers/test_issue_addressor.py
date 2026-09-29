@@ -17,13 +17,11 @@ from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
-from core.sandbox.schemas import StartSessionRequest
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
     ask_user_question_messages,
-    bound_run_sandbox_client,
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder
@@ -36,12 +34,13 @@ _UNABLE = "An unexpected error occurred while working on this issue."
 
 def _ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads."""
-    return SimpleNamespace(config=RepositoryConfig(), repo=SimpleNamespace(ref="main"))
+    return SimpleNamespace(config=RepositoryConfig(), repo=SimpleNamespace(ref="main"), sandbox_client=None)
 
 
-def _sandbox_ctx() -> SimpleNamespace:
-    """``_ctx()`` for a sandbox run, with what draft recovery reads."""
-    return SimpleNamespace(**vars(_ctx()), merge_request=None, gitrepo=None, sandbox=sandbox_spec())
+def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
+    """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds the session from."""
+    sandbox = {"merge_request": None, "gitrepo": None, "sandbox": sandbox_spec(), "sandbox_client": client}
+    return SimpleNamespace(**(vars(_ctx()) | sandbox | {"credential_source": None}))
 
 
 def _issue(*, labels: list[str]) -> Issue:
@@ -218,30 +217,30 @@ class TestIssueAfterRunMatrix:
         ):
             await _address(thread_id="t-issue")
 
-        assert run.recover.await_args.kwargs == {"thread_id": "t-issue"}
+        assert run.recover.await_args.kwargs == {"thread_id": "t-issue", "sandbox_session": None}
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
         run.persist.assert_not_awaited()
         assert run.armed == []
 
     async def test_an_agent_error_recovers_the_draft_through_the_live_session(self, captured_client):
-        """B7: after an agent error, the draft is pushed through the open run client and the turn's own session."""
+        """B7: after an agent error, the draft is pushed through the turn's own session, the one the agent acquired."""
         client = FakeSandboxClient.opened()
-        started: list[str] = []
+        session_id = client.add_running_session("sess-1")
 
         async def _fail_mid_turn(*_args, **_kwargs):
-            started.append(await client.start_session(StartSessionRequest(base_image="python:3.12")))
+            session = run.create_agent.await_args.kwargs["sandbox_session"]
+            await session.acquire(prior_id=session_id, prior_fingerprint=None, seed=AsyncMock())
             raise RuntimeError("boom")
 
         agent = addressor_agent(side_effect=_fail_mid_turn)
         agent.aget_state = AsyncMock(
-            side_effect=lambda **_kwargs: SimpleNamespace(values={"merge_request": None, "session_id": started[0]})
+            return_value=SimpleNamespace(values={"merge_request": None, "session_id": session_id})
         )
         agent.aupdate_state = AsyncMock()
         created: list = []
         with (
-            bound_run_sandbox_client(client),
-            addressor_run(agent, ctx=_sandbox_ctx(), stub_recovery=False),
+            addressor_run(agent, ctx=_sandbox_ctx(client), stub_recovery=False) as run,
             patch(
                 "automation.agent.publishers.GitChangePublisher",
                 publisher_through_backend(created, publishes=_merge_request()),
@@ -251,7 +250,8 @@ class TestIssueAfterRunMatrix:
         ):
             await _address()
 
-        assert client.calls_to("run_commands") == [(started[0], ("git push origin HEAD",))]
+        assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
+        assert client.calls_to("close_session") == [(session_id, False)]
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
 

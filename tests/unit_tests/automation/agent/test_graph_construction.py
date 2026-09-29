@@ -49,9 +49,9 @@ def test_graph_uses_fallback_thinking_level_standalone():
 
 def test_graph_constructs_sandbox_backend_without_root():
     src = inspect.getsource(graph_module)
-    assert "SandboxFileBackend(client=run_client)" in src, (
-        "graph.py must construct SandboxFileBackend(client=run_client) with no root — the agent uses "
-        "sandbox-absolute paths and the run client is injected by construction"
+    assert "SandboxFileBackend(sandbox_session)" in src, (
+        "graph.py must construct SandboxFileBackend(sandbox_session) with no root — the agent uses "
+        "sandbox-absolute paths and the run's sandbox session is injected by construction"
     )
     assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
 
@@ -70,7 +70,7 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
     # discovery reads it).
     slash = src.index("SlashCommandMiddleware(")
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)")
+    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, sandbox_backend=sandbox_backend)")
     skills = src.index("SkillsMiddleware(")
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 
@@ -99,8 +99,8 @@ def test_slash_command_middleware_receives_subagents():
 
 
 def test_git_middleware_registered_after_sandbox_middleware():
-    # after_agent hooks run in REVERSE registration order, so GitMiddleware must come after
-    # SandboxMiddleware — otherwise turn-end publish/patch-capture would hit a closed session.
+    # before_agent hooks run in registration order, so GitMiddleware must come after SandboxMiddleware — otherwise
+    # its pre-run check would run git in a session nothing has acquired yet.
     src = inspect.getsource(graph_module)
     sandbox = src.index("SandboxMiddleware(agent_root=agent_root")
     git = src.index("GitMiddleware(")

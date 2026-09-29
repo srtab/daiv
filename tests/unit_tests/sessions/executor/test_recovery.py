@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
+from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, bound_run_sandbox_client, sandbox_spec
+from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
 
 _AUTHOR = User(id=1, username="alice")
@@ -62,7 +63,13 @@ async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
         patch("codebase.utils.get_repo_ref", return_value=current_ref),
     ):
         pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
-        await recover_draft(_ctx(), _agent({"merge_request": checkpointed_mr, "session_id": None}), {}, thread_id="t-1")
+        await recover_draft(
+            _ctx(),
+            _agent({"merge_request": checkpointed_mr, "session_id": None}),
+            {},
+            thread_id="t-1",
+            sandbox_session=None,
+        )
     return pub_cls
 
 
@@ -106,14 +113,15 @@ class TestPublishTarget:
 
 class TestSandboxMode:
     @staticmethod
-    async def _recover(client: FakeSandboxClient, session_id: str, *, publisher) -> tuple[bool, Mock]:
-        agent = _agent({"merge_request": None, "session_id": session_id})
+    async def _recover(session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
+        agent = _agent({"merge_request": None, "session_id": session.session_id})
         with (
-            bound_run_sandbox_client(client),
             patch("automation.agent.publishers.GitChangePublisher", publisher),
             patch("codebase.utils.get_repo_ref", return_value="daiv/issue-10"),
         ):
-            published = await recover_draft(_ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1")
+            published = await recover_draft(
+                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", sandbox_session=session
+            )
         return published, agent
 
     async def test_it_publishes_a_draft_through_the_live_session(self):
@@ -123,7 +131,7 @@ class TestSandboxMode:
         created: list = []
 
         published, agent = await self._recover(
-            client, session_id, publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
+            acquired_session(client, session_id), publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
         )
 
         assert published is True
@@ -140,8 +148,28 @@ class TestSandboxMode:
         publisher.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            published, agent = await self._recover(client, session_id, publisher=publisher)
+            published, agent = await self._recover(acquired_session(client, session_id), publisher=publisher)
 
         assert published is False
         agent.aupdate_state.assert_not_awaited()
         assert "draft recovery failed after an agent error for thread_id=t-1" in caplog.text
+
+    async def test_an_agent_that_raised_before_acquiring_its_session_recovers_nothing(self):
+        """The agent failed before ``SandboxMiddleware`` acquired its session, so the sandbox holds none of its work:
+        recovery reads nothing, publishes nothing and never calls the sandbox."""
+        client = FakeSandboxClient.opened()
+        agent = _agent({"merge_request": None})
+
+        with patch("automation.agent.publishers.GitChangePublisher") as publisher:
+            published = await recover_draft(
+                _ctx(sandbox=sandbox_spec()),
+                agent,
+                {},
+                thread_id="t-1",
+                sandbox_session=SandboxSession(client, sandbox_spec()),
+            )
+
+        assert published is False
+        agent.aget_state.assert_not_awaited()
+        publisher.assert_not_called()
+        assert client.calls == []

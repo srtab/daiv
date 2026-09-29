@@ -7,7 +7,7 @@ import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
-from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend
 from automation.agent.middlewares.git_platform import (
     GITHUB_CLI_ALLOW_COMMANDS,
     GITHUB_TOOL_DESCRIPTION,
@@ -21,6 +21,7 @@ from automation.agent.middlewares.git_platform import (
     _write_output_to_file,
 )
 from codebase.base import GitPlatform
+from tests.unit_tests.conftest import unacquired_backend
 
 LARGE_TOOL_RESULTS_PREFIX = "/workspace/large_tool_results"
 
@@ -355,13 +356,13 @@ class TestGitLabToolInlineDiscussionFallback:
 
 
 def test_large_tool_results_prefix_uses_artifacts_root_for_composite():
-    backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+    backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
     assert _large_tool_results_prefix(backend) == "/workspace/large_tool_results"
 
 
 def test_large_tool_results_prefix_defaults_to_root_for_non_composite():
     # A bare backend carries no artifacts_root the middleware would honour, so it falls back to "/".
-    assert _large_tool_results_prefix(SandboxFileBackend()) == "/large_tool_results"
+    assert _large_tool_results_prefix(unacquired_backend()) == "/large_tool_results"
 
 
 def test_file_write_confirmation_shape():
@@ -684,13 +685,13 @@ class TestGitHubToolOutputToFileExtra:
 
 class TestGitPlatformMiddlewareWiring:
     def test_builds_gitlab_tool_and_prefix_from_backend(self):
-        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
         assert mw._large_tool_results_prefix == "/workspace/large_tool_results"
         assert [t.name for t in mw.tools] == ["gitlab"]
 
     def test_builds_github_tool(self):
-        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITHUB, backend=backend)
         assert [t.name for t in mw.tools] == ["gh"]
 
@@ -698,7 +699,7 @@ class TestGitPlatformMiddlewareWiring:
         """Invoking the closure-built gitlab tool (not the underscore helper) must write through
         the middleware's own backend, at the prefix derived from that backend's artifacts_root —
         proving the closure captured and forwarded both ``backend`` and ``large_tool_results_prefix``."""
-        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        backend = DAIVCompositeBackend(default=unacquired_backend(), routes={}, artifacts_root="/workspace")
         backend.awrite = AsyncMock(return_value=Mock(error=None))
         mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
 

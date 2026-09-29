@@ -116,6 +116,8 @@ The selected per-run environment is then **merged with the global default** to p
 
 The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.
 
+Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.
+
 ```mermaid
 flowchart TD
     A[Run requested for a repo] --> B{Environment<br/>explicitly selected?}
