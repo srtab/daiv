@@ -15,14 +15,13 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_manager import SandboxGitProtocolError
-from automation.agent.git_utils import open_git_manager
+from automation.agent.git_manager import GitManager
+from automation.agent.git_runners import LocalGitRunner, SandboxGitProtocolError, SandboxGitRunner
 from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 from automation.agent.utils import conversation_thread_id, final_assistant_text
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import get_repo_ref
 
 # Platform / transport errors that warrant a soft "no MR" fallback. The platform
 # SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures
@@ -247,14 +246,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         so besides the ERROR log, the file list is tagged on the LangSmith run tree and
         returned for the state update (see ``GitState.pre_run_dirty_files``). Non-fatal by
         design: the check is diagnostic, and a check failure must not abort an otherwise
-        healthy run. The catch is deliberately narrow — wiring bugs (mode-mismatch
+        healthy run. The catch is deliberately narrow — wiring bugs (unbound-session
         ``RuntimeError``, asyncio misuse) must propagate, not degrade into a skipped check.
         """
         try:
-            async with open_git_manager(
-                sandbox_backend=self._sandbox_backend, gitrepo=runtime.context.gitrepo
-            ) as git_manager:
-                dirty_files = await git_manager.get_changed_files()
+            dirty_files = await self._git_manager(runtime.context).get_changed_files()
         except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
             logger.exception("Pre-run dirty-tree check failed; cannot verify the workspace is clean")
             return []
@@ -270,6 +266,12 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 rt.metadata["pre_run_dirty_files"] = dirty_files
         return dirty_files
 
+    def _git_manager(self, context: RuntimeCtx) -> GitManager:
+        """Git over the sandbox's repo on a sandbox run, else over the worker's clone."""
+        if self._sandbox_backend is not None:
+            return GitManager(SandboxGitRunner(self._sandbox_backend))
+        return GitManager(LocalGitRunner(context.gitrepo))
+
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
         """Best-effort lookup of an open MR whose source branch matches the current ref.
@@ -281,10 +283,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         Soft-fails on platform/transport errors so the agent can still run — the publisher
         will create a fresh MR if needed. Programming bugs propagate.
         """
-        if context.gitrepo.head.is_detached:
+        if context.repo.head_detached:
             logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
             return None
-        current_branch = get_repo_ref(context.gitrepo)
+        current_branch = context.repo.current_ref
         if not current_branch or current_branch == context.config.default_branch:
             return None
         try:
@@ -314,7 +316,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         this project turns into a Sentry event. Elsewhere the caller chose it — a chat turn
         retargeting the branch pill lands here legitimately, and paging on it trains the signal away.
         """
-        current_ref = get_repo_ref(runtime.context.gitrepo)
+        current_ref = runtime.context.repo.current_ref
         publish_mr = self._effective_mr(state, runtime.context, current_ref=current_ref)
         if publish_mr is None and (state_mr := self._state_merge_request(state)) is not None:
             log = logger.error if runtime.context.scope == Scope.ISSUE else logger.warning
@@ -346,7 +348,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # pick a different MR than the publisher will write to.
         # A dropped MR is not logged here: this hop runs once per model call, and
         # ``_publish_target`` reports the same condition once, at the end of the turn.
-        current_ref = get_repo_ref(request.runtime.context.gitrepo)
+        current_ref = request.runtime.context.repo.current_ref
         effective_mr = self._effective_mr(
             cast("GitState", request.state), request.runtime.context, current_ref=current_ref
         )
@@ -404,13 +406,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         update: dict[str, Any] = {}
         if self.capture_patch:
             try:
-                async with open_git_manager(
-                    sandbox_backend=self._sandbox_backend, gitrepo=runtime.context.gitrepo
-                ) as git_manager:
-                    update["model_patch"] = await git_manager.get_diff()
+                update["model_patch"] = await self._git_manager(runtime.context).get_diff()
             except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
-                # Narrow on purpose: sandbox wire anomalies degrade, but wiring bugs (bare
-                # RuntimeError from mode-mismatch guards, asyncio misuse) always propagate.
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
                 if not self.auto_commit_changes:

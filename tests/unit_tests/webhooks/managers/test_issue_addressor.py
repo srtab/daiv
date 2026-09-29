@@ -39,7 +39,13 @@ def _ctx() -> SimpleNamespace:
 
 def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
     """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds the session from."""
-    sandbox = {"merge_request": None, "gitrepo": None, "sandbox": sandbox_spec(), "sandbox_client": client}
+    sandbox = {
+        "merge_request": None,
+        "gitrepo": None,
+        "repo": SimpleNamespace(ref="main", current_ref="daiv/issue-42"),
+        "sandbox": sandbox_spec(),
+        "sandbox_client": client,
+    }
     return SimpleNamespace(**(vars(_ctx()) | sandbox | {"credential_source": None}))
 
 
@@ -245,7 +251,6 @@ class TestIssueAfterRunMatrix:
                 "automation.agent.publishers.GitChangePublisher",
                 publisher_through_backend(created, publishes=_merge_request()),
             ),
-            patch("codebase.utils.get_repo_ref", return_value="daiv/issue-42"),
             pytest.raises(RuntimeError, match="boom"),
         ):
             await _address()

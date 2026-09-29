@@ -269,11 +269,10 @@ class SandboxFileBackend(BackendProtocol):
     async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
 
-        The run's command-execution handle (used by the ``bash`` tool and sandbox-mode
-        ``GitManager``). A thin pass-through to ``DAIVSandboxClient.run_commands`` — it takes a
-        *list* + ``fail_fast`` (not a single command) so multi-command batches run in one
-        round-trip. Like the other methods here it **raises** on transport/HTTP errors;
-        callers that need graceful degradation (the ``bash`` tool) wrap it.
+        The run's command-execution handle (used by the ``bash`` tool and ``SandboxGitRunner``). A thin
+        pass-through to ``DAIVSandboxClient.run_commands`` — it takes a *list* + ``fail_fast`` (not a single
+        command) so multi-command batches run in one round-trip. Like the other methods here it **raises** on
+        transport/HTTP errors; callers that need graceful degradation (the ``bash`` tool) wrap it.
 
         Intentionally NOT deepagents' ``SandboxBackendProtocol.aexecute``: implementing that
         protocol would activate deepagents' always-registered, ungated ``execute`` tool.

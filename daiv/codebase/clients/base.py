@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.clients")
 
+GIT_NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
+
 
 def is_transient_platform_error(exc: BaseException) -> bool:
     """True for an anticipated GitLab/GitHub outage rather than a bug in how we call it.
@@ -152,8 +154,7 @@ class GitAuthEnv:
             "GIT_CONFIG_COUNT": "1",
             "GIT_CONFIG_KEY_0": self.config_key,
             "GIT_CONFIG_VALUE_0": self.header.get_secret_value(),
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_ASKPASS": "",
+            **GIT_NO_PROMPT_ENV,
         }
 
 

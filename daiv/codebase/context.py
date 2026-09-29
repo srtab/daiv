@@ -16,6 +16,7 @@ from codebase.clients.base import GitEgressCredential  # noqa: TC001
 from codebase.exceptions import CloneRefNotFoundError, SingleRepoRequiredError
 from codebase.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from codebase.utils import get_repo_ref
 from core.sandbox.client import DAIVSandboxClient
 
 if TYPE_CHECKING:
@@ -44,6 +45,11 @@ class RepoHandle:
     ref: str
     """The branch/ref actually checked out — may differ from the requested ref when a
     vanished branch triggered a fallback to the default branch."""
+    current_ref: str
+    """The clone's branch, or its commit sha when HEAD is detached, recorded once at clone time. Unlike ``ref`` it is
+    never a tag name. Read this, not the clone's live HEAD, which a sandbox run's git never moves."""
+    head_detached: bool
+    """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
 
 
 @dataclass(frozen=True)
@@ -224,6 +230,8 @@ async def set_runtime_ctx(
                 gitrepo=repo,
                 config=config,
                 ref=effective_ref,
+                current_ref=get_repo_ref(repo),
+                head_detached=repo.head.is_detached,
             )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,

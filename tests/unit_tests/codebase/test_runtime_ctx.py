@@ -22,6 +22,8 @@ def _make_handle() -> RepoHandle:
         gitrepo=Mock(),
         config=Mock(),
         ref="main",
+        current_ref="main",
+        head_detached=False,
     )
 
 
