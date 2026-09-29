@@ -8,8 +8,6 @@ import httpx2
 from mcp.shared.exceptions import MCPError
 from mcp_types import CONNECTION_CLOSED
 
-from .client import MCPHTTPStatusError
-
 _CONNECT_WRAPPER_PREFIX = "Client failed to connect"
 # How mcp's own client reports a dropped stream; servers may reuse the code for their own errors.
 _STREAM_CLOSED_PREFIXES = ("Connection closed", "SSE stream ended")
@@ -32,11 +30,7 @@ class MCPFailure:
 
 
 def classify(exc: BaseException) -> MCPFailure:
-    """Classify an MCP load/probe failure into the kinds of its leaf exceptions and a one-line message.
-
-    Callers decide which kinds are soft: the runtime toolkit's ``_SOFT_FAILURES``; test-connection, all but
-    ``UNEXPECTED``.
-    """
+    """Classify an MCP load/probe failure into the kinds of its leaf exceptions and a one-line message."""
     leaves = _leaves(exc)
     return MCPFailure(
         frozenset(_kind(leaf) for leaf in leaves), "; ".join(dict.fromkeys(_message(leaf) for leaf in leaves))
@@ -51,18 +45,13 @@ def _leaves(exc: BaseException) -> list[BaseException]:
     return [exc]
 
 
-def _http_status(leaf: BaseException) -> tuple[int, str, str] | None:
-    if isinstance(leaf, MCPHTTPStatusError):
-        return leaf.status_code, leaf.reason, leaf.url
-    if isinstance(leaf, httpx2.HTTPStatusError):
-        return leaf.response.status_code, leaf.response.reason_phrase, str(leaf.request.url)
-    return None
+def status_message(response: httpx2.Response) -> str:
+    return f"HTTP {response.status_code} {response.reason_phrase} for url '{response.request.url}'"
 
 
 def _kind(leaf: BaseException) -> FailureKind:
-    status = _http_status(leaf)
-    if status is not None:
-        return FailureKind.SERVER_ERROR if status[0] >= 500 else FailureKind.CLIENT_ERROR
+    if isinstance(leaf, httpx2.HTTPStatusError):
+        return FailureKind.SERVER_ERROR if leaf.response.is_server_error else FailureKind.CLIENT_ERROR
     if isinstance(leaf, TimeoutError):
         return FailureKind.TIMEOUT
     if isinstance(leaf, anyio.BrokenResourceError | anyio.ClosedResourceError):
@@ -77,10 +66,8 @@ def _kind(leaf: BaseException) -> FailureKind:
 
 
 def _message(leaf: BaseException) -> str:
-    status = _http_status(leaf)
-    if status is not None:
-        code, reason, url = status
-        return f"HTTP {code} {reason} for url '{url}'"
+    if isinstance(leaf, httpx2.HTTPStatusError):
+        return status_message(leaf.response)
     first_line = next((line for line in str(leaf).splitlines() if line.strip()), "")
     name = type(leaf).__name__
     return f"{name}: {first_line}" if first_line else name

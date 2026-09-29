@@ -6,15 +6,10 @@ import pytest
 from mcp.shared.exceptions import MCPError
 from mcp_types import CONNECTION_CLOSED
 
-from automation.agent.mcp.client import MCPHTTPStatusError
 from automation.agent.mcp.errors import FailureKind, classify
+from tests.unit_tests.automation.agent.mcp.helpers import status_error
 
 URL = "https://mcp.example.com/mcp"
-
-
-def _httpx_status_error(status: int) -> httpx2.HTTPStatusError:
-    request = httpx2.Request("POST", URL)
-    return httpx2.HTTPStatusError("boom", request=request, response=httpx2.Response(status, request=request))
 
 
 def _connect_wrapper() -> RuntimeError:
@@ -30,28 +25,23 @@ class _BlankError(Exception):
 
 CASES = [
     pytest.param(
-        MCPHTTPStatusError(401, "Unauthorized", URL),
-        {FailureKind.CLIENT_ERROR},
-        f"HTTP 401 Unauthorized for url '{URL}'",
-        id="status-error-401",
+        status_error(401, URL), {FailureKind.CLIENT_ERROR}, f"HTTP 401 Unauthorized for url '{URL}'", id="http-401"
     ),
     pytest.param(
-        MCPHTTPStatusError(503, "Service Unavailable", URL),
+        status_error(503, URL),
         {FailureKind.SERVER_ERROR},
         f"HTTP 503 Service Unavailable for url '{URL}'",
-        id="status-error-503",
+        id="http-503",
     ),
     pytest.param(
-        _httpx_status_error(503),
+        httpx2.HTTPStatusError(
+            "Server error '502 Bad Gateway' for url\nFor more information check: https://example.com",
+            request=httpx2.Request("GET", URL),
+            response=httpx2.Response(502, request=httpx2.Request("GET", URL)),
+        ),
         {FailureKind.SERVER_ERROR},
-        f"HTTP 503 Service Unavailable for url '{URL}'",
-        id="httpx2-status-503",
-    ),
-    pytest.param(
-        _httpx_status_error(404),
-        {FailureKind.CLIENT_ERROR},
-        f"HTTP 404 Not Found for url '{URL}'",
-        id="httpx2-status-404",
+        f"HTTP 502 Bad Gateway for url '{URL}'",
+        id="native-httpx2-message-is-rebuilt",
     ),
     pytest.param(
         _connect_wrapper(),
@@ -102,7 +92,7 @@ CASES = [
         ValueError("first line\nsecond line"), {FailureKind.UNEXPECTED}, "ValueError: first line", id="first-line-only"
     ),
     pytest.param(
-        ExceptionGroup("g", [MCPHTTPStatusError(503, "Service Unavailable", URL)] * 2),
+        ExceptionGroup("g", [status_error(503, URL)] * 2),
         {FailureKind.SERVER_ERROR},
         f"HTTP 503 Service Unavailable for url '{URL}'",
         id="group-same-kind-deduplicated",
@@ -114,13 +104,13 @@ CASES = [
         id="nested-groups-flattened",
     ),
     pytest.param(
-        ExceptionGroup("g", [_httpx_status_error(503), anyio.BrokenResourceError()]),
+        ExceptionGroup("g", [status_error(503, URL), anyio.BrokenResourceError()]),
         {FailureKind.SERVER_ERROR, FailureKind.STREAM_BROKEN},
         f"HTTP 503 Service Unavailable for url '{URL}'; BrokenResourceError",
         id="mixed-group-keeps-every-kind",
     ),
     pytest.param(
-        ExceptionGroup("g", [_httpx_status_error(503), ValueError("x")]),
+        ExceptionGroup("g", [status_error(503, URL), ValueError("x")]),
         {FailureKind.SERVER_ERROR, FailureKind.UNEXPECTED},
         f"HTTP 503 Service Unavailable for url '{URL}'; ValueError: x",
         id="mixed-group-with-a-bug",

@@ -22,7 +22,6 @@ from mcp_servers import services
 from mcp_servers.filters import MCPServerFilter
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_servers.models import MCPServer
-from mcp_servers.validators import validate_http_url
 
 logger = logging.getLogger("daiv.mcp_servers")
 
@@ -354,11 +353,9 @@ class MCPServerTestView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request):
-        transport, url = request.POST.get("transport"), request.POST.get("url", "").strip()
-        if transport not in MCPServer.Transport.values:
-            return JsonResponse({"ok": False, "error": "unsupported transport"}, status=400)
         try:
-            validate_http_url(url)
+            transport = MCPServer._meta.get_field("transport").clean(request.POST.get("transport"), None)
+            url = MCPServer._meta.get_field("url").clean(request.POST.get("url", "").strip(), None)
         except ValidationError as exc:
             return JsonResponse({"ok": False, "error": " ".join(exc.messages)}, status=400)
         formset = MCPServerHeaderFormSet(

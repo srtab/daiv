@@ -7,12 +7,9 @@ import pytest
 from mcp.shared.exceptions import MCPError
 from mcp_types import CONNECTION_CLOSED
 
-from automation.agent.mcp.client import MCPHTTPStatusError, build_client
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from automation.agent.mcp.toolkits import MCPToolkit, _load_server_tools
-from tests.unit_tests.automation.agent.mcp.helpers import empty_event_stream, serve
-
-APP_TOOLS = {"echo", "write", "plain", "boom", "structured", "capabilities"}
+from tests.unit_tests.automation.agent.mcp.helpers import APP_TOOLS, client_for, empty_event_stream, serve, status_error
 
 
 def _dto(url: str, tool_filter: ToolFilter | None = None, headers: dict[str, str] | None = None) -> UserMcpServer:
@@ -30,7 +27,7 @@ def gates(monkeypatch):
     routes = {}
 
     def _build_client(transport, url, headers):
-        return build_client(transport, url, headers, http_transport=httpx2.ASGITransport(app=routes[url]))
+        return client_for(routes[url], transport=transport, url=url, headers=headers)
 
     monkeypatch.setattr("automation.agent.mcp.toolkits.build_client", _build_client)
     return routes
@@ -102,7 +99,7 @@ class TestGetTools:
         ("tool_filter", "expected"),
         [
             (ToolFilter(mode="allow", items=["echo", "plain"]), {"echo", "plain"}),
-            (ToolFilter(mode="block", items=["boom", "write", "structured", "capabilities"]), {"echo", "plain"}),
+            (ToolFilter(mode="block", items=["boom", "write", "capabilities"]), {"echo", "plain"}),
         ],
     )
     async def test_filter_applies_to_raw_mcp_names(self, gates, servers, tool_filter, expected):
@@ -191,20 +188,23 @@ class TestLoadServerTools:
 
 class TestLogPolicy:
     @pytest.mark.parametrize(
-        "exc",
+        ("exc", "level"),
         [
-            TimeoutError(),
-            anyio.BrokenResourceError(),
-            anyio.ClosedResourceError(),
-            MCPHTTPStatusError(503, "Service Unavailable", "http://x/mcp"),
-            MCPError(CONNECTION_CLOSED, "Connection closed"),
-            ExceptionGroup(
-                "g", [MCPHTTPStatusError(503, "Service Unavailable", "http://x/mcp"), anyio.BrokenResourceError()]
+            pytest.param(TimeoutError(), "WARNING", id="timeout"),
+            pytest.param(anyio.BrokenResourceError(), "WARNING", id="broken-stream"),
+            pytest.param(anyio.ClosedResourceError(), "WARNING", id="closed-stream"),
+            pytest.param(status_error(503), "WARNING", id="http-5xx"),
+            pytest.param(MCPError(CONNECTION_CLOSED, "Connection closed"), "WARNING", id="connection-closed"),
+            pytest.param(
+                ExceptionGroup("g", [status_error(503), anyio.BrokenResourceError()]), "WARNING", id="all-soft-group"
             ),
+            pytest.param(status_error(401), "ERROR", id="http-4xx"),
+            pytest.param(ValueError("bug"), "ERROR", id="unexpected"),
+            pytest.param(httpx2.ConnectError("refused"), "ERROR", id="unreachable"),
+            pytest.param(ExceptionGroup("g", [status_error(503), ValueError("bug")]), "ERROR", id="mixed-group"),
         ],
-        ids=["timeout", "broken-stream", "closed-stream", "http-5xx", "connection-closed", "all-soft-group"],
     )
-    async def test_soft_failures_warn_without_traceback(self, servers, monkeypatch, caplog, exc):
+    async def test_soft_failures_warn_and_others_log_a_traceback(self, servers, monkeypatch, caplog, exc, level):
         async def _fail(client):
             raise exc
 
@@ -214,34 +214,10 @@ class TestLogPolicy:
         with caplog.at_level("DEBUG", logger="daiv.tools"):
             assert await MCPToolkit.get_tools() == []
 
-        records = [r for r in caplog.records if r.name == "daiv.tools" and r.levelname != "DEBUG"]
-        assert [r.levelname for r in records] == ["WARNING"]
-        assert records[0].exc_info is None
-        assert "acme" in records[0].getMessage()
-
-    @pytest.mark.parametrize(
-        "exc",
-        [
-            MCPHTTPStatusError(401, "Unauthorized", "http://x/mcp"),
-            ValueError("bug"),
-            httpx2.ConnectError("refused"),
-            ExceptionGroup("g", [MCPHTTPStatusError(503, "Service Unavailable", "http://x/mcp"), ValueError("bug")]),
-        ],
-        ids=["http-4xx", "unexpected", "unreachable", "mixed-group"],
-    )
-    async def test_other_failures_log_with_traceback(self, servers, monkeypatch, caplog, exc):
-        async def _fail(client):
-            raise exc
-
-        monkeypatch.setattr("automation.agent.mcp.toolkits.list_tools", _fail)
-        servers(("acme", _dto("http://acme/mcp")))
-
-        with caplog.at_level("DEBUG", logger="daiv.tools"):
-            assert await MCPToolkit.get_tools() == []
-
-        records = [r for r in caplog.records if r.name == "daiv.tools" and r.levelname != "DEBUG"]
-        assert [r.levelname for r in records] == ["ERROR"]
-        assert records[0].exc_info is not None
+        [record] = [r for r in caplog.records if r.name == "daiv.tools" and r.levelname != "DEBUG"]
+        assert record.levelname == level
+        assert (record.exc_info is not None) == (level == "ERROR")
+        assert "acme" in record.getMessage()
 
     async def test_upstream_503_through_the_real_client_stack_is_a_warning(self, gates, servers, caplog):
         async with serve(status=503) as gate:

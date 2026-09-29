@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import anyio
+import httpx2
 import pytest
 from mcp_servers import services
 from mcp_servers.models import MCPServer
@@ -294,37 +296,32 @@ async def test_test_connection_reports_unreachable_host_as_warning(caplog):
     assert [r.levelname for r in _service_records(caplog)] == ["WARNING"]
 
 
-async def test_test_connection_warns_on_a_group_of_anticipated_failures(monkeypatch, caplog):
-    import anyio
-    import httpx2
+@pytest.mark.parametrize(
+    ("exc", "error", "level"),
+    [
+        pytest.param(
+            ExceptionGroup("g", [httpx2.ConnectError("refused"), anyio.ClosedResourceError()]),
+            "ConnectError: refused; ClosedResourceError",
+            "WARNING",
+            id="anticipated-group",
+        ),
+        pytest.param(ValueError("bug"), "ValueError: bug", "ERROR", id="unexpected"),
+    ],
+)
+async def test_test_connection_logs_only_unexpected_failures_with_traceback(monkeypatch, caplog, exc, error, level):
     from mcp_servers.services import test_connection
 
     def _fail(payload):
-        raise ExceptionGroup("g", [httpx2.ConnectError("refused"), anyio.ClosedResourceError()])
+        raise exc
 
     monkeypatch.setattr("mcp_servers.services._build_client", _fail)
     with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
         result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
 
-    assert result == {"ok": False, "error": "ConnectError: refused; ClosedResourceError"}
+    assert result == {"ok": False, "error": error}
     [record] = _service_records(caplog)
-    assert record.levelname == "WARNING"
-
-
-async def test_test_connection_logs_unexpected_failures_with_traceback(monkeypatch, caplog):
-    from mcp_servers.services import test_connection
-
-    def _fail(payload):
-        raise ValueError("bug")
-
-    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
-    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
-        result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
-
-    assert result == {"ok": False, "error": "ValueError: bug"}
-    records = _service_records(caplog)
-    assert [r.levelname for r in records] == ["ERROR"]
-    assert records[0].exc_info is not None
+    assert record.levelname == level
+    assert (record.exc_info is not None) == (level == "ERROR")
 
 
 async def test_test_connection_survives_a_200_response_that_is_not_mcp(monkeypatch):

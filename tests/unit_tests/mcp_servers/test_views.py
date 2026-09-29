@@ -489,11 +489,12 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 @pytest.mark.parametrize(
     ("transport", "url", "error"),
     [
-        ("http", "", "Enter a valid http(s) URL, e.g. http://mcp-server:8000/mcp."),
+        ("http", "", "This field cannot be blank."),
         ("http", "mcp.example.com/mcp", "Enter a valid http(s) URL, e.g. http://mcp-server:8000/mcp."),
-        ("stdio", "http://demo.test", "unsupported transport"),
+        ("http", "http://" + "a" * 200, "Ensure this value has at most 200 characters (it has 207)."),
+        ("stdio", "http://demo.test", "Value 'stdio' is not a valid choice."),
     ],
-    ids=["blank-url", "scheme-less-url", "unknown-transport"],
+    ids=["blank-url", "scheme-less-url", "too-long-url", "unknown-transport"],
 )
 def test_test_endpoint_rejects_an_invalid_target_without_probing(
     client, admin_user, monkeypatch, transport, url, error

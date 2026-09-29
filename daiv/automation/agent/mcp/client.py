@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx2
@@ -8,6 +7,8 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 from langchain_core._api import suppress_langchain_beta_warning
 from mcp.shared.exceptions import MCPError
+
+from .errors import status_message
 
 with suppress_langchain_beta_warning():
     from langchain.mcp import as_langchain_tool
@@ -20,41 +21,19 @@ if TYPE_CHECKING:
 _DEFAULT_TIMEOUT = httpx2.Timeout(30.0, read=300.0)
 
 
-class MCPHTTPStatusError(Exception):
-    """An HTTP failure whose status mcp 2.x hid behind a generic ``MCPError``."""
-
-    def __init__(self, status_code: int, reason: str, url: str):
-        super().__init__(f"HTTP {status_code} {reason} for url '{url}'")
-        self.status_code = status_code
-        self.reason = reason
-        self.url = url
-
-
-@dataclass(frozen=True, slots=True)
-class FailedResponse:
-    status_code: int
-    reason: str
-    url: str
-
-
 class StatusRecorder:
-    """httpx2 response hook keeping the failure (>= 400) of the latest ``POST``, cleared when one succeeds.
+    """httpx2 response hook keeping the latest ``POST`` response if it failed, cleared when one succeeds.
 
     Only a ``POST`` failure reaches the caller as an ``MCPError``: mcp recovers from a rejected
     ``server/discover`` probe and swallows failures of the standalone ``GET`` stream and the teardown ``DELETE``.
     """
 
     def __init__(self) -> None:
-        self.last: FailedResponse | None = None
+        self.last: httpx2.Response | None = None
 
     async def __call__(self, response: httpx2.Response) -> None:
-        if response.request.method != "POST":
-            return
-        self.last = (
-            FailedResponse(response.status_code, response.reason_phrase, str(response.request.url))
-            if response.status_code >= 400
-            else None
-        )
+        if response.request.method == "POST":
+            self.last = response if response.is_error else None
 
 
 async def _drop_server_log(message: LogMessage) -> None:
@@ -101,14 +80,20 @@ def build_client(
 
 
 async def list_tools(client: StatusTrackingClient) -> list[BaseTool]:
-    """List the server's tools as LangChain tools; HTTP failures raise ``MCPHTTPStatusError``."""
+    """List the server's tools as LangChain tools; HTTP failures raise ``httpx2.HTTPStatusError``.
+
+    mcp 2.x hides a failed POST's status behind a generic ``MCPError``, so it is restored from the recorder.
+    """
     try:
         async with client:
+            if client.initialize_result is not None:
+                # A handshake-era server: skip the rejected ``server/discover`` probe on every tool-call reconnect.
+                client.mode = "legacy"
             return [await as_langchain_tool(tool, client) for tool in await client.list_tools()]
     except Exception as exc:
         failed = client.status_recorder.last
         if failed is not None and _is_http_shaped(exc):
-            raise MCPHTTPStatusError(failed.status_code, failed.reason, failed.url) from exc
+            raise httpx2.HTTPStatusError(status_message(failed), request=failed.request, response=failed) from exc
         raise
 
 

@@ -8,8 +8,9 @@ import pytest
 from mcp_server.server import mcp
 
 import daiv
-from accounts.models import APIKey, User
-from automation.agent.mcp.client import MCPHTTPStatusError, build_client, list_tools
+from accounts.models import APIKey
+from automation.agent.mcp.client import list_tools
+from tests.unit_tests.automation.agent.mcp.helpers import client_for
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -26,8 +27,7 @@ DAIV_TOOLS = {
 
 
 def _client(app, token=None):
-    headers = {"Authorization": f"Bearer {token}"} if token else None
-    return build_client("http", "http://testserver/mcp", headers, http_transport=httpx2.ASGITransport(app=app))
+    return client_for(app, url="http://testserver/mcp", headers={"Authorization": f"Bearer {token}"} if token else None)
 
 
 def _http(app):
@@ -35,13 +35,8 @@ def _http(app):
 
 
 @pytest.fixture
-def user(db):
-    return User.objects.create_user(username="asgi-user", email="asgi@test.com", password="testpass")  # noqa: S106
-
-
-@pytest.fixture
-async def api_key(user):
-    _, raw_key = await APIKey.objects.create_key(user, name="asgi-key")
+async def api_key(member_user):
+    _, raw_key = await APIKey.objects.create_key(member_user, name="asgi-key")
     return raw_key
 
 
@@ -108,10 +103,10 @@ async def test_api_key_client_can_call_list_jobs(mcp_app, api_key):
 
 
 async def test_bad_token_is_rejected(mcp_app):
-    with pytest.raises(MCPHTTPStatusError) as exc_info:
+    with pytest.raises(httpx2.HTTPStatusError) as exc_info:
         await list_tools(_client(mcp_app, "not-a-key.secret"))
 
-    assert exc_info.value.status_code == 401
+    assert exc_info.value.response.status_code == 401
 
 
 async def test_server_info_reports_the_daiv_version(mcp_app, api_key):

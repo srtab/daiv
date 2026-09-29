@@ -12,12 +12,15 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from automation.agent.mcp.client import StatusTrackingClient, build_client
+from automation.agent.mcp.errors import status_message
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 type Reply = tuple[int, bytes, bytes]
 type Route = Callable[[dict | None], Reply]
+
+APP_TOOLS = {"echo", "write", "plain", "boom", "capabilities"}
 
 
 def http_status(code: int) -> Route:
@@ -70,11 +73,6 @@ def build_app() -> MCPServer:
     def boom() -> str:
         """Always fails."""
         raise ValueError("kaboom")
-
-    @server.tool()
-    def structured(n: int) -> dict[str, int]:
-        """Return structured content."""
-        return {"n": n}
 
     @server.tool()
     def capabilities(ctx: Context) -> str:
@@ -166,6 +164,12 @@ async def serve(server: MCPServer | None = None, *, stateless: bool = True, **ga
 
 
 def client_for(
-    gate: Gate, *, transport: str = "http", url: str = "http://test/mcp", headers: dict[str, str] | None = None
+    app, *, transport: str = "http", url: str = "http://test/mcp", headers: dict[str, str] | None = None
 ) -> StatusTrackingClient:
-    return build_client(transport, url, headers, http_transport=httpx2.ASGITransport(app=gate))
+    return build_client(transport, url, headers, http_transport=httpx2.ASGITransport(app=app))
+
+
+def status_error(status: int, url: str = "http://x/mcp") -> httpx2.HTTPStatusError:
+    request = httpx2.Request("POST", url)
+    response = httpx2.Response(status, request=request)
+    return httpx2.HTTPStatusError(status_message(response), request=request, response=response)
