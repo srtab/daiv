@@ -83,7 +83,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
       ``after_agent`` still runs), the parent run is NOT aborted, and the result reads as an error
       rather than an empty/absent report.
     - ``terminal="finalize"`` (parent): return a tool-call-free ``AIMessage`` so the graph routes to
-      END and ``after_agent`` hooks (git publish, patch capture, sandbox teardown) still run.
+      END and ``after_agent`` hooks (git publish, patch capture) still run.
     """
 
     def __init__(

@@ -17,12 +17,13 @@ from automation.agent.git_manager import (
     _is_push_stale_error_text,
     _shell_quote,
 )
-from automation.agent.middlewares.file_system import SandboxFileBackend
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
-from tests.unit_tests.conftest import FakeSandboxClient
+from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 # ---------------------------------------------------------------------------
 # Local-mode helpers (GitPython clone; sandbox-disabled / repoless runs)
@@ -65,8 +66,7 @@ def _init_repo_with_origin(tmp_path: Path) -> tuple[Repo, Path]:
 
 def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
     client = FakeSandboxClient.opened(responses)
-    backend = SandboxFileBackend(client=client)
-    backend.bind_session(client.add_running_session("sid"))
+    backend = sandbox_backend_on(client, client.add_running_session("sid"))
     return GitManager.for_sandbox(backend), client
 
 
@@ -79,8 +79,7 @@ def test_requires_exactly_one_mode(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exactly one"):
         GitManager()
     repo = _init_repo(tmp_path)
-    backend = SandboxFileBackend(client=FakeSandboxClient())
-    backend.bind_session("sid")
+    backend = sandbox_backend_on(FakeSandboxClient(), "sid")
     with pytest.raises(ValueError, match="exactly one"):
         GitManager(repo, sandbox_backend=backend)
 
@@ -120,8 +119,7 @@ def test_classmethod_constructors(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     assert GitManager.for_local(repo).repo is repo
 
-    backend = SandboxFileBackend(client=FakeSandboxClient())
-    backend.bind_session("sid")
+    backend = sandbox_backend_on(FakeSandboxClient(), "sid")
     gm = GitManager.for_sandbox(backend)
     assert gm._sandbox_backend is backend
     assert gm.repo is None
@@ -254,8 +252,7 @@ async def test_sandbox_empty_results_raises_runtime_error() -> None:
         async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
             return RunCommandsResponse(results=[])
 
-    backend = SandboxFileBackend(client=_EmptyClient())
-    backend.bind_session("sid")
+    backend = sandbox_backend_on(_EmptyClient(), "sid")
     gm = GitManager.for_sandbox(backend)
     with pytest.raises(RuntimeError, match="no result"):
         await gm.commit_all("msg")
@@ -535,9 +532,7 @@ def _resp(*outputs_and_codes):
 
 
 def _backend_for(client) -> SandboxFileBackend:
-    backend = SandboxFileBackend(client=client)
-    backend.bind_session("sess-1")
-    return backend
+    return sandbox_backend_on(client, "sess-1")
 
 
 async def test_status_snapshot_diffs_against_merge_base_in_batch_b() -> None:

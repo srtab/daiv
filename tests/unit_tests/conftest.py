@@ -18,11 +18,12 @@ from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
-from core.sandbox.client import reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -45,14 +46,29 @@ def stub_sandbox_spec(spec: SandboxSpec | None = None):
         yield build
 
 
-@contextmanager
-def bound_run_sandbox_client(client):
-    """Bind ``client`` as the run-scoped sandbox client, as ``set_runtime_ctx`` does for a sandbox run."""
-    token = set_run_sandbox_client(client)
-    try:
-        yield client
-    finally:
-        reset_run_sandbox_client(token)
+def acquired_session(
+    client,
+    session_id: str = "sess-1",
+    *,
+    spec: SandboxSpec | None = None,
+    egress: EgressConfigRequest | None = None,
+    credential_source=None,
+) -> SandboxSession:
+    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress``, for tests of
+    what runs on an already-acquired session."""
+    session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
+    session._session_id, session._egress = session_id, egress
+    return session
+
+
+def sandbox_backend_on(client, session_id: str = "sess-1") -> SandboxFileBackend:
+    """A ``SandboxFileBackend`` over an acquired session on ``client``."""
+    return SandboxFileBackend(acquired_session(client, session_id))
+
+
+def unacquired_backend(client=None) -> SandboxFileBackend:
+    """A ``SandboxFileBackend`` whose session nothing has acquired, as a slash-command turn leaves it."""
+    return SandboxFileBackend(SandboxSession(client or FakeSandboxClient(), sandbox_spec()))
 
 
 @dataclass

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
+    from automation.agent.workspace.session import SandboxSession
     from codebase.context import RuntimeCtx
     from sessions.executor.spec import RunSpec
 
@@ -41,13 +42,15 @@ class RunStoppedError(Exception):
 @dataclass(frozen=True)
 class AgentRun:
     """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
-    ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run."""
+    ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``sandbox_session`` is the
+    run's sandbox session (``None`` in disk mode); draft recovery reaches the container through it."""
 
     ctx: RuntimeCtx
     agent: CompiledAgent
     config: RunnableConfig
     usage: CostAwareUsageMetadataCallbackHandler
     thread_id: str
+    sandbox_session: SandboxSession | None
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -194,7 +197,9 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    recovery.draft_published = await recover_draft(run.ctx, run.agent, run.config, thread_id=run.thread_id)
+    recovery.draft_published = await recover_draft(
+        run.ctx, run.agent, run.config, thread_id=run.thread_id, sandbox_session=run.sandbox_session
+    )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
 
@@ -237,40 +242,103 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         ) as ctx,
         checkpoints as checkpointer,
     ):
-        if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
-            await _repin_fallback_ref(thread_id, ctx.repo.ref)
-        if hooks.on_context_ready is not None:
-            await hooks.on_context_ready(ctx.repo.ref)
-        agent_kwargs: dict[str, Any]
-        if spec.model_names:
-            agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
-        else:
-            agent_kwargs = get_daiv_agent_kwargs(
-                model_config=ctx.config.models.agent,
-                agent_model=spec.agent_model,
-                agent_thinking_level=spec.agent_thinking_level,
-                **({"use_max": True} if spec.use_max else {}),
+        sandbox_session = _sandbox_session(ctx)
+        handed_over = False
+        try:
+            if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+                await _repin_fallback_ref(thread_id, ctx.repo.ref)
+            if hooks.on_context_ready is not None:
+                await hooks.on_context_ready(ctx.repo.ref)
+            agent_kwargs: dict[str, Any]
+            if spec.model_names:
+                agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
+            else:
+                agent_kwargs = get_daiv_agent_kwargs(
+                    model_config=ctx.config.models.agent,
+                    agent_model=spec.agent_model,
+                    agent_thinking_level=spec.agent_thinking_level,
+                    **({"use_max": True} if spec.use_max else {}),
+                )
+            model = agent_kwargs["model_names"][0]
+            await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
+            agent = await create_daiv_agent(
+                ctx=ctx,
+                checkpointer=checkpointer,
+                ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
+                sandbox_session=sandbox_session,
+                **agent_kwargs,
+                **spec.agent_options,
             )
-        model = agent_kwargs["model_names"][0]
-        await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
-        agent = await create_daiv_agent(
-            ctx=ctx,
-            checkpointer=checkpointer,
-            ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
-            **agent_kwargs,
-            **spec.agent_options,
+            config = build_langsmith_config(
+                ctx,
+                trigger=spec.trigger,
+                model=model,
+                thinking_level=agent_kwargs["thinking_level"],
+                agent_name=agent.get_name(),
+                extra_metadata=spec.extra_metadata,
+                configurable={"thread_id": thread_id},
+            )
+            with track_usage_metadata() as usage:
+                run = AgentRun(
+                    ctx=ctx,
+                    agent=agent,
+                    config=config,
+                    usage=usage,
+                    thread_id=thread_id,
+                    sandbox_session=sandbox_session,
+                )
+                try:
+                    yield run
+                except SessionLockLostError:
+                    handed_over = await _handed_over(run)
+                    raise
+        finally:
+            if sandbox_session is not None and not handed_over:
+                await _release_sandbox(sandbox_session, resumable=spec.thread_id is not None, thread_id=thread_id)
+
+
+def _sandbox_session(ctx: RuntimeCtx) -> SandboxSession | None:
+    """The run's sandbox session, acquired later by ``SandboxMiddleware``; ``None`` for a disk-mode run, which has no
+    sandbox client."""
+    from automation.agent.workspace.session import SandboxSession
+
+    if ctx.sandbox_client is None or ctx.sandbox is None:
+        return None
+    return SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
+
+
+async def _handed_over(run: AgentRun) -> bool:
+    """Whether the holder that took this run's slot over holds its container: the checkpoint still names it, as that
+    holder's reuse leaves it. Stopping it would stop that turn; one the holder replaced is this run's to stop."""
+    if run.sandbox_session is None or (session_id := run.sandbox_session.session_id) is None:
+        return False
+    try:
+        snapshot = await run.agent.aget_state(config=run.config)
+    except Exception:
+        logger.exception(
+            "executor: lost the slot for thread_id=%s and could not read its checkpoint; leaving sandbox session %s "
+            "running, as the new holder may be using it",
+            run.thread_id,
+            session_id,
         )
-        config = build_langsmith_config(
-            ctx,
-            trigger=spec.trigger,
-            model=model,
-            thinking_level=agent_kwargs["thinking_level"],
-            agent_name=agent.get_name(),
-            extra_metadata=spec.extra_metadata,
-            configurable={"thread_id": thread_id},
-        )
-        with track_usage_metadata() as usage:
-            yield AgentRun(ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id)
+        return True
+    if snapshot.values.get("session_id") != session_id:
+        return False
+    logger.info(
+        "executor: lost the slot for thread_id=%s; leaving sandbox session %s to its new holder",
+        run.thread_id,
+        session_id,
+    )
+    return True
+
+
+async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_id: str) -> None:
+    """``release`` logs its own close errors; anything else it raises is logged here, so it never fails a finished run
+    or replaces a failed run's error."""
+    try:
+        await session.release(resumable=resumable)
+    except Exception:
+        logger.exception("executor: failed to release the sandbox session for thread_id=%s", thread_id)
 
 
 async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:

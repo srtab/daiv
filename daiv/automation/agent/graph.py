@@ -35,7 +35,6 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FS_TOOLS,
     DAIVCompositeBackend,
     DAIVFilesystemMiddleware,
-    SandboxFileBackend,
     build_disk_workspace_backend,
     filesystem_absolute_path_directive,
 )
@@ -60,11 +59,11 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
+from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
-from core.sandbox.client import get_run_sandbox_client
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -74,6 +73,8 @@ if TYPE_CHECKING:
     from deepagents.middleware.filesystem import FilesystemPermission
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
+
+    from automation.agent.workspace.session import SandboxSession
 
 
 logger = logging.getLogger("daiv.agent")
@@ -178,6 +179,7 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
     ctx: RuntimeCtx,
+    sandbox_session: SandboxSession | None = None,
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -198,6 +200,8 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
+        sandbox_session: The run's sandbox session, built and released by the run executor; required when the sandbox
+            is enabled.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
@@ -237,15 +241,13 @@ async def create_daiv_agent(
     global_skills_source = SKILLS_PATH
 
     sandbox_backend: SandboxFileBackend | None = None
-    run_client = None
     main_agent_permissions: list[FilesystemPermission] | None = None
     if _sandbox_enabled:
-        # Sandbox-authoritative: one pass-through SandboxFileBackend serves all of /workspace, bound
-        # to the run's session by SandboxMiddleware.abefore_agent. It is wrapped in a composite only
-        # so the offloading middlewares get an ``artifacts_root`` under /workspace (a bare backend
-        # would default to "/" and write evictions outside /workspace, which the sandbox rejects).
-        run_client = get_run_sandbox_client()
-        sandbox_backend = SandboxFileBackend(client=run_client)
+        if sandbox_session is None:
+            raise ValueError("A sandbox-enabled agent needs the run's SandboxSession (the run executor builds it)")
+        # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
+        # defaults to "/", and the sandbox rejects evictions written there.
+        sandbox_backend = SandboxFileBackend(sandbox_session)
         backend: BackendProtocol = DAIVCompositeBackend(
             default=sandbox_backend, routes={}, artifacts_root=WORKSPACE_PATH
         )
@@ -277,7 +279,6 @@ async def create_daiv_agent(
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
-            client=run_client,
             sandbox_backend=sandbox_backend,
             mcp_tools=mcp_tools,
         ),
@@ -295,7 +296,6 @@ async def create_daiv_agent(
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
-        client=run_client,
         sandbox_backend=sandbox_backend,
         mcp_tools=mcp_tools,
     )
@@ -316,11 +316,7 @@ async def create_daiv_agent(
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
-        *(
-            [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]
-            if _sandbox_enabled
-            else []
-        ),
+        *([SandboxMiddleware(agent_root=agent_root, sandbox_backend=sandbox_backend)] if _sandbox_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
@@ -335,17 +331,16 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch
-        # capture/sandbox teardown) and discard work — the failure mode StepBudget guards against.
+        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
+        # and discard work — the failure mode StepBudget guards against.
         LoopBreakerMiddleware(terminal="finalize"),
         StepBudgetMiddleware(),
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        # Must stay after SandboxMiddleware: after_agent hooks run in REVERSE registration order,
-        # so the turn-end publish/patch-capture runs while the sandbox session is still alive
-        # (SandboxMiddleware.aafter_agent closes it).
+        # Must stay after SandboxMiddleware: before_agent hooks run in registration order, and GitMiddleware's pre-run
+        # check runs git in the session SandboxMiddleware acquires.
         GitMiddleware(
             auto_commit_changes=auto_commit_changes, capture_patch=capture_patch, sandbox_backend=sandbox_backend
         ),

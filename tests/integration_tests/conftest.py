@@ -5,6 +5,7 @@ import pytest
 import pytest_asyncio
 from sandbox_envs.services import build_sandbox_spec
 
+from automation.agent.workspace.session import SandboxSession
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -216,6 +217,20 @@ async def runtime_ctx():
         repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
     ) as ctx:
         yield ctx
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def sandbox_session(runtime_ctx):
+    """The run's sandbox session, as the run executor builds it; its container is removed after the test."""
+    if runtime_ctx.sandbox_client is None:
+        pytest.skip("The global default sandbox environment has no base image.")
+    session = SandboxSession(
+        runtime_ctx.sandbox_client, runtime_ctx.sandbox, credential_source=runtime_ctx.credential_source
+    )
+    try:
+        yield session
+    finally:
+        await session.release(resumable=False)
 
 
 def pytest_terminal_summary(terminalreporter) -> None:

@@ -76,7 +76,7 @@ def _extract_bash_tool_messages(messages: list) -> list[str]:
         ),
     ],
 )
-async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
+async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx, sandbox_session):
     require_provider_for_model(model_name)
     if site_settings.sandbox_api_key is None:
         pytest.skip("SANDBOX_API_KEY is not configured.")
@@ -85,6 +85,7 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
+        sandbox_session=sandbox_session,
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
@@ -129,7 +130,9 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
         ),
     ],
 )
-async def test_sandbox_policy_blocks_forbidden_commands(model_name, user_message, forbidden_argv_prefix, runtime_ctx):
+async def test_sandbox_policy_blocks_forbidden_commands(
+    model_name, user_message, forbidden_argv_prefix, runtime_ctx, sandbox_session
+):
     """
     Verify that the bash tool policy layer blocks forbidden commands before they
     reach the sandbox, and that the agent receives a policy-denial error response.
@@ -147,6 +150,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(model_name, user_message
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
+        sandbox_session=sandbox_session,
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
