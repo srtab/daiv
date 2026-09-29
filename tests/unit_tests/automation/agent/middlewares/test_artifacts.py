@@ -263,8 +263,9 @@ async def test_awrap_model_call_appends_artifacts_prompt():
 
 
 async def test_publish_through_the_sandbox_refuses_oversized_files_before_transfer(monkeypatch):
-    from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+    from automation.agent.middlewares.file_system import DAIVCompositeBackend
     from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+    from tests.unit_tests.conftest import sandbox_backend_on
 
     monkeypatch.setattr(sessions_settings, "ARTIFACT_MAX_BYTES", 1234)
     session, run = await _session_with_running_run()
@@ -272,8 +273,7 @@ async def test_publish_through_the_sandbox_refuses_oversized_files_before_transf
     client.run_commands.return_value = RunCommandsResponse(
         results=[RunCommandResult(command="download", output="", exit_code=6)]
     )
-    sandbox = SandboxFileBackend(client=client)
-    sandbox.bind_session("sid")
+    sandbox = sandbox_backend_on(client, "sid")
     backend = DAIVCompositeBackend(default=sandbox, routes={}, artifacts_root="/workspace")
 
     result = await _tool(backend, sandbox, run=run)(path="/workspace/tmp/huge.log", runtime=_runtime(session.thread_id))

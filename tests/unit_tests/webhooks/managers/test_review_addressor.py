@@ -38,7 +38,7 @@ def _merge_request(merge_request_id: int = 99, *, source_branch: str = "feature"
 
 def _ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads."""
-    return SimpleNamespace(config=MagicMock(), repo=SimpleNamespace(ref="feature"))
+    return SimpleNamespace(config=MagicMock(), repo=SimpleNamespace(ref="feature"), sandbox_client=None)
 
 
 @pytest.fixture
@@ -164,7 +164,7 @@ class TestReviewAfterRunMatrix:
         with addressor_run(agent, ctx=_ctx(), draft_published=True) as run, pytest.raises(RuntimeError, match="boom"):
             await _address(thread_id=session.thread_id)
 
-        assert run.recover.await_args.kwargs == {"thread_id": session.thread_id}
+        assert run.recover.await_args.kwargs == {"thread_id": session.thread_id, "sandbox_session": None}
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]
         assert note.kwargs["reply_to_id"] == "c-1"

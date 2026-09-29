@@ -17,8 +17,8 @@ from sessions.artifacts import ArtifactError, aresolve_active_run, astore_artifa
 from sessions.conf import settings as sessions_settings
 
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
-from automation.agent.middlewares.file_system import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 from automation.agent.utils import conversation_thread_id
+from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 from codebase.context import RuntimeCtx  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from sessions.models import RunArtifact
 
-    from automation.agent.middlewares.file_system import SandboxFileBackend
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 logger = logging.getLogger("daiv.tools")
 

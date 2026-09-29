@@ -1,8 +1,8 @@
 """The sandbox a run asks for, resolved from its environment and the GLOBAL default.
 
-A :class:`SandboxSpec` holds only what the environments configure. ``set_runtime_ctx`` adds the
-git-platform rule and credential per run (``RuntimeCtx.sandbox_egress``) and never stores them here,
-so :attr:`SandboxSpec.fingerprint` changes only when the environment does.
+A :class:`SandboxSpec` holds only what the environments configure. A run's ``SandboxSession`` adds the git-platform
+rule and credential when it starts or reuses a container, and never stores them here, so
+:attr:`SandboxSpec.fingerprint` changes only when the environment does.
 """
 
 import json

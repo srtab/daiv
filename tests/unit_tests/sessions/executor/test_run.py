@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+import tarfile
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
@@ -19,8 +21,14 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import Scope
+from codebase.clients.base import GitEgressCredential
 from codebase.references import ExternalRef
-from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
+from tests.unit_tests.conftest import (
+    SAMPLE_QUESTION_PAYLOAD,
+    FakeSandboxClient,
+    ask_user_question_messages,
+    sandbox_spec,
+)
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
 from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack, make_spec
 
@@ -69,7 +77,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
     )
     stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, **AGENT_KWARGS
+        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, sandbox_session=None, **AGENT_KWARGS
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -499,6 +507,7 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
+        sandbox_session=None,
         model_names=["model-a", "model-b"],
         thinking_level=thinking_level,
     )
@@ -515,7 +524,12 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
 
     assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
     stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, **AGENT_KWARGS, capture_patch=True
+        ctx=stack.ctx,
+        checkpointer=stack.checkpointer,
+        ask_user_enabled=True,
+        sandbox_session=None,
+        **AGENT_KWARGS,
+        capture_patch=True,
     )
 
 
@@ -631,7 +645,9 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         ):
             await execute_run(spec, RunHooks(on_failure=on_failure))
 
-    recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=spec.thread_id)
+    recover.assert_awaited_once_with(
+        stack.ctx, agent, stack.langsmith.return_value, thread_id=spec.thread_id, sandbox_session=None
+    )
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     on_failure.assert_awaited_once_with(agent.ainvoke.side_effect, draft_published=True, snapshot=recovered_state)
@@ -708,6 +724,118 @@ async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     assert stack.events == []
     stack.create_agent.assert_not_awaited()
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
+
+
+def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None) -> MagicMock:
+    """The stubbed clone's ``RuntimeCtx`` for a sandbox run: its spec, its open client and its credential source."""
+    return MagicMock(
+        repo=SimpleNamespace(ref="main"),
+        sandbox=sandbox_spec(),
+        sandbox_client=client,
+        credential_source=credential_source,
+    )
+
+
+async def _acquire(session, prior_id: str) -> None:
+    await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=AsyncMock())
+
+
+def _archive() -> bytes:
+    buffer = io.BytesIO()
+    tarfile.open(fileobj=buffer, mode="w:gz").close()
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("one_shot", "force"), [pytest.param(False, False, id="session"), pytest.param(True, True, id="one-shot")]
+)
+async def test_a_finished_run_releases_its_sandbox_session_before_the_context_closes(one_shot, force):
+    """The container is stopped for the session's next turn, or removed for a one-shot run (evals, whose graph still
+    has a thread), after the after-run steps and while the run's client is still open."""
+    client = FakeSandboxClient.opened()
+    session_id = client.add_running_session("sess-1")
+    agent = _agent()
+
+    with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
+        close_session = client.close_session
+
+        async def _recorded_close(sid, *, force=False):
+            stack.events.append(f"closed {sid} force={force}")
+            await close_session(sid, force=force)
+
+        client.close_session = _recorded_close
+
+        async def _invoke(*_args, **_kwargs):
+            await _acquire(stack.create_agent.await_args.kwargs["sandbox_session"], session_id)
+            return {"messages": [MagicMock(content="done")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
+
+    assert stack.events == ["context entered", "result built", f"closed sess-1 force={force}", "context exited"]
+
+
+@pytest.mark.parametrize(
+    ("one_shot", "force"), [pytest.param(False, False, id="session"), pytest.param(True, True, id="one-shot")]
+)
+async def test_a_raising_agent_still_releases_its_sandbox_session(one_shot, force):
+    """B5: an agent error no longer leaves the container running until the sandbox reaper finds it."""
+    client = FakeSandboxClient.opened()
+    session_id = client.add_running_session("sess-1")
+    agent = _agent()
+
+    with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
+
+        async def _invoke(*_args, **_kwargs):
+            await _acquire(stack.create_agent.await_args.kwargs["sandbox_session"], session_id)
+            raise RuntimeError("agent blew up")
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with pytest.raises(RuntimeError, match="agent blew up"):
+            await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
+
+    assert client.calls_to("close_session") == [(session_id, force)]
+
+
+async def test_the_sandbox_session_mints_its_egress_credential_from_the_context():
+    """The executor hands the session the clone's credential source, so a fresh container's egress carries the run's
+    push token."""
+    client = FakeSandboxClient.opened()
+    credential = GitEgressCredential.for_token(host="gitlab.com", token="tok")  # noqa: S106
+    agent = _agent()
+
+    with agent_stack(agent, ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))) as stack:
+
+        async def _invoke(*_args, **_kwargs):
+            session = stack.create_agent.await_args.kwargs["sandbox_session"]
+            await session.acquire(
+                prior_id=None, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None))
+            )
+            return {"messages": [MagicMock(content="done")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        await execute_run(make_spec())
+
+    [(request,)] = client.calls_to("start_session")
+    assert request.egress is not None
+    assert [secret.value for secret in request.egress.secrets.values()] == [credential.value]
+
+
+async def test_a_failing_sandbox_release_still_closes_the_context(caplog):
+    client = FakeSandboxClient.opened()
+
+    with (
+        agent_stack(_agent(), ctx=_sandbox_ctx(client)) as stack,
+        patch(
+            "automation.agent.workspace.session.SandboxSession.release",
+            AsyncMock(side_effect=RuntimeError("release bug")),
+        ),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+    ):
+        await execute_run(make_spec())
+
+    assert stack.events[-1] == "context exited"
+    assert "failed to release the sandbox session" in caplog.text
 
 
 def _stream(*events, error: Exception | None = None):
@@ -801,7 +929,9 @@ class TestStreamRun:
         ):
             await _drain(make_spec(recover_draft=True), _stream(error=error), RunHooks(on_failure=on_failure))
 
-        recover.assert_awaited_once_with(stack.ctx, agent, stack.langsmith.return_value, thread_id=ANY)
+        recover.assert_awaited_once_with(
+            stack.ctx, agent, stack.langsmith.return_value, thread_id=ANY, sandbox_session=None
+        )
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
 
     @pytest.mark.django_db(transaction=True)
@@ -988,3 +1118,81 @@ class TestStreamRun:
         on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
         assert stream.runs == []
         assert stack.events == []
+
+    @pytest.mark.parametrize("ending", ["stop", "reader gone"])
+    async def test_a_stream_that_ends_early_still_releases_its_sandbox_session(self, ending):
+        """B5: a chat turn the user stopped, or whose browser went away, stops its container."""
+        client = FakeSandboxClient.opened()
+        session_id = client.add_running_session("sess-1")
+
+        async def _acquiring(run):
+            await _acquire(run.sandbox_session, session_id)
+            yield "a"
+            yield "b"
+
+        with (
+            agent_stack(_agent(), ctx=_sandbox_ctx(client)),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+        ):
+            events = stream_run(
+                make_spec(lock=NoLock()), _acquiring, should_stop=AsyncMock(return_value=ending == "stop")
+            )
+            assert await anext(events) == "a"
+            if ending == "stop":
+                with pytest.raises(RunStoppedError):
+                    await anext(events)
+            else:
+                await events.aclose()
+
+        assert client.calls_to("close_session") == [(session_id, False)]
+
+    async def test_a_cancelled_stream_still_releases_its_sandbox_session(self):
+        """B5: cancelling the task that consumes a chat turn's stream stops its container."""
+        client = FakeSandboxClient.opened()
+        session_id = client.add_running_session("sess-1")
+        waiting = asyncio.Event()
+
+        async def _acquiring(run):
+            await _acquire(run.sandbox_session, session_id)
+            yield "a"
+            waiting.set()
+            await asyncio.Event().wait()
+
+        with agent_stack(_agent(), ctx=_sandbox_ctx(client)):
+            task = asyncio.create_task(_drain(make_spec(lock=NoLock()), _acquiring))
+            await waiting.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert client.calls_to("close_session") == [(session_id, False)]
+
+    @pytest.mark.parametrize(
+        ("checkpointed", "closes"),
+        [
+            pytest.param("sess-1", [], id="reused-by-the-new-holder"),
+            pytest.param("sess-2", [("sess-1", False)], id="replaced-by-the-new-holder"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_slot_taken_over_mid_stream_leaves_the_container_only_to_a_holder_that_reused_it(
+        self, checkpointed, closes
+    ):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+        client = FakeSandboxClient.opened()
+        session_id = client.add_running_session("sess-1")
+
+        async def _acquiring(run):
+            await _acquire(run.sandbox_session, session_id)
+            yield "a"
+            yield "b"
+
+        with (
+            agent_stack(_agent(state={"session_id": checkpointed}), ctx=_sandbox_ctx(client)),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
+            pytest.raises(SessionLockLostError),
+        ):
+            await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _acquiring)
+
+        assert client.calls_to("close_session") == closes
