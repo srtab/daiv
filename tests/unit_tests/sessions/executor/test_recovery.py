@@ -9,10 +9,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
-from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
+from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, sandbox_spec
+from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -57,7 +58,7 @@ def _agent(values: dict) -> Mock:
     return agent
 
 
-async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
+async def _publish(*, checkpointed_mr, current_ref: str, workspace=None) -> Mock:
     """Recover over a checkpoint naming ``checkpointed_mr``; return the publisher class mock."""
     with patch("automation.agent.publishers.GitChangePublisher") as pub_cls:
         pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
@@ -66,7 +67,7 @@ async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
             _agent({"merge_request": checkpointed_mr, "session_id": None}),
             {},
             thread_id="t-1",
-            sandbox_session=None,
+            workspace=workspace or FakeWorkspace(),
         )
     return pub_cls
 
@@ -103,6 +104,13 @@ class TestPublishTarget:
         assert "revived as dict" in caplog.text
         assert "draft recovery failed" not in caplog.text
 
+    async def test_it_publishes_through_the_workspace_the_agent_worked_in(self):
+        workspace = FakeWorkspace()
+
+        pub_cls = await _publish(checkpointed_mr=None, current_ref="master", workspace=workspace)
+
+        assert pub_cls.call_args.args[1] is workspace
+
     async def test_it_hands_the_publisher_the_runs_thread_id(self):
         pub_cls = await _publish(checkpointed_mr=None, current_ref="master")
 
@@ -115,7 +123,7 @@ class TestSandboxMode:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
-                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", sandbox_session=session
+                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", workspace=SandboxWorkspace(session)
             )
         return published, agent
 
@@ -126,7 +134,7 @@ class TestSandboxMode:
         created: list = []
 
         published, agent = await self._recover(
-            acquired_session(client, session_id), publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
+            acquired_session(client, session_id), publisher=publisher_through_workspace(created, publishes=_DRAFT_MR)
         )
 
         assert published is True
@@ -161,7 +169,7 @@ class TestSandboxMode:
                 agent,
                 {},
                 thread_id="t-1",
-                sandbox_session=SandboxSession(client, sandbox_spec()),
+                workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec())),
             )
 
         assert published is False

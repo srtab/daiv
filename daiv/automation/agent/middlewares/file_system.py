@@ -309,6 +309,11 @@ WORKSPACE_FENCE_PERMISSIONS = [
     FilesystemPermission(operations=["read", "write"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
 ]
 
+# Enforced against the validated path, so an upstream tool rename cannot restore write access.
+READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
+    FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
+]
+
 CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
     "glob": GLOB_TOOL_DESCRIPTION,

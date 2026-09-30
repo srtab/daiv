@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
@@ -21,7 +20,6 @@ from automation.agent.constants import (
     SKILLS_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
-    WORKSPACE_PATH,
     ModelName,
 )
 from automation.agent.mcp.toolkits import MCPToolkit
@@ -32,11 +30,8 @@ from automation.agent.middlewares.deferred_tools import deferred_tools_middlewar
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
-    WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FS_TOOLS,
-    DAIVCompositeBackend,
     DAIVFilesystemMiddleware,
-    build_disk_workspace_backend,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git import GitMiddleware
@@ -60,7 +55,6 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from core.constants import BOT_NAME
@@ -69,12 +63,10 @@ from core.site_settings import site_settings
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from deepagents.backends.protocol import BackendProtocol
-    from deepagents.middleware.filesystem import FilesystemPermission
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
-    from automation.agent.workspace.session import SandboxSession
+    from automation.agent.workspace.base import Workspace
 
 
 logger = logging.getLogger("daiv.agent")
@@ -179,7 +171,7 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
     ctx: RuntimeCtx,
-    sandbox_session: SandboxSession | None = None,
+    workspace: Workspace,
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -188,7 +180,6 @@ async def create_daiv_agent(
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     middleware: list[AgentMiddleware] | None = None,
     # Flags to override the default settings
-    sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
     web_search_enabled: bool | None = None,
     ask_user_enabled: bool = True,
@@ -200,8 +191,7 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
-        sandbox_session: The run's sandbox session, built and released by the run executor; required when the sandbox
-            is enabled.
+        workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
@@ -210,7 +200,6 @@ async def create_daiv_agent(
         debug: Whether to enable debug mode for the agent.
         interrupt_on: The interrupt on configuration for the agent.
         middleware: The middleware to use for the agent.
-        sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
         web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
@@ -231,33 +220,13 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=fallback_thinking_level) for model_name in model_names[1:]
     ]
 
-    _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.sandbox.enabled
+    bash_tool_enabled = workspace.bash is not None
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
-    # Unified workspace namespace: the agent addresses /workspace/repo, /workspace/skills and
-    # /workspace/tmp regardless of sandbox mode. Only the backend behind /workspace differs.
     agent_root = REPO_PATH
     global_skills_source = SKILLS_PATH
-
-    sandbox_backend: SandboxFileBackend | None = None
-    main_agent_permissions: list[FilesystemPermission] | None = None
-    if _sandbox_enabled:
-        if sandbox_session is None:
-            raise ValueError("A sandbox-enabled agent needs the run's SandboxSession (the run executor builds it)")
-        # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
-        # defaults to "/", and the sandbox rejects evictions written there.
-        sandbox_backend = SandboxFileBackend(sandbox_session)
-        backend: BackendProtocol = DAIVCompositeBackend(
-            default=sandbox_backend, routes={}, artifacts_root=WORKSPACE_PATH
-        )
-    else:
-        # Disk-backed: a composite maps the same /workspace namespace onto the local clone
-        # (/workspace/repo), the shared skills cache (/workspace/skills) and a per-run scratch dir
-        # (/workspace/tmp + offloaded artifacts). The fence keeps the agent's file tools inside
-        # those three subtrees; bash is sandbox-only so it needs no equivalent here.
-        backend = build_disk_workspace_backend(Path(ctx.gitrepo.working_dir))
-        main_agent_permissions = WORKSPACE_FENCE_PERMISSIONS
+    backend = workspace.backend
 
     # The run's absolute repo root, shared with subagents so their filesystem path directives name
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
@@ -272,31 +241,27 @@ async def create_daiv_agent(
     subagents = [
         create_general_purpose_subagent(
             model,
-            backend,
+            workspace,
             ctx,
             working_directory,
-            sandbox_enabled=_sandbox_enabled,
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
-            sandbox_backend=sandbox_backend,
             mcp_tools=mcp_tools,
         ),
-        create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
+        create_explore_subagent(workspace, working_directory),
         *load_builtin_code_review_detectors(model, backend, working_directory, fallback_models=fallback_models),
     ]
 
     custom_subagents = await load_custom_subagents(
         model=model,
-        backend=backend,
+        workspace=workspace,
         runtime=ctx,
         sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
         working_directory=working_directory,
-        sandbox_enabled=_sandbox_enabled,
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
-        sandbox_backend=sandbox_backend,
         mcp_tools=mcp_tools,
     )
     subagents.extend(custom_subagents)
@@ -310,21 +275,21 @@ async def create_daiv_agent(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=WORKSPACE_FS_TOOLS,
-            _permissions=main_agent_permissions,
+            _permissions=workspace.fs_permissions,
         ),
         # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
         # source of write_todos and the harness profile excludes nothing here.
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
-        *([SandboxMiddleware(agent_root=agent_root, sandbox_backend=sandbox_backend)] if _sandbox_enabled else []),
+        *([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
-            sandbox_enabled=_sandbox_enabled,
+            copy_global_skills=not workspace.provisions_skills,
         ),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
-        ArtifactsMiddleware(backend=backend, sandbox_backend=sandbox_backend),
+        ArtifactsMiddleware(workspace=workspace),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
@@ -342,9 +307,7 @@ async def create_daiv_agent(
         ensure_non_empty_response,
         # Must stay after SandboxMiddleware: before_agent hooks run in registration order, and GitMiddleware's pre-run
         # check runs git in the session SandboxMiddleware acquires.
-        GitMiddleware(
-            auto_commit_changes=auto_commit_changes, capture_patch=capture_patch, sandbox_backend=sandbox_backend
-        ),
+        GitMiddleware(workspace=workspace, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         RepositoryMemoryMiddleware(),
@@ -361,7 +324,7 @@ async def create_daiv_agent(
         subagents=subagents,
         memory=[f"{agent_root}/{ctx.config.context_file_name}", f"{agent_root}/{AGENTS_MEMORY_PATH}"],
         backend=backend,
-        permissions=main_agent_permissions,
+        permissions=workspace.fs_permissions,
         interrupt_on=interrupt_on,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,

@@ -3,6 +3,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from core.site_settings import site_settings
 
 from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls, require_provider_for_model
@@ -85,7 +86,7 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx, sand
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
-        sandbox_session=sandbox_session,
+        workspace=SandboxWorkspace(sandbox_session),
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
@@ -150,7 +151,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
-        sandbox_session=sandbox_session,
+        workspace=SandboxWorkspace(sandbox_session),
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,

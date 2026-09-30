@@ -54,6 +54,7 @@ make makemessages && make compilemessages
 - **`run_job_task` requires a non-empty UUID `thread_id`** — the `Activity` row and checkpointer share it; missing breaks chat resume.
 - **Bot labels** (`daiv` / `daiv-max` / `daiv-auto`) live in `daiv/core/constants.py` — don't hardcode.
 - **Per-repo agent config** — agent reads `.agents/AGENTS.md`, skills from `.agents/skills/`, subagents from `.agents/subagents/`; a custom skill shadows a same-named built-in.
+- **Disk vs sandbox** — agent code never branches on a run's mode: the executor builds a `DiskWorkspace` or `SandboxWorkspace` (`automation/agent/workspace/`), and each part asks it (see the `Workspace` protocol in `automation/agent/workspace/base.py`).
 - **Repository memory** — `MemoryEntry` rows are append-only truth; `RepositoryMemory.content` is a render cache from `memory/render.py`, never model-generated; enforce `memory_max_*` via `prune_to_budget`, not by slicing.
 - **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is canonical; `tests/unit_tests/core/sandbox/test_schema_consistency.py` fails on drift. Regenerate from the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo after changing `daiv_sandbox/schemas.py`.
 - **Skill asset paths** resolve to `<location>/<skill>/...`, not the bash CWD — invoke skill scripts by absolute path.

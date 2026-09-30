@@ -9,6 +9,7 @@ from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, SKIP_ANSWER, pending_question, render_questions
+from automation.agent.workspace.disk import DiskWorkspace
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -47,7 +48,7 @@ async def agent_runner(model_name: str):
             model_names=[model_name],
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
-            sandbox_enabled=False,
+            workspace=DiskWorkspace(ctx),
         )
 
         async def run(content: str) -> dict:

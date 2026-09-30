@@ -14,13 +14,19 @@ from automation.agent.middlewares.sandbox import (
     SandboxMiddleware,
     _run_bash_commands,
 )
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxEgressUnavailableError, SandboxSession
 from codebase.clients.base import GitEgressCredential
 from core.conf import settings as core_settings
 from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, RunCommandResult, RunCommandsResponse
-from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on, sandbox_spec
+from tests.unit_tests.conftest import (
+    FakeSandboxClient,
+    FakeWorkspace,
+    acquired_session,
+    sandbox_backend_on,
+    sandbox_spec,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,13 +58,16 @@ def _make_bash_runtime(repo: Repo) -> Mock:
 
 
 def _make_middleware() -> SandboxMiddleware:
-    """A SandboxMiddleware with no backend, for tests of the bash tool's guard and the system prompt."""
-    return SandboxMiddleware(agent_root="/dummy")
+    """A SandboxMiddleware over a session nothing acquired, for tests of the bash policy and the system prompt."""
+    return SandboxMiddleware(
+        agent_root="/dummy", workspace=SandboxWorkspace(SandboxSession(FakeSandboxClient(), sandbox_spec()))
+    )
 
 
 def _bash_tool_with_fake_client(client: Mock):
     """The bash tool of a SandboxMiddleware over an acquired session on ``client``."""
-    return SandboxMiddleware(agent_root="/dummy", sandbox_backend=sandbox_backend_on(client, "sess_1")).tools[0]
+    workspace = SandboxWorkspace(acquired_session(client, "sess_1"))
+    return SandboxMiddleware(agent_root="/dummy", workspace=workspace).tools[0]
 
 
 class TestBashTool:
@@ -117,13 +126,11 @@ class TestBashTool:
         assert "unavailable for the rest of this conversation" in output.lower()
         assert "do not call" in output.lower()
 
-    async def test_bash_tool_raises_when_backend_not_set(self):
-        """The bash tool of a middleware built without a backend fails loud."""
-        runtime = _make_bash_runtime(Mock())
-        middleware = _make_middleware()  # no backend installed
-        bash_tool = middleware.tools[0]
-        with pytest.raises(RuntimeError, match="without a sandbox backend"):
-            await bash_tool.coroutine(command="echo ok", runtime=runtime)
+    def test_a_workspace_without_a_shell_is_refused(self):
+        """A disk workspace has no shell to back the tool, so the middleware refuses it when it is built rather than on
+        the first command."""
+        with pytest.raises(ValueError, match="a shell and a sandbox session"):
+            SandboxMiddleware(agent_root="/dummy", workspace=FakeWorkspace())
 
 
 class TestBashToolPolicyEnforcement:
@@ -518,10 +525,10 @@ async def _turn(
     """Run one agent turn: the sandbox hook, a command through the backend, then the executor's release. Return the
     state the checkpoint would hold after it."""
     session = _run_session(client, runtime, token)
-    backend = SandboxFileBackend(session)
-    middleware = SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=backend)
+    workspace = SandboxWorkspace(session)
+    middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
     state = {**state, **(await middleware.abefore_agent(state, runtime) or {})}
-    await backend.run_commands(list(_PROBE), fail_fast=True)
+    await workspace.bash.run_commands(list(_PROBE), fail_fast=True)
     await session.release(resumable=thread_id is not None)
     return state
 
@@ -730,17 +737,17 @@ class TestPinnedSessionLifecycle:
         """B6: a subagent's sandbox hook never opens, refreshes or closes a session."""
         client = FakeSandboxClient.opened()
         runtime = _make_agent_runtime(repo_dir)
-        backend = SandboxFileBackend(_run_session(client, runtime, "tok-1"))
-        parent = SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=backend)
+        workspace = SandboxWorkspace(_run_session(client, runtime, "tok-1"))
+        parent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
         state = await parent.abefore_agent({}, runtime)
         calls_before = list(client.calls)
 
-        subagent = SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=backend)
+        subagent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
         assert await subagent.abefore_agent(state, runtime) is None
 
         assert client.calls == calls_before
         assert client.sessions[state["session_id"]].state == "running"
-        await backend.run_commands(["true"], fail_fast=True)
+        await workspace.bash.run_commands(["true"], fail_fast=True)
         assert client.calls_to("run_commands") == [(state["session_id"], ("true",))]
 
     async def test_a_session_started_for_another_environment_is_replaced(self, repo_dir: Path):

@@ -103,28 +103,25 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
 
 class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
-    Middleware that loads skill metadata and, in disk-backed (non-sandbox) mode, copies builtin
-    and custom global skills into the ``/workspace/skills`` cache so they are available even when the
-    project skills directory is not set up. In sandbox mode global skills are provisioned by the
-    sandbox seed (SandboxMiddleware), so no upload happens here.
+    Middleware that loads skill metadata and, with ``copy_global_skills``, copies builtin and custom global skills
+    into the ``/workspace/skills`` cache so they are available even when the project skills directory is not set up.
+    A sandbox's seed provisions them itself, so its workspace turns the copy off.
     """
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, sandbox_enabled: bool = False, **kwargs):
+    def __init__(self, *args, copy_global_skills: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
-        self._sandbox_enabled = sandbox_enabled
+        self._copies_global_skills = copy_global_skills
 
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
     ) -> SkillsStateUpdate | dict | None:
         """
-        Load skill metadata and (disk-mode only) materialize global skills into the
-        ``/workspace/skills`` cache. In sandbox mode global skills are provisioned by the sandbox
-        seed (SandboxMiddleware), so no upload happens here; discovery reads the bound,
-        seeded sandbox via ``super().abefore_agent``.
+        Load skill metadata and, with ``copy_global_skills``, materialize global skills into the
+        ``/workspace/skills`` cache; discovery reads the bound backend via ``super().abefore_agent``.
 
         ``skills_load_errors`` accumulate across turns — the materialize step (``_copy_global_skills``)
         re-runs every turn and reports any newly-seen errors, which are unioned with prior ones here —
@@ -135,16 +132,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # In disk (non-sandbox) mode, materialize global skills on every turn rather than only when
-        # ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container while
-        # ``skills_metadata`` is persisted in the Redis checkpoint, so a turn that resumes on a fresh
-        # worker (rolling deploy, scale-up, pod restart) would otherwise hit ``file_not_found`` when
-        # the ``skill`` tool downloads ``SKILL.md`` from disk. ``_collect_skill_files`` is idempotent
-        # via a per-file existence check, so warm containers only pay an ``iterdir`` + per-file
-        # ``stat``. In sandbox mode the sandbox seed (SandboxMiddleware) provisions global skills, so
-        # nothing is copied here.
+        # Every turn, not only when ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container but
+        # ``skills_metadata`` persists in the checkpoint, so a fresh-worker resume would hit ``file_not_found``.
         local_load_errors: list[str] = []
-        if not self._sandbox_enabled:
+        if self._copies_global_skills:
             local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)

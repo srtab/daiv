@@ -25,7 +25,6 @@ from automation.agent.workspace.bash_policy.command_policy import (
     evaluate_command_policy,
     parse_rule,
 )
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend  # noqa: TC001
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import is_transient_sandbox_error
@@ -36,6 +35,9 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
+    from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from automation.agent.workspace.session import SandboxSession
     from core.sandbox.schemas import RunCommandsResponse
 
 
@@ -377,14 +379,13 @@ class SandboxMiddleware(AgentMiddleware):
     ``/workspace`` :class:`SandboxFileBackend`; it is the one true store, with no local mirror to keep in sync.
 
     The session is the run executor's: it builds it before the graph runs and releases it afterwards, whatever the
-    agent did, so nothing here closes it. Subagents receive the parent's backend, whose session the parent has already
-    acquired, so their hook does nothing.
+    agent did, so nothing here closes it. Subagents receive the parent's workspace, whose session the parent has
+    already acquired, so their hook does nothing.
 
     Args:
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
             root.
-        sandbox_backend: The run's backend over its sandbox session; it backs the ``bash`` tool. Subagents receive the
-            *same* instance the parent agent uses.
+        workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is acquired here.
 
     Example:
         ```python
@@ -392,22 +393,26 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=SandboxFileBackend(session))],
+            middleware=[SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, agent_root: str, sandbox_backend: SandboxFileBackend | None = None):
+    def __init__(self, *, agent_root: str, workspace: Workspace):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
+        bash, session = workspace.bash, workspace.session
+        if bash is None or session is None:
+            raise ValueError("SandboxMiddleware needs a workspace with a shell and a sandbox session")
         self._agent_root = agent_root
-        self._sandbox_backend = sandbox_backend
+        self._bash: SandboxFileBackend = bash
+        self._session: SandboxSession = session
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
-        """Build a bash tool that runs commands through this middleware's bound SandboxFileBackend."""
+        """Build a bash tool that runs commands through the workspace's shell."""
 
         @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
         async def bash_tool(
@@ -418,10 +423,7 @@ class SandboxMiddleware(AgentMiddleware):
             if denial_error:
                 return denial_error
 
-            if self._sandbox_backend is None:
-                raise RuntimeError("SandboxMiddleware was built without a sandbox backend")
-
-            result = await _run_bash_commands(self._sandbox_backend, [command])
+            result = await _run_bash_commands(self._bash, [command])
             if isinstance(result, BashFailure):
                 return _BASH_FAILURE_MESSAGES[result]
 
@@ -434,9 +436,7 @@ class SandboxMiddleware(AgentMiddleware):
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """Acquire the run's sandbox session, reusing the thread's warm container when ``SandboxSession.acquire`` can,
         and record it in the checkpoint for the next turn."""
-        if self._sandbox_backend is None:
-            raise RuntimeError("SandboxMiddleware requires the run's sandbox backend")
-        session = self._sandbox_backend.session
+        session = self._session
         if session.is_acquired:
             return None
         session_id, fingerprint = await session.acquire(

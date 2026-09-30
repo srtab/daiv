@@ -1,11 +1,5 @@
-"""Static-source regression guards.
-
-These tests use ``inspect.getsource`` to assert that ``graph.py`` and ``subagents.py``
-always pass ``backend`` and ``agent_root`` to ``SandboxMiddleware`` when sandbox is
-enabled — the merged middleware needs both to validate inbound paths and mirror
-successful ``write_file``/``edit_file`` calls to the sandbox. They catch the kind
-of merge-conflict or refactor that silently disables sandbox sync.
-"""
+"""Static-source regression guards for middleware wiring and order in ``graph.py`` and ``subagents.py`` that a merge
+conflict or refactor can break without failing a behaviour test."""
 
 import inspect
 import re
@@ -18,22 +12,17 @@ from automation.agent import subagents as subagents_module
 _BARE_TODO_CTOR = re.compile(r"(?<![A-Za-z0-9_])TodoListMiddleware\(")
 
 
-def test_graph_passes_backend_and_agent_root_to_sandbox_middleware():
+def test_graph_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(graph_module)
-    assert "SandboxMiddleware(" in src and "backend=backend" in src, (
-        "graph.py must construct SandboxMiddleware with backend"
-    )
-    assert "agent_root=agent_root" in src, "graph.py must pass agent_root to SandboxMiddleware"
-    assert "_sandbox_enabled" in src, "graph.py must gate SandboxMiddleware on _sandbox_enabled"
+    assert "bash_tool_enabled = workspace.bash is not None" in src
+    assert "*([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else [])" in src
 
 
-def test_general_purpose_subagent_passes_backend_and_agent_root_to_sandbox_middleware():
+def test_general_purpose_subagent_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(subagents_module)
-    assert "SandboxMiddleware(" in src and "backend=backend" in src, (
-        "subagents.py must construct SandboxMiddleware with backend"
-    )
-    assert "agent_root=REPO_PATH" in src, "subagents.py must pass agent_root to SandboxMiddleware"
-    assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
+    assert "bash_tool_enabled = workspace.bash is not None" in src
+    assert "if bash_tool_enabled:" in src
+    assert "SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace)" in src
 
 
 def test_graph_uses_fallback_thinking_level_standalone():
@@ -47,20 +36,10 @@ def test_graph_uses_fallback_thinking_level_standalone():
     )
 
 
-def test_graph_constructs_sandbox_backend_without_root():
-    src = inspect.getsource(graph_module)
-    assert "SandboxFileBackend(sandbox_session)" in src, (
-        "graph.py must construct SandboxFileBackend(sandbox_session) with no root — the agent uses "
-        "sandbox-absolute paths and the run's sandbox session is injected by construction"
-    )
-    assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
-
-
 def test_global_skills_source_is_workspace_skills():
     src = inspect.getsource(graph_module)
-    # global_skills_source is now unconditional (/workspace/skills) across sandbox and disk modes.
     assert "global_skills_source = SKILLS_PATH" in src, (
-        "graph.py sandbox branch must use SKILLS_PATH (/workspace/skills) as the global-skills source"
+        "graph.py must use SKILLS_PATH (/workspace/skills) as the global-skills source"
     )
 
 
@@ -70,7 +49,7 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
     # discovery reads it).
     slash = src.index("SlashCommandMiddleware(")
-    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, sandbox_backend=sandbox_backend)")
+    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, workspace=workspace)")
     skills = src.index("SkillsMiddleware(")
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 
@@ -85,12 +64,10 @@ def _balanced_call_args(src: str, callee: str) -> str:
     return src[start : i - 1]
 
 
-def test_skills_middleware_receives_sandbox_enabled_flag():
+def test_skills_middleware_copies_global_skills_unless_the_workspace_provisions_them():
     src = inspect.getsource(graph_module)
-    # Assert the flag is passed INSIDE the SkillsMiddleware(...) call, not just somewhere in the
-    # file (it also appears on the subagent factory calls), so this guards the real wiring.
     skills_call = _balanced_call_args(src, "SkillsMiddleware(")
-    assert "sandbox_enabled=_sandbox_enabled" in skills_call, "SkillsMiddleware must receive the sandbox_enabled flag"
+    assert "copy_global_skills=not workspace.provisions_skills" in skills_call
 
 
 def test_slash_command_middleware_receives_subagents():

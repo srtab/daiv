@@ -17,22 +17,23 @@ step sits where it does:
    ``hooks.on_context_ready`` then learns the ref the clone landed on.
 3. The model is resolved, or taken from ``spec.model_names``. For a spec with ``run_id`` it is recorded on the
    ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
-4. The agent is built — over the run's ``SandboxSession`` when the sandbox is enabled, which ``SandboxMiddleware``
-   acquires, reusing the thread's warm container when it can — and invoked, or handed to ``stream_run``'s stream
+4. The agent is built over the run's workspace (a sandbox session that ``SandboxMiddleware`` acquires, reusing the
+   thread's warm container when it can, or else the worker's clone) and invoked, or handed to ``stream_run``'s stream
    factory, whose events are yielded as they come. Between its events, at most every
    ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale takeover
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
    stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a lost slot
    or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is published from its
-   checkpoint through that session while the clone and sandbox are still open, and the checkpoint is read again for the
-   failure hook. Setup errors skip this.
+   checkpoint through that workspace while the clone and sandbox are still open, and the checkpoint is read again for
+   the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch
    arm is logged; none of them fails a run the agent already finished.
-6. The sandbox session is released — stopped for a session run, whose next turn can reuse it, and removed for a
-   one-shot run — even when the agent or its stream raised, was stopped or lost its reader. A stream that lost its
-   slot leaves the container running while the checkpoint still names it, since the holder that took over reuses it.
+6. The sandbox session, if the run has one, is released — stopped for a session run, whose next turn can reuse it,
+   and removed for a one-shot run — even when the agent or its stream raised, was stopped or lost its reader. A stream
+   that lost its slot leaves the container running while the checkpoint still names it, since the holder that took
+   over reuses it.
    Then the context and the checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,
    ``hooks.on_failure(exc, draft_published=..., snapshot=...)`` and then the error is re-raised.

@@ -1,15 +1,11 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from deepagents.backends.protocol import BackendProtocol
+from tests.unit_tests.conftest import FakeWorkspace
 
 
 def _common_patches():
     """Patches that disable side effects unrelated to the deferred-tools wiring."""
     return [
-        # Spec'd instances: deepagents 0.7 rejects a backend that is callable but not a
-        # `BackendProtocol`, which a bare mock otherwise is.
-        patch("automation.agent.graph.build_disk_workspace_backend", return_value=MagicMock(spec=BackendProtocol)),
-        patch("automation.agent.graph.DAIVCompositeBackend", return_value=MagicMock(spec=BackendProtocol)),
         patch("automation.agent.graph.create_general_purpose_subagent"),
         patch("automation.agent.graph.create_explore_subagent"),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
@@ -39,8 +35,6 @@ class TestCreateDaivAgentDeferredFlag:
         managers = [p.start() for p in patches]
         try:
             (
-                mock_fs_backend,
-                mock_composite_backend,
                 mock_create_gp,
                 mock_create_explore,
                 mock_load_custom,
@@ -72,12 +66,10 @@ class TestCreateDaivAgentDeferredFlag:
             mock_create_deep_agent.return_value.with_config.return_value = MagicMock()
 
             ctx = MagicMock()
-            ctx.gitrepo.working_dir = "/repo"
-            ctx.sandbox.enabled = False
             ctx.config.context_file_name = "AGENTS.md"
             ctx.git_platform = MagicMock()
 
-            await create_daiv_agent(ctx=ctx, auto_commit_changes=False)
+            await create_daiv_agent(ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False)
             return (
                 mock_create_deep_agent,
                 mock_toolkit,
