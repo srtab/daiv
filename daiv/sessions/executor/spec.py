@@ -21,8 +21,9 @@ class RunSpec:
 
     ``persist_ref`` and ``arm_watch`` are opt-in because each writes state outside the checkpoint: the
     session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
-    resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
-    degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
+    resolved model is recorded on, together with its session, and the run's measurements (clone time, sandbox
+    acquisition); without it, they go to the row ``on_context_ready`` starts. ``fallback_ref_on_missing`` lets
+    the clone degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
     merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
     ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
