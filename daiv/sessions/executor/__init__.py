@@ -34,7 +34,9 @@ step sits where it does:
    and removed for a one-shot run — even when the agent or its stream raised, was stopped or lost its reader. A stream
    that lost its slot leaves the container running while the checkpoint still names it, since the holder that took
    over reuses it.
-   Then the context and the checkpointer close.
+   A run with a ``Run`` row (``spec.run_id``) then records on it how long its clone took and how its container was
+   acquired (``clone_seconds``, ``sandbox_acquisition``); a failed write is logged. Then the context and the
+   checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,
    ``hooks.on_failure(exc, draft_published=..., snapshot=...)`` and then the error is re-raised.
 8. The heartbeat is cancelled and a ``Wait`` claim released, even when an earlier step raised.

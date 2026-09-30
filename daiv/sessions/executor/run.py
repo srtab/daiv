@@ -293,6 +293,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         finally:
             if workspace.session is not None and not handed_over:
                 await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+            await _record_measurements(spec.run_id, ctx, workspace)
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:
@@ -439,6 +440,20 @@ async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: 
         await Session.objects.filter(pk=spec.thread_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
+
+
+async def _record_measurements(run_id: str | None, ctx: RuntimeCtx, workspace: Workspace) -> None:
+    """Record on the run's ``Run`` how long its clone took and how its sandbox container was acquired, for the
+    lazy-clone decision. Best-effort: an error is logged, never raised."""
+    if not run_id:
+        return
+    try:
+        acquisition = workspace.session.acquisition if workspace.session is not None else None
+        await Run.objects.filter(pk=run_id).aupdate(
+            clone_seconds=ctx.repo.clone_seconds, sandbox_acquisition=acquisition or ""
+        )
+    except Exception:
+        logger.exception("executor: failed to record run measurements for run_id=%s", run_id)
 
 
 async def _notify_failure(
