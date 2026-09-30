@@ -247,11 +247,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         workspace = _build_workspace(ctx)
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
+        run_id = spec.run_id
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
-                await hooks.on_context_ready(ctx.repo.ref)
+                started_run_id = await hooks.on_context_ready(ctx.repo.ref)
+                run_id = run_id or started_run_id
             agent_kwargs: dict[str, Any]
             if spec.model_names:
                 agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
@@ -293,7 +295,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         finally:
             if workspace.session is not None and not handed_over:
                 await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
-            await _record_measurements(spec.run_id, ctx, workspace)
+            await _record_measurements(run_id, ctx, workspace)
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:

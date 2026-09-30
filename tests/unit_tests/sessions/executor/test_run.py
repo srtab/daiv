@@ -720,6 +720,21 @@ async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_buil
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_run_started_on_context_ready_records_its_measurements_there():
+    """Chat creates its Run once the clone lands, so the hook, not the spec, names the row."""
+    session, run = await _job_run()
+
+    async def _ready(_ref):
+        return str(run.pk)
+
+    with agent_stack(_agent()):
+        await execute_run(make_spec(thread_id=session.thread_id), RunHooks(on_context_ready=_ready))
+
+    await run.arefresh_from_db()
+    assert run.clone_seconds == 1.5
+
+
 async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     error = LookupError("Sandbox environment 'env-1' not found")
     on_failure = AsyncMock()

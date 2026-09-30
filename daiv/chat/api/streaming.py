@@ -367,9 +367,9 @@ class ChatRunStreamer:
             extra_metadata={"override_source": "explicit" if self.agent_model else None},
         )
 
-    async def _start_turn(self, turn: _Turn, ref: str) -> None:
-        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on."""
-        turn.chat_run = await start_chat_run(
+    async def _start_turn(self, turn: _Turn, ref: str) -> str:
+        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor."""
+        run = await start_chat_run(
             session_id=self.thread_id,
             user_id=self.user_id,
             prompt=self.prompt,
@@ -377,6 +377,8 @@ class ChatRunStreamer:
             ref=ref,
             message_id=self.message_id,
         )
+        turn.chat_run = run
+        return str(run.pk)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
         """A turn that ended on a question keeps the rendered question as its summary, since the question

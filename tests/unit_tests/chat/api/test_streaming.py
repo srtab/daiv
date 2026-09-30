@@ -24,6 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -34,7 +35,7 @@ from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
-from tests.unit_tests.sessions.conftest import watch_recorder
+from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
 _TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
@@ -1357,3 +1358,29 @@ class TestChatAfterRunMatrix:
 
         assert [event.type for event in events] == [EventType.RUN_ERROR, EventType.STATE_SNAPSHOT]
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_records_its_clone_time_on_the_run_it_started():
+    await amake_job_session("t-stream")
+    started = []
+
+    async def _start(**kwargs):
+        run = await Run.objects.acreate(
+            session_id=kwargs["session_id"], trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING, repo_id="a/b"
+        )
+        started.append(run)
+        return run
+
+    with (
+        patch("chat.api.streaming.start_chat_run", side_effect=_start),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    [run] = started
+    await run.arefresh_from_db()
+    assert run.clone_seconds == 1.5
