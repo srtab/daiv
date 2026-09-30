@@ -1,10 +1,10 @@
 import io
 import tarfile
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import Any, Literal
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.core.cache import cache
@@ -12,6 +12,7 @@ from django.test import Client
 
 import httpx
 import pytest
+from deepagents.backends.protocol import BackendProtocol
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
@@ -225,6 +226,29 @@ class FakeSandboxClient:
             if request.fail_fast and exit_code != 0:
                 break
         return RunCommandsResponse(results=results)
+
+
+@dataclass
+class FakeWorkspace:
+    """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
+    ready. ``authenticated_git`` hands back ``git``, and ``download_file`` reads through ``backend`` as a disk read
+    does."""
+
+    backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
+    git: Any = field(default_factory=AsyncMock)
+    bash: Any = None
+    session: Any = None
+    fs_permissions: Any = None
+    explore_permissions: Any = field(default_factory=list)
+    provisions_skills: bool = False
+    is_ready: bool = True
+
+    async def authenticated_git(self) -> Any:
+        return self.git
+
+    async def download_file(self, path: str, *, max_bytes: int) -> Any:
+        (response,) = await self.backend.adownload_files([path])
+        return response
 
 
 def _archive_members(archive: bytes | None) -> frozenset[str] | None:

@@ -534,15 +534,6 @@ class TestExploreSubagent:
         assert "/myrepo/" in prompt
         assert "/repo/src/app/utils.py" not in prompt
 
-    def test_read_only_permissions_deny_all_writes(self):
-        """Locks the explore subagent's read-only contract: relaxing this constant would
-        silently grant write capability the explore subagent must never have."""
-        from deepagents.middleware.filesystem import FilesystemPermission
-
-        from automation.agent.subagents import READ_ONLY_PERMISSIONS
-
-        assert [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")] == READ_ONLY_PERMISSIONS
-
 
 def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):
     lines = ["---", f"name: {name}", f"description: {description}"]
@@ -832,23 +823,16 @@ class TestCustomSubagents:
 
 class TestExplorePermissions:
     def test_sandbox_explore_is_read_only_only(self):
-        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _explore_permissions
+        from automation.agent.middlewares.file_system import READ_ONLY_PERMISSIONS
+        from automation.agent.subagents import _explore_permissions
 
         assert _explore_permissions(sandbox_enabled=True) == READ_ONLY_PERMISSIONS
 
     def test_disk_explore_is_read_only_plus_read_fence(self):
-        from deepagents.middleware.filesystem import _check_fs_permission
-
+        from automation.agent.middlewares.file_system import EXPLORE_DISK_PERMISSIONS
         from automation.agent.subagents import _explore_permissions
 
-        perms = _explore_permissions(sandbox_enabled=False)
-        assert _check_fs_permission(perms, "write", "/workspace/repo/foo.py") == "deny"
-        assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
-        assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
-        assert _check_fs_permission(perms, "read", "/workspace") == "deny"
-        # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
-        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
-        assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"
+        assert _explore_permissions(sandbox_enabled=False) == EXPLORE_DISK_PERMISSIONS
 
 
 class TestDetectorMiddleware:
@@ -861,8 +845,8 @@ class TestDetectorMiddleware:
         return Mock()
 
     def test_filesystem_is_read_only(self, mock_model, mock_backend):
-        from automation.agent.middlewares.file_system import READ_ONLY_FS_TOOLS
-        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
+        from automation.agent.middlewares.file_system import READ_ONLY_FS_TOOLS, READ_ONLY_PERMISSIONS
+        from automation.agent.subagents import _build_detector_middleware
 
         middleware = _build_detector_middleware(mock_model, mock_backend)
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))

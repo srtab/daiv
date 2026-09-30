@@ -309,6 +309,25 @@ WORKSPACE_FENCE_PERMISSIONS = [
     FilesystemPermission(operations=["read", "write"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
 ]
 
+# Deny rule that makes every filesystem write operation fail for the explore subagent.
+# Enforced inside the deepagents filesystem tools against the validated path, so renaming
+# tools upstream cannot silently restore write capability.
+READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
+    FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
+]
+
+# Disk-mode explore permissions: read-only (deny all writes) AND fenced for reads to the three real
+# /workspace subtrees plus the offloaded-artifact dirs (so the explore agent's own eviction read-back
+# still works — same asymmetry as WORKSPACE_FENCE_PERMISSIONS), denying bare /workspace and any other
+# path beneath it. Sandbox mode keeps plain read-only (bash is unconstrained).
+EXPLORE_DISK_PERMISSIONS: list[FilesystemPermission] = [
+    *READ_ONLY_PERMISSIONS,
+    FilesystemPermission(
+        operations=["read"], paths=[*WORKSPACE_FENCE_SUBTREES, *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"
+    ),
+    FilesystemPermission(operations=["read"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
+]
+
 CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
     "glob": GLOB_TOOL_DESCRIPTION,

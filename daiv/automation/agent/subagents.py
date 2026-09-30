@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from deepagents.middleware import SummarizationMiddleware
-from deepagents.middleware.filesystem import FilesystemPermission
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
@@ -18,14 +17,14 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agent import BaseAgent
-from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
+    EXPLORE_DISK_PERMISSIONS,
     READ_ONLY_FS_TOOLS,
-    WORKSPACE_ARTIFACT_SUBTREES,
+    READ_ONLY_PERMISSIONS,
     WORKSPACE_FENCE_PERMISSIONS,
-    WORKSPACE_FENCE_SUBTREES,
     WORKSPACE_FS_TOOLS,
     DAIVFilesystemMiddleware,
     filesystem_absolute_path_directive,
@@ -43,6 +42,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from deepagents.backends import BackendProtocol
+    from deepagents.middleware.filesystem import FilesystemPermission
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
@@ -384,26 +384,6 @@ Complete the user's search request efficiently and report your findings clearly.
 
 
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
-
-
-# Deny rule that makes every filesystem write operation fail for the explore subagent.
-# Enforced inside the deepagents filesystem tools against the validated path, so renaming
-# tools upstream cannot silently restore write capability.
-READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
-    FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
-]
-
-# Disk-mode explore permissions: read-only (deny all writes) AND fenced for reads to the three real
-# /workspace subtrees plus the offloaded-artifact dirs (so the explore agent's own eviction read-back
-# still works — same asymmetry as WORKSPACE_FENCE_PERMISSIONS), denying bare /workspace and any other
-# path beneath it. Sandbox mode keeps plain read-only (bash is unconstrained).
-EXPLORE_DISK_PERMISSIONS: list[FilesystemPermission] = [
-    *READ_ONLY_PERMISSIONS,
-    FilesystemPermission(
-        operations=["read"], paths=[*WORKSPACE_FENCE_SUBTREES, *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"
-    ),
-    FilesystemPermission(operations=["read"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
-]
 
 
 def _explore_permissions(*, sandbox_enabled: bool) -> list[FilesystemPermission]:

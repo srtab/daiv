@@ -7,13 +7,15 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from deepagents.graph import _apply_custom_middleware
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
-from deepagents.middleware.filesystem import _check_fs_permission
+from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
     EDIT_SUCCESS_PREFIX,
+    EXPLORE_DISK_PERMISSIONS,
+    READ_ONLY_PERMISSIONS,
     WORKSPACE_FENCE_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemBackend,
@@ -544,6 +546,25 @@ class TestWorkspaceFencePermissions:
 
     def test_paths_outside_workspace_default_allow(self):
         assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", "/etc/passwd") == "allow"
+
+
+class TestReadOnlyPermissions:
+    def test_deny_every_write(self):
+        """Locks the read-only contract of the explore subagent and the code-review detectors: relaxing this constant
+        would silently grant them write capability."""
+        assert [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")] == READ_ONLY_PERMISSIONS
+
+
+class TestExploreDiskPermissions:
+    def test_read_only_plus_the_read_fence(self):
+        perms = EXPLORE_DISK_PERMISSIONS
+        assert _check_fs_permission(perms, "write", "/workspace/repo/foo.py") == "deny"
+        assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace") == "deny"
+        # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
+        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
+        assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"
 
 
 class TestBuildDiskWorkspaceBackend:
