@@ -21,7 +21,7 @@ from automation.agent.middlewares.artifacts import (
     ArtifactsMiddleware,
     _workspace_path_error,
 )
-from automation.agent.workspace.sandbox import SandboxWorkspace
+from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE
 from tests.unit_tests.conftest import FakeWorkspace
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -271,21 +271,17 @@ async def test_awrap_model_call_appends_artifacts_prompt():
     handler.assert_awaited_once_with("overridden")
 
 
-async def test_publish_through_the_sandbox_refuses_oversized_files_before_transfer(monkeypatch):
-    from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
-    from tests.unit_tests.conftest import acquired_session
-
+async def test_publish_asks_the_workspace_to_cap_the_download_at_the_artifact_limit(monkeypatch):
     monkeypatch.setattr(sessions_settings, "ARTIFACT_MAX_BYTES", 1234)
     session, run = await _session_with_running_run()
-    client = AsyncMock()
-    client.run_commands.return_value = RunCommandsResponse(
-        results=[RunCommandResult(command="download", output="", exit_code=6)]
+    path = "/workspace/tmp/huge.log"
+    workspace = FakeWorkspace()
+    workspace.download_file = AsyncMock(
+        return_value=FileDownloadResponse(path=path, content=None, error=DOWNLOAD_TOO_LARGE)
     )
-    workspace = SandboxWorkspace(acquired_session(client, "sid"))
 
-    result = await _tool(workspace, run=run)(path="/workspace/tmp/huge.log", runtime=_runtime(session.thread_id))
+    result = await _tool(workspace, run=run)(path=path, runtime=_runtime(session.thread_id))
 
-    (command,) = client.run_commands.call_args.args[1].commands
-    assert "-gt 1234 ]" in command
+    workspace.download_file.assert_awaited_once_with(path, max_bytes=1234)
     assert "artifact limit" in result
     assert not await RunArtifact.objects.filter(run=run).aexists()

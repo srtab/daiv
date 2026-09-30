@@ -42,6 +42,7 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
         config=MagicMock(),
         repo=SimpleNamespace(ref=cloned_ref),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        sandbox=None,
         sandbox_client=None,
     )
     with addressor_run(agent, ctx=ctx) as run:

@@ -9,7 +9,7 @@ from langchain.agents.middleware import ModelRequest, ModelResponse
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
-from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
+from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, DAIVFilesystemMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.disk import DiskWorkspace
@@ -75,14 +75,20 @@ def _middleware(built: SimpleNamespace) -> list:
     return built.create_deep_agent.call_args.kwargs["middleware"]
 
 
+def _filesystem_middleware(built: SimpleNamespace) -> DAIVFilesystemMiddleware:
+    [middleware] = [m for m in _middleware(built) if isinstance(m, DAIVFilesystemMiddleware)]
+    return middleware
+
+
 async def test_disk_mode_builds_no_sandbox():
-    """B10: a disk workspace gets the run no bash tool, the workspace fence, and disk-mode skills and subagents."""
+    """B10: a disk workspace gives the run no bash tool, the workspace fence, and copied global skills."""
     workspace = _disk_workspace()
     built = await _build(workspace)
 
     deep_agent_kwargs = built.create_deep_agent.call_args.kwargs
     assert deep_agent_kwargs["backend"] is workspace.backend
     assert deep_agent_kwargs["permissions"] == WORKSPACE_FENCE_PERMISSIONS
+    assert _filesystem_middleware(built)._permissions == WORKSPACE_FENCE_PERMISSIONS
     assert not any(isinstance(m, SandboxMiddleware) for m in _middleware(built))
     assert not any(t.name == BASH_TOOL_NAME for m in _middleware(built) for t in getattr(m, "tools", None) or [])
     assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is True
@@ -101,6 +107,8 @@ async def test_sandbox_mode_shares_one_workspace_across_the_run():
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
     assert (sandbox_middleware._bash, sandbox_middleware._session) == (workspace.bash, workspace.session)
     assert built.create_deep_agent.call_args.kwargs["backend"] is workspace.backend
+    assert built.create_deep_agent.call_args.kwargs["permissions"] is None
+    assert _filesystem_middleware(built)._permissions == []
     assert built.create_general_purpose.call_args.args[1] is workspace
     assert built.create_explore.call_args.args[0] is workspace
     assert built.load_custom.await_args.kwargs["workspace"] is workspace

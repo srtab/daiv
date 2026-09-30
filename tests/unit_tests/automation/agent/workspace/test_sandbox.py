@@ -5,7 +5,7 @@ import pytest
 
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import READ_ONLY_PERMISSIONS, DAIVCompositeBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
@@ -21,7 +21,6 @@ def test_the_files_the_shell_and_git_all_reach_the_one_session():
 
     assert workspace.session is session
     assert isinstance(workspace.bash, SandboxFileBackend)
-    assert workspace.bash.session is session
     assert isinstance(workspace.backend, DAIVCompositeBackend)
     assert (workspace.backend.default, workspace.backend.routes) == (workspace.bash, {})
     assert workspace.backend.artifacts_root == WORKSPACE_PATH
@@ -32,7 +31,6 @@ def test_a_sandbox_workspace_is_unfenced_and_seeded_with_the_skills():
     workspace = SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec()))
 
     assert workspace.fs_permissions is None
-    assert workspace.explore_permissions is READ_ONLY_PERMISSIONS
     assert workspace.provisions_skills is True
 
 
@@ -55,6 +53,16 @@ async def test_authenticated_git_refreshes_the_credential_before_handing_back_gi
 
     assert await workspace.authenticated_git() is workspace.git
     session.refresh_credential.assert_awaited_once_with()
+
+
+async def test_authenticated_git_refuses_an_unacquired_session():
+    session = SandboxSession(FakeSandboxClient.opened(), sandbox_spec())
+    session.refresh_credential = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="before the sandbox session is acquired"):
+        await SandboxWorkspace(session).authenticated_git()
+
+    session.refresh_credential.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

@@ -42,6 +42,7 @@ def _ctx() -> SimpleNamespace:
         config=MagicMock(),
         repo=SimpleNamespace(ref="feature"),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        sandbox=None,
         sandbox_client=None,
     )
 

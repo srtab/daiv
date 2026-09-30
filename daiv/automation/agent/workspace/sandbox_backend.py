@@ -254,12 +254,6 @@ class SandboxFileBackend(BackendProtocol):
         self._session = session
         self._logged_read_faults: set[str] = set()
 
-    @property
-    def session(self) -> SandboxSession:
-        """The run's sandbox session, shared with the middleware that acquires it and the publisher that refreshes its
-        credential."""
-        return self._session
-
     def _require_bound(self) -> tuple[DAIVSandboxClient, str]:
         session_id = self._session.session_id
         if session_id is None:

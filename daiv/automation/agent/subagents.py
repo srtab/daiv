@@ -158,7 +158,7 @@ def _build_general_purpose_middleware(
     if web_fetch_enabled:
         middleware.append(WebFetchMiddleware())
 
-    if workspace.bash is not None:
+    if bash_tool_enabled:
         middleware.append(SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace))
 
     if fallback_models:
@@ -372,7 +372,7 @@ Complete the user's search request efficiently and report your findings clearly.
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def create_explore_subagent(workspace: Workspace, working_directory: str, **kwargs) -> CompiledSubAgent:
+def create_explore_subagent(workspace: Workspace, working_directory: str) -> CompiledSubAgent:
     """
     Create the explore subagent.
     """
@@ -387,7 +387,7 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, **kwar
             backend=workspace.backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=READ_ONLY_FS_TOOLS,
-            _permissions=workspace.explore_permissions,
+            _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
         ),
         *_shared_subagent_middleware(model, workspace.backend),
     ]

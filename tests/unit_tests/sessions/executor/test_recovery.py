@@ -58,7 +58,7 @@ def _agent(values: dict) -> Mock:
     return agent
 
 
-async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
+async def _publish(*, checkpointed_mr, current_ref: str, workspace=None) -> Mock:
     """Recover over a checkpoint naming ``checkpointed_mr``; return the publisher class mock."""
     with patch("automation.agent.publishers.GitChangePublisher") as pub_cls:
         pub_cls.return_value.publish = AsyncMock(return_value=Mock(merge_request=None))
@@ -67,7 +67,7 @@ async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
             _agent({"merge_request": checkpointed_mr, "session_id": None}),
             {},
             thread_id="t-1",
-            workspace=FakeWorkspace(),
+            workspace=workspace or FakeWorkspace(),
         )
     return pub_cls
 
@@ -103,6 +103,13 @@ class TestPublishTarget:
         assert kwargs["as_draft"] is True
         assert "revived as dict" in caplog.text
         assert "draft recovery failed" not in caplog.text
+
+    async def test_it_publishes_through_the_workspace_the_agent_worked_in(self):
+        workspace = FakeWorkspace()
+
+        pub_cls = await _publish(checkpointed_mr=None, current_ref="master", workspace=workspace)
+
+        assert pub_cls.call_args.args[1] is workspace
 
     async def test_it_hands_the_publisher_the_runs_thread_id(self):
         pub_cls = await _publish(checkpointed_mr=None, current_ref="master")

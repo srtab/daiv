@@ -7,11 +7,7 @@ from asgiref.sync import sync_to_async
 
 from automation.agent.git_manager import GitManager
 from automation.agent.git_runners import LocalGitRunner
-from automation.agent.middlewares.file_system import (
-    EXPLORE_DISK_PERMISSIONS,
-    WORKSPACE_FENCE_PERMISSIONS,
-    build_disk_workspace_backend,
-)
+from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
 from codebase.clients import RepoClient
 
 if TYPE_CHECKING:
@@ -22,16 +18,16 @@ if TYPE_CHECKING:
 
 class DiskWorkspace:
     """A disk-backed run's workspace: the worker's clone as ``/workspace/repo``, the shared skills cache as
-    ``/workspace/skills`` and a per-run scratch dir for the rest, reached by the file tools alone.
+    ``/workspace/skills`` and a per-run scratch dir for the rest, all reached through the file tools, since the run has
+    no shell.
 
-    With no shell to reach past them, the fence keeps the file tools inside those three subtrees, and
-    ``SkillsMiddleware`` copies the global skills into the cache. Git runs as a subprocess over the clone.
+    The fence keeps those tools inside the three subtrees, and ``SkillsMiddleware`` copies the global skills into the
+    cache. Git runs as a subprocess over the clone.
     """
 
     bash = None
     session = None
     fs_permissions = WORKSPACE_FENCE_PERMISSIONS
-    explore_permissions = EXPLORE_DISK_PERMISSIONS
     provisions_skills = False
     is_ready = True
 

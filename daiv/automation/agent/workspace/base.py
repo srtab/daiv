@@ -41,13 +41,8 @@ class Workspace(Protocol):
 
     @property
     def fs_permissions(self) -> list[FilesystemPermission] | None:
-        """The file tools' rules for the main agent and its general-purpose and custom subagents; ``None`` leaves them
-        unfenced."""
-        ...
-
-    @property
-    def explore_permissions(self) -> list[FilesystemPermission]:
-        """The explore subagent's rules: read-only, and fenced wherever ``fs_permissions`` fences."""
+        """The file tools' rules for the main agent and its subagents (the explore subagent adds read-only on top);
+        ``None`` leaves them unfenced."""
         ...
 
     @property
@@ -58,8 +53,8 @@ class Workspace(Protocol):
 
     @property
     def is_ready(self) -> bool:
-        """Whether the files and git can be reached yet. A sandbox's can once its session is acquired, which never
-        happens on a turn a slash command short-circuits."""
+        """Whether the files and git can be reached yet: always on disk; on a sandbox, once its session is acquired,
+        which a slash-command short-circuit or an early agent failure skips."""
         ...
 
     async def authenticated_git(self) -> GitManager:

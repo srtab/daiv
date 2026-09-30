@@ -849,6 +849,20 @@ async def test_a_sandbox_run_works_in_a_session_over_the_contexts_client():
     assert (workspace.session.client, workspace.session._spec) == (client, ctx.sandbox)
 
 
+@pytest.mark.parametrize(
+    ("sandbox", "client"),
+    [(sandbox_spec(), None), (None, FakeSandboxClient.opened()), (SimpleNamespace(enabled=False), object())],
+    ids=["enabled-without-client", "client-without-spec", "disabled-with-client"],
+)
+async def test_a_sandbox_spec_and_client_that_disagree_fail_the_run(sandbox, client):
+    ctx = MagicMock(repo=SimpleNamespace(ref="main"), sandbox=sandbox, sandbox_client=client)
+
+    with agent_stack(_agent(), ctx=ctx) as stack, pytest.raises(ValueError, match="disagree"):
+        await execute_run(make_spec())
+
+    stack.create_agent.assert_not_awaited()
+
+
 async def test_a_failing_sandbox_release_still_closes_the_context(caplog):
     client = FakeSandboxClient.opened()
 

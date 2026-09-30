@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.git_manager import GitManager
 from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import READ_ONLY_PERMISSIONS, DAIVCompositeBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:
@@ -21,25 +21,19 @@ class SandboxWorkspace:
     """A sandbox run's workspace: the file tools, the ``bash`` tool and git all reach the container ``session`` holds,
     through one ``SandboxFileBackend``.
 
-    The seed provisions the global skills. The file tools are unfenced, since bash reaches the whole container anyway;
-    the explore subagent is only made read-only.
+    The seed provisions the global skills. The file tools are unfenced, since bash reaches the whole container anyway.
     """
 
     fs_permissions = None
-    explore_permissions = READ_ONLY_PERMISSIONS
     provisions_skills = True
 
     def __init__(self, session: SandboxSession) -> None:
         self.session = session
-        self._files = SandboxFileBackend(session)
+        self.bash = SandboxFileBackend(session)
         # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
         # defaults to "/", and the sandbox rejects evictions written there.
-        self.backend = DAIVCompositeBackend(default=self._files, routes={}, artifacts_root=WORKSPACE_PATH)
-        self.git = GitManager(SandboxGitRunner(self._files))
-
-    @property
-    def bash(self) -> SandboxFileBackend:
-        return self._files
+        self.backend = DAIVCompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
+        self.git = GitManager(SandboxGitRunner(self.bash))
 
     @property
     def is_ready(self) -> bool:
@@ -51,7 +45,10 @@ class SandboxWorkspace:
         Refreshing before the publish's first network command, rather than after a failed one, keeps this independent of
         git's auth-error wording. Best-effort: the mint and the proxy update raise a spread of platform and transport
         errors, and any of them only means the publish goes on with the turn-start token, so it is logged, not raised.
+        An unacquired session is a caller bug, so that one is raised.
         """
+        if not self.is_ready:
+            raise RuntimeError("Cannot authenticate git before the sandbox session is acquired")
         try:
             if await self.session.refresh_credential():
                 logger.info("Refreshed the sandbox egress token of session %s before publish", self.session.session_id)
@@ -64,5 +61,5 @@ class SandboxWorkspace:
         return self.git
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
-        (response,) = await self._files.adownload_files([path], max_bytes=max_bytes)
+        (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)
         return response

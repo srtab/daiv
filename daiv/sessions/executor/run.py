@@ -245,6 +245,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         checkpoints as checkpointer,
     ):
         workspace = _build_workspace(ctx)
+        logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
@@ -295,13 +296,16 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:
-    """The run's workspace: over a sandbox session, acquired later by ``SandboxMiddleware``, when ``set_runtime_ctx``
-    opened a sandbox client, and over the worker's clone otherwise."""
+    """A sandbox workspace when ``set_runtime_ctx`` opened a sandbox client (its session is acquired later, by
+    ``SandboxMiddleware``), else a disk workspace over the worker's clone."""
     from automation.agent.workspace.disk import DiskWorkspace
     from automation.agent.workspace.sandbox import SandboxWorkspace
     from automation.agent.workspace.session import SandboxSession
 
-    if ctx.sandbox_client is None or ctx.sandbox is None:
+    sandbox_enabled = ctx.sandbox is not None and bool(ctx.sandbox.enabled)
+    if sandbox_enabled != (ctx.sandbox_client is not None):
+        raise ValueError("The run's sandbox spec and its sandbox client disagree: both or neither must be set")
+    if ctx.sandbox is None or ctx.sandbox_client is None:
         return DiskWorkspace(ctx)
     return SandboxWorkspace(SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source))
 

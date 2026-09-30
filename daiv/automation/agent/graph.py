@@ -224,8 +224,6 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
-    # Unified workspace namespace: the agent addresses /workspace/repo, /workspace/skills and
-    # /workspace/tmp regardless of sandbox mode. Only the backend behind /workspace differs.
     agent_root = REPO_PATH
     global_skills_source = SKILLS_PATH
     backend = workspace.backend

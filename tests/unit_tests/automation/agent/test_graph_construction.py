@@ -20,7 +20,8 @@ def test_graph_gates_sandbox_middleware_on_the_workspace_shell():
 
 def test_general_purpose_subagent_gates_sandbox_middleware_on_the_workspace_shell():
     src = inspect.getsource(subagents_module)
-    assert "if workspace.bash is not None:" in src
+    assert "bash_tool_enabled = workspace.bash is not None" in src
+    assert "if bash_tool_enabled:" in src
     assert "SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace)" in src
 
 
@@ -37,9 +38,8 @@ def test_graph_uses_fallback_thinking_level_standalone():
 
 def test_global_skills_source_is_workspace_skills():
     src = inspect.getsource(graph_module)
-    # global_skills_source is now unconditional (/workspace/skills) across sandbox and disk modes.
     assert "global_skills_source = SKILLS_PATH" in src, (
-        "graph.py sandbox branch must use SKILLS_PATH (/workspace/skills) as the global-skills source"
+        "graph.py must use SKILLS_PATH (/workspace/skills) as the global-skills source"
     )
 
 

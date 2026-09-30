@@ -239,7 +239,6 @@ class FakeWorkspace:
     bash: Any = None
     session: Any = None
     fs_permissions: Any = None
-    explore_permissions: Any = field(default_factory=list)
     provisions_skills: bool = False
     is_ready: bool = True
 

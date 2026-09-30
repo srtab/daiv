@@ -16,7 +16,7 @@ async def recover_draft(
 ) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
-    Runs inside the run's context, so the clone and the sandbox session are still open. It publishes through
+    Runs inside the run's context, so the clone (and, on a sandbox run, its session) is still open. It publishes through
     ``workspace``, the one the agent worked in, and recovers nothing when that workspace never became ready: the agent
     raised before acquiring its sandbox session. Never raises: this is the last attempt to save the run's work, and a
     failure only means no draft.

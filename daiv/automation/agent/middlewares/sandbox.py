@@ -385,8 +385,7 @@ class SandboxMiddleware(AgentMiddleware):
     Args:
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
             root.
-        workspace: The run's sandbox workspace: its ``bash`` backs the tool, and its session is acquired here.
-            Subagents receive the *same* workspace the parent agent uses.
+        workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is acquired here.
 
     Example:
         ```python

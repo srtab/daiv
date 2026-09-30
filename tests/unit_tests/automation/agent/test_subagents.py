@@ -13,12 +13,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from deepagents.backends.protocol import BackendProtocol
-from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.filesystem import FilesystemMiddleware, _check_fs_permission
 from langchain.agents.middleware import ModelFallbackMiddleware
 
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import (
-    EXPLORE_DISK_PERMISSIONS,
     READ_ONLY_PERMISSIONS,
     WORKSPACE_FENCE_PERMISSIONS,
     DAIVFilesystemMiddleware,
@@ -46,10 +45,8 @@ if TYPE_CHECKING:
 def _workspace(backend, *, sandbox: bool) -> FakeWorkspace:
     """A workspace over ``backend``, shaped like a sandbox run's (a shell, a session, no fence) or a disk run's."""
     if sandbox:
-        return FakeWorkspace(backend=backend, bash=Mock(), session=Mock(), explore_permissions=READ_ONLY_PERMISSIONS)
-    return FakeWorkspace(
-        backend=backend, fs_permissions=WORKSPACE_FENCE_PERMISSIONS, explore_permissions=EXPLORE_DISK_PERMISSIONS
-    )
+        return FakeWorkspace(backend=backend, bash=Mock(), session=Mock())
+    return FakeWorkspace(backend=backend, fs_permissions=WORKSPACE_FENCE_PERMISSIONS)
 
 
 class TestGeneralPurposeMiddleware:
@@ -819,13 +816,7 @@ class TestCustomSubagents:
         assert "good" in names
 
 
-@pytest.mark.parametrize(
-    ("sandbox", "expected"),
-    [pytest.param(True, READ_ONLY_PERMISSIONS, id="sandbox"), pytest.param(False, EXPLORE_DISK_PERMISSIONS, id="disk")],
-)
-def test_explore_applies_the_workspace_explore_permissions(sandbox, expected):
-    """Explore stays read-only everywhere and, on a disk run, fenced to the real subtrees: its file tools take whatever
-    the workspace says, never a rule of their own."""
+def _explore_permissions(*, sandbox: bool) -> list:
     with (
         patch("automation.agent.subagents.BaseAgent"),
         patch("automation.agent.subagents.site_settings", agent_explore_fallback_model_name=None),
@@ -834,7 +825,24 @@ def test_explore_applies_the_workspace_explore_permissions(sandbox, expected):
         create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/")
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
-    assert fs._permissions == expected
+    return fs._permissions
+
+
+def test_explore_in_a_sandbox_is_only_read_only():
+    assert _explore_permissions(sandbox=True) == READ_ONLY_PERMISSIONS
+
+
+def test_explore_on_disk_is_read_only_inside_the_workspace_fence():
+    """Read-only wins even where the fence allows writes, and the fence still bounds reads (evictions included)."""
+    perms = _explore_permissions(sandbox=False)
+
+    assert _check_fs_permission(perms, "write", "/workspace/repo/foo.py") == "deny"
+    assert _check_fs_permission(perms, "write", "/workspace/tmp/notes.md") == "deny"
+    assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
+    assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
+    assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
+    assert _check_fs_permission(perms, "read", "/workspace") == "deny"
+    assert _check_fs_permission(perms, "read", "/workspace/other/x") == "deny"
 
 
 class TestDetectorMiddleware:

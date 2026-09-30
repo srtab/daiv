@@ -153,8 +153,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             and expose it as ``model_patch`` in the output state. Used by eval harnesses to read
             the patch from the run's final state; keep ``False`` for normal runs so potentially
             large patches never stream through ``STATE_SNAPSHOT`` events.
-        workspace: The run's workspace, injected by ``create_daiv_agent``. Its git backs the pre-run check and the
-            patch capture, and the publisher publishes through it.
+        workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
 
     Example:
         ```python

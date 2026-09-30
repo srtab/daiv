@@ -181,7 +181,9 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     spec = swebench._run_spec(ITEM, ["model-a"])
 
     agent_sig = inspect.signature(create_daiv_agent, annotation_format=annotationlib.Format.FORWARDREF)
-    agent_sig.bind(ctx=None, checkpointer=None, model_names=[], thinking_level=None, **spec.agent_options)
+    agent_sig.bind(
+        ctx=None, checkpointer=None, workspace=None, model_names=[], thinking_level=None, **spec.agent_options
+    )
 
     ctx_sig = inspect.signature(set_runtime_ctx, annotation_format=annotationlib.Format.FORWARDREF)
     explicit_params = set(ctx_sig.parameters) - {"kwargs"}
