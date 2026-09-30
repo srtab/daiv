@@ -18,8 +18,11 @@ from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from automation.agent.git_runners import LocalGitRunner
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
+from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.references import ExternalRef
@@ -77,7 +80,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
     )
     stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, sandbox_session=None, **AGENT_KWARGS
+        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, workspace=ANY, **AGENT_KWARGS
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -507,7 +510,7 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
-        sandbox_session=None,
+        workspace=ANY,
         model_names=["model-a", "model-b"],
         thinking_level=thinking_level,
     )
@@ -527,7 +530,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
-        sandbox_session=None,
+        workspace=ANY,
         **AGENT_KWARGS,
         capture_patch=True,
     )
@@ -766,7 +769,7 @@ async def test_a_finished_run_releases_its_sandbox_session_before_the_context_cl
         client.close_session = _recorded_close
 
         async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["sandbox_session"], session_id)
+            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, session_id)
             return {"messages": [MagicMock(content="done")]}
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
@@ -787,7 +790,7 @@ async def test_a_raising_agent_still_releases_its_sandbox_session(one_shot, forc
     with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
 
         async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["sandbox_session"], session_id)
+            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, session_id)
             raise RuntimeError("agent blew up")
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
@@ -807,7 +810,7 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     with agent_stack(agent, ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))) as stack:
 
         async def _invoke(*_args, **_kwargs):
-            session = stack.create_agent.await_args.kwargs["sandbox_session"]
+            session = stack.create_agent.await_args.kwargs["workspace"].session
             await session.acquire(
                 prior_id=None, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None))
             )
@@ -819,6 +822,27 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     [(request,)] = client.calls_to("start_session")
     assert request.egress is not None
     assert [secret.value for secret in request.egress.secrets.values()] == [credential.value]
+
+
+async def test_a_disk_run_works_in_the_clone():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec())
+
+    workspace = stack.create_agent.await_args.kwargs["workspace"]
+    assert isinstance(workspace, DiskWorkspace)
+    assert workspace.git._runner == LocalGitRunner(stack.ctx.gitrepo)
+
+
+async def test_a_sandbox_run_works_in_a_session_over_the_contexts_client():
+    client = FakeSandboxClient.opened()
+    ctx = _sandbox_ctx(client)
+
+    with agent_stack(_agent(), ctx=ctx) as stack:
+        await execute_run(make_spec())
+
+    workspace = stack.create_agent.await_args.kwargs["workspace"]
+    assert isinstance(workspace, SandboxWorkspace)
+    assert (workspace.session.client, workspace.session._spec) == (client, ctx.sandbox)
 
 
 async def test_a_failing_sandbox_release_still_closes_the_context(caplog):
@@ -1126,7 +1150,7 @@ class TestStreamRun:
         session_id = client.add_running_session("sess-1")
 
         async def _acquiring(run):
-            await _acquire(run.sandbox_session, session_id)
+            await _acquire(run.workspace.session, session_id)
             yield "a"
             yield "b"
 
@@ -1153,7 +1177,7 @@ class TestStreamRun:
         waiting = asyncio.Event()
 
         async def _acquiring(run):
-            await _acquire(run.sandbox_session, session_id)
+            await _acquire(run.workspace.session, session_id)
             yield "a"
             waiting.set()
             await asyncio.Event().wait()
@@ -1183,7 +1207,7 @@ class TestStreamRun:
         session_id = client.add_running_session("sess-1")
 
         async def _acquiring(run):
-            await _acquire(run.sandbox_session, session_id)
+            await _acquire(run.workspace.session, session_id)
             yield "a"
             yield "b"
 

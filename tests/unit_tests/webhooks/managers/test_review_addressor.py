@@ -37,8 +37,13 @@ def _merge_request(merge_request_id: int = 99, *, source_branch: str = "feature"
 
 
 def _ctx() -> SimpleNamespace:
-    """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads."""
-    return SimpleNamespace(config=MagicMock(), repo=SimpleNamespace(ref="feature"), sandbox_client=None)
+    """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
+    return SimpleNamespace(
+        config=MagicMock(),
+        repo=SimpleNamespace(ref="feature"),
+        gitrepo=SimpleNamespace(working_dir="/clone"),
+        sandbox_client=None,
+    )
 
 
 @pytest.fixture

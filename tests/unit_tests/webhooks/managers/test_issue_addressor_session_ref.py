@@ -38,7 +38,12 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
         return_value={"messages": [AIMessage(content="done")]},
         state_values={"merge_request": published_mr, "code_changes": published_mr is not None},
     )
-    ctx = SimpleNamespace(config=MagicMock(), repo=SimpleNamespace(ref=cloned_ref), sandbox_client=None)
+    ctx = SimpleNamespace(
+        config=MagicMock(),
+        repo=SimpleNamespace(ref=cloned_ref),
+        gitrepo=SimpleNamespace(working_dir="/clone"),
+        sandbox_client=None,
+    )
     with addressor_run(agent, ctx=ctx) as run:
         if persist_raises:
             run.persist.side_effect = RuntimeError("db down")

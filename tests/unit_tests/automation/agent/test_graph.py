@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware import ModelRequest, ModelResponse
 
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
@@ -14,7 +11,8 @@ from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddle
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
@@ -22,8 +20,6 @@ from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
 
 def _patches() -> dict[str, tuple[str, dict]]:
     return {
-        "disk_backend": ("build_disk_workspace_backend", {"return_value": MagicMock(spec=BackendProtocol)}),
-        "composite_backend": ("DAIVCompositeBackend", {"return_value": MagicMock(spec=BackendProtocol)}),
         "create_general_purpose": ("create_general_purpose_subagent", {}),
         "create_explore": ("create_explore_subagent", {}),
         "load_custom": ("load_custom_subagents", {"new": AsyncMock(return_value=[])}),
@@ -39,11 +35,9 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(*, base_image: str | None, with_session: bool = True, **agent_kwargs) -> SimpleNamespace:
-    """Build the agent with its collaborators stubbed and return the stubs plus the run's client and session."""
-    run_client = FakeSandboxClient.opened()
-    sandbox = sandbox_spec(base_image=base_image)
-    sandbox_session = SandboxSession(run_client, sandbox) if sandbox.enabled and with_session else None
+async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+    """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
+    base image, so a disk workspace shows the mode is the workspace's, not the context's."""
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
@@ -59,11 +53,21 @@ async def _build(*, base_image: str | None, with_session: bool = True, **agent_k
             web_search_enabled=False,
         )
         ctx = MagicMock()
-        ctx.gitrepo.working_dir = "/repo"
-        ctx.sandbox = sandbox
+        ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
-        await create_daiv_agent(ctx=ctx, sandbox_session=sandbox_session, auto_commit_changes=False, **agent_kwargs)
-    return SimpleNamespace(run_client=run_client, sandbox_session=sandbox_session, **mocks)
+        await create_daiv_agent(ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs)
+    return SimpleNamespace(**mocks)
+
+
+def _disk_workspace() -> DiskWorkspace:
+    ctx = MagicMock()
+    ctx.gitrepo.working_dir = "/repo"
+    return DiskWorkspace(ctx)
+
+
+def _sandbox_workspace() -> tuple[SandboxWorkspace, FakeSandboxClient]:
+    client = FakeSandboxClient.opened()
+    return SandboxWorkspace(SandboxSession(client, sandbox_spec())), client
 
 
 def _middleware(built: SimpleNamespace) -> list:
@@ -71,13 +75,12 @@ def _middleware(built: SimpleNamespace) -> list:
 
 
 async def test_disk_mode_builds_no_sandbox():
-    """B10: with no base image, the run gets the disk backend, the workspace fence, no bash tool, and disk-mode
-    skills and subagents."""
-    built = await _build(base_image=None)
+    """B10: a disk workspace gets the run no bash tool, the workspace fence, and disk-mode skills and subagents."""
+    workspace = _disk_workspace()
+    built = await _build(workspace)
 
     deep_agent_kwargs = built.create_deep_agent.call_args.kwargs
-    built.disk_backend.assert_called_once_with(Path("/repo"))
-    assert deep_agent_kwargs["backend"] is built.disk_backend.return_value
+    assert deep_agent_kwargs["backend"] is workspace.backend
     assert deep_agent_kwargs["permissions"] == WORKSPACE_FENCE_PERMISSIONS
     assert not any(isinstance(m, SandboxMiddleware) for m in _middleware(built))
     assert not any(t.name == BASH_TOOL_NAME for m in _middleware(built) for t in getattr(m, "tools", None) or [])
@@ -91,25 +94,19 @@ async def test_disk_mode_builds_no_sandbox():
 
 
 async def test_sandbox_mode_shares_one_backend_across_the_run():
-    """B6: the parent's SandboxFileBackend also backs the git middleware and the general-purpose and custom
-    subagents, all over the run's one session; explore gets it through the composite backend."""
-    built = await _build(base_image="python:3.12")
+    """B6: the workspace's one SandboxFileBackend backs the sandbox middleware, the git middleware and the
+    general-purpose and custom subagents, all over the run's one session; explore gets it through the composite."""
+    workspace, client = _sandbox_workspace()
+    built = await _build(workspace)
 
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
-    backend = sandbox_middleware._sandbox_backend
-    assert isinstance(backend, SandboxFileBackend)
-    assert backend.session is built.sandbox_session
-    assert built.composite_backend.call_args.kwargs["default"] is backend
-    assert built.create_explore.call_args.args[0] is built.composite_backend.return_value
-    assert built.git_middleware.call_args.kwargs["sandbox_backend"] is backend
+    assert sandbox_middleware._sandbox_backend is workspace.bash
+    assert built.create_deep_agent.call_args.kwargs["backend"] is workspace.backend
+    assert built.create_explore.call_args.args[0] is workspace.backend
+    assert built.git_middleware.call_args.kwargs["sandbox_backend"] is workspace.bash
     for kwargs in (built.create_general_purpose.call_args.kwargs, built.load_custom.await_args.kwargs):
-        assert kwargs["sandbox_backend"] is backend
-    assert built.run_client.calls == []
-
-
-async def test_a_sandbox_agent_needs_its_session():
-    with pytest.raises(ValueError, match="SandboxSession"):
-        await _build(base_image="python:3.12", with_session=False)
+        assert kwargs["sandbox_backend"] is workspace.bash
+    assert client.calls == []
 
 
 def test_ask_user_question_is_always_loaded():
@@ -117,13 +114,13 @@ def test_ask_user_question_is_always_loaded():
 
 
 async def test_ask_user_is_enabled_by_default():
-    built = await _build(base_image=None)
+    built = await _build(_disk_workspace())
 
     assert any(isinstance(m, AskUserQuestionMiddleware) for m in _middleware(built))
 
 
 async def test_ask_user_can_be_disabled_for_the_run():
-    built = await _build(base_image=None, ask_user_enabled=False)
+    built = await _build(_disk_workspace(), ask_user_enabled=False)
 
     assert not any(isinstance(m, AskUserQuestionMiddleware) for m in _middleware(built))
 

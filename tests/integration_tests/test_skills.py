@@ -4,6 +4,7 @@ from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.workspace.disk import DiskWorkspace
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
@@ -42,7 +43,7 @@ async def test_skill_activated(model_name, user_message, skill):
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
-            sandbox_enabled=False,
+            workspace=DiskWorkspace(ctx),
         )
         result = await agent.ainvoke(
             {"messages": [{"role": "user", "content": user_message}]},

@@ -47,15 +47,6 @@ def test_graph_uses_fallback_thinking_level_standalone():
     )
 
 
-def test_graph_constructs_sandbox_backend_without_root():
-    src = inspect.getsource(graph_module)
-    assert "SandboxFileBackend(sandbox_session)" in src, (
-        "graph.py must construct SandboxFileBackend(sandbox_session) with no root — the agent uses "
-        "sandbox-absolute paths and the run's sandbox session is injected by construction"
-    )
-    assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
-
-
 def test_global_skills_source_is_workspace_skills():
     src = inspect.getsource(graph_module)
     # global_skills_source is now unconditional (/workspace/skills) across sandbox and disk modes.

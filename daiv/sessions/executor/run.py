@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
+    from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
     from codebase.context import RuntimeCtx
     from sessions.executor.spec import RunSpec
@@ -43,15 +44,15 @@ class RunStoppedError(Exception):
 @dataclass(frozen=True)
 class AgentRun:
     """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
-    ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``sandbox_session`` is the
-    run's sandbox session (``None`` in disk mode); draft recovery reaches the container through it."""
+    ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
+    agent works; draft recovery publishes through it, and the executor releases its sandbox session."""
 
     ctx: RuntimeCtx
     agent: CompiledAgent
     config: RunnableConfig
     usage: CostAwareUsageMetadataCallbackHandler
     thread_id: str
-    sandbox_session: SandboxSession | None
+    workspace: Workspace
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -199,7 +200,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(
-        run.ctx, run.agent, run.config, thread_id=run.thread_id, sandbox_session=run.sandbox_session
+        run.ctx, run.agent, run.config, thread_id=run.thread_id, sandbox_session=run.workspace.session
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
@@ -243,7 +244,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         ) as ctx,
         checkpoints as checkpointer,
     ):
-        sandbox_session = _sandbox_session(ctx)
+        workspace = _build_workspace(ctx)
         handed_over = False
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
@@ -266,7 +267,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 ctx=ctx,
                 checkpointer=checkpointer,
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
-                sandbox_session=sandbox_session,
+                workspace=workspace,
                 **agent_kwargs,
                 **spec.agent_options,
             )
@@ -281,12 +282,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             )
             with track_usage_metadata() as usage, bind_active_run(spec.run_id):
                 run = AgentRun(
-                    ctx=ctx,
-                    agent=agent,
-                    config=config,
-                    usage=usage,
-                    thread_id=thread_id,
-                    sandbox_session=sandbox_session,
+                    ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id, workspace=workspace
                 )
                 try:
                     yield run
@@ -294,24 +290,26 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                     handed_over = await _handed_over(run)
                     raise
         finally:
-            if sandbox_session is not None and not handed_over:
-                await _release_sandbox(sandbox_session, resumable=spec.thread_id is not None, thread_id=thread_id)
+            if workspace.session is not None and not handed_over:
+                await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
 
 
-def _sandbox_session(ctx: RuntimeCtx) -> SandboxSession | None:
-    """The run's sandbox session, acquired later by ``SandboxMiddleware``; ``None`` for a disk-mode run, which has no
-    sandbox client."""
+def _build_workspace(ctx: RuntimeCtx) -> Workspace:
+    """The run's workspace: over a sandbox session, acquired later by ``SandboxMiddleware``, when ``set_runtime_ctx``
+    opened a sandbox client, and over the worker's clone otherwise."""
+    from automation.agent.workspace.disk import DiskWorkspace
+    from automation.agent.workspace.sandbox import SandboxWorkspace
     from automation.agent.workspace.session import SandboxSession
 
     if ctx.sandbox_client is None or ctx.sandbox is None:
-        return None
-    return SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
+        return DiskWorkspace(ctx)
+    return SandboxWorkspace(SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source))
 
 
 async def _handed_over(run: AgentRun) -> bool:
     """Whether the holder that took this run's slot over holds its container: the checkpoint still names it, as that
     holder's reuse leaves it. Stopping it would stop that turn; one the holder replaced is this run's to stop."""
-    if run.sandbox_session is None or (session_id := run.sandbox_session.session_id) is None:
+    if run.workspace.session is None or (session_id := run.workspace.session.session_id) is None:
         return False
     try:
         snapshot = await run.agent.aget_state(config=run.config)

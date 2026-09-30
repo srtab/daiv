@@ -33,8 +33,13 @@ _UNABLE = "An unexpected error occurred while working on this issue."
 
 
 def _ctx() -> SimpleNamespace:
-    """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads."""
-    return SimpleNamespace(config=RepositoryConfig(), repo=SimpleNamespace(ref="main"), sandbox_client=None)
+    """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
+    return SimpleNamespace(
+        config=RepositoryConfig(),
+        repo=SimpleNamespace(ref="main"),
+        gitrepo=SimpleNamespace(working_dir="/clone"),
+        sandbox_client=None,
+    )
 
 
 def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
@@ -235,7 +240,7 @@ class TestIssueAfterRunMatrix:
         session_id = client.add_running_session("sess-1")
 
         async def _fail_mid_turn(*_args, **_kwargs):
-            session = run.create_agent.await_args.kwargs["sandbox_session"]
+            session = run.create_agent.await_args.kwargs["workspace"].session
             await session.acquire(prior_id=session_id, prior_fingerprint=None, seed=AsyncMock())
             raise RuntimeError("boom")
 
