@@ -21,10 +21,8 @@ from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
-    EXPLORE_DISK_PERMISSIONS,
     READ_ONLY_FS_TOOLS,
     READ_ONLY_PERMISSIONS,
-    WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FS_TOOLS,
     DAIVFilesystemMiddleware,
     filesystem_absolute_path_directive,
@@ -42,11 +40,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from deepagents.backends import BackendProtocol
-    from deepagents.middleware.filesystem import FilesystemPermission
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.agent")
@@ -123,19 +120,17 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
 
 def _build_general_purpose_middleware(
     model: BaseChatModel,
-    backend: BackendProtocol,
+    workspace: Workspace,
     runtime: RuntimeCtx,
-    sandbox_enabled: bool,
     web_search_enabled: bool,
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
 
-    The subagent's ``SandboxMiddleware`` shares the parent's backend, whose session the parent already acquired.
+    The subagent's ``SandboxMiddleware`` shares the parent's workspace, whose session the parent already acquired.
 
     ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
     subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
@@ -144,16 +139,17 @@ def _build_general_purpose_middleware(
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
+    bash_tool_enabled = workspace.bash is not None
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
         DAIVFilesystemMiddleware(
-            backend=backend,
+            backend=workspace.backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=WORKSPACE_FS_TOOLS,
-            _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
+            _permissions=workspace.fs_permissions,
         ),
-        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
-        *_shared_subagent_middleware(model, backend),
+        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=workspace.backend),
+        *_shared_subagent_middleware(model, workspace.backend),
     ]
 
     if web_search_enabled:
@@ -162,8 +158,8 @@ def _build_general_purpose_middleware(
     if web_fetch_enabled:
         middleware.append(WebFetchMiddleware())
 
-    if sandbox_enabled:
-        middleware.append(SandboxMiddleware(agent_root=REPO_PATH, sandbox_backend=sandbox_backend))
+    if workspace.bash is not None:
+        middleware.append(SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -308,14 +304,12 @@ def load_builtin_code_review_detectors(
 
 def create_general_purpose_subagent(
     model: BaseChatModel,
-    backend: BackendProtocol,
+    workspace: Workspace,
     runtime: RuntimeCtx,
     working_directory: str,
-    sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> CompiledSubAgent:
     """
@@ -326,15 +320,7 @@ def create_general_purpose_subagent(
         tools=direct_mcp_tools(mcp_tools),
         system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
-            model,
-            backend,
-            runtime,
-            sandbox_enabled,
-            web_search_enabled,
-            web_fetch_enabled,
-            fallback_models,
-            sandbox_backend,
-            mcp_tools=mcp_tools,
+            model, workspace, runtime, web_search_enabled, web_fetch_enabled, fallback_models, mcp_tools=mcp_tools
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -386,14 +372,7 @@ Complete the user's search request efficiently and report your findings clearly.
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def _explore_permissions(*, sandbox_enabled: bool) -> list[FilesystemPermission]:
-    """Read-only everywhere; additionally fence reads to the real subtrees in disk mode."""
-    return READ_ONLY_PERMISSIONS if sandbox_enabled else EXPLORE_DISK_PERMISSIONS
-
-
-def create_explore_subagent(
-    backend: BackendProtocol, working_directory: str, *, sandbox_enabled: bool = True, **kwargs
-) -> CompiledSubAgent:
+def create_explore_subagent(workspace: Workspace, working_directory: str, **kwargs) -> CompiledSubAgent:
     """
     Create the explore subagent.
     """
@@ -405,12 +384,12 @@ def create_explore_subagent(
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         DAIVFilesystemMiddleware(
-            backend=backend,
+            backend=workspace.backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=READ_ONLY_FS_TOOLS,
-            _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
+            _permissions=workspace.explore_permissions,
         ),
-        *_shared_subagent_middleware(model, backend),
+        *_shared_subagent_middleware(model, workspace.backend),
     ]
 
     if fallback_model_name := site_settings.agent_explore_fallback_model_name:
@@ -570,15 +549,13 @@ def _compile_subagent(
 
 async def load_custom_subagents(
     model: BaseChatModel,
-    backend: BackendProtocol,
+    workspace: Workspace,
     runtime: RuntimeCtx,
     sources: list[str],
     working_directory: str,
-    sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    sandbox_backend: SandboxFileBackend | None = None,
     mcp_tools: list[BaseTool] | None = None,
 ) -> list[CompiledSubAgent]:
     """
@@ -589,12 +566,11 @@ async def load_custom_subagents(
 
     Args:
         model: The default model to use for custom subagents.
-        backend: The filesystem backend.
+        workspace: The run's workspace; its backend lists and reads the definitions, and each subagent works in it.
         runtime: The runtime context.
         sources: List of paths to scan for subagent definitions.
         working_directory: The run's absolute repo root (e.g. ``/workspace/repo/``), baked into the
             subagent's filesystem path directive so it addresses files under the right root.
-        sandbox_enabled: Whether to enable the sandbox middleware.
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
         fallback_models: Optional fallback models for model failover.
@@ -608,7 +584,7 @@ async def load_custom_subagents(
 
     for source_path in sources:
         try:
-            result = await backend.als(source_path)
+            result = await workspace.backend.als(source_path)
         except Exception:
             logger.debug("Could not list %s, skipping custom subagents from this source", source_path)
             continue
@@ -619,7 +595,7 @@ async def load_custom_subagents(
         if not md_files:
             continue
 
-        responses = await backend.adownload_files(md_files)
+        responses = await workspace.backend.adownload_files(md_files)
 
         for file_path, response in zip(md_files, responses, strict=True):
             if response.error:
@@ -659,13 +635,11 @@ async def load_custom_subagents(
 
             middleware = _build_general_purpose_middleware(
                 subagent_model,
-                backend,
+                workspace,
                 runtime,
-                sandbox_enabled,
                 web_search_enabled,
                 web_fetch_enabled,
                 fallback_models,
-                sandbox_backend,
                 mcp_tools=mcp_tools,
             )
             subagents.append(

@@ -5,7 +5,7 @@ import pytest
 from git import Repo
 
 from automation.agent.middlewares.sandbox import SandboxMiddleware
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import Scope as RepoScope
 from codebase.clients.base import GitEgressCredential
@@ -148,7 +148,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
         async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec()) as ctx:
             client = ctx.sandbox_client
             session = SandboxSession(client, ctx.sandbox, credential_source=ctx.credential_source)
-            middleware = SandboxMiddleware(agent_root="/workspace/repo", sandbox_backend=SandboxFileBackend(session))
+            middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))
             await middleware.abefore_agent({}, MagicMock(context=ctx))
             await session.release(resumable=True)
 

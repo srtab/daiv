@@ -87,29 +87,27 @@ async def test_disk_mode_builds_no_sandbox():
     assert not any(t.name == BASH_TOOL_NAME for m in _middleware(built) for t in getattr(m, "tools", None) or [])
     assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is True
     assert built.git_middleware.call_args.kwargs["workspace"] is workspace
-    general_purpose_kwargs = built.create_general_purpose.call_args.kwargs
-    assert general_purpose_kwargs["sandbox_enabled"] is False
-    assert general_purpose_kwargs["sandbox_backend"] is None
-    assert built.create_explore.call_args.kwargs["sandbox_enabled"] is False
-    assert built.load_custom.await_args.kwargs["sandbox_enabled"] is False
+    assert built.create_general_purpose.call_args.args[1] is workspace
+    assert built.create_explore.call_args.args[0] is workspace
+    assert built.load_custom.await_args.kwargs["workspace"] is workspace
 
 
-async def test_sandbox_mode_shares_one_backend_across_the_run():
-    """B6: the workspace's one SandboxFileBackend backs the sandbox middleware, the git middleware and the
-    general-purpose and custom subagents, all over the run's one session; explore gets it through the composite."""
+async def test_sandbox_mode_shares_one_workspace_across_the_run():
+    """B6: the main agent's sandbox middleware and every subagent builder get the run's one workspace, so their files,
+    shell and git all reach its one session."""
     workspace, client = _sandbox_workspace()
     built = await _build(workspace)
 
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
-    assert sandbox_middleware._sandbox_backend is workspace.bash
+    assert (sandbox_middleware._bash, sandbox_middleware._session) == (workspace.bash, workspace.session)
     assert built.create_deep_agent.call_args.kwargs["backend"] is workspace.backend
-    assert built.create_explore.call_args.args[0] is workspace.backend
+    assert built.create_general_purpose.call_args.args[1] is workspace
+    assert built.create_explore.call_args.args[0] is workspace
+    assert built.load_custom.await_args.kwargs["workspace"] is workspace
     assert built.git_middleware.call_args.kwargs["workspace"] is workspace
     assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is False
     [artifacts] = [m for m in _middleware(built) if isinstance(m, ArtifactsMiddleware)]
     assert artifacts._workspace is workspace
-    for kwargs in (built.create_general_purpose.call_args.kwargs, built.load_custom.await_args.kwargs):
-        assert kwargs["sandbox_backend"] is workspace.bash
     assert client.calls == []
 
 

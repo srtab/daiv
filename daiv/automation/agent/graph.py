@@ -220,7 +220,7 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=fallback_thinking_level) for model_name in model_names[1:]
     ]
 
-    _sandbox_enabled = workspace.bash is not None
+    bash_tool_enabled = workspace.bash is not None
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
@@ -229,7 +229,6 @@ async def create_daiv_agent(
     agent_root = REPO_PATH
     global_skills_source = SKILLS_PATH
     backend = workspace.backend
-    sandbox_backend = workspace.bash
 
     # The run's absolute repo root, shared with subagents so their filesystem path directives name
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
@@ -244,31 +243,27 @@ async def create_daiv_agent(
     subagents = [
         create_general_purpose_subagent(
             model,
-            backend,
+            workspace,
             ctx,
             working_directory,
-            sandbox_enabled=_sandbox_enabled,
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
-            sandbox_backend=sandbox_backend,
             mcp_tools=mcp_tools,
         ),
-        create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
+        create_explore_subagent(workspace, working_directory),
         *load_builtin_code_review_detectors(model, backend, working_directory, fallback_models=fallback_models),
     ]
 
     custom_subagents = await load_custom_subagents(
         model=model,
-        backend=backend,
+        workspace=workspace,
         runtime=ctx,
         sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
         working_directory=working_directory,
-        sandbox_enabled=_sandbox_enabled,
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
-        sandbox_backend=sandbox_backend,
         mcp_tools=mcp_tools,
     )
     subagents.extend(custom_subagents)
@@ -286,9 +281,9 @@ async def create_daiv_agent(
         ),
         # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
         # source of write_todos and the harness profile excludes nothing here.
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
-        *([SandboxMiddleware(agent_root=agent_root, sandbox_backend=sandbox_backend)] if _sandbox_enabled else []),
+        *([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
