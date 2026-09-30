@@ -29,11 +29,10 @@ from codebase.context import RuntimeCtx  # noqa: TC001
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from sessions.models import RunArtifact
 
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.tools")
 
@@ -94,11 +93,10 @@ def _workspace_path_error(path: str) -> str | None:
 
 
 class ArtifactsMiddleware(AgentMiddleware):
-    """Adds ``publish_artifact`` backed by the run's ``/workspace`` filesystem backend."""
+    """Adds ``publish_artifact``, which copies a file out of the run's workspace."""
 
-    def __init__(self, *, backend: BackendProtocol, sandbox_backend: SandboxFileBackend | None = None) -> None:
-        self._backend = backend
-        self._sandbox_backend = sandbox_backend
+    def __init__(self, *, workspace: Workspace) -> None:
+        self._workspace = workspace
         self.tools = [self._build_tool()]
 
     def _build_tool(self) -> BaseTool:
@@ -132,7 +130,7 @@ class ArtifactsMiddleware(AgentMiddleware):
             )
 
         try:
-            downloaded = await self._adownload(path)
+            downloaded = await self._workspace.download_file(path, max_bytes=sessions_settings.ARTIFACT_MAX_BYTES)
         except HTTPError as exc:
             return f"Error publishing artifact '{path}': {_fs_transport_failure_text(exc, 'publish', path)}"
         if downloaded.error or downloaded.content is None:
@@ -150,16 +148,6 @@ class ArtifactsMiddleware(AgentMiddleware):
             "publish_artifact: run=%s stored %s (%s, %d bytes)", run.pk, path, artifact.content_type, artifact.size
         )
         return await self._apublished_result(artifact)
-
-    async def _adownload(self, path: str) -> FileDownloadResponse:
-        if self._sandbox_backend is not None:
-            # Refused inside the sandbox, so an oversized file never crosses the wire.
-            (downloaded,) = await self._sandbox_backend.adownload_files(
-                [path], max_bytes=sessions_settings.ARTIFACT_MAX_BYTES
-            )
-        else:
-            (downloaded,) = await self._backend.adownload_files([path])
-        return downloaded
 
     @staticmethod
     async def _apublished_result(artifact: RunArtifact) -> str:

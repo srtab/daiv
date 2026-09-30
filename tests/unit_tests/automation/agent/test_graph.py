@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain.agents.middleware import ModelRequest, ModelResponse
 
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
+from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
@@ -84,7 +85,7 @@ async def test_disk_mode_builds_no_sandbox():
     assert deep_agent_kwargs["permissions"] == WORKSPACE_FENCE_PERMISSIONS
     assert not any(isinstance(m, SandboxMiddleware) for m in _middleware(built))
     assert not any(t.name == BASH_TOOL_NAME for m in _middleware(built) for t in getattr(m, "tools", None) or [])
-    assert built.skills_middleware.call_args.kwargs["sandbox_enabled"] is False
+    assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is True
     assert built.git_middleware.call_args.kwargs["workspace"] is workspace
     general_purpose_kwargs = built.create_general_purpose.call_args.kwargs
     assert general_purpose_kwargs["sandbox_enabled"] is False
@@ -104,6 +105,9 @@ async def test_sandbox_mode_shares_one_backend_across_the_run():
     assert built.create_deep_agent.call_args.kwargs["backend"] is workspace.backend
     assert built.create_explore.call_args.args[0] is workspace.backend
     assert built.git_middleware.call_args.kwargs["workspace"] is workspace
+    assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is False
+    [artifacts] = [m for m in _middleware(built) if isinstance(m, ArtifactsMiddleware)]
+    assert artifacts._workspace is workspace
     for kwargs in (built.create_general_purpose.call_args.kwargs, built.load_custom.await_args.kwargs):
         assert kwargs["sandbox_backend"] is workspace.bash
     assert client.calls == []

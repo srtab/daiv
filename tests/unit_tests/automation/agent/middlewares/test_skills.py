@@ -349,10 +349,12 @@ class TestSkillsMiddleware:
         formatted = middleware._format_skills_list([])
         assert formatted == "(No skills available yet. You can create skills in /skills or /extra/skills)"
 
-    async def test_abefore_agent_skips_copy_global_skills_in_sandbox_mode(self):
-        """In sandbox mode SkillsMiddleware must NOT upload skills (the sandbox seed provisions them)."""
+    async def test_abefore_agent_skips_copy_global_skills_when_the_workspace_provisions_them(self):
+        """A sandbox's seed provisions the global skills, so SkillsMiddleware must NOT upload them."""
         backend = Mock()
-        middleware = SkillsMiddleware(backend=backend, sources=[("/workspace/skills", "Global")], sandbox_enabled=True)
+        middleware = SkillsMiddleware(
+            backend=backend, sources=[("/workspace/skills", "Global")], copy_global_skills=False
+        )
         state = {"messages": [HumanMessage(content="hi")]}  # no skills_metadata yet
         runtime = Mock()
 
@@ -367,9 +369,9 @@ class TestSkillsMiddleware:
 
         mock_copy.assert_not_called()
 
-    async def test_abefore_agent_runs_copy_global_skills_when_not_sandbox(self):
+    async def test_abefore_agent_copies_global_skills_into_a_workspace_that_lacks_them(self):
         backend = Mock()
-        middleware = SkillsMiddleware(backend=backend, sources=[("/skills", "Global")], sandbox_enabled=False)
+        middleware = SkillsMiddleware(backend=backend, sources=[("/skills", "Global")], copy_global_skills=True)
         state = {"messages": [HumanMessage(content="hi")]}
         runtime = Mock()
 

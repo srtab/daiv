@@ -76,12 +76,10 @@ def _balanced_call_args(src: str, callee: str) -> str:
     return src[start : i - 1]
 
 
-def test_skills_middleware_receives_sandbox_enabled_flag():
+def test_skills_middleware_copies_global_skills_unless_the_workspace_provisions_them():
     src = inspect.getsource(graph_module)
-    # Assert the flag is passed INSIDE the SkillsMiddleware(...) call, not just somewhere in the
-    # file (it also appears on the subagent factory calls), so this guards the real wiring.
     skills_call = _balanced_call_args(src, "SkillsMiddleware(")
-    assert "sandbox_enabled=_sandbox_enabled" in skills_call, "SkillsMiddleware must receive the sandbox_enabled flag"
+    assert "copy_global_skills=not workspace.provisions_skills" in skills_call
 
 
 def test_slash_command_middleware_receives_subagents():

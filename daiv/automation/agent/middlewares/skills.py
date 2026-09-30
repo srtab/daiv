@@ -103,19 +103,18 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
 
 class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
-    Middleware that loads skill metadata and, in disk-backed (non-sandbox) mode, copies builtin
-    and custom global skills into the ``/workspace/skills`` cache so they are available even when the
-    project skills directory is not set up. In sandbox mode global skills are provisioned by the
-    sandbox seed (SandboxMiddleware), so no upload happens here.
+    Middleware that loads skill metadata and, with ``copy_global_skills``, copies builtin and custom global skills
+    into the ``/workspace/skills`` cache so they are available even when the project skills directory is not set up.
+    A sandbox's seed provisions them itself, so its workspace turns the copy off.
     """
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, sandbox_enabled: bool = False, **kwargs):
+    def __init__(self, *args, copy_global_skills: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
-        self._sandbox_enabled = sandbox_enabled
+        self._copies_global_skills = copy_global_skills
 
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
@@ -144,7 +143,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # ``stat``. In sandbox mode the sandbox seed (SandboxMiddleware) provisions global skills, so
         # nothing is copied here.
         local_load_errors: list[str] = []
-        if not self._sandbox_enabled:
+        if self._copies_global_skills:
             local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
