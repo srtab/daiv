@@ -15,8 +15,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_manager import GitManager
-from automation.agent.git_runners import LocalGitRunner, SandboxGitProtocolError, SandboxGitRunner
+from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 from automation.agent.utils import conversation_thread_id, final_assistant_text
 from codebase.base import MergeRequest, Scope
@@ -41,7 +40,7 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from automation.agent.workspace.base import Workspace
 
 
 logger = logging.getLogger("daiv.tools")
@@ -154,9 +153,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             and expose it as ``model_patch`` in the output state. Used by eval harnesses to read
             the patch from the run's final state; keep ``False`` for normal runs so potentially
             large patches never stream through ``STATE_SNAPSHOT`` events.
-        sandbox_backend: Run's bound :class:`SandboxFileBackend` injected by ``create_daiv_agent``;
-            forwarded to :class:`GitChangePublisher` (and used for patch capture) so turn-end git
-            runs inside the sandbox. ``None`` for sandbox-disabled / local runs.
+        workspace: The run's workspace, injected by ``create_daiv_agent``. Its git backs the pre-run check and the
+            patch capture, and the publisher publishes through it.
 
     Example:
         ```python
@@ -168,7 +166,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[GitMiddleware()],
+            middleware=[GitMiddleware(workspace=workspace)],
             store=store,
         )
         ```
@@ -179,10 +177,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     def __init__(
         self,
         *,
+        workspace: Workspace,
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
-        sandbox_backend: SandboxFileBackend | None = None,
     ) -> None:
         """
         Initialize the middleware.
@@ -190,7 +188,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
         self.capture_patch = capture_patch
-        self._sandbox_backend = sandbox_backend
+        self._workspace = workspace
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -211,7 +209,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         pre_run_dirty_files: list[str] = []
         if self.capture_patch:
-            pre_run_dirty_files = await self._acheck_pre_run_dirty(runtime)
+            pre_run_dirty_files = await self._acheck_pre_run_dirty()
 
         merge_request = self._state_merge_request(state)
 
@@ -237,7 +235,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             update["pre_run_dirty_files"] = pre_run_dirty_files
         return update
 
-    async def _acheck_pre_run_dirty(self, runtime: Runtime[RuntimeCtx]) -> list[str]:
+    async def _acheck_pre_run_dirty(self) -> list[str]:
         """
         Detect and loudly report files already differing from ``HEAD`` before the agent acts.
 
@@ -250,7 +248,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         ``RuntimeError``, asyncio misuse) must propagate, not degrade into a skipped check.
         """
         try:
-            dirty_files = await self._git_manager(runtime.context).get_changed_files()
+            dirty_files = await self._workspace.git.get_changed_files()
         except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
             logger.exception("Pre-run dirty-tree check failed; cannot verify the workspace is clean")
             return []
@@ -265,12 +263,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             if rt := get_current_run_tree():
                 rt.metadata["pre_run_dirty_files"] = dirty_files
         return dirty_files
-
-    def _git_manager(self, context: RuntimeCtx) -> GitManager:
-        """Git over the sandbox's repo on a sandbox run, else over the worker's clone."""
-        if self._sandbox_backend is not None:
-            return GitManager(SandboxGitRunner(self._sandbox_backend))
-        return GitManager(LocalGitRunner(context.gitrepo))
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
@@ -390,15 +382,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
-        straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so the run's
-        sandbox session is never acquired and the agent loop never ran — nothing was captured or changed.
-        Probing git through the unbound backend would raise (``SandboxFileBackend is not bound to a
-        sandbox session``), so detect it and no-op. Disk-backed runs pass ``sandbox_backend=None`` and
-        keep a usable local clone, so they fall through and correctly report a clean tree.
+        straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so a sandbox run's
+        session is never acquired and the agent loop never ran — nothing was captured or changed. Its
+        workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
+        bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
+        reports a clean tree.
         """
-        if self._sandbox_backend is not None and not self._sandbox_backend.session.is_acquired:
+        if not self._workspace.is_ready:
             logger.debug(
-                "Sandbox session not acquired at turn end (run short-circuited before the agent loop); "
+                "Workspace not ready at turn end (run short-circuited before the agent loop); "
                 "skipping patch capture and publish"
             )
             return None
@@ -406,7 +398,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         update: dict[str, Any] = {}
         if self.capture_patch:
             try:
-                update["model_patch"] = await self._git_manager(runtime.context).get_diff()
+                update["model_patch"] = await self._workspace.git.get_diff()
             except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
@@ -427,9 +419,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        publisher = GitChangePublisher(
-            runtime.context, sandbox_backend=self._sandbox_backend, thread_id=conversation_thread_id()
-        )
+        publisher = GitChangePublisher(runtime.context, self._workspace, thread_id=conversation_thread_id())
         outcome = await publisher.publish(
             merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
         )

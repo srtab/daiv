@@ -1,20 +1,16 @@
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
 
 from automation.agent.git_manager import GitPushPermissionError
-from automation.agent.git_runners import LocalGitRunner, SandboxGitProtocolError, SandboxGitRunner
+from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
-from tests.unit_tests.conftest import sandbox_backend_on, unacquired_backend
-
-if TYPE_CHECKING:
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from tests.unit_tests.conftest import FakeWorkspace
 
 
 def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
@@ -26,13 +22,6 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.config = Mock(default_branch="main")
     runtime.context.repo.head_detached = False
     return runtime
-
-
-def _bound_backend() -> SandboxFileBackend:
-    """A ``SandboxFileBackend`` already bound to a session, as ``SandboxMiddleware.abefore_agent``
-    leaves it on a normal run. The client is a bare sentinel: the publisher is mocked in these
-    tests, so no client method is ever called — only ``session.is_acquired`` is consulted."""
-    return sandbox_backend_on(object(), "sid")
 
 
 def _mr(iid=7, branch="feat/y") -> MergeRequest:
@@ -64,7 +53,7 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
 
 class TestGitMiddleware:
     async def test_aafter_agent_propagates_push_permission_error(self):
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime()
 
         with (
@@ -79,7 +68,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_maps_published_outcome_to_state(self):
         """A published outcome maps onto the streamed ``merge_request`` field plus the private
         ``code_changes`` / ``protected_branch_fallback_source`` flags."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -93,7 +82,7 @@ class TestGitMiddleware:
     @pytest.mark.parametrize("thread_id", ["t-1", None], ids=["chat-run", "non-chat-automation-run"])
     async def test_aafter_agent_passes_thread_id_to_publisher(self, thread_id):
         """No conversation thread (non-chat automation run) still publishes, just without a link."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with (
@@ -107,7 +96,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_surfaces_diff_stats_as_a_plain_dict(self):
         """``diff_stats`` streams to the chat composer through the same STATE_SNAPSHOT the MR
         rides on, so it is dumped to plain ints rather than checkpointed as a model."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -124,7 +113,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_omits_diff_stats_when_there_are_none(self):
         """A turn that published nothing leaves the key out entirely, so the composer keeps
         showing counts instead of a stale line total."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -146,7 +135,7 @@ class TestGitMiddleware:
         ],
     )
     async def test_aafter_agent_surfaces_a_no_op_publish_only_when_it_measured(self, stats, expected):
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -159,7 +148,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_records_code_changes_on_pending_mr_degrade(self):
         """The branch-visibility degrade (published + no MR) must flip ``code_changes`` so a pushed
         branch is not persisted as an indistinguishable no-op."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -171,7 +160,7 @@ class TestGitMiddleware:
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
         aafter confirms it in state WITHOUT touching ``protected_branch_fallback_source`` (a
         no-op turn must not clobber a prior turn's fallback signal)."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state_mr = _mr(iid=10, branch="daiv/feature")
 
@@ -206,7 +195,7 @@ class TestGitMiddleware:
         self, scope, state_branch, current_ref, keeps_mr, levels, caplog
     ):
         """The publish target is dropped on the same terms the prompt's MR iid already is."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=scope)
         state_mr = _mr(iid=449, branch=state_branch)
 
@@ -231,7 +220,7 @@ class TestGitMiddleware:
         """An MR-scope run's context MR is authoritative — it is the ref the clone was made on.
         A commit-pinned clone records a SHA as its ref, which matches no branch name,
         so the guard must defer to the context MR instead of dropping it."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
         context_mr = _mr(iid=77, branch="feat/z")
         runtime.context.merge_request = context_mr
@@ -248,7 +237,7 @@ class TestGitMiddleware:
         assert publisher.publish.await_args.kwargs["merge_request"] is context_mr
 
     async def test_aafter_agent_marks_a_real_publish_as_published(self):
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
@@ -260,7 +249,7 @@ class TestGitMiddleware:
         count the run's work — so it cannot also mean "this turn pushed". A fix run is *always*
         already on its MR, which made the watch's no-diff give-up unreachable.
         """
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state_mr = _mr(iid=10, branch="daiv/feature")
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -274,17 +263,17 @@ class TestGitMiddleware:
     async def test_abefore_agent_clears_published_each_turn(self):
         """``published`` is per-turn, and ``aafter_agent`` only ever sets it true — so the reset
         here is what stops turn 2 inheriting turn 1's push."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
             result = await middleware.abefore_agent({}, runtime)
         assert result["published"] is False
 
-    async def test_aafter_agent_passes_backend_to_publisher(self):
-        """Daiv publishes via the publisher; the run's bound backend is injected at construction
-        (no session_id is threaded through publish)."""
-        sentinel_backend = _bound_backend()
-        middleware = GitMiddleware(sandbox_backend=sentinel_backend)
+    async def test_aafter_agent_passes_the_workspace_to_publisher(self):
+        """The publisher publishes through the run's workspace, handed over at construction (no session id is threaded
+        through publish)."""
+        workspace = FakeWorkspace()
+        middleware = GitMiddleware(workspace=workspace)
         new_mr = _mr()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
@@ -294,19 +283,17 @@ class TestGitMiddleware:
 
             result = await middleware.aafter_agent({"merge_request": None, "session_id": "sid"}, runtime)
 
-        assert publisher_cls.call_args.kwargs["sandbox_backend"] is sentinel_backend
+        assert publisher_cls.call_args.args == (runtime.context, workspace)
         publisher.publish.assert_awaited_once()
         assert "session_id" not in publisher.publish.await_args.kwargs
         assert result["merge_request"] is new_mr
 
-    async def test_aafter_agent_skips_publish_when_sandbox_unbound(self):
-        """Builtin slash commands (``/clear``, ``/help``, ...) jump to the after_agent chain
-        from ``SlashCommandMiddleware.abefore_agent``, skipping ``SandboxMiddleware.abefore_agent``
-        — so the run's ``SandboxFileBackend`` is never bound and the agent loop never ran. Probing
-        git through the unbound backend raised ``SandboxFileBackend is not bound to a sandbox
-        session``; aafter_agent must no-op instead (nothing to publish)."""
-        backend = unacquired_backend()  # constructed but never acquired
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=backend)
+    async def test_aafter_agent_skips_publish_when_the_workspace_is_not_ready(self):
+        """Builtin slash commands (``/clear``, ``/help``, ...) jump to the after_agent chain from
+        ``SlashCommandMiddleware.abefore_agent``, skipping ``SandboxMiddleware.abefore_agent`` — so a sandbox run's
+        session is never acquired and the agent loop never ran. Probing git through that workspace would raise
+        (``SandboxFileBackend is not bound to a sandbox session``); aafter_agent must no-op instead."""
+        mw = GitMiddleware(workspace=FakeWorkspace(is_ready=False), auto_commit_changes=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -315,21 +302,19 @@ class TestGitMiddleware:
         assert result is None
         pub_cls.assert_not_called()
 
-    async def test_aafter_agent_skips_patch_capture_when_sandbox_unbound(self):
-        """The capture-patch branch also opens a git manager against the sandbox, so the unbound
-        short-circuit must skip it too — before the publish gate, so it never touches the backend."""
-        backend = unacquired_backend()
-        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=backend)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
+    async def test_aafter_agent_skips_patch_capture_when_the_workspace_is_not_ready(self):
+        """The capture-patch branch runs git too, so the not-ready short-circuit must skip it — before the publish
+        gate, so it never touches the workspace's git."""
+        workspace = FakeWorkspace(is_ready=False)
+        mw = GitMiddleware(workspace=workspace, auto_commit_changes=False, capture_patch=True)
 
-        with patch("automation.agent.middlewares.git.GitManager") as manager_cls:
-            result = await mw.aafter_agent({"merge_request": None}, runtime)
+        result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
         assert result is None
-        manager_cls.assert_not_called()
+        assert workspace.git.mock_calls == []
 
     async def test_aafter_agent_skips_when_auto_commit_disabled(self):
-        middleware = GitMiddleware(auto_commit_changes=False)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False)
         runtime = _make_runtime()
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
@@ -340,7 +325,7 @@ class TestGitMiddleware:
 
     async def test_abefore_agent_seeds_open_mr_when_state_empty(self):
         """No MR in state → seed it so it streams via STATE_SNAPSHOT."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         existing_mr = MagicMock(source_branch="feature-x")
 
@@ -364,7 +349,7 @@ class TestGitMiddleware:
         }
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state_mr = _mr(branch="feature-x")
 
@@ -378,7 +363,7 @@ class TestGitMiddleware:
         assert result["merge_request"] is state_mr
 
     async def test_abefore_agent_runtime_context_overrides_state_in_mr_scope(self):
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
         runtime.context.merge_request = MagicMock(source_branch="feature-y")
         stale_state_mr = _mr(branch="feature-x")
@@ -396,14 +381,14 @@ class TestGitMiddleware:
         """Pre-run dirt vs HEAD ends up verbatim inside the captured model_patch — flag it
         loudly AND machine-readably (state + run tree), but never abort the run over a
         diagnostic."""
-        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
         gm.get_changed_files.return_value = ["tests/demo/symlink.txt", "my file.txt"]
         run_tree = MagicMock(metadata={})
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(middleware._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.git.get_current_run_tree", return_value=run_tree),
             caplog.at_level("ERROR"),
@@ -420,13 +405,13 @@ class TestGitMiddleware:
     async def test_abefore_agent_dirty_log_truncates_long_file_lists(self, caplog):
         """The ERROR log samples the first 20 names with an ellipsis; the state field keeps
         the full list."""
-        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
         gm.get_changed_files.return_value = [f"f{i}.py" for i in range(21)]
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(middleware._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.git.get_current_run_tree", return_value=None),
             caplog.at_level("ERROR"),
@@ -439,13 +424,13 @@ class TestGitMiddleware:
         assert len(result["pre_run_dirty_files"]) == 21
 
     async def test_abefore_agent_clean_workspace_logs_nothing(self, caplog):
-        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
         gm.get_changed_files.return_value = []
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(middleware._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
             caplog.at_level("ERROR"),
         ):
@@ -456,16 +441,16 @@ class TestGitMiddleware:
 
     async def test_abefore_agent_skips_dirty_check_when_capture_disabled(self):
         """Normal (non-eval) runs must not pay the extra git RPC."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
         with (
-            patch("automation.agent.middlewares.git.GitManager") as manager_cls,
+            patch.object(middleware._workspace, "git") as manager_cls,
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
         ):
             result = await middleware.abefore_agent({}, runtime)
 
-        manager_cls.assert_not_called()
+        assert manager_cls.mock_calls == []
         assert "pre_run_dirty_files" not in result
 
     @pytest.mark.parametrize(
@@ -473,13 +458,13 @@ class TestGitMiddleware:
     )
     async def test_abefore_agent_dirty_check_failure_is_non_fatal(self, caplog, fault):
         """The check is diagnostic only: a git/wire fault must be logged, not raised."""
-        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
         gm.get_changed_files.side_effect = fault
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(middleware._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
             caplog.at_level("ERROR"),
         ):
@@ -492,13 +477,13 @@ class TestGitMiddleware:
         """The non-fatal catch is deliberately narrow: a bare RuntimeError signals a
         programming error (unbound-session guard, asyncio misuse) and must fail the run loudly,
         not degrade into a silently skipped check."""
-        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        middleware = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False, capture_patch=True)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = AsyncMock()
         gm.get_changed_files.side_effect = RuntimeError("SandboxFileBackend is not bound to a sandbox session")
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(middleware._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
             pytest.raises(RuntimeError, match="not bound to a sandbox session"),
         ):
@@ -631,7 +616,7 @@ class TestGitMiddleware:
         ``PublishOutcome`` when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
         through the returned state dict — otherwise the manager-side footer rendering pipeline
         (`_render_protected_branch_footer`) never fires and the notice silently drops."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = _mr(iid=200, branch="agent/fresh")
 
@@ -655,7 +640,7 @@ class TestGitMiddleware:
         ``abefore_agent`` (stored in state) must surface in the system prompt;
         otherwise the agent re-discovers via ``project-merge-request list`` every
         turn and may pick a different MR than the publisher will write to."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
         state_mr = _mr(iid=42, branch="feature-x")
 
@@ -680,7 +665,7 @@ class TestGitMiddleware:
         """If the working tree was checked out off the source branch between
         ``abefore_agent`` and this hop, the state MR is stale — don't advertise
         it to the model on subsequent turns."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
         state_mr = _mr(iid=42, branch="feature-x")
 
@@ -706,7 +691,7 @@ class TestGitMiddleware:
         """Chat default: no context MR, no state MR. The ``{{#merge_request_iid}}``
         block must not render — otherwise the prompt could leak a ``merge request
         #None`` artefact on a future template tweak."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
 
         captured = {}
@@ -746,14 +731,14 @@ class TestGitMiddleware:
 
     async def test_prompt_states_committing_is_automatic(self):
         """The git prompt tells the agent committing/pushing is handled by the harness."""
-        prompt = await self._render_git_prompt(GitMiddleware())
+        prompt = await self._render_git_prompt(GitMiddleware(workspace=FakeWorkspace()))
 
         assert "Committing and pushing is automatic" in prompt
 
     async def test_awrap_model_call_prefers_context_mr_over_state(self):
         """When ``context.merge_request`` is set (true MR-scoped trigger), it
         wins — the publisher and the prompt agree on the same id."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _build_runtime_for_prompt(scope=Scope.MERGE_REQUEST)
         runtime.context.merge_request = MagicMock(merge_request_id=7)
 
@@ -775,38 +760,25 @@ class TestGitMiddleware:
         assert "merge request #7" in captured["system_prompt"]
         assert "merge request #999" not in captured["system_prompt"]
 
-    async def test_aafter_agent_captures_patch_in_sandbox_mode(self):
-        """``capture_patch=True`` + a bound backend: the diff is taken in the sandbox's repo, where the agent's
-        changes are, and surfaced in state."""
-        backend = _bound_backend()
-        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=backend)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        gm = MagicMock(get_diff=AsyncMock(return_value="diff --git a/x b/x\n"))
+    async def test_aafter_agent_captures_patch_through_the_workspace_git(self):
+        """``capture_patch=True``: the diff is taken by the workspace's git, where the agent's changes are, and
+        surfaced in state."""
+        workspace = FakeWorkspace(git=MagicMock(get_diff=AsyncMock(return_value="diff --git a/x b/x\n")))
+        mw = GitMiddleware(workspace=workspace, auto_commit_changes=False, capture_patch=True)
 
-        with patch("automation.agent.middlewares.git.GitManager", return_value=gm) as manager_cls:
-            result = await mw.aafter_agent({"merge_request": None}, runtime)
+        result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
-        manager_cls.assert_called_once_with(SandboxGitRunner(backend))
+        workspace.git.get_diff.assert_awaited_once_with()
         assert result == {"model_patch": "diff --git a/x b/x\n"}
 
-    async def test_aafter_agent_captures_patch_in_local_mode(self):
-        """No sandbox backend (disk-backed run): the diff is taken over the worker's clone."""
-        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        gm = MagicMock(get_diff=AsyncMock(return_value="local diff\n"))
-
-        with patch("automation.agent.middlewares.git.GitManager", return_value=gm) as manager_cls:
-            result = await mw.aafter_agent({"merge_request": None}, runtime)
-
-        manager_cls.assert_called_once_with(LocalGitRunner(runtime.context.gitrepo))
-        assert result == {"model_patch": "local diff\n"}
-
-    async def test_a_sandbox_turn_never_reads_the_worker_clone(self):
+    async def test_a_turn_never_reads_the_worker_clone(self):
         """On a sandbox run the worker clone is only the seed's source: the pre-run check, the MR lookup, the prompt,
-        the patch capture and the publish target read the ref recorded at clone time, and their git goes to the
-        sandbox."""
-        backend = _bound_backend()
-        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=backend)
+        the patch capture and the publish target read the ref recorded at clone time, and their git goes through the
+        workspace."""
+        workspace = FakeWorkspace(
+            git=MagicMock(get_changed_files=AsyncMock(return_value=[]), get_diff=AsyncMock(return_value=""))
+        )
+        mw = GitMiddleware(workspace=workspace, auto_commit_changes=True, capture_patch=True)
         runtime = Mock(
             context=SimpleNamespace(
                 scope=Scope.GLOBAL,
@@ -818,13 +790,11 @@ class TestGitMiddleware:
                 repo=SimpleNamespace(current_ref="feature-x", head_detached=False),
             )
         )
-        gm = MagicMock(get_changed_files=AsyncMock(return_value=[]), get_diff=AsyncMock(return_value=""))
         request = MagicMock(runtime=runtime, state={"merge_request": None}, system_prompt="")
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
         platform = MagicMock(get_merge_request_by_branches=MagicMock(return_value=None))
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm) as manager_cls,
             patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=platform),
             patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls,
         ):
@@ -835,26 +805,28 @@ class TestGitMiddleware:
             await mw.awrap_model_call(request, AsyncMock())
             await mw.aafter_agent({"merge_request": None}, runtime)
 
-        assert manager_cls.call_args_list == [call(SandboxGitRunner(backend))] * 2
+        workspace.git.get_changed_files.assert_awaited_once_with()
+        workspace.git.get_diff.assert_awaited_once_with()
         platform.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x")
+        assert publisher_cls.call_args.args == (runtime.context, workspace)
         assert publisher_cls.return_value.publish.await_args.kwargs["merge_request"] is None
 
     async def test_aafter_agent_no_patch_key_when_capture_disabled(self):
         """Default (capture off): normal runs never carry a patch through state — the key would
         otherwise stream in AG-UI STATE_SNAPSHOT events."""
-        mw = GitMiddleware(auto_commit_changes=False)
+        mw = GitMiddleware(workspace=FakeWorkspace(), auto_commit_changes=False)
         runtime = _make_runtime(scope=Scope.GLOBAL)
 
-        with patch("automation.agent.middlewares.git.GitManager") as manager_cls:
+        with patch.object(mw._workspace, "git") as manager_cls:
             result = await mw.aafter_agent({"merge_request": None}, runtime)
 
-        manager_cls.assert_not_called()
+        assert manager_cls.mock_calls == []
         assert result is None
 
     async def test_aafter_agent_captures_patch_before_publish(self):
         """With both flags on, capture must run BEFORE publish — the publisher's commit moves
         HEAD, which would empty a diff-vs-HEAD taken afterwards."""
-        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         order: list[str] = []
 
@@ -867,7 +839,7 @@ class TestGitMiddleware:
             return PublishOutcome(merge_request=_mr(), published=True)
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=MagicMock(get_diff=fake_get_diff)),
+            patch.object(mw._workspace, "git", MagicMock(get_diff=fake_get_diff)),
             patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
         ):
             pub_cls.return_value.publish = fake_publish
@@ -882,12 +854,12 @@ class TestGitMiddleware:
         """Eval path (auto_commit off): the patch IS the run's artifact — a capture failure must
         fail loudly, not degrade to an empty patch indistinguishable from "agent made no
         changes" (the exact failure mode capture_patch exists to fix)."""
-        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = MagicMock(get_diff=AsyncMock(side_effect=GitCommandError(["git", "diff"], 128, "boom")))
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(mw._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
             pytest.raises(GitCommandError),
         ):
@@ -898,12 +870,12 @@ class TestGitMiddleware:
     async def test_aafter_agent_capture_failure_does_not_block_publish(self):
         """Capture is read-only observability; when the turn publishes, a capture failure must
         not abort the publish — the agent's work would be stranded uncommitted in the sandbox."""
-        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         gm = MagicMock(get_diff=AsyncMock(side_effect=GitCommandError(["git", "diff"], 128, "boom")))
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(mw._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
         ):
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
@@ -916,13 +888,13 @@ class TestGitMiddleware:
         """The capture catch is deliberately narrow: a bare RuntimeError is a programming
         error (unbound-session guard, asyncio misuse), not a degradable git fault — it must fail
         the run loudly instead of being masked as "publishing without model_patch"."""
-        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         unbound = RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         gm = MagicMock(get_diff=AsyncMock(side_effect=unbound))
 
         with (
-            patch("automation.agent.middlewares.git.GitManager", return_value=gm),
+            patch.object(mw._workspace, "git", gm),
             patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
             pytest.raises(RuntimeError, match="not bound to a sandbox session"),
         ):
@@ -933,7 +905,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None
         so a stale signal from a prior turn doesn't render a phantom footer."""
-        middleware = GitMiddleware()
+        middleware = GitMiddleware(workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = _mr(iid=201, branch="agent/normal")
 
@@ -975,7 +947,7 @@ class TestAgentSummaryReachesThePublisher:
 
     @staticmethod
     async def _summary_handed_to_publish(state):
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        mw = GitMiddleware(auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:

@@ -25,7 +25,7 @@ from tests.unit_tests.conftest import (
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder
-from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
+from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
 
 _AUTHOR = User(id=1, username="alice")
@@ -228,7 +228,10 @@ class TestIssueAfterRunMatrix:
         ):
             await _address(thread_id="t-issue")
 
-        assert run.recover.await_args.kwargs == {"thread_id": "t-issue", "sandbox_session": None}
+        assert run.recover.await_args.kwargs == {
+            "thread_id": "t-issue",
+            "workspace": run.create_agent.await_args.kwargs["workspace"],
+        }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
         run.persist.assert_not_awaited()
@@ -254,7 +257,7 @@ class TestIssueAfterRunMatrix:
             addressor_run(agent, ctx=_sandbox_ctx(client), stub_recovery=False) as run,
             patch(
                 "automation.agent.publishers.GitChangePublisher",
-                publisher_through_backend(created, publishes=_merge_request()),
+                publisher_through_workspace(created, publishes=_merge_request()),
             ),
             pytest.raises(RuntimeError, match="boom"),
         ):

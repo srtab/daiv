@@ -98,17 +98,17 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         yield stack
 
 
-def publisher_through_backend(created: list, *, publishes: MergeRequest):
-    """A ``GitChangePublisher`` stand-in that pushes through whatever backend it is handed."""
+def publisher_through_workspace(created: list, *, publishes: MergeRequest):
+    """A ``GitChangePublisher`` stand-in that pushes through the shell of whatever workspace it is handed."""
 
     class _Publisher:
-        def __init__(self, ctx, *, sandbox_backend, thread_id):
-            self.sandbox_backend = sandbox_backend
+        def __init__(self, ctx, workspace, *, thread_id):
+            self.workspace = workspace
             created.append(self)
 
         async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
             self.target = (merge_request, as_draft)
-            await self.sandbox_backend.run_commands(["git push origin HEAD"], fail_fast=True)
+            await self.workspace.bash.run_commands(["git push origin HEAD"], fail_fast=True)
             return SimpleNamespace(merge_request=publishes, protected_branch_fallback_source=None)
 
     return _Publisher

@@ -14,8 +14,6 @@ from django.urls import reverse
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.git_manager import GitManager
-from automation.agent.git_runners import LocalGitRunner, SandboxGitRunner
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
@@ -32,8 +30,7 @@ from .diff_to_metadata.prompts import sanitize_agent_report
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from automation.agent.git_runners import GitRunner
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
 
@@ -148,12 +145,10 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(
-        self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None, thread_id: str | None = None
-    ):
+    def __init__(self, ctx: RuntimeCtx, workspace: Workspace, *, thread_id: str | None = None):
         self.ctx = ctx
+        self.workspace = workspace
         self.client = RepoClient.create_instance()
-        self.sandbox_backend = sandbox_backend
         self.thread_id = thread_id
 
     @abstractmethod
@@ -195,15 +190,7 @@ class GitChangePublisher(ChangePublisher):
             else run_base_branch(self.ctx)
         )
 
-        backend = self.sandbox_backend
-        runner: GitRunner
-        if backend is None:
-            auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
-            runner = LocalGitRunner(self.ctx.gitrepo, auth_env=auth_env)
-        else:
-            await self._refresh_sandbox_egress()
-            runner = SandboxGitRunner(backend)
-        git_manager = GitManager(runner)
+        git_manager = await self.workspace.authenticated_git()
 
         snapshot = await git_manager.status_snapshot(
             base_branch=base_branch, mr_source_branch=merge_request.source_branch if merge_request is not None else None
@@ -367,31 +354,6 @@ class GitChangePublisher(ChangePublisher):
             base_branch,
         )
         return default_branch
-
-    async def _refresh_sandbox_egress(self) -> None:
-        """Re-mint the git-platform token onto the live sandbox session before the publish's network git ops
-        (ls-remote/push), so a turn that outlived its turn-start token still pushes: GitHub installation tokens live
-        1h. ``SandboxSession.refresh_credential`` owns the skip rules.
-
-        Refreshing before the first network op, rather than reacting to a failed one, keeps the recovery independent of
-        git's auth-error wording, which varies by version and transport. Best-effort by design — the broad ``except``
-        is deliberate: the platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors the
-        (platform-agnostic) publisher shouldn't enumerate, and any failure degrades to publishing with the turn-start
-        token. The stack trace is logged so a persistent refresh failure stays diagnosable.
-        """
-        backend = self.sandbox_backend
-        if backend is None:  # pragma: no cover - only called in sandbox mode
-            return
-        slug = self.ctx.repository.slug
-        try:
-            if await backend.session.refresh_credential():
-                logger.info("Refreshed the sandbox egress token for %s before publish", slug)
-        except Exception:
-            logger.exception(
-                "Could not refresh the sandbox egress token for %s before publish; proceeding with the "
-                "turn-start token",
-                slug,
-            )
 
     async def _trigger_service_account_pipeline(self, merge_request: MergeRequest, pushed_sha: str | None) -> None:
         """Create the MR's CI pipeline as the service account (which can read private cross-project

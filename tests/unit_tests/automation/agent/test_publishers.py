@@ -11,7 +11,6 @@ from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
 from automation.agent.git_manager import RepoStatus
-from automation.agent.git_runners import LocalGitRunner, SandboxGitRunner
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
@@ -21,7 +20,7 @@ from automation.agent.publishers import (
     effective_merge_request,
     run_base_branch,
 )
-from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import (
     GitPlatform,
     Issue,
@@ -32,14 +31,14 @@ from codebase.base import (
     TriggeredPipeline,
     User,
 )
-from codebase.clients.base import GitAuthEnv, GitEgressCredential
+from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeSandboxClient, acquired_session
+from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
@@ -67,16 +66,9 @@ def _fake_git_manager(
     return gm
 
 
-def _patch_git_manager(monkeypatch, gm: Mock) -> dict:
-    """Swap in a fake manager and return a dict capturing the runner the publisher built it over."""
-    captured = {}
-
-    def _fake_manager(runner):
-        captured["runner"] = runner
-        return gm
-
-    monkeypatch.setattr("automation.agent.publishers.GitManager", _fake_manager)
-    return captured
+def _use_git_manager(publisher: GitChangePublisher, gm: Mock) -> None:
+    """Make ``gm`` the manager the publisher's workspace hands it."""
+    publisher.workspace.git = gm
 
 
 def _triggered(*, head_synced: bool, sha: str = "a" * 40) -> TriggeredPipeline:
@@ -124,7 +116,7 @@ def _make_publisher(
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
 
-    publisher = GitChangePublisher(ctx, thread_id=thread_id)
+    publisher = GitChangePublisher(ctx, FakeWorkspace(), thread_id=thread_id)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
     publisher.client.push_uses_ephemeral_token.return_value = False
@@ -153,15 +145,6 @@ def _turn_start_egress(
     """The turn-start egress: the git-host rule layered on ``env``, credentialed when ``token`` is set."""
     credential = _platform_credential(token)
     return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
-
-
-def _make_sandbox_publisher(*, base_ref: str = "main"):
-    """A sandbox-mode publisher over a mocked backend whose session refresh pushes no new token; the refresh's own
-    skip rules are ``SandboxSession``'s (``test_session.py``)."""
-    publisher = _make_publisher(base_ref=base_ref)
-    publisher.sandbox_backend = Mock()
-    publisher.sandbox_backend.session.refresh_credential = AsyncMock(return_value=False)
-    return publisher
 
 
 class TestSuggestContextFile:
@@ -679,52 +662,13 @@ class TestBuildIssueCreationUrl:
         assert params["labels"][0] == BOT_AUTO_LABEL
 
 
-class TestPublishLocalAuthEnv:
-    async def test_local_mode_overlays_client_credential_env(self, monkeypatch):
-        """Sandbox-disabled publishes push from the DAIV-container clone, whose .git/config no
-        longer holds a credential — the publisher must fetch the per-run env from the repo client
-        and run its git over the clone with it."""
-        publisher = _make_publisher()
-        auth_env = GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
-        publisher.client.get_git_auth_env.return_value = auth_env
-        captured = _patch_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
-
-        await publisher.publish(merge_request=None)
-
-        assert captured["runner"] == LocalGitRunner(publisher.ctx.gitrepo, auth_env=auth_env)
-        publisher.client.get_git_auth_env.assert_called_once_with(publisher.ctx.repository)
-
-    async def test_sandbox_mode_skips_credential_env(self, monkeypatch):
-        """Sandbox git authenticates via the egress proxy's injected header; minting a token here
-        would be a needless platform API call and a needless secret in memory."""
-        publisher = _make_sandbox_publisher()
-        captured = _patch_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
-
-        await publisher.publish(merge_request=None)
-
-        assert captured["runner"] == SandboxGitRunner(publisher.sandbox_backend)
-        publisher.client.get_git_auth_env.assert_not_called()
-
-    async def test_a_sandbox_publish_never_reads_the_worker_clone(self, monkeypatch):
-        """On a sandbox run the worker clone is only the seed's source: the diff base comes from the ref recorded
-        at clone time and git runs in the sandbox."""
-        publisher = _make_sandbox_publisher(base_ref="feature")
-        del publisher.ctx.gitrepo
-        gm = _fake_git_manager(dirty=False, diff="")
-        _patch_git_manager(monkeypatch, gm)
-
-        await publisher.publish(merge_request=None)
-
-        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "feature"
-
-
 class TestPublishDiffBase:
     """The diff the commit message and MR description are generated from is the run's own delta."""
 
     async def test_diff_base_is_the_mr_target_when_there_is_an_mr(self, monkeypatch):
         publisher = _make_publisher(base_ref="feature")
         gm = _fake_git_manager(dirty=False, diff="")
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         await publisher.publish(merge_request=_make_merge_request(target_branch="release/x"))
 
@@ -771,7 +715,7 @@ class TestPublishBaseBranchInvariant:
     async def test_one_publish_sends_the_same_branch_to_the_diff_and_the_mr(self, monkeypatch):
         publisher = _publisher_no_issue(base_ref="daiv/fix-foo")
         gm = _fake_git_manager(remote_branches=["main", "daiv/fix-foo"])
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         monkeypatch.setattr(publisher, "_diff_to_metadata", AsyncMock(return_value=_metadata_stub()))
 
         await publisher.publish(merge_request=None)
@@ -787,7 +731,7 @@ class TestPublishBaseBranchInvariant:
         the diff stays on the branch the work actually forked from."""
         publisher = _publisher_no_issue(base_ref="master")
         gm = _fake_git_manager(remote_branches=["main"])
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         monkeypatch.setattr(publisher, "_diff_to_metadata", AsyncMock(return_value=_metadata_stub()))
 
         await publisher.publish(merge_request=None)
@@ -796,66 +740,40 @@ class TestPublishBaseBranchInvariant:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "master"
 
 
-class TestPublishSandboxEgressRefresh:
-    async def test_sandbox_publish_refreshes_egress_before_git_ops(self, monkeypatch):
-        """B8: a sandbox publish refreshes the session's platform token BEFORE its first in-sandbox network git op, so
-        a turn that outlived the turn-start token (GitHub installation tokens live 1h) still pushes."""
-        from automation.agent.git_manager import RepoStatus
-
-        publisher = _make_sandbox_publisher()
+class TestPublishThroughTheWorkspace:
+    async def test_the_credential_is_minted_before_the_first_git_command(self):
+        """B8: the publish's network git (ls-remote, push) runs with a credential the workspace minted for it, so a
+        turn that outlived its turn-start token still pushes."""
+        publisher = _make_publisher()
         order: list[str] = []
-        refresh = AsyncMock(side_effect=lambda: order.append("refresh") or True)
-        publisher.sandbox_backend.session.refresh_credential = refresh
         gm = _fake_git_manager()
         gm.status_snapshot = AsyncMock(
             side_effect=lambda **_kw: (
                 order.append("snapshot") or RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
             )
         )
-        _patch_git_manager(monkeypatch, gm)
+
+        async def _authenticated_git():
+            order.append("mint")
+            return gm
+
+        publisher.workspace.authenticated_git = _authenticated_git
 
         await publisher.publish(merge_request=None)
 
-        refresh.assert_awaited_once_with()
-        assert order == ["refresh", "snapshot"]
+        assert order == ["mint", "snapshot"]
 
-    async def test_local_mode_does_not_refresh_egress(self, monkeypatch):
-        """Local mode has no live egress proxy to refresh — its credential is a fresh
-        per-invocation ``auth_env`` overlay instead."""
-        publisher = _make_publisher()  # sandbox_backend defaults to None
-        publisher._refresh_sandbox_egress = AsyncMock()
-        _patch_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+    async def test_a_publish_never_reads_the_worker_clone(self):
+        """The diff base comes from the ref recorded at clone time and git runs through the workspace, so a sandbox
+        run's publish never touches the clone."""
+        publisher = _make_publisher(base_ref="feature")
+        del publisher.ctx.gitrepo
+        gm = _fake_git_manager(dirty=False, diff="")
+        _use_git_manager(publisher, gm)
 
         await publisher.publish(merge_request=None)
 
-        publisher._refresh_sandbox_egress.assert_not_awaited()
-
-    async def test_publish_proceeds_when_refresh_fails(self, monkeypatch, caplog):
-        """B8: a failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it degrades to publishing
-        with the turn-start token — but the failure must stay diagnosable (exception-logged)."""
-        publisher = _make_sandbox_publisher()
-        publisher.sandbox_backend.session.refresh_credential = AsyncMock(side_effect=RuntimeError("mint failed"))
-        _patch_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
-
-        with caplog.at_level("ERROR", logger="daiv.tools"):
-            outcome = await publisher.publish(merge_request=None)
-
-        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
-        assert "Could not refresh the sandbox egress token" in caplog.text
-
-    async def test_refresh_swallows_delivery_error(self, caplog):
-        """B8: a failed delivery after a good re-mint is exception-logged, not raised."""
-        import httpx
-
-        publisher = _make_sandbox_publisher()
-        refresh = AsyncMock(side_effect=httpx.ConnectError("down"))
-        publisher.sandbox_backend.session.refresh_credential = refresh
-
-        with caplog.at_level("ERROR", logger="daiv.tools"):
-            await publisher._refresh_sandbox_egress()  # must not raise
-
-        refresh.assert_awaited_once()
-        assert "Could not refresh the sandbox egress token" in caplog.text
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "feature"
 
 
 def _injected_values(egress: EgressConfigRequest) -> list[str]:
@@ -870,7 +788,7 @@ async def _publish_on_a_live_session(
     turn_start = _turn_start_egress(env=env)
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
-    publisher.sandbox_backend = SandboxFileBackend(
+    publisher.workspace = SandboxWorkspace(
         acquired_session(client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=remint))
     )
 
@@ -950,7 +868,7 @@ class TestPublishCommitMessage:
     async def _commit_message(self, monkeypatch, *, thread_id, skip_ci=False) -> str:
         publisher = _publisher_no_issue(thread_id=thread_id)
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -994,7 +912,7 @@ class TestPublishSuggestsContextFile:
     async def test_calls_suggest_on_new_mr(self, publisher, monkeypatch):
         mr = _make_merge_request()
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1023,7 +941,7 @@ class TestPublishSuggestsContextFile:
         published=True`` lets the run complete (agent reply preserved) instead of orphaning the branch.
         """
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1052,7 +970,7 @@ class TestPublishSuggestsContextFile:
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager(remote_branches=["main", "release/x"])
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1078,7 +996,7 @@ class TestPublishSuggestsContextFile:
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager(remote_branches=["main", "release/x"])
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1122,7 +1040,7 @@ class TestPublishSuggestsContextFile:
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1152,7 +1070,7 @@ class TestPublishSuggestsContextFile:
 
         gm = _fake_git_manager()
         gm.push_head_to = AsyncMock(side_effect=GitPushNetworkError("no network"))
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1175,7 +1093,7 @@ class TestPublishSuggestsContextFile:
     async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
         mr = _make_merge_request()
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1202,7 +1120,7 @@ class TestPublishDecision:
     async def test_returns_nothing_when_clean_and_no_diff(self, monkeypatch):
         publisher = _make_publisher()
         gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=None)
@@ -1215,7 +1133,7 @@ class TestPublishDecision:
         publisher = _make_publisher()
         mr = _make_merge_request(source_branch="feat/x", merge_request_id=42)
         gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=mr)
@@ -1229,7 +1147,7 @@ class TestPublishDecision:
         publisher = _make_publisher()
         mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
         gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=mr)
@@ -1246,7 +1164,7 @@ class TestPublishDecision:
         publisher = _make_publisher()
         mr = _make_merge_request(source_branch="feat/x", target_branch="release/x", merge_request_id=42)
         gm = _fake_git_manager()  # dirty=True, has_unpushed=True → publish proceeds
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(
@@ -1269,7 +1187,7 @@ class TestPublishDecision:
     async def test_diffs_against_default_branch_when_no_mr(self, monkeypatch):
         publisher = _make_publisher()
         gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with patch.object(publisher, "_diff_to_metadata"):
             await publisher.publish(merge_request=None)
@@ -1356,7 +1274,7 @@ class TestPublishPipelineHeal:
 
         gm.push_head_to = AsyncMock(side_effect=_push)
         gm.head_sha = AsyncMock(side_effect=lambda: head["sha"])
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1374,7 +1292,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
         gm.head_sha = AsyncMock(side_effect=GitCommandError(["git", "rev-parse", "HEAD"], 128))
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1395,7 +1313,7 @@ class TestPublishPipelineHeal:
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1413,7 +1331,7 @@ class TestPublishPipelineHeal:
         publisher = _make_publisher(git_platform=GitPlatform.GITHUB)
         publisher.client.push_uses_ephemeral_token.return_value = False
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1433,7 +1351,7 @@ class TestPublishPipelineHeal:
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1453,7 +1371,7 @@ class TestPublishPipelineHeal:
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1471,7 +1389,7 @@ class TestPublishPipelineHeal:
         publisher.client.push_uses_ephemeral_token.return_value = True
         publisher.client.is_branch_protected.return_value = True
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1489,7 +1407,7 @@ class TestPublishPipelineHeal:
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
         publisher.client.push_uses_ephemeral_token.return_value = True
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
         mr = _make_merge_request()
 
         with (
@@ -1510,7 +1428,7 @@ class TestPublishDiffStats:
         publisher = _make_publisher()
         mr = _make_merge_request()
         gm = _fake_git_manager(diff="diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n+one\n+two\n-three\n")
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1528,7 +1446,7 @@ class TestPublishDiffStats:
         just-created MR is still being prepared."""
         publisher = _make_publisher()
         mr = _make_merge_request()
-        _patch_git_manager(monkeypatch, _fake_git_manager())
+        _use_git_manager(publisher, _fake_git_manager())
 
         with (
             patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
@@ -1543,7 +1461,7 @@ class TestPublishDiffStats:
         """State 02 — the composer renders zeros as no pill; ``None`` would leave a previous
         turn's numbers standing."""
         publisher = _make_publisher()
-        _patch_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff="", has_unpushed=False))
+        _use_git_manager(publisher, _fake_git_manager(dirty=False, diff="", has_unpushed=False))
 
         outcome = await publisher.publish(merge_request=None)
 
@@ -1733,7 +1651,7 @@ class TestAgentSummaryContext:
         publisher, captured = _publisher_with_graph_capture(monkeypatch)
         publisher.ctx.scope = None
         gm = _fake_git_manager()
-        _patch_git_manager(monkeypatch, gm)
+        _use_git_manager(publisher, gm)
 
         with (
             patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),

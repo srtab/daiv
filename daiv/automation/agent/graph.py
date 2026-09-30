@@ -314,9 +314,7 @@ async def create_daiv_agent(
         ensure_non_empty_response,
         # Must stay after SandboxMiddleware: before_agent hooks run in registration order, and GitMiddleware's pre-run
         # check runs git in the session SandboxMiddleware acquires.
-        GitMiddleware(
-            auto_commit_changes=auto_commit_changes, capture_patch=capture_patch, sandbox_backend=sandbox_backend
-        ),
+        GitMiddleware(workspace=workspace, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         RepositoryMemoryMiddleware(),

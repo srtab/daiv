@@ -200,7 +200,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(
-        run.ctx, run.agent, run.config, thread_id=run.thread_id, sandbox_session=run.workspace.session
+        run.ctx, run.agent, run.config, thread_id=run.thread_id, workspace=run.workspace
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 

@@ -9,10 +9,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
+from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
-from tests.unit_tests.sessions.executor.conftest import publisher_through_backend
+from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, sandbox_spec
+from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -66,7 +67,7 @@ async def _publish(*, checkpointed_mr, current_ref: str) -> Mock:
             _agent({"merge_request": checkpointed_mr, "session_id": None}),
             {},
             thread_id="t-1",
-            sandbox_session=None,
+            workspace=FakeWorkspace(),
         )
     return pub_cls
 
@@ -115,7 +116,7 @@ class TestSandboxMode:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
-                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", sandbox_session=session
+                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", workspace=SandboxWorkspace(session)
             )
         return published, agent
 
@@ -126,7 +127,7 @@ class TestSandboxMode:
         created: list = []
 
         published, agent = await self._recover(
-            acquired_session(client, session_id), publisher=publisher_through_backend(created, publishes=_DRAFT_MR)
+            acquired_session(client, session_id), publisher=publisher_through_workspace(created, publishes=_DRAFT_MR)
         )
 
         assert published is True
@@ -161,7 +162,7 @@ class TestSandboxMode:
                 agent,
                 {},
                 thread_id="t-1",
-                sandbox_session=SandboxSession(client, sandbox_spec()),
+                workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec())),
             )
 
         assert published is False

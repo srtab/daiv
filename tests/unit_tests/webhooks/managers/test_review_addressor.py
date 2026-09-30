@@ -169,7 +169,10 @@ class TestReviewAfterRunMatrix:
         with addressor_run(agent, ctx=_ctx(), draft_published=True) as run, pytest.raises(RuntimeError, match="boom"):
             await _address(thread_id=session.thread_id)
 
-        assert run.recover.await_args.kwargs == {"thread_id": session.thread_id, "sandbox_session": None}
+        assert run.recover.await_args.kwargs == {
+            "thread_id": session.thread_id,
+            "workspace": run.create_agent.await_args.kwargs["workspace"],
+        }
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]
         assert note.kwargs["reply_to_id"] == "c-1"

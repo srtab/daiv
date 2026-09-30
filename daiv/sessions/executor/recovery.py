@@ -5,30 +5,25 @@ if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
 
-    from automation.agent.workspace.session import SandboxSession
+    from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.sessions")
 
 
 async def recover_draft(
-    ctx: RuntimeCtx,
-    agent: CompiledAgent,
-    config: RunnableConfig,
-    *,
-    thread_id: str,
-    sandbox_session: SandboxSession | None,
+    ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableConfig, *, thread_id: str, workspace: Workspace
 ) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
-    Runs inside the run's context, so the clone and the sandbox session are still open. A sandbox run publishes through
-    ``sandbox_session``, the one the agent worked in, and recovers nothing when the agent raised before acquiring it.
-    Never raises: this is the last attempt to save the run's work, and a failure only means no draft.
+    Runs inside the run's context, so the clone and the sandbox session are still open. It publishes through
+    ``workspace``, the one the agent worked in, and recovers nothing when that workspace never became ready: the agent
+    raised before acquiring its sandbox session. Never raises: this is the last attempt to save the run's work, and a
+    failure only means no draft.
     """
     from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
-    if sandbox_session is not None and not sandbox_session.is_acquired:
+    if not workspace.is_ready:
         logger.info(
             "executor: no draft to recover for thread_id=%s: the agent raised before its sandbox session was acquired",
             thread_id,
@@ -42,8 +37,7 @@ async def recover_draft(
             state_mr=checkpointed_merge_request(snapshot.values, strict=False),
             current_ref=ctx.repo.current_ref,
         )
-        sandbox_backend = SandboxFileBackend(sandbox_session) if sandbox_session is not None else None
-        publisher = GitChangePublisher(ctx, sandbox_backend=sandbox_backend, thread_id=thread_id)
+        publisher = GitChangePublisher(ctx, workspace, thread_id=thread_id)
         outcome = await publisher.publish(
             merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
         )
