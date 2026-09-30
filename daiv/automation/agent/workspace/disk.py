@@ -43,8 +43,7 @@ class DiskWorkspace:
     async def authenticated_git(self) -> GitManager:
         """A manager over the clone that overlays a credential env minted now: the clone's ``.git/config`` holds
         none."""
-        client = RepoClient.create_instance()
-        auth_env = await sync_to_async(client.get_git_auth_env)(self._ctx.repository)
+        auth_env = await sync_to_async(lambda: RepoClient.create_instance().get_git_auth_env(self._ctx.repository))()
         return GitManager(LocalGitRunner(self._ctx.gitrepo, auth_env=auth_env))
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:

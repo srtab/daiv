@@ -47,7 +47,7 @@ _LOCAL_STATS = MergeRequestDiffStats()
 def _fake_git_manager(
     *, dirty: bool = True, diff: str = "diff", remote_branches=("main",), has_unpushed: bool = True
 ) -> Mock:
-    """A stand-in for the (sandbox/local) GitManager the publisher builds.
+    """A stand-in for the GitManager the publisher's workspace hands it.
 
     The publisher reads everything it needs from a single ``status_snapshot``; the mutation methods
     (``commit_all``/``push_head_to``) stay separate AsyncMocks. ``remote_branches`` carries the

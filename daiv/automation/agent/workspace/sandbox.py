@@ -46,7 +46,7 @@ class SandboxWorkspace:
         return self.session.is_acquired
 
     async def authenticated_git(self) -> GitManager:
-        """Re-mint the git-platform token onto the container, then hand back ``git`` (B8).
+        """Re-mint the git-platform token onto the container, then hand back ``git``.
 
         Refreshing before the publish's first network command, rather than after a failed one, keeps this independent of
         git's auth-error wording. Best-effort: the mint and the proxy update raise a spread of platform and transport

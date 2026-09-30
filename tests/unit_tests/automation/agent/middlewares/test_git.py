@@ -772,7 +772,7 @@ class TestGitMiddleware:
         assert result == {"model_patch": "diff --git a/x b/x\n"}
 
     async def test_a_turn_never_reads_the_worker_clone(self):
-        """On a sandbox run the worker clone is only the seed's source: the pre-run check, the MR lookup, the prompt,
+        """On any run the turn never reads the worker clone: the pre-run check, the MR lookup, the prompt,
         the patch capture and the publish target read the ref recorded at clone time, and their git goes through the
         workspace."""
         workspace = FakeWorkspace(
