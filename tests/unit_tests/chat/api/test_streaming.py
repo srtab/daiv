@@ -54,6 +54,7 @@ def _patch_run_lifecycle():
     with (
         patch("chat.api.streaming.start_chat_run", side_effect=_fake_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_fake_finalize),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
         # Chat's own usage summary; the executor's ``_after_run`` still builds one from the live handler.
         patch("chat.api.streaming.build_usage_summary", return_value=MagicMock(to_dict=lambda: None)),
     ):
@@ -1360,27 +1361,40 @@ class TestChatAfterRunMatrix:
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_a_turn_records_its_clone_time_on_the_run_it_started():
-    await amake_job_session("t-stream")
-    started = []
+class TestTurnMeasurements:
+    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` (which stubs the measurements
+    write) can be overridden here — the real ``_record_measurements`` must write to the DB.
+    """
 
-    async def _start(**kwargs):
-        run = await Run.objects.acreate(
-            session_id=kwargs["session_id"], trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING, repo_id="a/b"
-        )
-        started.append(run)
-        return run
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the test supplies its own ``start_chat_run``."""
 
-    with (
-        patch("chat.api.streaming.start_chat_run", side_effect=_start),
-        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
-        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
-    ):
-        async for _ in _streamer().events():
-            pass
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_turn_records_its_clone_time_on_the_run_it_started(self):
+        await amake_job_session("t-stream")
+        started = []
 
-    [run] = started
-    await run.arefresh_from_db()
-    assert run.clone_seconds == 1.5
+        async def _start(**kwargs):
+            run = await Run.objects.acreate(
+                session_id=kwargs["session_id"],
+                trigger_type=SessionOrigin.CHAT,
+                status=RunStatus.RUNNING,
+                repo_id="a/b",
+            )
+            started.append(run)
+            return run
+
+        with (
+            patch("chat.api.streaming.start_chat_run", side_effect=_start),
+            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            async for _ in _streamer().events():
+                pass
+
+        [run] = started
+        await run.arefresh_from_db()
+        assert run.clone_seconds == 1.5

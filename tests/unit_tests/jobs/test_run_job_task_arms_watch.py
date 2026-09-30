@@ -45,6 +45,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
         patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         cp_ctx.return_value.__aenter__.return_value = object()
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx

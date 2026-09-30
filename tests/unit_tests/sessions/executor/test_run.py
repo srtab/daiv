@@ -251,6 +251,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
     with (
         agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
         patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         await execute_run(spec)
 
