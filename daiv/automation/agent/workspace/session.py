@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import httpx
@@ -41,6 +42,21 @@ class SandboxEgressUnavailableError(RuntimeError):
     policy in force."""
 
 
+class SandboxAcquisition(StrEnum):
+    """How ``SandboxSession.acquire`` got the run its container."""
+
+    WARM = "warm"
+    """The thread's warm container, reused."""
+    NEW = "new"
+    """A fresh container: the checkpoint named none (the thread's first sandbox turn, or a one-shot run)."""
+    GONE = "gone"
+    """A fresh container: the one the checkpoint named no longer exists, or could not be confirmed."""
+    ENV_CHANGED = "env_changed"
+    """A fresh container: the warm one was started from another spec."""
+    EGRESS_FAILED = "egress_failed"
+    """A fresh container: the run's egress could not be pushed onto the warm one."""
+
+
 class SandboxSession:
     """One run's hold on a sandbox container.
 
@@ -49,6 +65,8 @@ class SandboxSession:
     the container runs with the egress this run provisions, when it provisions any: the environment's policy plus the
     git-platform rule and a freshly minted token. ``refresh_credential`` re-mints that token before a publish.
     ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run.
+
+    ``acquisition`` says which of those ``acquire`` did, and stays readable after ``release`` for the run's record.
 
     Args:
         client: The run's sandbox transport, opened by ``set_runtime_ctx``; the session never opens or closes it.
@@ -70,6 +88,7 @@ class SandboxSession:
         self._credential_source = credential_source
         self._session_id: str | None = None
         self._egress: EgressConfigRequest | None = None
+        self._acquisition: SandboxAcquisition | None = None
         self._cleanups: set[asyncio.Task[None]] = set()
 
     @property
@@ -84,6 +103,11 @@ class SandboxSession:
     @property
     def is_acquired(self) -> bool:
         return self._session_id is not None
+
+    @property
+    def acquisition(self) -> SandboxAcquisition | None:
+        """How ``acquire`` got the container: ``None`` until an ``acquire`` succeeds, kept after ``release``."""
+        return self._acquisition
 
     async def acquire(
         self,
@@ -105,19 +129,20 @@ class SandboxSession:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
         fingerprint = self._spec.fingerprint
         egress = await self._provision_egress()
+        acquisition = SandboxAcquisition.NEW
         if prior_id is not None:
             try:
-                reused = await self._reuse(prior_id, prior_fingerprint, egress)
+                acquisition = await self._reuse(prior_id, prior_fingerprint, egress)
             except BaseException:
                 # Not held yet, so ``release`` would leave running the container the probe may have restarted.
                 await self._finish(self._close(prior_id, force=False, after="a failed or cancelled reuse"))
                 raise
-            if reused:
-                self._session_id, self._egress = prior_id, egress
+            if acquisition is SandboxAcquisition.WARM:
+                self._session_id, self._egress, self._acquisition = prior_id, egress, acquisition
                 return prior_id, fingerprint
         session_id = await self._start(egress)
         await self._seed(session_id, seed)
-        self._session_id, self._egress = session_id, egress
+        self._session_id, self._egress, self._acquisition = session_id, egress, acquisition
         return session_id, fingerprint
 
     async def refresh_credential(self) -> bool:
@@ -213,22 +238,24 @@ class SandboxSession:
             self._spec.egress, host=credential.host, header=credential.header, token=credential.value
         )
 
-    async def _reuse(self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None) -> bool:
-        """Ready the thread's warm container for this run; return whether it may be reused.
+    async def _reuse(
+        self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None
+    ) -> SandboxAcquisition:
+        """Ready the thread's warm container for this run; return ``WARM`` when it may be reused, else why not.
 
         One started from another spec is removed without being woken first; one whose egress push failed is removed too.
         """
         if prior_fingerprint is not None and prior_fingerprint != self._spec.fingerprint:
             logger.info("Sandbox environment changed since session %s started; replacing it", prior_id)
             await self._close(prior_id, force=True, after="an environment change")
-            return False
+            return SandboxAcquisition.ENV_CHANGED
         if not await self._exists(prior_id):
-            return False
+            return SandboxAcquisition.GONE
         if not await self._push_egress(prior_id, egress):
             await self._close(prior_id, force=True, after="egress refresh failure")
-            return False
+            return SandboxAcquisition.EGRESS_FAILED
         logger.info("Reusing warm sandbox session %s", prior_id)
-        return True
+        return SandboxAcquisition.WARM
 
     async def _exists(self, session_id: str) -> bool:
         """Whether ``session_id`` still exists on the sandbox, restarting it if stopped.
