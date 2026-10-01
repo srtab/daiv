@@ -283,7 +283,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},
             )
-            with track_usage_metadata() as usage, bind_active_run(spec.run_id):
+            with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
                     ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id, workspace=workspace
                 )
@@ -293,9 +293,11 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                     handed_over = await _handed_over(run)
                     raise
         finally:
-            if workspace.session is not None and not handed_over:
-                await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
-            await _record_measurements(run_id, ctx, workspace)
+            try:
+                if workspace.session is not None and not handed_over:
+                    await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+            finally:
+                await _record_measurements(run_id, ctx, workspace)
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:
@@ -445,15 +447,17 @@ async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: 
 
 
 async def _record_measurements(run_id: str | None, ctx: RuntimeCtx, workspace: Workspace) -> None:
-    """Record on the run's ``Run`` how long its clone took and how its sandbox container was acquired, for the
-    lazy-clone decision. Best-effort: an error is logged, never raised."""
+    """Record the run's clone time and sandbox acquisition on its ``Run``; empty for a disk run, ``NOT_ACQUIRED`` for a
+    sandbox run that held no container. Temporary, read by operators only. Best-effort: a failed write is logged."""
     if not run_id:
         return
+    acquisition = "" if workspace.session is None else workspace.session.acquisition
     try:
-        acquisition = workspace.session.acquisition if workspace.session is not None else None
-        await Run.objects.filter(pk=run_id).aupdate(
-            clone_seconds=ctx.repo.clone_seconds, sandbox_acquisition=acquisition or ""
+        updated = await Run.objects.filter(pk=run_id).aupdate(
+            clone_seconds=ctx.repo.clone_seconds, sandbox_acquisition=acquisition
         )
+        if not updated:
+            logger.error("executor: no Run row %s to record run measurements on", run_id)
     except Exception:
         logger.exception("executor: failed to record run measurements for run_id=%s", run_id)
 

@@ -24,7 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -1368,25 +1368,13 @@ class TestTurnMeasurements:
 
     @pytest.fixture(autouse=True)
     def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the test supplies its own ``start_chat_run``."""
+        """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_turn_records_its_clone_time_on_the_run_it_started(self):
         await amake_job_session("t-stream")
-        started = []
-
-        async def _start(**kwargs):
-            run = await Run.objects.acreate(
-                session_id=kwargs["session_id"],
-                trigger_type=SessionOrigin.CHAT,
-                status=RunStatus.RUNNING,
-                repo_id="a/b",
-            )
-            started.append(run)
-            return run
 
         with (
-            patch("chat.api.streaming.start_chat_run", side_effect=_start),
             patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
             patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
             patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
@@ -1395,6 +1383,5 @@ class TestTurnMeasurements:
             async for _ in _streamer().events():
                 pass
 
-        [run] = started
-        await run.arefresh_from_db()
+        run = await Run.objects.aget(session_id="t-stream")
         assert run.clone_seconds == 1.5

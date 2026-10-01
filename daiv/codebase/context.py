@@ -52,7 +52,7 @@ class RepoHandle:
     head_detached: bool
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
     clone_seconds: float
-    """How long the worker took to clone the repository, the fallback retry included."""
+    """How long the worker took to clone the repository; both attempts count when the fallback ran."""
 
 
 @dataclass(frozen=True)

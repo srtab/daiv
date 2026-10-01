@@ -19,7 +19,6 @@ from ag_ui.core.events import (
     TextMessageStartEvent,
 )
 from copilotkit import LangGraphAGUIAgent
-from sessions.artifacts import bind_active_run
 from sessions.executor.lock import Held, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
@@ -368,7 +367,8 @@ class ChatRunStreamer:
         )
 
     async def _start_turn(self, turn: _Turn, ref: str) -> str:
-        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor."""
+        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor to bind
+        as the run's ``Run``."""
         run = await start_chat_run(
             session_id=self.thread_id,
             user_id=self.user_id,
@@ -403,17 +403,15 @@ class ChatRunStreamer:
             config={"recursion_limit": 500, **run.config},
             runtime_context=run.ctx,
         )
-        # The chat Run is created by ``_start_turn`` after the spec is built, so ``RunSpec.run_id`` cannot carry it.
-        with bind_active_run(turn.chat_run.pk if turn.chat_run is not None else None):
-            async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(self.input_data))) as events:
-                async for event in events:
-                    if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
-                        turn.add_text(getattr(event, "delta", None))
-                    elif event.type == EventType.RUN_ERROR:
-                        # Upstream's message can carry raw exception text: it streams live but never reaches
-                        # ``Run.error_message``, which the transcript renders verbatim on reload.
-                        turn.error = RUN_FAILED_MESSAGE
-                    yield event
+        async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(self.input_data))) as events:
+            async for event in events:
+                if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
+                    turn.add_text(getattr(event, "delta", None))
+                elif event.type == EventType.RUN_ERROR:
+                    # Upstream's message can carry raw exception text: it streams live but never reaches
+                    # ``Run.error_message``, which the transcript renders verbatim on reload.
+                    turn.error = RUN_FAILED_MESSAGE
+                yield event
         if turn.error is not None:
             raise _ReportedRunError
 

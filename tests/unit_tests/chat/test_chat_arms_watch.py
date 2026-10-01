@@ -4,7 +4,6 @@ The executor arms it from the finished turn's checkpoint. The AG-UI ``STATE_SNAP
 the adapter filters each snapshot to ``STREAMED_STATE_KEYS``, which leaves ``published`` out.
 """
 
-import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -47,11 +46,12 @@ async def _drive(stream_events: list, *, checkpoint: dict) -> list[dict]:
     )
 
     with (
-        agent_stack(graph, ctx=MagicMock(repo=SimpleNamespace(ref="daiv/chat-branch", clone_seconds=0.0))) as stack,
+        agent_stack(graph, ctx=MagicMock(repo=SimpleNamespace(ref="daiv/chat-branch"))) as stack,
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", _FakeAguiAgent),
         patch("chat.api.streaming.SubagentEventFilter", _PassThroughFilter),
-        patch("chat.api.streaming.start_chat_run", AsyncMock(return_value=SimpleNamespace(pk=uuid.uuid4()))),
+        patch("chat.api.streaming.start_chat_run", AsyncMock(return_value=SimpleNamespace(pk="run-pk"))),
         patch("chat.api.streaming.finalize_chat_run", AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock", MagicMock(release=AsyncMock())),
     ):
         async for _event in streamer.events():

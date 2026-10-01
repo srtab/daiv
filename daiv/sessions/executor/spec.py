@@ -21,9 +21,8 @@ class RunSpec:
 
     ``persist_ref`` and ``arm_watch`` are opt-in because each writes state outside the checkpoint: the
     session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
-    resolved model is recorded on, together with its session, and the run's measurements (clone time, sandbox
-    acquisition); without it, they go to the row ``on_context_ready`` starts. ``fallback_ref_on_missing`` lets
-    the clone degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
+    resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
+    degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
     merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
     ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
@@ -100,9 +99,10 @@ class RunHooks:
     """Trigger callbacks.
 
     ``on_context_ready(ref)`` is awaited inside the run once the clone is ready and any fallback re-pin is done,
-    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that creates its ``Run`` there
-    returns the row's id, which the executor records the run's measurements on when ``spec.run_id`` is empty. An error
-    it raises fails the run as a setup error.
+    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that creates its ``Run`` there,
+    rather than naming it in ``spec.run_id``, returns the row's id: the executor binds it as the active run
+    (``bind_active_run``) and records the run's measurements on it, but records the resolved model only on
+    ``spec.run_id``. An error it raises fails the run as a setup error.
 
     ``on_success`` and ``on_failure`` are awaited after the run's context closes and while the session slot is still
     held. ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation

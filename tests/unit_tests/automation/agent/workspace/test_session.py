@@ -223,6 +223,7 @@ class TestAcquire:
         assert client.calls_to("close_session") == [(prior_id, True)]
         assert prior_id not in client.sessions
         assert session_id != prior_id
+        assert session.acquisition is SandboxAcquisition.ENV_CHANGED
 
     @pytest.mark.parametrize("stops", [1, 2])
     async def test_a_start_cancelled_in_flight_removes_the_container_it_still_creates(self, stops):
@@ -293,8 +294,8 @@ class TestAcquire:
 
 
 class TestAcquisition:
-    async def test_it_is_unknown_until_acquired(self):
-        assert _session(FakeSandboxClient.opened()).acquisition is None
+    async def test_a_fresh_session_has_acquired_nothing(self):
+        assert _session(FakeSandboxClient.opened()).acquisition is SandboxAcquisition.NOT_ACQUIRED
 
     async def test_a_thread_without_a_container_gets_a_new_one(self):
         session = _session(FakeSandboxClient.opened())
@@ -326,15 +327,6 @@ class TestAcquisition:
         assert session_id != prior_id
         assert session.acquisition is SandboxAcquisition.GONE
 
-    async def test_a_container_from_another_environment_is_replaced(self):
-        client = FakeSandboxClient.opened()
-        prior_id = await _running(client, None)
-        session = _session(client, sandbox_spec(base_image="python:3.13"))
-
-        await session.acquire(prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed())
-
-        assert session.acquisition is SandboxAcquisition.ENV_CHANGED
-
     async def test_a_container_that_refuses_the_runs_egress_is_replaced(self):
         client = FakeSandboxClient.opened()
         prior_id = await _running(client, _started_egress("turn-start"))
@@ -353,7 +345,7 @@ class TestAcquisition:
 
         assert session.acquisition is SandboxAcquisition.NEW
 
-    async def test_a_failed_acquire_records_nothing(self):
+    async def test_a_failed_acquire_stays_not_acquired(self):
         client = FakeSandboxClient.opened()
         client.fail("start_session", status=500)
         session = _session(client)
@@ -361,7 +353,7 @@ class TestAcquisition:
         with pytest.raises(httpx.HTTPStatusError):
             await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
 
-        assert session.acquisition is None
+        assert session.acquisition is SandboxAcquisition.NOT_ACQUIRED
 
 
 def _cancel_after(client: FakeSandboxClient, method: str) -> None:

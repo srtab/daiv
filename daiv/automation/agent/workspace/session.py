@@ -43,7 +43,7 @@ class SandboxEgressUnavailableError(RuntimeError):
 
 
 class SandboxAcquisition(StrEnum):
-    """How ``SandboxSession.acquire`` got the run its container."""
+    """How a run got its container."""
 
     WARM = "warm"
     """The thread's warm container, reused."""
@@ -55,6 +55,8 @@ class SandboxAcquisition(StrEnum):
     """A fresh container: the warm one was started from another spec."""
     EGRESS_FAILED = "egress_failed"
     """A fresh container: the run's egress could not be pushed onto the warm one."""
+    NOT_ACQUIRED = "not_acquired"
+    """No container: the run ended before ``acquire`` succeeded."""
 
 
 class SandboxSession:
@@ -65,8 +67,6 @@ class SandboxSession:
     the container runs with the egress this run provisions, when it provisions any: the environment's policy plus the
     git-platform rule and a freshly minted token. ``refresh_credential`` re-mints that token before a publish.
     ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run.
-
-    ``acquisition`` says which of those ``acquire`` did, and stays readable after ``release`` for the run's record.
 
     Args:
         client: The run's sandbox transport, opened by ``set_runtime_ctx``; the session never opens or closes it.
@@ -88,7 +88,7 @@ class SandboxSession:
         self._credential_source = credential_source
         self._session_id: str | None = None
         self._egress: EgressConfigRequest | None = None
-        self._acquisition: SandboxAcquisition | None = None
+        self._acquisition = SandboxAcquisition.NOT_ACQUIRED
         self._cleanups: set[asyncio.Task[None]] = set()
 
     @property
@@ -105,8 +105,8 @@ class SandboxSession:
         return self._session_id is not None
 
     @property
-    def acquisition(self) -> SandboxAcquisition | None:
-        """How ``acquire`` got the container: ``None`` until an ``acquire`` succeeds, kept after ``release``."""
+    def acquisition(self) -> SandboxAcquisition:
+        """How ``acquire`` got the container: ``NOT_ACQUIRED`` until an ``acquire`` succeeds, kept after ``release``."""
         return self._acquisition
 
     async def acquire(
@@ -241,7 +241,8 @@ class SandboxSession:
     async def _reuse(
         self, prior_id: str, prior_fingerprint: str | None, egress: EgressConfigRequest | None
     ) -> SandboxAcquisition:
-        """Ready the thread's warm container for this run; return ``WARM`` when it may be reused, else why not.
+        """Ready the thread's warm container for this run; return ``WARM`` when it may be reused, else the reason it
+        may not (``ENV_CHANGED``, ``GONE`` or ``EGRESS_FAILED``).
 
         One started from another spec is removed without being woken first; one whose egress push failed is removed too.
         """

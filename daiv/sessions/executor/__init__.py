@@ -14,7 +14,8 @@ step sits where it does:
    instead. If the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
    ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask for a
    branch that is gone; a failed re-pin is logged.
-   ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates.
+   ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates;
+   the agent then runs bound to it (``bind_active_run``), as it does to ``spec.run_id``, and step 6 measures it.
 3. The model is resolved, or taken from ``spec.model_names``. For a spec with ``run_id`` it is recorded on the
    ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
 4. The agent is built over the run's workspace (a sandbox session that ``SandboxMiddleware`` acquires, reusing the
@@ -35,8 +36,8 @@ step sits where it does:
    that lost its slot leaves the container running while the checkpoint still names it, since the holder that took
    over reuses it.
    A run with a ``Run`` row (``spec.run_id``, or the one ``on_context_ready`` created) then records on it how long its
-   clone took and how its container was acquired (``clone_seconds``, ``sandbox_acquisition``); a failed write is
-   logged. Then the context and the checkpointer close.
+   clone took and how its container was acquired (``clone_seconds``, ``sandbox_acquisition``), even when a repeated stop
+   cancelled the release; a failed write, or a missing row, is logged. Then the context and the checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,
    ``hooks.on_failure(exc, draft_published=..., snapshot=...)`` and then the error is re-raised.
 8. The heartbeat is cancelled and a ``Wait`` claim released, even when an earlier step raised.
