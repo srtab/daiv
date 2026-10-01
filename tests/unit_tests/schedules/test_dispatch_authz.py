@@ -54,8 +54,9 @@ def test_dispatch_denied_owner_advances_without_runs(due_schedule, caplog):
     assert not any(record.levelno >= logging.ERROR or record.exc_info for record in caplog.records)
 
 
-def _dispatch_denied():
-    with patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+def _dispatch_denied(repo_ids=("a/b",)):
+    denied = AsyncMock(side_effect=RepositoryAccessDenied(list(repo_ids)))
+    with patch("sessions.services.aassert_can_run", new=denied):
         dispatch_scheduled_jobs_cron_task.func()
 
 
@@ -84,9 +85,10 @@ def test_dispatch_denied_notifies_the_owner_once_per_streak(due_schedule, member
     streak_start = due_schedule.failing_since
 
     _make_due(due_schedule)
-    _dispatch_denied()
+    _dispatch_denied(repo_ids=["c/d"])
 
     due_schedule.refresh_from_db()
+    assert due_schedule.dispatch_error_repo_ids == ["c/d"]
     assert due_schedule.failing_since == streak_start
     notifications = Notification.objects.filter(event_type=EventType.SCHEDULE_DISPATCH_FAILED)
     assert list(notifications.values_list("recipient", flat=True)) == [member_user.pk]

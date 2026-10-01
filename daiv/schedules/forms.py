@@ -60,6 +60,12 @@ class ScheduledJobUpdateForm(ScheduledJobCreateForm):
     class Meta(ScheduledJobCreateForm.Meta):
         fields = [*ScheduledJobCreateForm.Meta.fields, "is_enabled"]
 
+    def save(self, commit: bool = True) -> ScheduledJob:
+        # The recorded failure was for the old repositories; the next scheduled run re-checks the new ones.
+        if "repos" in self.changed_data:
+            self.instance.clear_dispatch_failure()
+        return super().save(commit=commit)
+
 
 class ScheduleTemplateForm(forms.ModelForm):
     """Admin form for creating/editing schedule templates."""

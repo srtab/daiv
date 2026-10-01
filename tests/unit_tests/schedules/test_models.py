@@ -355,7 +355,9 @@ class TestScheduledJobDispatchFailure:
 
     def test_a_later_failure_keeps_the_streak_start(self):
         started = timezone.now() - timedelta(days=1)
-        job = self._job(failing_since=started, dispatch_error=DispatchError.REPO_ACCESS_DENIED)
+        job = self._job(
+            failing_since=started, dispatch_error=DispatchError.REPO_ACCESS_DENIED, dispatch_error_repo_ids=["a/b"]
+        )
 
         job.record_dispatch_failure(DispatchError.UNEXPECTED, at=timezone.now())
 
@@ -378,7 +380,7 @@ class TestScheduledJobDispatchFailure:
     def test_access_denied_message_names_the_denied_repos(self):
         job = self._job(dispatch_error=DispatchError.REPO_ACCESS_DENIED, dispatch_error_repo_ids=["a/b", "c/d"])
 
-        assert job.dispatch_error_message == "Owner has no write access to a/b, c/d"
+        assert job.dispatch_error_message == "Couldn't confirm the owner's write access to a/b, c/d"
 
     def test_unexpected_error_message_hides_the_exception(self):
         job = self._job(dispatch_error=DispatchError.UNEXPECTED)
@@ -387,3 +389,37 @@ class TestScheduledJobDispatchFailure:
 
     def test_healthy_schedule_has_no_message(self):
         assert self._job().dispatch_error_message == ""
+
+    @pytest.mark.parametrize(
+        ("frequency", "is_enabled", "expected"),
+        [
+            (Frequency.DAILY, True, True),
+            (Frequency.DAILY, False, False),
+            (Frequency.ONCE, True, True),
+            (Frequency.ONCE, False, True),
+        ],
+    )
+    def test_is_failing_counts_a_retired_one_off_but_not_a_paused_schedule(self, frequency, is_enabled, expected):
+        job = self._job(frequency=frequency, is_enabled=is_enabled, failing_since=timezone.now())
+
+        assert job.is_failing is expected
+
+    def test_a_healthy_schedule_is_not_failing(self):
+        assert self._job().is_failing is False
+
+    @pytest.mark.parametrize(
+        ("frequency", "is_enabled", "expected"),
+        [
+            (Frequency.DAILY, True, "DAIV tries again at the next scheduled time."),
+            (Frequency.ONCE, True, "DAIV tries again at the next scheduled time."),
+            (Frequency.DAILY, False, "It's paused, so it won't try again until it's enabled."),
+            (
+                Frequency.ONCE,
+                False,
+                "It was a one-off, so it won't try again on its own. "
+                "To retry, give it a new date and time and enable it.",
+            ),
+        ],
+    )
+    def test_outlook_follows_whether_the_schedule_will_run_again(self, frequency, is_enabled, expected):
+        assert self._job(frequency=frequency, is_enabled=is_enabled).dispatch_failure_outlook == expected

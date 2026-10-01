@@ -180,7 +180,7 @@ class ScheduledJob(TimeStampedModel):
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     failing_since = models.DateTimeField(
-        _("failing since"), null=True, blank=True, help_text=_("Start of the current run of failed dispatches.")
+        _("failing since"), null=True, blank=True, help_text=_("Start of the current streak of failed dispatches.")
     )
     dispatch_error = models.CharField(
         _("dispatch error"), max_length=32, choices=DispatchError.choices, blank=True, default=""
@@ -246,6 +246,14 @@ class ScheduledJob(TimeStampedModel):
         """True once a ONCE schedule has fired — drives the read-only 'Fired' card state."""
         return self.frequency == Frequency.ONCE and self.run_count > 0
 
+    @property
+    def is_failing(self) -> bool:
+        """True while a schedule that would run keeps failing to start — drives the 'Failing' card state.
+
+        A failed one-off retires itself rather than being paused, so it still counts.
+        """
+        return self.failing_since is not None and (self.is_enabled or self.frequency == Frequency.ONCE)
+
     def advance_after_dispatch(self, after: datetime) -> list[str]:
         """Transition next-run state after a dispatch, returning the mutated field names.
 
@@ -264,7 +272,7 @@ class ScheduledJob(TimeStampedModel):
     ) -> list[str]:
         """Record a failed dispatch, returning the mutated field names.
 
-        ``failing_since`` keeps the first failure of the streak so the owner is told once per streak.
+        ``failing_since`` keeps the streak's first failure; it is part of the owner notice's dedupe key.
         """
         if self.failing_since is None:
             self.failing_since = at
@@ -273,7 +281,7 @@ class ScheduledJob(TimeStampedModel):
         return list(self.DISPATCH_FAILURE_FIELDS)
 
     def clear_dispatch_failure(self) -> list[str]:
-        """End the failing streak after a successful dispatch, returning the mutated field names."""
+        """End the failing streak, returning the mutated field names."""
         self.failing_since = None
         self.dispatch_error = ""
         self.dispatch_error_repo_ids = []
@@ -282,10 +290,26 @@ class ScheduledJob(TimeStampedModel):
     @property
     def dispatch_error_message(self) -> str:
         if self.dispatch_error == DispatchError.REPO_ACCESS_DENIED:
-            return _("Owner has no write access to {repos}").format(repos=", ".join(self.dispatch_error_repo_ids))
+            return _("Couldn't confirm the owner's write access to {repos}").format(
+                repos=", ".join(self.dispatch_error_repo_ids)
+            )
         if self.dispatch_error == DispatchError.UNEXPECTED:
             return str(_("The last run couldn't start because of an unexpected error"))
         return ""
+
+    @property
+    def dispatch_failure_outlook(self) -> str:
+        """What happens next to a failing schedule, shared by the edit-page banner and the owner notice."""
+        if self.is_enabled:
+            return str(_("DAIV tries again at the next scheduled time."))
+        if self.frequency == Frequency.ONCE:
+            return str(
+                _(
+                    "It was a one-off, so it won't try again on its own. "
+                    "To retry, give it a new date and time and enable it."
+                )
+            )
+        return str(_("It's paused, so it won't try again until it's enabled."))
 
     def __str__(self) -> str:
         return self.name

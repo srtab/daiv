@@ -9,7 +9,7 @@ from mcp_servers.models import MCPServer
 from accounts.models import User
 from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
-from schedules.models import Frequency, Intent
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob
 from tests.unit_tests.mcp_servers.helpers import only_servers
 
 
@@ -328,3 +328,44 @@ def test_schedule_form_pool_uses_owner_not_editing_admin(member_user, admin_user
     form = ScheduledJobCreateForm(owner=member_user, user=admin_user)
     names = {e.name for e in form.mcp_pool}
     assert "mine" in names  # owner's server, though the editor is the admin
+
+
+@pytest.mark.django_db
+class TestScheduledJobUpdateFormDispatchFailure:
+    @staticmethod
+    def _failing_job(owner):
+        job = ScheduledJob.objects.create(
+            user=owner,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            intent=Intent.WATCH_FIND,
+        )
+        job.record_dispatch_failure(DispatchError.REPO_ACCESS_DENIED, at=timezone.now(), repo_ids=["x/y"])
+        job.save()
+        return job
+
+    def test_changing_the_repositories_clears_the_failure(self, member_user):
+        job = self._failing_job(member_user)
+        form = ScheduledJobUpdateForm(
+            data=_valid_data(repos=json.dumps([{"repo_id": "x/z", "ref": ""}])), instance=job, owner=member_user
+        )
+        assert form.is_valid(), form.errors
+
+        form.save()
+
+        job.refresh_from_db()
+        assert (job.failing_since, job.dispatch_error, job.dispatch_error_repo_ids) == (None, "", [])
+
+    def test_an_edit_that_keeps_the_repositories_keeps_the_failure(self, member_user):
+        job = self._failing_job(member_user)
+        form = ScheduledJobUpdateForm(data=_valid_data(name="renamed"), instance=job, owner=member_user)
+        assert form.is_valid(), form.errors
+
+        form.save()
+
+        job.refresh_from_db()
+        assert job.failing_since is not None
+        assert job.dispatch_error == DispatchError.REPO_ACCESS_DENIED

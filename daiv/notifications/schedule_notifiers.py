@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -9,11 +5,8 @@ from django.utils.translation import gettext as _
 
 from notifications.channels.registry import enabled_channel_types
 from notifications.policy import notification_source_for_schedule_failure
-from notifications.run_notifiers import deliver_to_recipients
-from schedules.models import DispatchError, Frequency
-
-if TYPE_CHECKING:
-    from schedules.models import ScheduledJob
+from notifications.run_notifiers import _notification_exists, deliver_to_recipients
+from schedules.models import DispatchError, ScheduledJob
 
 
 def _render_payload(schedule: ScheduledJob) -> tuple[str, str, dict]:
@@ -22,24 +15,21 @@ def _render_payload(schedule: ScheduledJob) -> tuple[str, str, dict]:
     subject = _('Schedule "{name}" can\'t run').format(name=schedule.name)
 
     if schedule.dispatch_error == DispatchError.REPO_ACCESS_DENIED:
-        cause = _("Its last scheduled run was skipped because you don't have write access to {repos}.").format(
-            repos=", ".join(repo_ids)
-        )
+        cause = _(
+            "A scheduled run was skipped because DAIV couldn't confirm that you have write access to {repos}. "
+            "If you do, ask a DAIV administrator to check that your account is linked and your repository "
+            "access is up to date."
+        ).format(repos=", ".join(repo_ids))
     else:
         cause = _(
-            "Its last scheduled run couldn't start because of an unexpected error. "
+            "A scheduled run couldn't start because of an unexpected error. "
             "The error was logged for the DAIV operators."
         )
 
-    if schedule.frequency == Frequency.ONCE:
-        outlook = _("It was a one-off, so it won't run again. Once this is fixed, duplicate the schedule to run it.")
-    else:
-        outlook = _(
-            "DAIV keeps trying at each scheduled time. You won't get this message again unless the schedule "
-            "recovers and then fails again."
-        )
-
-    body = f"{cause} {outlook}"
+    parts = [cause, schedule.dispatch_failure_outlook]
+    if schedule.is_enabled:
+        parts.append(_("You won't get this message again unless the schedule recovers and then fails again."))
+    body = " ".join(parts)
     context = {
         "status_tone": "failure",
         "status_label": _("Can't run"),
@@ -54,14 +44,22 @@ def _render_payload(schedule: ScheduledJob) -> tuple[str, str, dict]:
     return subject, body, context
 
 
-def emit_schedule_dispatch_failed(schedule: ScheduledJob) -> None:
-    """Tell the schedule owner that its dispatches started failing.
+def emit_schedule_dispatch_failed(schedule_pk: int) -> None:
+    """Tell the schedule owner that its dispatches are failing, once per failing streak.
 
-    Only the owner is told: subscribers can't fix the owner's repository access. ``muted`` is not
-    consulted, since it silences run results and this notice is about the schedule not running at all.
+    Called on every failed dispatch: the streak-keyed dedupe makes repeats no-ops, so a notice lost to
+    an error is sent on the next failure. Owner only, and sent even when ``muted``: mute silences run
+    results, not a schedule that cannot run.
     """
-    subject, body, context = _render_payload(schedule)
+    schedule = ScheduledJob.objects.select_related("user").filter(pk=schedule_pk).first()
+    if schedule is None or schedule.failing_since is None:
+        return
+
     source_type, source_id, event_type = notification_source_for_schedule_failure(schedule)
+    if _notification_exists(schedule.user, source_type, source_id, event_type):
+        return
+
+    subject, body, context = _render_payload(schedule)
 
     deliver_to_recipients(
         [schedule.user],

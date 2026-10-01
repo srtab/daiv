@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             name="failing_since",
             field=models.DateTimeField(
                 blank=True,
-                help_text="Start of the current run of failed dispatches.",
+                help_text="Start of the current streak of failed dispatches.",
                 null=True,
                 verbose_name="failing since",
             ),

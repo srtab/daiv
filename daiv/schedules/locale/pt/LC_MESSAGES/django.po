@@ -273,7 +273,7 @@ msgstr "Erro inesperado"
 msgid "failing since"
 msgstr "a falhar desde"
 
-msgid "Start of the current run of failed dispatches."
+msgid "Start of the current streak of failed dispatches."
 msgstr "Início da sequência atual de lançamentos falhados."
 
 msgid "dispatch error"
@@ -283,38 +283,35 @@ msgid "dispatch error repositories"
 msgstr "repositórios do erro de lançamento"
 
 #, python-brace-format
-msgid "Owner has no write access to {repos}"
-msgstr "O proprietário não tem acesso de escrita a {repos}"
+msgid "Couldn't confirm the owner's write access to {repos}"
+msgstr "Não foi possível confirmar o acesso de escrita do proprietário a {repos}"
 
 msgid "The last run couldn't start because of an unexpected error"
 msgstr "A última execução não arrancou devido a um erro inesperado"
 
+msgid "DAIV tries again at the next scheduled time."
+msgstr "O DAIV volta a tentar na próxima hora agendada."
+
+msgid "It was a one-off, so it won't try again on its own. To retry, give it a new date and time and enable it."
+msgstr "Era um agendamento único, por isso não volta a tentar por si só. Para tentar de novo, defina uma nova data e hora e ative-o."
+
+msgid "It's paused, so it won't try again until it's enabled."
+msgstr "Está em pausa, por isso não volta a tentar até ser ativado."
+
 #, python-format
-msgid "This schedule can't run. It hasn't started a run since %(since)s."
-msgstr "Este agendamento não pode ser executado. Não iniciou nenhuma execução desde %(since)s."
+msgid "This schedule can't run. It hasn't started a scheduled run since %(since)s."
+msgstr "Este agendamento não pode ser executado. Não iniciou nenhuma execução agendada desde %(since)s."
 
 msgid "This schedule can't run. It hasn't started any runs yet."
 msgstr "Este agendamento não pode ser executado. Ainda não iniciou nenhuma execução."
 
 #, python-format
-msgid "The owner, %(owner)s, doesn't have write access to %(repos)s. Schedules run with their owner's repository permissions."
-msgstr "O proprietário, %(owner)s, não tem acesso de escrita a %(repos)s. Os agendamentos são executados com as permissões de repositório do seu proprietário."
+msgid "DAIV couldn't confirm that the owner, %(owner)s, has write access to %(repos)s. Schedules run with their owner's repository permissions."
+msgstr "O DAIV não conseguiu confirmar que o proprietário, %(owner)s, tem acesso de escrita a %(repos)s. Os agendamentos são executados com as permissões de repositório do seu proprietário."
 
 #, python-format
-msgid "To fix it, ask a maintainer of the repository to give %(owner)s write access, or pick repositories below that %(owner)s can write to."
-msgstr "Para corrigir, peça a um responsável do repositório que dê acesso de escrita a %(owner)s, ou escolha abaixo repositórios onde %(owner)s possa escrever."
-
-msgid "It was a one-off, so it won't run again. Once this is fixed, duplicate the schedule to run it."
-msgstr "Era um agendamento único, por isso não volta a ser executado. Depois de corrigido, duplique o agendamento para o executar."
-
-msgid "The schedule keeps trying at each scheduled time and recovers on its own."
-msgstr "O agendamento continua a tentar em cada hora agendada e recupera sozinho."
+msgid "To fix it, ask a maintainer of the repository to give %(owner)s write access, or pick repositories below that %(owner)s can write to. If %(owner)s already has write access, ask a DAIV administrator to check that their account is linked and their repository access is up to date."
+msgstr "Para corrigir, peça a um responsável do repositório que dê acesso de escrita a %(owner)s, ou escolha abaixo repositórios onde %(owner)s possa escrever. Se %(owner)s já tiver acesso de escrita, peça a um administrador do DAIV que verifique se a conta está associada e se o acesso aos repositórios está atualizado."
 
 msgid "An unexpected error stopped the last run from starting. The error was logged for the DAIV operators."
 msgstr "Um erro inesperado impediu o arranque da última execução. O erro foi registado para os operadores do DAIV."
-
-msgid "It was a one-off, so it won't run again. Duplicate the schedule to try again."
-msgstr "Era um agendamento único, por isso não volta a ser executado. Duplique o agendamento para tentar de novo."
-
-msgid "The schedule keeps trying at each scheduled time."
-msgstr "O agendamento continua a tentar em cada hora agendada."
