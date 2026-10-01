@@ -1,7 +1,9 @@
+import html as _html
 import uuid
-from datetime import time
+from datetime import UTC, datetime, time
 from unittest import mock
 
+from django.template.loader import render_to_string
 from django.test import Client
 from django.urls import reverse
 
@@ -10,7 +12,7 @@ from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import User
-from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture
@@ -921,3 +923,84 @@ class TestScheduleViewsEnvContext:
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert response.status_code == 200
         assert response.context["selected_sandbox_env_id"] == str(env.id)
+
+
+@pytest.mark.django_db
+class TestScheduleFailingState:
+    @staticmethod
+    def _fail(schedule, error=DispatchError.REPO_ACCESS_DENIED, repo_ids=("owner/repo",), **fields):
+        schedule.record_dispatch_failure(error, at=datetime(2026, 10, 1, 8, 30, tzinfo=UTC), repo_ids=list(repo_ids))
+        for name, value in fields.items():
+            setattr(schedule, name, value)
+        schedule.save()
+        return schedule
+
+    @staticmethod
+    def _card(schedule):
+        return _html.unescape(
+            render_to_string("schedules/_schedule_row.html", {"schedule": schedule, "user": schedule.user})
+        )
+
+    @staticmethod
+    def _banner(schedule):
+        return _html.unescape(render_to_string("schedules/_dispatch_failure_banner.html", {"schedule": schedule}))
+
+    def test_the_list_shows_a_failing_schedule_with_its_reason(self, member_client, schedule):
+        self._fail(schedule)
+
+        page = _html.unescape(member_client.get(reverse("schedule_list")).content.decode())
+
+        assert "</span>Failing" in page
+        assert "Couldn't confirm the owner's write access to owner/repo" in page
+
+    @pytest.mark.parametrize(
+        ("fail_fields", "badge", "absent_badge", "shows_reason"),
+        [
+            ({}, "Failing", "Active", True),
+            (None, "Active", "Failing", False),
+            ({"is_enabled": False}, "Paused", "Failing", True),
+            ({"frequency": Frequency.ONCE, "is_enabled": False, "next_run_at": None}, "Failing", "Paused", True),
+        ],
+        ids=["failing", "healthy", "paused-failing", "retired-one-off"],
+    )
+    def test_card_badge_and_reason(self, schedule, fail_fields, badge, absent_badge, shows_reason):
+        if fail_fields is not None:
+            self._fail(schedule, **fail_fields)
+
+        card = self._card(schedule)
+
+        assert f"</span>{badge}" in card
+        assert f"</span>{absent_badge}" not in card
+        assert ("Couldn't confirm the owner's write access to owner/repo" in card) is shows_reason
+
+    def test_edit_page_shows_the_banner_only_while_failing(self, member_client, schedule):
+        url = reverse("schedule_update", args=[schedule.pk])
+        assert 'role="alert"' not in member_client.get(url).content.decode()
+
+        self._fail(schedule)
+
+        assert 'role="alert"' in member_client.get(url).content.decode()
+
+    def test_banner_explains_an_access_denial(self, schedule):
+        self._fail(schedule, last_run_at=datetime(2026, 7, 15, 8, 30, tzinfo=UTC))
+
+        banner = self._banner(schedule)
+
+        assert "This schedule can't run. It hasn't started a scheduled run since Jul 15." in banner
+        assert "DAIV couldn't confirm that the owner, member@test.com, has write access to owner/repo." in banner
+        assert "check that their account is linked" in banner
+        assert "DAIV tries again at the next scheduled time." in banner
+
+    def test_banner_for_a_schedule_that_never_ran(self, schedule):
+        self._fail(schedule)
+
+        assert "It hasn't started any runs yet." in self._banner(schedule)
+
+    def test_banner_explains_an_unexpected_error(self, schedule):
+        self._fail(schedule, error=DispatchError.UNEXPECTED, repo_ids=(), is_enabled=False)
+
+        banner = self._banner(schedule)
+
+        assert "An unexpected error stopped the last run from starting." in banner
+        assert "write access" not in banner
+        assert "It's paused, so it won't try again until it's enabled." in banner

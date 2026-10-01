@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import pytest
 
-from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.mark.django_db
@@ -336,3 +336,90 @@ def test_scheduledjob_mcp_overrides_defaults_to_empty_dict(member_user):
         user=member_user, name="n", prompt="p", repos=[{"repo_id": "g/r", "ref": ""}], frequency=Frequency.HOURLY
     )
     assert job.mcp_overrides == {}
+
+
+class TestScheduledJobDispatchFailure:
+    @staticmethod
+    def _job(**overrides):
+        return ScheduledJob(name="s", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], **overrides)
+
+    def test_first_failure_starts_the_streak(self):
+        job = self._job()
+        at = timezone.now()
+
+        job.record_dispatch_failure(DispatchError.REPO_ACCESS_DENIED, at=at, repo_ids=["a/b"])
+
+        assert job.failing_since == at
+        assert job.dispatch_error == DispatchError.REPO_ACCESS_DENIED
+        assert job.dispatch_error_repo_ids == ["a/b"]
+
+    def test_a_later_failure_keeps_the_streak_start(self):
+        started = timezone.now() - timedelta(days=1)
+        job = self._job(
+            failing_since=started, dispatch_error=DispatchError.REPO_ACCESS_DENIED, dispatch_error_repo_ids=["a/b"]
+        )
+
+        job.record_dispatch_failure(DispatchError.UNEXPECTED, at=timezone.now())
+
+        assert job.failing_since == started
+        assert job.dispatch_error == DispatchError.UNEXPECTED
+        assert job.dispatch_error_repo_ids == []
+
+    def test_clearing_ends_the_streak(self):
+        job = self._job(
+            failing_since=timezone.now(),
+            dispatch_error=DispatchError.REPO_ACCESS_DENIED,
+            dispatch_error_repo_ids=["a/b"],
+        )
+
+        fields = job.clear_dispatch_failure()
+
+        assert (job.failing_since, job.dispatch_error, job.dispatch_error_repo_ids) == (None, "", [])
+        assert set(fields) == {"failing_since", "dispatch_error", "dispatch_error_repo_ids"}
+
+    @pytest.mark.parametrize(
+        ("error", "repo_ids", "expected"),
+        [
+            (DispatchError.REPO_ACCESS_DENIED, ["a/b", "c/d"], "Couldn't confirm the owner's write access to a/b, c/d"),
+            (DispatchError.UNEXPECTED, [], "The last run couldn't start because of an unexpected error"),
+            ("", [], ""),
+        ],
+    )
+    def test_dispatch_error_message(self, error, repo_ids, expected):
+        job = self._job(dispatch_error=error, dispatch_error_repo_ids=repo_ids)
+
+        assert job.dispatch_error_message == expected
+
+    @pytest.mark.parametrize(
+        ("frequency", "is_enabled", "failing", "expected"),
+        [
+            (Frequency.DAILY, True, True, True),
+            (Frequency.DAILY, False, True, False),
+            (Frequency.ONCE, True, True, True),
+            (Frequency.ONCE, False, True, True),
+            (Frequency.DAILY, True, False, False),
+        ],
+    )
+    def test_is_failing_counts_a_retired_one_off_but_not_a_paused_schedule(
+        self, frequency, is_enabled, failing, expected
+    ):
+        job = self._job(frequency=frequency, is_enabled=is_enabled, failing_since=timezone.now() if failing else None)
+
+        assert job.is_failing is expected
+
+    @pytest.mark.parametrize(
+        ("frequency", "is_enabled", "expected"),
+        [
+            (Frequency.DAILY, True, "DAIV tries again at the next scheduled time."),
+            (Frequency.ONCE, True, "DAIV tries again at the next scheduled time."),
+            (Frequency.DAILY, False, "It's paused, so it won't try again until it's enabled."),
+            (
+                Frequency.ONCE,
+                False,
+                "It was a one-off, so it won't try again on its own. "
+                "To retry, give it a new date and time and enable it.",
+            ),
+        ],
+    )
+    def test_outlook_follows_whether_the_schedule_will_run_again(self, frequency, is_enabled, expected):
+        assert self._job(frequency=frequency, is_enabled=is_enabled).dispatch_failure_outlook == expected

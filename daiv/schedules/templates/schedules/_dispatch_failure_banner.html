@@ -1,0 +1,29 @@
+{% load i18n icon_tags %}
+{% with owner=schedule.user.name|default:schedule.user.email repos=schedule.dispatch_error_repo_ids|join:", " %}
+<div class="animate-fade-up mt-8 flex gap-3 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" role="alert" style="animation-delay: 50ms">
+    {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-red-300" %}
+    <div class="min-w-0">
+        <p class="text-[15px] font-medium text-red-200">
+            {% if schedule.last_run_at %}
+            {% blocktranslate with since=schedule.last_run_at|date:"M j" %}This schedule can't run. It hasn't started a scheduled run since {{ since }}.{% endblocktranslate %}
+            {% else %}
+            {% translate "This schedule can't run. It hasn't started any runs yet." %}
+            {% endif %}
+        </p>
+        {% if schedule.is_access_denied %}
+        <p class="mt-1 break-words text-sm text-red-200/80">
+            {% blocktranslate %}DAIV couldn't confirm that the owner, {{ owner }}, has write access to {{ repos }}. Schedules run with their owner's repository permissions.{% endblocktranslate %}
+        </p>
+        <p class="mt-2 text-sm text-gray-400">
+            {% blocktranslate %}To fix it, ask a maintainer of the repository to give {{ owner }} write access, or pick repositories below that {{ owner }} can write to. If {{ owner }} already has write access, ask a DAIV administrator to check that their account is linked and their repository access is up to date.{% endblocktranslate %}
+            {{ schedule.dispatch_failure_outlook }}
+        </p>
+        {% else %}
+        <p class="mt-1 text-sm text-red-200/80">
+            {% translate "An unexpected error stopped the last run from starting. The error was logged for the DAIV operators." %}
+        </p>
+        <p class="mt-2 text-sm text-gray-400">{{ schedule.dispatch_failure_outlook }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endwith %}

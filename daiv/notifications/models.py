@@ -63,6 +63,7 @@ class Notification(TimeStampedModel):
                         EventType.JOB_FINISHED,
                         EventType.SCHEDULE_FINISHED,
                         EventType.PIPELINE_WATCH_EXHAUSTED,
+                        EventType.SCHEDULE_DISPATCH_FAILED,
                     ]
                 ),
                 name="notif_unique_per_source_recipient",

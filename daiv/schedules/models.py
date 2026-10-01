@@ -18,6 +18,8 @@ from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, dis
 from core.models import ThinkingLevelChoices
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from accounts.models import User
 
 
@@ -49,6 +51,11 @@ class Intent(models.TextChoices):
         never yields an actionable finding.
         """
         return frozenset({cls.WATCH_FIND, cls.DO_CHANGE})
+
+
+class DispatchError(models.TextChoices):
+    REPO_ACCESS_DENIED = "repo_access_denied", _("No repository access")
+    UNEXPECTED = "unexpected", _("Unexpected error")
 
 
 # The template→job copy set. ``ScheduledJob.DUPLICABLE_FIELDS`` is the job→job one, and is a
@@ -174,6 +181,13 @@ class ScheduledJob(TimeStampedModel):
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
+    failing_since = models.DateTimeField(
+        _("failing since"), null=True, blank=True, help_text=_("Start of the current streak of failed dispatches.")
+    )
+    dispatch_error = models.CharField(
+        _("dispatch error"), max_length=32, choices=DispatchError.choices, blank=True, default=""
+    )
+    dispatch_error_repo_ids = models.JSONField(_("dispatch error repositories"), default=list, blank=True)
     muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
     intent = models.CharField(
         _("intent"),
@@ -223,6 +237,7 @@ class ScheduledJob(TimeStampedModel):
         ]
 
     DUPLICABLE_FIELDS = (*_TEMPLATE_SHARED_FIELDS, "run_at", "sandbox_environment")
+    DISPATCH_FAILURE_FIELDS = ("failing_since", "dispatch_error", "dispatch_error_repo_ids")
 
     def to_schedule_kwargs(self) -> dict:
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
@@ -232,6 +247,14 @@ class ScheduledJob(TimeStampedModel):
     def is_fired_one_off(self) -> bool:
         """True once a ONCE schedule has fired — drives the read-only 'Fired' card state."""
         return self.frequency == Frequency.ONCE and self.run_count > 0
+
+    @property
+    def is_failing(self) -> bool:
+        """True while a schedule that would run keeps failing to start — drives the 'Failing' card state.
+
+        A failed one-off retires itself rather than being paused, so it still counts.
+        """
+        return self.failing_since is not None and (self.is_enabled or self.frequency == Frequency.ONCE)
 
     def advance_after_dispatch(self, after: datetime) -> list[str]:
         """Transition next-run state after a dispatch, returning the mutated field names.
@@ -245,6 +268,52 @@ class ScheduledJob(TimeStampedModel):
             return ["is_enabled", "next_run_at"]
         self.compute_next_run(after=after)
         return ["next_run_at"]
+
+    def record_dispatch_failure(self, error: DispatchError, *, at: datetime, repo_ids: Sequence[str] = ()) -> list[str]:
+        """Record a failed dispatch, returning the mutated field names.
+
+        ``failing_since`` keeps the streak's first failure; it is part of the owner notice's dedupe key.
+        """
+        if self.failing_since is None:
+            self.failing_since = at
+        self.dispatch_error = error
+        self.dispatch_error_repo_ids = list(repo_ids)
+        return list(self.DISPATCH_FAILURE_FIELDS)
+
+    def clear_dispatch_failure(self) -> list[str]:
+        """End the failing streak, returning the mutated field names."""
+        self.failing_since = None
+        self.dispatch_error = ""
+        self.dispatch_error_repo_ids = []
+        return list(self.DISPATCH_FAILURE_FIELDS)
+
+    @property
+    def is_access_denied(self) -> bool:
+        return self.dispatch_error == DispatchError.REPO_ACCESS_DENIED
+
+    @property
+    def dispatch_error_message(self) -> str:
+        if self.is_access_denied:
+            return _("Couldn't confirm the owner's write access to {repos}").format(
+                repos=", ".join(self.dispatch_error_repo_ids)
+            )
+        if self.dispatch_error == DispatchError.UNEXPECTED:
+            return str(_("The last run couldn't start because of an unexpected error"))
+        return ""
+
+    @property
+    def dispatch_failure_outlook(self) -> str:
+        """What happens next to a failing schedule, shared by the edit-page banner and the owner notice."""
+        if self.is_enabled:
+            return str(_("DAIV tries again at the next scheduled time."))
+        if self.frequency == Frequency.ONCE:
+            return str(
+                _(
+                    "It was a one-off, so it won't try again on its own. "
+                    "To retry, give it a new date and time and enable it."
+                )
+            )
+        return str(_("It's paused, so it won't try again until it's enabled."))
 
     def __str__(self) -> str:
         return self.name

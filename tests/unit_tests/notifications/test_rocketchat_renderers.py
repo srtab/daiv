@@ -14,6 +14,7 @@ from notifications.channels.rocketchat_renderers.job_batch_finished import JobBa
 from notifications.channels.rocketchat_renderers.job_finished import JobFinishedRenderer
 from notifications.channels.rocketchat_renderers.pipeline_watch_exhausted import PipelineWatchExhaustedRenderer
 from notifications.channels.rocketchat_renderers.registry import get_renderer
+from notifications.channels.rocketchat_renderers.schedule_dispatch_failed import ScheduleDispatchFailedRenderer
 from notifications.channels.rocketchat_renderers.schedule_finished import ScheduleFinishedRenderer
 from notifications.choices import EventType
 
@@ -51,6 +52,7 @@ class TestRegistryLookup:
         assert isinstance(get_renderer(EventType.SCHEDULE_FINISHED), ScheduleFinishedRenderer)
         assert isinstance(get_renderer(EventType.JOB_BATCH_FINISHED), JobBatchFinishedRenderer)
         assert isinstance(get_renderer(EventType.PIPELINE_WATCH_EXHAUSTED), PipelineWatchExhaustedRenderer)
+        assert isinstance(get_renderer(EventType.SCHEDULE_DISPATCH_FAILED), ScheduleDispatchFailedRenderer)
 
     def test_the_package_imports_every_renderer_module(self):
         # Registration is a side effect of importing each submodule, and only __init__ does that in
@@ -449,3 +451,52 @@ class TestPipelineWatchExhaustedRenderer:
         _text, attachments = PipelineWatchExhaustedRenderer().render(notification)
 
         assert "Failing jobs" not in _fields_by_title(attachments[0])
+
+
+class TestScheduleDispatchFailedRenderer:
+    @staticmethod
+    def _notification(**context):
+        return _stub_notification(
+            subject='Schedule "RT Daily Report" can\'t run',
+            body="Its last scheduled run was skipped.",
+            link_url="/dashboard/schedules/6/edit/",
+            context={
+                "status_tone": "failure",
+                "status_label": "Can't run",
+                "repo_ids": ["sfr/rt-daily-report"],
+                "reason": "Owner has no write access to sfr/rt-daily-report",
+                "last_run": "Jul 15, 09:30",
+                "summary": "Its last scheduled run was skipped.",
+                **context,
+            },
+        )
+
+    def test_it_renders_a_failure_card(self):
+        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+
+        assert attachments[0]["color"] == COLOR_FAILURE
+
+    def test_it_reports_the_repo_reason_and_last_run(self):
+        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+
+        fields = _fields_by_title(attachments[0])
+        assert fields["Repository"] == "sfr/rt-daily-report"
+        assert fields["Reason"] == "Owner has no write access to sfr/rt-daily-report"
+        assert fields["Last run"] == "Jul 15, 09:30"
+
+    def test_several_repos_share_one_plural_field(self):
+        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification(repo_ids=["a/b", "c/d"]))
+
+        fields = _fields_by_title(attachments[0])
+        assert fields["Repositories"] == "a/b · c/d"
+        assert "Repository" not in fields
+
+    def test_the_explanation_rides_the_attachment_text(self):
+        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+
+        assert attachments[0]["text"] == "Its last scheduled run was skipped."
+
+    def test_the_card_title_links_to_the_schedule(self):
+        _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification())
+
+        assert attachments[0]["title_link"] == "https://example.com/dashboard/schedules/6/edit/"

@@ -22,3 +22,4 @@ class EventType(models.TextChoices):
     SCHEDULE_FINISHED = "schedule.finished", _("Schedule finished")
     JOB_BATCH_FINISHED = "job_batch.finished", _("Job batch finished")
     PIPELINE_WATCH_EXHAUSTED = "pipeline_watch.exhausted", _("Pipeline watch gave up")
+    SCHEDULE_DISPATCH_FAILED = "schedule_dispatch.failed", _("Schedule can't run")
