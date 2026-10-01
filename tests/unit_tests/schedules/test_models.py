@@ -377,35 +377,35 @@ class TestScheduledJobDispatchFailure:
         assert (job.failing_since, job.dispatch_error, job.dispatch_error_repo_ids) == (None, "", [])
         assert set(fields) == {"failing_since", "dispatch_error", "dispatch_error_repo_ids"}
 
-    def test_access_denied_message_names_the_denied_repos(self):
-        job = self._job(dispatch_error=DispatchError.REPO_ACCESS_DENIED, dispatch_error_repo_ids=["a/b", "c/d"])
-
-        assert job.dispatch_error_message == "Couldn't confirm the owner's write access to a/b, c/d"
-
-    def test_unexpected_error_message_hides_the_exception(self):
-        job = self._job(dispatch_error=DispatchError.UNEXPECTED)
-
-        assert job.dispatch_error_message == "The last run couldn't start because of an unexpected error"
-
-    def test_healthy_schedule_has_no_message(self):
-        assert self._job().dispatch_error_message == ""
-
     @pytest.mark.parametrize(
-        ("frequency", "is_enabled", "expected"),
+        ("error", "repo_ids", "expected"),
         [
-            (Frequency.DAILY, True, True),
-            (Frequency.DAILY, False, False),
-            (Frequency.ONCE, True, True),
-            (Frequency.ONCE, False, True),
+            (DispatchError.REPO_ACCESS_DENIED, ["a/b", "c/d"], "Couldn't confirm the owner's write access to a/b, c/d"),
+            (DispatchError.UNEXPECTED, [], "The last run couldn't start because of an unexpected error"),
+            ("", [], ""),
         ],
     )
-    def test_is_failing_counts_a_retired_one_off_but_not_a_paused_schedule(self, frequency, is_enabled, expected):
-        job = self._job(frequency=frequency, is_enabled=is_enabled, failing_since=timezone.now())
+    def test_dispatch_error_message(self, error, repo_ids, expected):
+        job = self._job(dispatch_error=error, dispatch_error_repo_ids=repo_ids)
+
+        assert job.dispatch_error_message == expected
+
+    @pytest.mark.parametrize(
+        ("frequency", "is_enabled", "failing", "expected"),
+        [
+            (Frequency.DAILY, True, True, True),
+            (Frequency.DAILY, False, True, False),
+            (Frequency.ONCE, True, True, True),
+            (Frequency.ONCE, False, True, True),
+            (Frequency.DAILY, True, False, False),
+        ],
+    )
+    def test_is_failing_counts_a_retired_one_off_but_not_a_paused_schedule(
+        self, frequency, is_enabled, failing, expected
+    ):
+        job = self._job(frequency=frequency, is_enabled=is_enabled, failing_since=timezone.now() if failing else None)
 
         assert job.is_failing is expected
-
-    def test_a_healthy_schedule_is_not_failing(self):
-        assert self._job().is_failing is False
 
     @pytest.mark.parametrize(
         ("frequency", "is_enabled", "expected"),

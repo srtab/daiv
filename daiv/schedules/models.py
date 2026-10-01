@@ -18,6 +18,8 @@ from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, dis
 from core.models import ThinkingLevelChoices
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from accounts.models import User
 
 
@@ -267,9 +269,7 @@ class ScheduledJob(TimeStampedModel):
         self.compute_next_run(after=after)
         return ["next_run_at"]
 
-    def record_dispatch_failure(
-        self, error: DispatchError, *, at: datetime, repo_ids: list[str] | None = None
-    ) -> list[str]:
+    def record_dispatch_failure(self, error: DispatchError, *, at: datetime, repo_ids: Sequence[str] = ()) -> list[str]:
         """Record a failed dispatch, returning the mutated field names.
 
         ``failing_since`` keeps the streak's first failure; it is part of the owner notice's dedupe key.
@@ -277,7 +277,7 @@ class ScheduledJob(TimeStampedModel):
         if self.failing_since is None:
             self.failing_since = at
         self.dispatch_error = error
-        self.dispatch_error_repo_ids = list(repo_ids or [])
+        self.dispatch_error_repo_ids = list(repo_ids)
         return list(self.DISPATCH_FAILURE_FIELDS)
 
     def clear_dispatch_failure(self) -> list[str]:
@@ -288,8 +288,12 @@ class ScheduledJob(TimeStampedModel):
         return list(self.DISPATCH_FAILURE_FIELDS)
 
     @property
+    def is_access_denied(self) -> bool:
+        return self.dispatch_error == DispatchError.REPO_ACCESS_DENIED
+
+    @property
     def dispatch_error_message(self) -> str:
-        if self.dispatch_error == DispatchError.REPO_ACCESS_DENIED:
+        if self.is_access_denied:
             return _("Couldn't confirm the owner's write access to {repos}").format(
                 repos=", ".join(self.dispatch_error_repo_ids)
             )

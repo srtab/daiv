@@ -10,7 +10,7 @@
             {% translate "This schedule can't run. It hasn't started any runs yet." %}
             {% endif %}
         </p>
-        {% if schedule.dispatch_error == "repo_access_denied" %}
+        {% if schedule.is_access_denied %}
         <p class="mt-1 break-words text-sm text-red-200/80">
             {% blocktranslate %}DAIV couldn't confirm that the owner, {{ owner }}, has write access to {{ repos }}. Schedules run with their owner's repository permissions.{% endblocktranslate %}
         </p>

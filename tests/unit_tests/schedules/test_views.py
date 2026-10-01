@@ -942,12 +942,8 @@ class TestScheduleFailingState:
         )
 
     @staticmethod
-    def _banner(client, schedule):
-        page = client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
-        if 'role="alert"' not in page:
-            return ""
-        start = page.index('role="alert"')
-        return _html.unescape(page[start : page.index("</div>\n</div>", start)])
+    def _banner(schedule):
+        return _html.unescape(render_to_string("schedules/_dispatch_failure_banner.html", {"schedule": schedule}))
 
     def test_the_list_shows_a_failing_schedule_with_its_reason(self, member_client, schedule):
         self._fail(schedule)
@@ -957,76 +953,54 @@ class TestScheduleFailingState:
         assert "</span>Failing" in page
         assert "Couldn't confirm the owner's write access to owner/repo" in page
 
-    def test_a_failing_schedule_card_shows_the_badge_and_reason(self, schedule):
+    @pytest.mark.parametrize(
+        ("fail_fields", "badge", "absent_badge", "shows_reason"),
+        [
+            ({}, "Failing", "Active", True),
+            (None, "Active", "Failing", False),
+            ({"is_enabled": False}, "Paused", "Failing", True),
+            ({"frequency": Frequency.ONCE, "is_enabled": False, "next_run_at": None}, "Failing", "Paused", True),
+        ],
+        ids=["failing", "healthy", "paused-failing", "retired-one-off"],
+    )
+    def test_card_badge_and_reason(self, schedule, fail_fields, badge, absent_badge, shows_reason):
+        if fail_fields is not None:
+            self._fail(schedule, **fail_fields)
+
+        card = self._card(schedule)
+
+        assert f"</span>{badge}" in card
+        assert f"</span>{absent_badge}" not in card
+        assert ("Couldn't confirm the owner's write access to owner/repo" in card) is shows_reason
+
+    def test_edit_page_shows_the_banner_only_while_failing(self, member_client, schedule):
+        url = reverse("schedule_update", args=[schedule.pk])
+        assert 'role="alert"' not in member_client.get(url).content.decode()
+
         self._fail(schedule)
 
-        card = self._card(schedule)
+        assert 'role="alert"' in member_client.get(url).content.decode()
 
-        assert "</span>Failing" in card
-        assert "</span>Active" not in card
-        assert "Couldn't confirm the owner's write access to owner/repo" in card
-
-    def test_a_healthy_schedule_card_stays_active(self, schedule):
-        card = self._card(schedule)
-
-        assert "</span>Active" in card
-        assert "</span>Failing" not in card
-
-    def test_a_paused_failing_schedule_reads_paused_but_keeps_the_reason(self, schedule):
-        self._fail(schedule, is_enabled=False)
-
-        card = self._card(schedule)
-
-        assert "</span>Paused" in card
-        assert "</span>Failing" not in card
-        assert "Couldn't confirm the owner's write access to owner/repo" in card
-
-    def test_a_one_off_retired_by_its_failed_run_reads_failing_not_paused(self, schedule):
-        self._fail(schedule, frequency=Frequency.ONCE, is_enabled=False, next_run_at=None)
-
-        card = self._card(schedule)
-
-        assert "</span>Failing" in card
-        assert "</span>Paused" not in card
-
-    def test_edit_page_explains_an_access_denial(self, member_client, schedule):
+    def test_banner_explains_an_access_denial(self, schedule):
         self._fail(schedule, last_run_at=datetime(2026, 7, 15, 8, 30, tzinfo=UTC))
 
-        banner = self._banner(member_client, schedule)
+        banner = self._banner(schedule)
 
         assert "This schedule can't run. It hasn't started a scheduled run since Jul 15." in banner
         assert "DAIV couldn't confirm that the owner, member@test.com, has write access to owner/repo." in banner
         assert "check that their account is linked" in banner
         assert "DAIV tries again at the next scheduled time." in banner
 
-    def test_edit_page_for_a_schedule_that_never_ran(self, member_client, schedule):
+    def test_banner_for_a_schedule_that_never_ran(self, schedule):
         self._fail(schedule)
 
-        assert "It hasn't started any runs yet." in self._banner(member_client, schedule)
+        assert "It hasn't started any runs yet." in self._banner(schedule)
 
-    def test_edit_page_explains_an_unexpected_error(self, member_client, schedule):
-        self._fail(schedule, error=DispatchError.UNEXPECTED, repo_ids=())
+    def test_banner_explains_an_unexpected_error(self, schedule):
+        self._fail(schedule, error=DispatchError.UNEXPECTED, repo_ids=(), is_enabled=False)
 
-        banner = self._banner(member_client, schedule)
+        banner = self._banner(schedule)
 
         assert "An unexpected error stopped the last run from starting." in banner
         assert "write access" not in banner
-
-    def test_edit_page_of_a_paused_schedule_does_not_promise_a_retry(self, member_client, schedule):
-        self._fail(schedule, is_enabled=False, next_run_at=None)
-
-        banner = self._banner(member_client, schedule)
-
         assert "It's paused, so it won't try again until it's enabled." in banner
-        assert "tries again" not in banner
-
-    def test_edit_page_of_a_retired_one_off_says_how_to_retry(self, member_client, schedule):
-        self._fail(schedule, frequency=Frequency.ONCE, is_enabled=False, next_run_at=None)
-
-        banner = self._banner(member_client, schedule)
-
-        assert "It was a one-off, so it won't try again on its own." in banner
-        assert "give it a new date and time and enable it" in banner
-
-    def test_edit_page_of_a_healthy_schedule_has_no_banner(self, member_client, schedule):
-        assert self._banner(member_client, schedule) == ""

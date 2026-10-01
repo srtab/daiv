@@ -423,7 +423,7 @@ class TestNotificationPolicy:
         run, envelope = _classified_run(session, status=EnvelopeStatus.FAILED, user=member_user)
         with (
             patch("notifications.run_notifiers.notify", side_effect=IntegrityError("boom")),
-            patch("notifications.run_notifiers._notification_exists", return_value=False),
+            patch("notifications.run_notifiers.notification_exists", return_value=False),
             caplog.at_level(logging.ERROR, logger="daiv.notifications"),
         ):
             run_classified.send(sender=Run, run=run, envelope=envelope)

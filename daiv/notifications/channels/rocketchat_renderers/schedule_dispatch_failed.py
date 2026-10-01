@@ -22,7 +22,7 @@ class ScheduleDispatchFailedRenderer(RocketChatRenderer):
         fields: list[dict] = [
             {
                 "title": "Repositories" if len(repo_ids) > 1 else "Repository",
-                "value": ", ".join(repo_ids) or "—",
+                "value": self._repo_list(repo_ids) or "—",
                 "short": True,
             },
             {"title": "Last run", "value": ctx.get("last_run") or "—", "short": True},

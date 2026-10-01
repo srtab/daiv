@@ -398,60 +398,8 @@ def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_
     assert schedule.run_count == 0
 
 
-@pytest.mark.django_db(transaction=True)
-def test_dispatch_unexpected_error_records_the_failure_and_notifies(member_user):
-    past = datetime.now(tz=UTC) - timedelta(minutes=1)
-    schedule = ScheduledJob.objects.create(
-        user=member_user,
-        name="daily",
-        prompt="do stuff",
-        repos=[{"repo_id": "acme/repo", "ref": ""}],
-        frequency="daily",
-        time="09:00",
-        is_enabled=True,
-        next_run_at=past,
-    )
-
-    with patch("sessions.services.submit_batch_runs", side_effect=RuntimeError("boom")):
-        dispatch_scheduled_jobs_cron_task.func()
-
-    schedule.refresh_from_db()
-    assert schedule.dispatch_error == DispatchError.UNEXPECTED
-    assert schedule.dispatch_error_repo_ids == []
-    assert schedule.failing_since is not None
-    assert (
-        Notification.objects.filter(event_type=EventType.SCHEDULE_DISPATCH_FAILED, recipient=member_user).count() == 1
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-def test_successful_dispatch_ends_the_failing_streak(member_user):
-    past = datetime.now(tz=UTC) - timedelta(minutes=1)
-    schedule = ScheduledJob.objects.create(
-        user=member_user,
-        name="daily",
-        prompt="do stuff",
-        repos=[{"repo_id": "acme/repo", "ref": ""}],
-        frequency="daily",
-        time="09:00",
-        is_enabled=True,
-        next_run_at=past,
-        failing_since=past - timedelta(days=3),
-        dispatch_error=DispatchError.REPO_ACCESS_DENIED,
-        dispatch_error_repo_ids=["acme/repo"],
-    )
-
-    with patch("sessions.services.run_job_task") as mock_task:
-
-        async def _aenqueue(**kwargs):
-            return await _amake_task_result()
-
-        mock_task.aenqueue.side_effect = _aenqueue
-        dispatch_scheduled_jobs_cron_task.func()
-
-    schedule.refresh_from_db()
-    assert schedule.run_count == 1
-    assert (schedule.failing_since, schedule.dispatch_error, schedule.dispatch_error_repo_ids) == (None, "", [])
+async def _aenqueue_ok(**kwargs):
+    return await _amake_task_result()
 
 
 def _due_daily(user, **fields):
@@ -472,15 +420,12 @@ def _make_due(schedule):
     ScheduledJob.objects.filter(pk=schedule.pk).update(next_run_at=datetime.now(tz=UTC) - timedelta(minutes=1))
 
 
-def _dispatch(*, denied=None, enqueue_error=None):
-    async def _aenqueue(**kwargs):
-        if enqueue_error is not None:
-            raise enqueue_error
-        return await _amake_task_result()
-
-    can_run = AsyncMock(side_effect=denied) if denied is not None else AsyncMock(return_value=None)
-    with patch("sessions.services.aassert_can_run", new=can_run), patch("sessions.services.run_job_task") as mock_task:
-        mock_task.aenqueue.side_effect = _aenqueue
+def _dispatch(*, denied=None, aenqueue=_aenqueue_ok):
+    with (
+        patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=denied, return_value=None)),
+        patch("sessions.services.run_job_task") as mock_task,
+    ):
+        mock_task.aenqueue.side_effect = aenqueue
         dispatch_scheduled_jobs_cron_task.func()
 
 
@@ -489,10 +434,73 @@ def _failure_notices():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_dispatch_unexpected_error_records_the_failure_and_notifies(member_user):
+    schedule = _due_daily(member_user)
+
+    with patch("sessions.services.submit_batch_runs", side_effect=RuntimeError("boom")):
+        dispatch_scheduled_jobs_cron_task.func()
+
+    schedule.refresh_from_db()
+    assert schedule.dispatch_error == DispatchError.UNEXPECTED
+    assert schedule.dispatch_error_repo_ids == []
+    assert schedule.failing_since is not None
+    assert list(_failure_notices().values_list("recipient", flat=True)) == [member_user.pk]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_denied_records_the_failure_without_counting_a_run(member_user):
+    schedule = _due_daily(member_user)
+    before = datetime.now(tz=UTC)
+
+    _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+
+    schedule.refresh_from_db()
+    assert schedule.failing_since >= before
+    assert schedule.dispatch_error == DispatchError.REPO_ACCESS_DENIED
+    assert schedule.dispatch_error_repo_ids == ["acme/repo"]
+    assert (schedule.last_run_at, schedule.run_count) == (None, 0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_repeat_denial_keeps_the_streak_and_notifies_once(member_user):
+    schedule = _due_daily(member_user)
+    _dispatch(denied=RepositoryAccessDenied(["acme/repo"]))
+    schedule.refresh_from_db()
+    streak_start = schedule.failing_since
+
+    _make_due(schedule)
+    _dispatch(denied=RepositoryAccessDenied(["acme/other"]))
+
+    schedule.refresh_from_db()
+    assert schedule.dispatch_error_repo_ids == ["acme/other"]
+    assert schedule.failing_since == streak_start
+    assert list(_failure_notices().values_list("recipient", flat=True)) == [member_user.pk]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_successful_dispatch_ends_the_failing_streak(member_user):
+    schedule = _due_daily(
+        member_user,
+        failing_since=datetime.now(tz=UTC) - timedelta(days=3),
+        dispatch_error=DispatchError.REPO_ACCESS_DENIED,
+        dispatch_error_repo_ids=["acme/repo"],
+    )
+
+    _dispatch()
+
+    schedule.refresh_from_db()
+    assert schedule.run_count == 1
+    assert (schedule.failing_since, schedule.dispatch_error, schedule.dispatch_error_repo_ids) == (None, "", [])
+
+
+@pytest.mark.django_db(transaction=True)
 def test_a_batch_whose_every_repo_fails_to_enqueue_is_a_failed_dispatch(member_user):
     schedule = _due_daily(member_user)
 
-    _dispatch(enqueue_error=RuntimeError("broker down"))
+    async def _broker_down(**kwargs):
+        raise RuntimeError("broker down")
+
+    _dispatch(aenqueue=_broker_down)
 
     schedule.refresh_from_db()
     assert schedule.dispatch_error == DispatchError.UNEXPECTED
@@ -516,9 +524,7 @@ def test_a_batch_where_some_repos_start_still_ends_the_failing_streak(member_use
             raise RuntimeError("broker hiccup")
         return await _amake_task_result()
 
-    with patch("sessions.services.run_job_task") as mock_task:
-        mock_task.aenqueue.side_effect = _aenqueue
-        dispatch_scheduled_jobs_cron_task.func()
+    _dispatch(aenqueue=_aenqueue)
 
     schedule.refresh_from_db()
     assert schedule.run_count == 1
@@ -569,16 +575,8 @@ def test_a_database_error_recording_one_failure_keeps_the_other_dispatches(membe
             raise DatabaseError("statement timeout")
         return original(self, base_qs, using, pk_val, values, update_fields, *args, **kwargs)
 
-    async def _aenqueue(**kwargs):
-        return await _amake_task_result()
-
-    with (
-        patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=can_run)),
-        patch.object(ScheduledJob, "_do_update", _do_update),
-        patch("sessions.services.run_job_task") as mock_task,
-    ):
-        mock_task.aenqueue.side_effect = _aenqueue
-        dispatch_scheduled_jobs_cron_task.func()
+    with patch.object(ScheduledJob, "_do_update", _do_update):
+        _dispatch(denied=can_run)
 
     healthy.refresh_from_db()
     denied.refresh_from_db()

@@ -488,7 +488,7 @@ class TestScheduleDispatchFailedRenderer:
         _text, attachments = ScheduleDispatchFailedRenderer().render(self._notification(repo_ids=["a/b", "c/d"]))
 
         fields = _fields_by_title(attachments[0])
-        assert fields["Repositories"] == "a/b, c/d"
+        assert fields["Repositories"] == "a/b · c/d"
         assert "Repository" not in fields
 
     def test_the_explanation_rides_the_attachment_text(self):

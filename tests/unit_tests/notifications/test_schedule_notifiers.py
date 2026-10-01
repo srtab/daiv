@@ -88,7 +88,6 @@ class TestRecipients:
         assert list(Notification.objects.values_list("recipient", flat=True)) == [member_user.pk]
 
     def test_a_muted_schedule_still_notifies(self, failing_schedule):
-        # Mute silences run results; a schedule that can't run at all is a different, actionable problem.
         failing_schedule.muted = True
         failing_schedule.save(update_fields=["muted"])
 
@@ -158,6 +157,8 @@ class TestPayload:
 
         ctx = Notification.objects.get().context
         assert ctx["status_tone"] == "failure"
+        assert ctx["trigger_name"] == "RT Daily Report"
+        assert ctx["repo_id"] == "sfr/rt-daily-report"
         assert ctx["repo_ids"] == ["sfr/rt-daily-report"]
         assert ctx["reason"] == "Couldn't confirm the owner's write access to sfr/rt-daily-report"
         assert ctx["last_run"] == date_format(timezone.localtime(failing_schedule.last_run_at), "M j, H:i")

@@ -240,7 +240,7 @@ def _render_batch_payload(
     return subject, body, context
 
 
-def _notification_exists(recipient, source_type: str, source_id: str, event_type) -> bool:
+def notification_exists(recipient, source_type: str, source_id: str, event_type) -> bool:
     from notifications.models import Notification
 
     return Notification.objects.filter(
@@ -274,7 +274,7 @@ def deliver_to_recipients(
             )
         except IntegrityError:
             key = f"{source_type}={source_id}"
-            if _notification_exists(recipient, source_type, source_id, event_type):
+            if notification_exists(recipient, source_type, source_id, event_type):
                 logger.debug("Notification already exists for %s recipient_pk=%s (raced/re-driven)", key, pk)
             else:
                 logger.exception("Unexpected IntegrityError creating notification for %s recipient pk=%s", key, pk)
