@@ -357,3 +357,26 @@ msgstr "Não foi possível ler o nome de utilizador do bot do Telegram: %(err)s"
 #, python-format
 msgid "Could not register the Telegram webhook: %(err)s"
 msgstr "Não foi possível registar o webhook do Telegram: %(err)s"
+
+msgid "Schedule can't run"
+msgstr "Agendamento não pode ser executado"
+
+#, python-brace-format
+msgid "Schedule \"{name}\" can't run"
+msgstr "O agendamento \"{name}\" não pode ser executado"
+
+#, python-brace-format
+msgid "Its last scheduled run was skipped because you don't have write access to {repos}."
+msgstr "A última execução agendada foi ignorada porque não tem acesso de escrita a {repos}."
+
+msgid "Its last scheduled run couldn't start because of an unexpected error. The error was logged for the DAIV operators."
+msgstr "A última execução agendada não arrancou devido a um erro inesperado. O erro foi registado para os operadores do DAIV."
+
+msgid "It was a one-off, so it won't run again. Once this is fixed, duplicate the schedule to run it."
+msgstr "Era um agendamento único, por isso não volta a ser executado. Depois de corrigido, duplique o agendamento para o executar."
+
+msgid "DAIV keeps trying at each scheduled time. You won't get this message again unless the schedule recovers and then fails again."
+msgstr "O DAIV continua a tentar em cada hora agendada. Não voltará a receber esta mensagem, a menos que o agendamento recupere e volte a falhar."
+
+msgid "Can't run"
+msgstr "Não pode ser executado"

@@ -13,6 +13,7 @@ logger = logging.getLogger("daiv.notifications")
 SOURCE_RUN = "sessions.Run"
 SOURCE_BATCH = "sessions.Batch"
 SOURCE_SESSION = "sessions.Session"
+SOURCE_SCHEDULE = "schedules.ScheduledJob"
 
 
 def is_schedule_run(run) -> bool:
@@ -96,6 +97,11 @@ def notification_source_for_watch(session, pipeline_id: int) -> tuple[str, str, 
     can be re-armed with a fresh budget, so a thread-only key would mute every later give-up.
     """
     return SOURCE_SESSION, f"{session.thread_id}:{pipeline_id}", EventType.PIPELINE_WATCH_EXHAUSTED
+
+
+def notification_source_for_schedule_failure(schedule) -> tuple[str, str, EventType]:
+    """The key a schedule's dispatch failure is deduped on: one notice per failing streak."""
+    return SOURCE_SCHEDULE, f"{schedule.pk}:{schedule.failing_since.isoformat()}", EventType.SCHEDULE_DISPATCH_FAILED
 
 
 def batch_status_tone(notable: int, total: int) -> str:

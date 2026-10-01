@@ -1,7 +1,7 @@
 {% load icon_tags %}
 <div id="schedule-{{ schedule.pk }}"
      class="relative flex flex-col rounded-2xl border bg-white/[0.02] p-5 transition
-            {% if schedule.is_enabled %}border-white/[0.06] hover:border-white/[0.12]{% else %}border-white/[0.04] hover:border-white/[0.06]{% endif %}">
+            {% if schedule.is_enabled and schedule.failing_since %}border-red-900/50 hover:border-red-800/60{% elif schedule.is_enabled %}border-white/[0.06] hover:border-white/[0.12]{% else %}border-white/[0.04] hover:border-white/[0.06]{% endif %}">
     {% if not schedule.is_fired_one_off %}
     <a href="{% url 'schedule_update' schedule.pk %}"
        class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
@@ -58,6 +58,10 @@
         <span class="inline-flex items-center gap-1 rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">
             <span class="h-1.5 w-1.5 rounded-full bg-gray-500"></span>Fired
         </span>
+        {% elif schedule.is_enabled and schedule.failing_since %}
+        <span class="inline-flex items-center gap-1 rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300">
+            <span class="h-1.5 w-1.5 rounded-full bg-red-400"></span>Failing
+        </span>
         {% elif schedule.is_enabled %}
         <span class="inline-flex items-center gap-1 rounded-full bg-emerald-900/40 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
             <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>Active
@@ -90,6 +94,12 @@
     </p>
 
     <div class="mt-auto space-y-1 pt-3 text-xs text-gray-500">
+        {% if schedule.failing_since %}
+        <p class="flex items-start gap-1.5 text-red-300/90">
+            {% icon "exclamation-triangle" "mt-px h-3.5 w-3.5 shrink-0" %}
+            <span class="min-w-0 break-words">{{ schedule.dispatch_error_message }}</span>
+        </p>
+        {% endif %}
         {% if schedule.next_run_at %}
         <p>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</p>
         {% endif %}

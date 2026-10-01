@@ -25,6 +25,10 @@
     </p>
 </div>
 
+        {% if object.failing_since %}
+        {% include "schedules/_dispatch_failure_banner.html" with schedule=object %}
+        {% endif %}
+
         {% if not object and not schedule_templates %}
         <div class="mt-6 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
             <div>

@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
+from notifications.choices import EventType
+from notifications.models import Notification
 from sessions.models import Run, SessionOrigin
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import DispatchError, Frequency, ScheduledJob
 from schedules.tasks import dispatch_scheduled_jobs_cron_task
 
 
@@ -391,3 +393,59 @@ def test_dispatch_skips_once_schedule_of_inactive_owner_without_retiring(member_
     assert schedule.is_enabled is True
     assert schedule.next_run_at == past
     assert schedule.run_count == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_unexpected_error_records_the_failure_and_notifies(member_user):
+    past = datetime.now(tz=UTC) - timedelta(minutes=1)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="daily",
+        prompt="do stuff",
+        repos=[{"repo_id": "acme/repo", "ref": ""}],
+        frequency="daily",
+        time="09:00",
+        is_enabled=True,
+        next_run_at=past,
+    )
+
+    with patch("sessions.services.submit_batch_runs", side_effect=RuntimeError("boom")):
+        dispatch_scheduled_jobs_cron_task.func()
+
+    schedule.refresh_from_db()
+    assert schedule.dispatch_error == DispatchError.UNEXPECTED
+    assert schedule.dispatch_error_repo_ids == []
+    assert schedule.failing_since is not None
+    assert (
+        Notification.objects.filter(event_type=EventType.SCHEDULE_DISPATCH_FAILED, recipient=member_user).count() == 1
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_successful_dispatch_ends_the_failing_streak(member_user):
+    past = datetime.now(tz=UTC) - timedelta(minutes=1)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="daily",
+        prompt="do stuff",
+        repos=[{"repo_id": "acme/repo", "ref": ""}],
+        frequency="daily",
+        time="09:00",
+        is_enabled=True,
+        next_run_at=past,
+        failing_since=past - timedelta(days=3),
+        dispatch_error=DispatchError.REPO_ACCESS_DENIED,
+        dispatch_error_repo_ids=["acme/repo"],
+    )
+
+    with patch("sessions.services.run_job_task") as mock_task:
+
+        async def _aenqueue(**kwargs):
+            return await _amake_task_result()
+
+        mock_task.aenqueue.side_effect = _aenqueue
+        dispatch_scheduled_jobs_cron_task.func()
+
+    schedule.refresh_from_db()
+    assert schedule.run_count == 1
+    assert (schedule.failing_since, schedule.dispatch_error, schedule.dispatch_error_repo_ids) == (None, "", [])

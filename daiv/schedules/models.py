@@ -51,6 +51,11 @@ class Intent(models.TextChoices):
         return frozenset({cls.WATCH_FIND, cls.DO_CHANGE})
 
 
+class DispatchError(models.TextChoices):
+    REPO_ACCESS_DENIED = "repo_access_denied", _("No repository access")
+    UNEXPECTED = "unexpected", _("Unexpected error")
+
+
 # The template→job copy set. ``ScheduledJob.DUPLICABLE_FIELDS`` is the job→job one, and is a
 # superset: templates have no ``run_at`` or ``sandbox_environment`` column.
 _TEMPLATE_SHARED_FIELDS = (
@@ -174,6 +179,13 @@ class ScheduledJob(TimeStampedModel):
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
+    failing_since = models.DateTimeField(
+        _("failing since"), null=True, blank=True, help_text=_("Start of the current run of failed dispatches.")
+    )
+    dispatch_error = models.CharField(
+        _("dispatch error"), max_length=32, choices=DispatchError.choices, blank=True, default=""
+    )
+    dispatch_error_repo_ids = models.JSONField(_("dispatch error repositories"), default=list, blank=True)
     muted = models.BooleanField(_("muted"), default=False, help_text=_("Mute notifications for this schedule."))
     intent = models.CharField(
         _("intent"),
@@ -223,6 +235,7 @@ class ScheduledJob(TimeStampedModel):
         ]
 
     DUPLICABLE_FIELDS = (*_TEMPLATE_SHARED_FIELDS, "run_at", "sandbox_environment")
+    DISPATCH_FAILURE_FIELDS = ("failing_since", "dispatch_error", "dispatch_error_repo_ids")
 
     def to_schedule_kwargs(self) -> dict:
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
@@ -245,6 +258,34 @@ class ScheduledJob(TimeStampedModel):
             return ["is_enabled", "next_run_at"]
         self.compute_next_run(after=after)
         return ["next_run_at"]
+
+    def record_dispatch_failure(
+        self, error: DispatchError, *, at: datetime, repo_ids: list[str] | None = None
+    ) -> list[str]:
+        """Record a failed dispatch, returning the mutated field names.
+
+        ``failing_since`` keeps the first failure of the streak so the owner is told once per streak.
+        """
+        if self.failing_since is None:
+            self.failing_since = at
+        self.dispatch_error = error
+        self.dispatch_error_repo_ids = list(repo_ids or [])
+        return list(self.DISPATCH_FAILURE_FIELDS)
+
+    def clear_dispatch_failure(self) -> list[str]:
+        """End the failing streak after a successful dispatch, returning the mutated field names."""
+        self.failing_since = None
+        self.dispatch_error = ""
+        self.dispatch_error_repo_ids = []
+        return list(self.DISPATCH_FAILURE_FIELDS)
+
+    @property
+    def dispatch_error_message(self) -> str:
+        if self.dispatch_error == DispatchError.REPO_ACCESS_DENIED:
+            return _("Owner has no write access to {repos}").format(repos=", ".join(self.dispatch_error_repo_ids))
+        if self.dispatch_error == DispatchError.UNEXPECTED:
+            return str(_("The last run couldn't start because of an unexpected error"))
+        return ""
 
     def __str__(self) -> str:
         return self.name

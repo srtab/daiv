@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import pytest
 
-from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.mark.django_db
@@ -336,3 +336,54 @@ def test_scheduledjob_mcp_overrides_defaults_to_empty_dict(member_user):
         user=member_user, name="n", prompt="p", repos=[{"repo_id": "g/r", "ref": ""}], frequency=Frequency.HOURLY
     )
     assert job.mcp_overrides == {}
+
+
+class TestScheduledJobDispatchFailure:
+    @staticmethod
+    def _job(**overrides):
+        return ScheduledJob(name="s", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], **overrides)
+
+    def test_first_failure_starts_the_streak(self):
+        job = self._job()
+        at = timezone.now()
+
+        job.record_dispatch_failure(DispatchError.REPO_ACCESS_DENIED, at=at, repo_ids=["a/b"])
+
+        assert job.failing_since == at
+        assert job.dispatch_error == DispatchError.REPO_ACCESS_DENIED
+        assert job.dispatch_error_repo_ids == ["a/b"]
+
+    def test_a_later_failure_keeps_the_streak_start(self):
+        started = timezone.now() - timedelta(days=1)
+        job = self._job(failing_since=started, dispatch_error=DispatchError.REPO_ACCESS_DENIED)
+
+        job.record_dispatch_failure(DispatchError.UNEXPECTED, at=timezone.now())
+
+        assert job.failing_since == started
+        assert job.dispatch_error == DispatchError.UNEXPECTED
+        assert job.dispatch_error_repo_ids == []
+
+    def test_clearing_ends_the_streak(self):
+        job = self._job(
+            failing_since=timezone.now(),
+            dispatch_error=DispatchError.REPO_ACCESS_DENIED,
+            dispatch_error_repo_ids=["a/b"],
+        )
+
+        fields = job.clear_dispatch_failure()
+
+        assert (job.failing_since, job.dispatch_error, job.dispatch_error_repo_ids) == (None, "", [])
+        assert set(fields) == {"failing_since", "dispatch_error", "dispatch_error_repo_ids"}
+
+    def test_access_denied_message_names_the_denied_repos(self):
+        job = self._job(dispatch_error=DispatchError.REPO_ACCESS_DENIED, dispatch_error_repo_ids=["a/b", "c/d"])
+
+        assert job.dispatch_error_message == "Owner has no write access to a/b, c/d"
+
+    def test_unexpected_error_message_hides_the_exception(self):
+        job = self._job(dispatch_error=DispatchError.UNEXPECTED)
+
+        assert job.dispatch_error_message == "The last run couldn't start because of an unexpected error"
+
+    def test_healthy_schedule_has_no_message(self):
+        assert self._job().dispatch_error_message == ""

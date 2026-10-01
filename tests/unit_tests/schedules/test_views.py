@@ -1,5 +1,5 @@
 import uuid
-from datetime import time
+from datetime import UTC, datetime, time
 from unittest import mock
 
 from django.test import Client
@@ -10,7 +10,7 @@ from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import User
-from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
+from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture
@@ -921,3 +921,73 @@ class TestScheduleViewsEnvContext:
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert response.status_code == 200
         assert response.context["selected_sandbox_env_id"] == str(env.id)
+
+
+@pytest.mark.django_db
+class TestScheduleFailingState:
+    @staticmethod
+    def _fail(schedule, error=DispatchError.REPO_ACCESS_DENIED, repo_ids=("owner/repo",), **fields):
+        schedule.failing_since = datetime(2026, 10, 1, 8, 30, tzinfo=UTC)
+        schedule.dispatch_error = error
+        schedule.dispatch_error_repo_ids = list(repo_ids)
+        for name, value in fields.items():
+            setattr(schedule, name, value)
+        schedule.save()
+        return schedule
+
+    def _card(self, client, schedule):
+        page = client.get(reverse("schedule_list")).content.decode()
+        return page[page.index(f'id="schedule-{schedule.pk}"') :]
+
+    def test_a_failing_schedule_card_shows_the_badge_and_reason(self, member_client, schedule):
+        self._fail(schedule)
+
+        card = self._card(member_client, schedule)
+
+        assert "Failing" in card
+        assert "Active" not in card
+        assert "Owner has no write access to owner/repo" in card
+
+    def test_a_healthy_schedule_card_stays_active(self, member_client, schedule):
+        card = self._card(member_client, schedule)
+
+        assert "Active" in card
+        assert "Failing" not in card
+
+    def test_a_paused_failing_schedule_reads_paused_but_keeps_the_reason(self, member_client, schedule):
+        self._fail(schedule, is_enabled=False)
+
+        card = self._card(member_client, schedule)
+
+        assert "Paused" in card
+        assert "Failing" not in card
+        assert "Owner has no write access to owner/repo" in card
+
+    def test_edit_page_explains_an_access_denial(self, member_client, schedule):
+        self._fail(schedule, last_run_at=datetime(2026, 7, 15, 8, 30, tzinfo=UTC))
+
+        page = member_client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
+
+        assert "This schedule can't run. It hasn't started a run since Jul 15." in page
+        assert "The owner, member@test.com, doesn't have write access to owner/repo." in page
+        assert "keeps trying at each scheduled time" in page
+
+    def test_edit_page_for_a_schedule_that_never_ran(self, member_client, schedule):
+        self._fail(schedule)
+
+        page = member_client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
+
+        assert "It hasn't started any runs yet." in page
+
+    def test_edit_page_explains_an_unexpected_error(self, member_client, schedule):
+        self._fail(schedule, error=DispatchError.UNEXPECTED, repo_ids=())
+
+        page = member_client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
+
+        assert "An unexpected error stopped the last run from starting." in page
+        assert "write access" not in page
+
+    def test_edit_page_of_a_healthy_schedule_has_no_banner(self, member_client, schedule):
+        page = member_client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
+
+        assert "This schedule can't run" not in page
