@@ -36,7 +36,7 @@ def _ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
     return SimpleNamespace(
         config=RepositoryConfig(),
-        repo=SimpleNamespace(ref="main"),
+        repo=SimpleNamespace(ref="main", clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,

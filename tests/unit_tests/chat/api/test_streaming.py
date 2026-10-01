@@ -24,6 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.models import Run
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
@@ -34,7 +35,7 @@ from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
-from tests.unit_tests.sessions.conftest import watch_recorder
+from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
 _TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
@@ -53,6 +54,7 @@ def _patch_run_lifecycle():
     with (
         patch("chat.api.streaming.start_chat_run", side_effect=_fake_start),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_fake_finalize),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
         # Chat's own usage summary; the executor's ``_after_run`` still builds one from the live handler.
         patch("chat.api.streaming.build_usage_summary", return_value=MagicMock(to_dict=lambda: None)),
     ):
@@ -1357,3 +1359,29 @@ class TestChatAfterRunMatrix:
 
         assert [event.type for event in events] == [EventType.RUN_ERROR, EventType.STATE_SNAPSHOT]
         assert calls == [("start",), ("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+
+
+class TestTurnMeasurements:
+    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` (which stubs the measurements
+    write) can be overridden here — the real ``_record_measurements`` must write to the DB.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_turn_records_its_clone_time_on_the_run_it_started(self):
+        await amake_job_session("t-stream")
+
+        with (
+            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            async for _ in _streamer().events():
+                pass
+
+        run = await Run.objects.aget(session_id="t-stream")
+        assert run.clone_seconds == 1.5

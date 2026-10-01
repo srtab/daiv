@@ -44,7 +44,9 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
     stack = SimpleNamespace(
         events=[],
         context_kwargs={},
-        ctx=ctx if ctx is not None else MagicMock(repo=SimpleNamespace(ref="main"), sandbox=None, sandbox_client=None),
+        ctx=ctx
+        if ctx is not None
+        else MagicMock(repo=SimpleNamespace(ref="main", clone_seconds=1.5), sandbox=None, sandbox_client=None),
         checkpointer=object(),
         armed=[],
         resolve=resolve or MagicMock(return_value=AGENT_KWARGS),

@@ -165,6 +165,7 @@ async def test_run_job_task_persists_resolved_model():
     agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
     runtime_ctx = MagicMock()
     runtime_ctx.config.models.agent = MagicMock()
+    runtime_ctx.repo.clone_seconds = 0.0
 
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
@@ -330,6 +331,7 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         rc_ctx.return_value.__aenter__.return_value = MagicMock(
             config=MagicMock(models=MagicMock(agent=object())), repo=SimpleNamespace(ref="main")

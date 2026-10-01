@@ -5,6 +5,8 @@ from django.db import IntegrityError
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from automation.agent.workspace.session import SandboxAcquisition
+
 pytestmark = pytest.mark.django_db
 
 
@@ -172,6 +174,13 @@ def test_active_constraint_literals_match_enums():
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
     assert set(conditions["trigger_type__in"]) == {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB}
+
+
+def test_sandbox_acquisition_column_fits_every_member():
+    """The column has no ``choices``, and the measurement write swallows a ``DataError``, so an overlong member
+    would silently drop every run's measurements."""
+    limit = Run._meta.get_field("sandbox_acquisition").max_length
+    assert max(len(member.value) for member in SandboxAcquisition) <= limit
 
 
 def test_session_origin_check_constraint_rejects_unknown_value():

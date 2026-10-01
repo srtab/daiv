@@ -99,8 +99,10 @@ class RunHooks:
     """Trigger callbacks.
 
     ``on_context_ready(ref)`` is awaited inside the run once the clone is ready and any fallback re-pin is done,
-    before the model is resolved; ``ref`` is the ref the clone landed on. An error it raises fails the run as a
-    setup error.
+    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that creates its ``Run`` there,
+    rather than naming it in ``spec.run_id``, returns the row's id: the executor binds it as the active run
+    (``bind_active_run``) and records the run's measurements on it, but records the resolved model only on
+    ``spec.run_id``. An error it raises fails the run as a setup error.
 
     ``on_success`` and ``on_failure`` are awaited after the run's context closes and while the session slot is still
     held. ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation
@@ -110,6 +112,6 @@ class RunHooks:
     reaches ``on_failure``.
     """
 
-    on_context_ready: Callable[[str], Awaitable[None]] | None = None
+    on_context_ready: Callable[[str], Awaitable[str | None]] | None = None
     on_success: Callable[[RunOutcome], Awaitable[None]] | None = None
     on_failure: FailureHook | None = None

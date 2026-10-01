@@ -22,7 +22,11 @@ async def _run_addressor(*, state_values: dict, run_id: str | None = None) -> Si
     """Drive an issue run to a clean finish over a canned final state; the seam under test is which post-run
     steps fire, not the agent itself."""
     agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]}, state_values=state_values)
-    with addressor_run(agent) as run, patch("sessions.executor.run._persist_resolved_agent", AsyncMock()):
+    with (
+        addressor_run(agent) as run,
+        patch("sessions.executor.run._persist_resolved_agent", AsyncMock()),
+        patch("sessions.executor.run._record_measurements", AsyncMock()),
+    ):
         await IssueAddressorManager.address_issue(
             repo_id="owner/repo", issue=Issue(id=1, iid=42, title="t", author=_AUTHOR, labels=["daiv"]), run_id=run_id
         )

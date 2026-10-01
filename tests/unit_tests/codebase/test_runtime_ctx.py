@@ -24,6 +24,7 @@ def _make_handle() -> RepoHandle:
         ref="main",
         current_ref="main",
         head_detached=False,
+        clone_seconds=0.0,
     )
 
 

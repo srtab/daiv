@@ -7,7 +7,7 @@ import httpx
 import pytest
 from sandbox_envs.spec import SandboxSpec
 
-from automation.agent.workspace.session import SandboxSession
+from automation.agent.workspace.session import SandboxAcquisition, SandboxSession
 from codebase.clients.base import GitEgressCredential
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
@@ -223,6 +223,7 @@ class TestAcquire:
         assert client.calls_to("close_session") == [(prior_id, True)]
         assert prior_id not in client.sessions
         assert session_id != prior_id
+        assert session.acquisition is SandboxAcquisition.ENV_CHANGED
 
     @pytest.mark.parametrize("stops", [1, 2])
     async def test_a_start_cancelled_in_flight_removes_the_container_it_still_creates(self, stops):
@@ -290,6 +291,69 @@ class TestAcquire:
         await _stop_in_flight(task, *in_flight, stops=1)
 
         assert client.sessions[prior_id].state == "stopped"
+
+
+class TestAcquisition:
+    async def test_a_fresh_session_has_acquired_nothing(self):
+        assert _session(FakeSandboxClient.opened()).acquisition is SandboxAcquisition.NOT_ACQUIRED
+
+    async def test_a_thread_without_a_container_gets_a_new_one(self):
+        session = _session(FakeSandboxClient.opened())
+
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+
+        assert session.acquisition is SandboxAcquisition.NEW
+
+    async def test_a_live_warm_container_is_reused(self):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, None)
+        session = _session(client)
+
+        session_id, _ = await session.acquire(
+            prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed()
+        )
+
+        assert (session_id, session.acquisition) == (prior_id, SandboxAcquisition.WARM)
+
+    @pytest.mark.parametrize("status", [404, None], ids=["reaped", "unconfirmed"])
+    async def test_a_container_that_is_gone_is_replaced(self, status):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, None)
+        client.fail("session_exists", status=status)
+        session = _session(client)
+
+        session_id, _ = await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+
+        assert session_id != prior_id
+        assert session.acquisition is SandboxAcquisition.GONE
+
+    async def test_a_container_that_refuses_the_runs_egress_is_replaced(self):
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, _started_egress("turn-start"))
+        client.fail("update_egress", status=409)
+        session = _session(client, credential=_credential("fresh", host="gitlab.com"))
+
+        await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+
+        assert session.acquisition is SandboxAcquisition.EGRESS_FAILED
+
+    async def test_it_outlives_the_release_for_the_runs_record(self):
+        session = _session(FakeSandboxClient.opened())
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+
+        await session.release(resumable=True)
+
+        assert session.acquisition is SandboxAcquisition.NEW
+
+    async def test_a_failed_acquire_stays_not_acquired(self):
+        client = FakeSandboxClient.opened()
+        client.fail("start_session", status=500)
+        session = _session(client)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+
+        assert session.acquisition is SandboxAcquisition.NOT_ACQUIRED
 
 
 def _cancel_after(client: FakeSandboxClient, method: str) -> None:

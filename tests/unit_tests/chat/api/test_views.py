@@ -50,6 +50,7 @@ def _mock_stream(*_args, **_kwargs):
     path without hitting Redis or cloning a repo.
     """
     inner = MagicMock()
+    inner.repo.clone_seconds = 0.0
     # Mirror the requested ref so the executor's fallback-ref guard (sessions.executor.run._agent_run) doesn't fire.
     if "ref" in _kwargs:
         inner.repo.ref = _kwargs["ref"]

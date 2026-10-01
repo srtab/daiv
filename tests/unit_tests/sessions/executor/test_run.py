@@ -251,6 +251,7 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
     with (
         agent_stack(_agent(state={"merge_request": MR, "published": True})) as stack,
         patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         await execute_run(spec)
 
@@ -329,18 +330,22 @@ async def test_a_spec_without_a_run_leaves_the_session_model_alone():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_db_error_during_model_persist_is_swallowed(caplog):
+@pytest.mark.parametrize("error", [None, RuntimeError("agent blew up")], ids=["succeeds", "fails"])
+async def test_a_db_error_while_writing_the_run_row_is_swallowed(caplog, error):
     session, run = await _job_run()
+    agent = _agent()
+    agent.ainvoke.side_effect = error
 
     with (
-        agent_stack(_agent()),
+        agent_stack(agent),
         patch.object(Run.objects, "filter", side_effect=RuntimeError("db connection failed")),
         caplog.at_level("ERROR", logger="daiv.sessions"),
+        pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext(),
     ):
-        outcome = await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
-    assert outcome.response_text == "done"
     assert "failed to persist resolved agent model" in caplog.text
+    assert "failed to record run measurements" in caplog.text
 
 
 async def test_a_failing_on_failure_hook_does_not_mask_the_run_error(caplog):
@@ -720,6 +725,28 @@ async def test_a_failing_on_context_ready_fails_the_run_before_any_agent_is_buil
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_run_started_on_context_ready_is_bound_and_measured():
+    """Chat creates its Run once the clone lands, so the hook, not the spec, names the row."""
+    session, run = await _job_run()
+    agent = _agent()
+    resolved = []
+
+    async def _ready(_ref):
+        return str(run.pk)
+
+    async def _invoke(*_args, **_kwargs):
+        resolved.append(await aresolve_active_run(session.thread_id))
+        return {"messages": [MagicMock(content="done")]}
+
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+    with agent_stack(agent):
+        await execute_run(make_spec(thread_id=session.thread_id), RunHooks(on_context_ready=_ready))
+
+    await run.arefresh_from_db()
+    assert (resolved, run.clone_seconds) == ([run], 1.5)
+
+
 async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     error = LookupError("Sandbox environment 'env-1' not found")
     on_failure = AsyncMock()
@@ -736,15 +763,15 @@ async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
 def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None) -> MagicMock:
     """The stubbed clone's ``RuntimeCtx`` for a sandbox run: its spec, its open client and its credential source."""
     return MagicMock(
-        repo=SimpleNamespace(ref="main"),
+        repo=SimpleNamespace(ref="main", clone_seconds=2.5),
         sandbox=sandbox_spec(),
         sandbox_client=client,
         credential_source=credential_source,
     )
 
 
-async def _acquire(session, prior_id: str) -> None:
-    await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=AsyncMock())
+async def _acquire(session, prior_id: str | None) -> None:
+    await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None)))
 
 
 def _archive() -> bytes:
@@ -814,10 +841,7 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     with agent_stack(agent, ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))) as stack:
 
         async def _invoke(*_args, **_kwargs):
-            session = stack.create_agent.await_args.kwargs["workspace"].session
-            await session.acquire(
-                prior_id=None, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None))
-            )
+            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, None)
             return {"messages": [MagicMock(content="done")]}
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
@@ -878,6 +902,82 @@ async def test_a_failing_sandbox_release_still_closes_the_context(caplog):
 
     assert stack.events[-1] == "context exited"
     assert "failed to release the sandbox session" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_disk_run_records_its_clone_time_and_no_sandbox():
+    session, run = await _job_run()
+
+    with agent_stack(_agent()):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.clone_seconds, run.sandbox_acquisition) == (1.5, "")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("error", [None, RuntimeError("agent blew up")], ids=["succeeds", "fails"])
+async def test_a_sandbox_run_records_how_it_got_its_container(error):
+    session, run = await _job_run()
+    client = FakeSandboxClient.opened()
+    agent = _agent()
+
+    with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
+
+        async def _invoke(*_args, **_kwargs):
+            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, None)
+            if error is not None:
+                raise error
+            return {"messages": [MagicMock(content="done")]}
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext():
+            await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "new")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_sandbox_run_that_never_acquires_a_container_is_recorded_as_not_acquired():
+    session, run = await _job_run()
+
+    with agent_stack(_agent(), ctx=_sandbox_ctx(FakeSandboxClient.opened())):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "not_acquired")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_release_cancelled_by_a_repeated_stop_still_records_the_measurements():
+    session, run = await _job_run()
+
+    with (
+        agent_stack(_agent(), ctx=_sandbox_ctx(FakeSandboxClient.opened())),
+        patch("sessions.executor.run._release_sandbox", AsyncMock(side_effect=asyncio.CancelledError)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "not_acquired")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_run_row_that_is_gone_is_logged_not_raised(caplog):
+    with agent_stack(_agent()), caplog.at_level("ERROR", logger="daiv.sessions"):
+        outcome = await execute_run(make_spec(run_id=str(uuid.uuid4())))
+
+    assert outcome.response_text == "done"
+    assert "no Run row" in caplog.text
+
+
+async def test_a_spec_without_a_run_records_no_measurements():
+    with agent_stack(_agent()), patch.object(Run.objects, "filter") as runs:
+        await execute_run(make_spec())
+
+    runs.assert_not_called()
 
 
 def _stream(*events, error: Exception | None = None):

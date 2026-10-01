@@ -247,11 +247,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
         workspace = _build_workspace(ctx)
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
+        run_id = spec.run_id
         try:
             if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
-                await hooks.on_context_ready(ctx.repo.ref)
+                started_run_id = await hooks.on_context_ready(ctx.repo.ref)
+                run_id = run_id or started_run_id
             agent_kwargs: dict[str, Any]
             if spec.model_names:
                 agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
@@ -281,7 +283,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},
             )
-            with track_usage_metadata() as usage, bind_active_run(spec.run_id):
+            with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
                     ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id, workspace=workspace
                 )
@@ -291,8 +293,11 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                     handed_over = await _handed_over(run)
                     raise
         finally:
-            if workspace.session is not None and not handed_over:
-                await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+            try:
+                if workspace.session is not None and not handed_over:
+                    await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+            finally:
+                await _record_measurements(run_id, ctx, workspace)
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:
@@ -439,6 +444,22 @@ async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: 
         await Session.objects.filter(pk=spec.thread_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
+
+
+async def _record_measurements(run_id: str | None, ctx: RuntimeCtx, workspace: Workspace) -> None:
+    """Record the run's clone time and sandbox acquisition on its ``Run``; empty for a disk run, ``NOT_ACQUIRED`` for a
+    sandbox run that held no container. Temporary, read by operators only. Best-effort: a failed write is logged."""
+    if not run_id:
+        return
+    acquisition = "" if workspace.session is None else workspace.session.acquisition
+    try:
+        updated = await Run.objects.filter(pk=run_id).aupdate(
+            clone_seconds=ctx.repo.clone_seconds, sandbox_acquisition=acquisition
+        )
+        if not updated:
+            logger.error("executor: no Run row %s to record run measurements on", run_id)
+    except Exception:
+        logger.exception("executor: failed to record run measurements for run_id=%s", run_id)
 
 
 async def _notify_failure(

@@ -345,6 +345,8 @@ class Run(models.Model):
     total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
     cost_usd = models.DecimalField(_("cost (USD)"), max_digits=10, decimal_places=6, null=True, blank=True)
     usage_by_model = models.JSONField(_("usage by model"), null=True, blank=True)
+    clone_seconds = models.FloatField(_("clone seconds"), null=True, blank=True)
+    sandbox_acquisition = models.CharField(_("sandbox acquisition"), max_length=16, blank=True, default="")
 
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)

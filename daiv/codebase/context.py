@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable  # noqa: TC003
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import TYPE_CHECKING, Any, cast
 
 from asgiref.sync import sync_to_async
@@ -50,6 +51,8 @@ class RepoHandle:
     never a tag name. Read this, not the clone's live HEAD, which a sandbox run's git never moves."""
     head_detached: bool
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
+    clone_seconds: float
+    """How long the worker took to clone the repository; both attempts count when the fallback ran."""
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,7 @@ async def set_runtime_ctx(
         sandbox_client = DAIVSandboxClient()
         await sandbox_client.open()
 
+    clone_started = monotonic()
     try:
         with _load_repo_with_optional_fallback(
             repo_client, repository, ref, cast("str", config.default_branch), fallback_ref_on_missing
@@ -232,6 +236,7 @@ async def set_runtime_ctx(
                 ref=effective_ref,
                 current_ref=get_repo_ref(repo),
                 head_detached=repo.head.is_detached,
+                clone_seconds=monotonic() - clone_started,
             )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,

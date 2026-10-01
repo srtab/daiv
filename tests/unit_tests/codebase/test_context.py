@@ -342,3 +342,43 @@ async def test_set_runtime_ctx_assembles_references_for_issue_scope():
             ) as ctx:
                 # The derived issue ref leads so a declared duplicate can't demote the auto-close.
                 assert ctx.references == (duplicate_issue_ref, sentry_ref)
+
+
+async def test_the_handle_records_how_long_the_clone_took():
+    with _context_deps(), patch("codebase.context.monotonic", side_effect=[100.0, 102.5]):
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            assert ctx.repo.clone_seconds == 2.5
+
+
+async def test_a_fallback_clone_is_timed_across_both_attempts():
+    """The clock starts before the first attempt, so the vanished ref's failed clone (3s) counts toward
+    ``clone_seconds`` alongside the fallback's (1s): 4s, not the fallback's 1s alone.
+    """
+    clock = [100.0]
+
+    def _gone_after_3s():
+        clock[0] += 3.0
+        raise CloneRefNotFoundError("gone", "r/p")
+
+    def _cloned_after_1s():
+        clock[0] += 1.0
+        return MagicMock()
+
+    gone = MagicMock()
+    gone.__enter__ = MagicMock(side_effect=_gone_after_3s)
+    fallback = MagicMock()
+    fallback.__enter__ = MagicMock(side_effect=_cloned_after_1s)
+    repo_client = _repo_client()
+    repo_client.load_repo.side_effect = [gone, fallback]
+
+    with _context_deps(repo_client), patch("codebase.context.monotonic", side_effect=lambda: clock[0]):
+        async with set_runtime_ctx(
+            "repo-1",
+            scope=RepoScope.GLOBAL,
+            ref="gone",
+            fallback_ref_on_missing=True,
+            sandbox_spec=sandbox_spec(base_image=None),
+        ) as ctx:
+            assert (ctx.repo.ref, ctx.repo.clone_seconds) == ("main", 4.0)
+
+    assert repo_client.load_repo.call_count == 2
