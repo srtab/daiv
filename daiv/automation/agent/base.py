@@ -67,6 +67,8 @@ CLAUDE_ADAPTIVE_THINKING_MODELS = tuple(
 # they ever diverge, give this its own column in ``_CLAUDE_MODELS``.
 CLAUDE_NO_TEMPERATURE_MODELS = CLAUDE_ADAPTIVE_THINKING_MODELS
 
+OPENAI_GPT6_MODELS = ("gpt-6", "openai/gpt-6")
+
 OPENAI_THINKING_MODELS = (
     "gpt-5.2",
     "gpt-5.3-codex",
@@ -78,15 +80,18 @@ OPENAI_THINKING_MODELS = (
     "openai/gpt-5.4",
     "openai/gpt-5.5",
     "openai/gpt-5.6",
+    *OPENAI_GPT6_MODELS,
 )
+
+# GPT-6 rejects ``temperature`` with a 400; langchain-openai only strips it for ``gpt-5*``.
+NO_TEMPERATURE_MODELS = (*CLAUDE_NO_TEMPERATURE_MODELS, *OPENAI_GPT6_MODELS)
 
 ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
-# Anthropic's ``output_config.effort`` scale. Our ThinkingLevel adds ``minimal``, which
-# has no upstream equivalent — down-map it to ``low`` (the same treatment ``xhigh`` gets
-# on the native OpenAI path). ``max`` is intentionally unused: nothing maps to it.
-_ANTHROPIC_EFFORT_BY_LEVEL = {
+# Shared by Anthropic's ``output_config.effort`` and OpenAI's ``reasoning_effort``: neither
+# accepts our ``minimal``, so it down-maps to ``low``. ``max`` is intentionally unused.
+_EFFORT_BY_LEVEL = {
     ThinkingLevel.MINIMAL: "low",
     ThinkingLevel.LOW: "low",
     ThinkingLevel.MEDIUM: "medium",
@@ -96,8 +101,8 @@ _ANTHROPIC_EFFORT_BY_LEVEL = {
 
 # Import-time parity guard, mirroring _OPENROUTER_ANTHROPIC_MAX_TOKENS below: a new
 # ThinkingLevel without an effort mapping would crash mid-request with a bare KeyError.
-assert set(ThinkingLevel) == _ANTHROPIC_EFFORT_BY_LEVEL.keys(), (
-    f"_ANTHROPIC_EFFORT_BY_LEVEL missing entries for {set(ThinkingLevel) - _ANTHROPIC_EFFORT_BY_LEVEL.keys()}"
+assert set(ThinkingLevel) == _EFFORT_BY_LEVEL.keys(), (
+    f"_EFFORT_BY_LEVEL missing entries for {set(ThinkingLevel) - _EFFORT_BY_LEVEL.keys()}"
 )
 
 
@@ -138,7 +143,7 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
         # ``output_config.effort`` and takes precedence over any output_config we or
         # with_structured_output pass, so it can't be clobbered by the ``format`` key.
         kw["thinking"] = {"type": "adaptive", "display": "summarized"}
-        kw["effort"] = _ANTHROPIC_EFFORT_BY_LEVEL[thinking_level]
+        kw["effort"] = _EFFORT_BY_LEVEL[thinking_level]
     else:
         # Anthropic requires temperature=1 when manual thinking is enabled.
         kw["temperature"] = 1
@@ -148,10 +153,7 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
 def _apply_openai_reasoning(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
     if thinking_level and model_name.startswith(OPENAI_THINKING_MODELS):
         kw["temperature"] = 1
-        # OpenAI's native ``reasoning_effort`` accepts minimal/low/medium/high but
-        # not xhigh — downmap to high, matching OpenRouter's documented Gemini
-        # behaviour for the same level.
-        kw["reasoning_effort"] = ThinkingLevel.HIGH if thinking_level == ThinkingLevel.XHIGH else thinking_level
+        kw["reasoning_effort"] = _EFFORT_BY_LEVEL[thinking_level]
 
 
 # OpenRouter derives ``budget_tokens`` server-side from ``max_tokens`` for Anthropic
@@ -197,10 +199,10 @@ def _apply_temperature_support(kw: dict, model_name: str) -> None:
     """Drop ``temperature`` for models that no longer accept it.
 
     The base kwargs always seed ``temperature`` (and the thinking helpers may override
-    it to ``1``), but Opus 4.7 and every later generation removed the sampling parameters
-    and reject any request that includes them. Run this last so it wins over every
-    provider/thinking branch and any caller-supplied ``temperature``."""
-    if model_name.startswith(CLAUDE_NO_TEMPERATURE_MODELS):
+    it to ``1``), but Opus 4.7+ and GPT-6 removed the sampling parameters and reject any
+    request that includes them. Run this last so it wins over every provider/thinking
+    branch and any caller-supplied ``temperature``."""
+    if model_name.startswith(NO_TEMPERATURE_MODELS):
         kw.pop("temperature", None)
 
 
@@ -271,7 +273,7 @@ def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
 
 
 _BARE_NAME_HEURISTICS = (
-    (("gpt-4", "gpt-5", "o4"), ProviderType.OPENAI.value),
+    (("gpt-4", "gpt-5", "gpt-6", "o4"), ProviderType.OPENAI.value),
     (("claude",), ProviderType.ANTHROPIC.value),
     (("gemini",), ProviderType.GOOGLE_GENAI.value),
 )

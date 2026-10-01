@@ -60,6 +60,7 @@ class TestParseModelSpec:
 
     def test_parse_bare_name_heuristic(self):
         assert parse_model_spec("gpt-5.4").row.slug == "openai"
+        assert parse_model_spec("gpt-6-luna").row.slug == "openai"
         assert parse_model_spec("claude-haiku-4-5").row.slug == "anthropic"
         assert parse_model_spec("gemini-2.5-pro").row.slug == "google_genai"
 
@@ -87,6 +88,7 @@ class TestParseModelSpec:
             "openrouter:anthropic/claude-sonnet-4.6",
             "claude-haiku-4-5",
             "gpt-5.4",
+            "gpt-6-luna",
             "gemini-2.5-pro",
             "o4-mini",
         ],
@@ -153,6 +155,25 @@ class TestGetModelKwargs:
         must be stripped — covers direct-Anthropic and OpenRouter slug forms. See Sentry DAIV-9P."""
         Provider.objects.create(slug=slug, display_name=slug, provider_type=provider_type, api_key="sk")
         kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"{slug}:{model_name}"))
+        assert kw["model"] == model_name
+        assert "temperature" not in kw
+
+    @pytest.mark.parametrize(
+        ("slug", "model_name", "thinking_level"),
+        [
+            ("openai", "gpt-6-luna", None),
+            ("openai", "gpt-6-sol", ThinkingLevelChoices.MEDIUM),
+            ("openrouter", "openai/gpt-6-luna", None),
+            ("openrouter", "openai/gpt-6-sol", ThinkingLevelChoices.MEDIUM),
+        ],
+    )
+    def test_gpt6_omits_temperature(self, slug, model_name, thinking_level):
+        """GPT-6 models reject ``temperature`` outright, and langchain-openai only strips it
+        for ``gpt-5*``. See Sentry DAIV-CK."""
+        self._enable_seed(slug, "sk")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec(f"{slug}:{model_name}"), thinking_level=thinking_level
+        )
         assert kw["model"] == model_name
         assert "temperature" not in kw
 
@@ -351,14 +372,24 @@ class TestGetModelKwargs:
         assert kw["temperature"] == 1
         assert kw["reasoning_effort"] == ThinkingLevelChoices.LOW
 
-    def test_openai_xhigh_downmap_to_high(self):
-        """OpenAI's native ``reasoning_effort`` rejects ``xhigh``; we downmap to ``high``
-        rather than surfacing a 4xx from the upstream call."""
+    @pytest.mark.parametrize("model_name", ["gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-6-sol"])
+    @pytest.mark.parametrize(
+        ("thinking_level", "expected_effort"),
+        [
+            # No thinking-enabled OpenAI model accepts ``minimal``; all of them accept ``xhigh``.
+            (ThinkingLevelChoices.MINIMAL, "low"),
+            (ThinkingLevelChoices.LOW, "low"),
+            (ThinkingLevelChoices.MEDIUM, "medium"),
+            (ThinkingLevelChoices.HIGH, "high"),
+            (ThinkingLevelChoices.XHIGH, "xhigh"),
+        ],
+    )
+    def test_openai_effort_mapping(self, model_name, thinking_level, expected_effort):
         self._enable_seed("openai", "sk-o")
         kw = BaseAgent.get_model_kwargs(
-            resolved=parse_model_spec("openai:gpt-5.3-codex"), thinking_level=ThinkingLevelChoices.XHIGH
+            resolved=parse_model_spec(f"openai:{model_name}"), thinking_level=thinking_level
         )
-        assert kw["reasoning_effort"] == ThinkingLevelChoices.HIGH
+        assert kw["reasoning_effort"] == expected_effort
 
     def test_anthropic_xhigh_budget(self):
         """xhigh on direct Anthropic stays at the Sonnet/Haiku 64K cap — the level
@@ -401,9 +432,7 @@ class TestGetModelKwargs:
     @pytest.mark.parametrize(
         ("thinking_level", "expected_effort"),
         [
-            # Anthropic's effort scale has no ``minimal`` — sending it verbatim would 400,
-            # so it down-maps to ``low``. ``xhigh`` is a real level here, unlike on the
-            # native OpenAI path, so it passes through undowmapped.
+            # Anthropic's effort scale has no ``minimal`` — sending it verbatim would 400.
             (ThinkingLevelChoices.MINIMAL, "low"),
             (ThinkingLevelChoices.LOW, "low"),
             (ThinkingLevelChoices.MEDIUM, "medium"),

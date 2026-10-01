@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import pytest
 from langchain.messages import AIMessage
 
+from automation.agent.base import _BARE_NAME_HEURISTICS
 from automation.agent.constants import ModelName
 
 if TYPE_CHECKING:
@@ -72,13 +73,11 @@ _PROVIDER_ENV_VAR = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
-_BARE_PREFIX_TO_SLUG = ((("gpt-4", "gpt-5", "o4"), "openai"), (("claude",), "anthropic"), (("gemini",), "google_genai"))
-
 
 def _resolve_provider_slug(model_spec: str) -> str:
     if ":" in model_spec:
         return model_spec.split(":", 1)[0]
-    for prefixes, slug in _BARE_PREFIX_TO_SLUG:
+    for prefixes, slug in _BARE_NAME_HEURISTICS:
         if model_spec.startswith(prefixes):
             return slug
     return model_spec
