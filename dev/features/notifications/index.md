@@ -10,13 +10,14 @@ DAIV classifies every finished run and notifies only when the outcome warrants i
 
 A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
-There are three event types:
+There are four event types for runs and schedules:
 
-| Event                                         | When it fires                                                                                                                                   | Recipients                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Job finished** (`job.finished`)             | A single agent run finishes with a notify-worthy classification                                                                                 | The user who started the run                                                                                                       |
-| **Job batch finished** (`job_batch.finished`) | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                           | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
-| **Schedule finished** (`schedule.finished`)   | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification | The schedule owner and its subscribers                                                                                             |
+| Event                                               | When it fires                                                                                                                                                                             | Recipients                                                                                                                         |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Job finished** (`job.finished`)                   | A single agent run finishes with a notify-worthy classification                                                                                                                           | The user who started the run                                                                                                       |
+| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                                                                     | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
+| **Schedule finished** (`schedule.finished`)         | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification                                           | The schedule owner and its subscribers                                                                                             |
+| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. Sent once per failing streak, even when the schedule is muted | The schedule owner                                                                                                                 |
 
 Batches collapse into one message
 
@@ -74,11 +75,11 @@ Single-run messages end with the run's summary — for a run waiting for an answ
 
 Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
 **Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
-Muting a schedule produces full silence. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
+Muting a schedule silences its runs completely. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
 
 ## Connecting Rocket Chat
 

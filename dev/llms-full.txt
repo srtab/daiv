@@ -2476,7 +2476,7 @@ Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 | **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                                                                                                                                                                   |
 | **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                                                                                                                                                                                  |
 | **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                                                                                                                                                                         |
-| **Mute**                | When checked, silences all notifications for this schedule's runs (bell and external channels). Off by default — notifications fire automatically on notify-worthy outcomes                                                                                                                                                                                                            |
+| **Mute**                | When checked, silences all notifications for this schedule's runs (bell and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice                                                                                                                           |
 | **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                                                                                                                                                                       |
 | **Sandbox environment** | The named [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                                                                                                                                                                     |
 
@@ -2528,7 +2528,7 @@ sequenceDiagram
 
 Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch if the dispatcher overlaps, and each schedule is processed in its own database savepoint so that one failure does not affect others.
 
-If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.
+If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop. Either way the failure is recorded on the schedule and the owner is told (see [When a schedule can't run](#when-a-schedule-cant-run)).
 
 Scheduled runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
 
@@ -2548,11 +2548,21 @@ From the **Scheduled Jobs** list, each schedule's actions menu lets you:
 
 Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
 
-Each schedule card shows its name, status (**Active**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to that schedule's sessions.
+Each schedule card shows its name, status (**Active**, **Failing**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to that schedule's sessions.
 
 Note
 
 Non-admin users only see their own schedules; admins see everyone's. The owner avatar on each card makes it clear whose schedule it is.
+
+## When a schedule can't run
+
+A scheduled run can fail to start. Most often DAIV couldn't confirm that the schedule's owner has write access to one of its repositories: schedules run with their owner's repository permissions. It can also be an unexpected error, including every repository in the batch failing to enqueue. When that happens:
+
+- The schedule card shows **Failing** with the reason, and the edit page explains how to fix it. A paused schedule reads **Paused** but keeps the reason.
+- The owner gets one **Schedule can't run** [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) per failing streak, even when the schedule is muted. Subscribers aren't told, since they can't fix the owner's access.
+- A recurring schedule keeps trying at each scheduled time. A one-off schedule retires; give it a new date and time and enable it to retry.
+
+The failing state clears at the next scheduled run that starts, or when you change the schedule's repositories. **Run now** doesn't clear it.
 
 ## Subscribers
 
@@ -2747,13 +2757,14 @@ DAIV classifies every finished run and notifies only when the outcome warrants i
 
 A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
-There are three event types:
+There are four event types for runs and schedules:
 
-| Event                                         | When it fires                                                                                                                                   | Recipients                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Job finished** (`job.finished`)             | A single agent run finishes with a notify-worthy classification                                                                                 | The user who started the run                                                                                                       |
-| **Job batch finished** (`job_batch.finished`) | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                           | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
-| **Schedule finished** (`schedule.finished`)   | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification | The schedule owner and its subscribers                                                                                             |
+| Event                                               | When it fires                                                                                                                                                                             | Recipients                                                                                                                         |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Job finished** (`job.finished`)                   | A single agent run finishes with a notify-worthy classification                                                                                                                           | The user who started the run                                                                                                       |
+| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                                                                     | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
+| **Schedule finished** (`schedule.finished`)         | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification                                           | The schedule owner and its subscribers                                                                                             |
+| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. Sent once per failing streak, even when the schedule is muted | The schedule owner                                                                                                                 |
 
 Batches collapse into one message
 
@@ -2811,11 +2822,11 @@ Single-run messages end with the run's summary — for a run waiting for an answ
 
 Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
 **Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
-Muting a schedule produces full silence. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
+Muting a schedule silences its runs completely. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
 
 ## Connecting Rocket Chat
 
