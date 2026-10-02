@@ -232,7 +232,7 @@ for this**: a viewport breakpoint can't see the shell beside it — the sidebar 
 64px rail from `md:` and 240px from `lg:`, so the content area a `sm:`/`lg:` rule
 switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
-controls stack (`mcp_servers/_server_list.html`), and it adapts per row when the
+controls stack (`mcp_connectors/_server_list.html`), and it adapts per row when the
 controls are conditional.
 
 ### Badges / Pills
