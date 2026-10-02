@@ -84,6 +84,20 @@ class TestEnvOverride:
             assert result.get_secret_value() == "sk-test-env"
 
 
+@pytest.mark.parametrize("field", ["agent_thinking_level", "agent_max_thinking_level"])
+class TestEmptyThinkingLevel:
+    """The help text on these fields says an empty value disables thinking."""
+
+    def test_d7_an_empty_value_in_the_database_falls_back_to_the_default(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: ""})):
+            assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
+
+    def test_d7_an_empty_value_in_the_environment_disables_thinking(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), "")
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
+            assert getattr(ss, field) == ""
+
+
 class TestEnvLocked:
     def test_is_env_locked_true(self, ss, monkeypatch):
         monkeypatch.setenv("DAIV_AGENT_MODEL_NAME", "x")

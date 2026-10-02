@@ -121,14 +121,13 @@ class TestMaxLabelRoutesToMaxModel:
         assert captured["model_names"][0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
 
-    async def test_no_max_label_uses_repo_config_model(self, stub_base_init):
-        """Without ``daiv-max`` the resolved primary model comes from the repo's ``AgentModelConfig``, proving the
+    async def test_no_max_label_uses_the_site_default_model(self, stub_base_init):
+        """Without ``daiv-max`` the resolved primary model and thinking level are the site's defaults, proving the
         ``use_max`` branch is the only path to the max model."""
         captured = await self._agent_kwargs(["daiv"])
-        repo_agent_cfg = RepositoryConfig().models.agent
 
-        assert captured["model_names"][0] == repo_agent_cfg.model
-        assert captured["thinking_level"] == repo_agent_cfg.thinking_level
+        assert captured["model_names"][0] == site_settings.agent_model_name
+        assert captured["thinking_level"] == site_settings.agent_thinking_level
         assert site_settings.agent_max_model_name not in captured["model_names"]
 
 

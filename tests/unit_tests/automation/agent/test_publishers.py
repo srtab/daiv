@@ -7,6 +7,7 @@ from django.contrib.sites.models import Site
 
 import pytest
 from git import GitCommandError
+from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
@@ -1540,6 +1541,31 @@ def _publisher_with_graph_capture(monkeypatch):
     monkeypatch.setattr("automation.agent.publishers.create_diff_to_metadata_graph", fake_create)
     monkeypatch.setattr("automation.agent.publishers.build_langsmith_config", Mock(return_value={}))
     return publisher, captured
+
+
+async def test_d2_the_diff_to_metadata_chain_is_the_sites_and_the_repos_model_only_labels_the_trace(tmp_path):
+    publisher = _make_publisher()
+    publisher.ctx.config.omit_content_patterns = []
+    publisher.ctx.scope = None
+    publisher.ctx.gitrepo.working_dir = str(tmp_path / "clone")
+    publisher.ctx.config.models.diff_to_metadata.model = "repo-model"
+    publisher.ctx.config.models.diff_to_metadata.fallback_model = "repo-fallback"
+    trace_models = []
+
+    def fake_agent(_input, config):
+        trace_models.append(config["metadata"]["model"])
+        return {"structured_response": Mock()}
+
+    site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
+    with (
+        patch.multiple(site_settings, **site),
+        patch("automation.agent.diff_to_metadata.graph.BaseAgent") as base_agent,
+        patch("automation.agent.diff_to_metadata.graph.create_agent", return_value=RunnableLambda(fake_agent)),
+    ):
+        await publisher._diff_to_metadata(commit_message_diff="diff")
+
+    assert [c.kwargs["model"] for c in base_agent.get_model.call_args_list] == ["site-model", "site-fallback"]
+    assert trace_models == ["repo-model"]
 
 
 class TestDiffToMetadataExtraContext:

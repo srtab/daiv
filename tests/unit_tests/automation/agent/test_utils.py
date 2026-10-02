@@ -19,9 +19,10 @@ from automation.agent.utils import (
 )
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
-from codebase.repo_config import AgentModelConfig, Models
+from codebase.repo_config import AgentModelConfig, Models, RepositoryConfig
 from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
+from tests.unit_tests.automation.agent.agent_settings_cases import AGENT_SETTINGS_CASES
 
 
 class TestConversationThreadId:
@@ -237,6 +238,21 @@ def test_explicit_model_supersedes_use_max(base_config):
         model_config=base_config, agent_model="openrouter:anthropic/claude-haiku-4.5", use_max=True
     )
     assert out["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
+
+
+@pytest.mark.parametrize("case", [c for c in AGENT_SETTINGS_CASES if not c.exact_chain], ids=lambda c: c.id)
+def test_get_daiv_agent_kwargs_resolves_each_case(case):
+    """Rows 1 and 2: the model chain and thinking level each branch resolves. The exact chain is the executor's
+    (``test_an_exact_model_chain_replaces_model_resolution``), so its cases are not run here."""
+    with patch.multiple(site_settings, **case.site):
+        model_config = RepositoryConfig(models={"agent": case.repo_agent}).models.agent
+        if case.raises:
+            with pytest.raises(AgentConfigurationError):
+                get_daiv_agent_kwargs(model_config=model_config, **case.run)
+            return
+        kwargs = get_daiv_agent_kwargs(model_config=model_config, **case.run)
+
+    assert kwargs == {"model_names": list(case.chain), "thinking_level": case.thinking_level}
 
 
 # Tests for extract_images_from_text

@@ -144,6 +144,21 @@ class TestPreconditionsAndPrompt:
             build.assert_not_called()
         assert not await RepositoryMemory.objects.filter(repo_id="group/empty-repo").aexists()
 
+    async def test_noop_when_repo_disabled(self):
+        obs = await _observation()
+
+        with (
+            patch("memory.tasks.RepositoryConfig") as cfg,
+            patch("memory.consolidation.build_structured_llm") as build,
+            patch("memory.tasks.site_settings", _site_settings(memory_enabled=True)),
+        ):
+            cfg.get_config.return_value = _enabled_config(enabled=False)
+            await consolidate_memory_task.func("group/project")
+
+        build.assert_not_called()
+        await obs.arefresh_from_db()
+        assert obs.status == ObservationStatus.PENDING
+
     async def test_noop_when_site_disabled(self):
         obs = await _observation()
 

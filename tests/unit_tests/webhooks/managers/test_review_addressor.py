@@ -9,12 +9,15 @@ from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
+from sessions.services import acreate_run
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from automation.agent.questions import render_questions
+from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
+from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
@@ -267,3 +270,34 @@ async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(mention):
 
     await run.arefresh_from_db()
     assert (run.agent_model, run.agent_thinking_level) == ("m", "medium")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_d3_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_max_stamp(mention):
+    site = {
+        "agent_model_name": "site-default",
+        "agent_thinking_level": "low",
+        "agent_max_model_name": "site-max",
+        "agent_max_thinking_level": "high",
+    }
+    thread_id = str(uuid.uuid4())
+    agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+    with patch.multiple(site_settings, **site):
+        run = await acreate_run(
+            trigger_type=SessionOrigin.MR_WEBHOOK,
+            task_result_id=None,
+            repo_id="owner/repo",
+            ref="feature",
+            merge_request_iid=99,
+            use_max=True,
+            thread_id=thread_id,
+        )
+        stamped = (run.agent_model, run.agent_thinking_level)
+        with addressor_run(agent, ctx=_ctx(), resolve=get_daiv_agent_kwargs) as stack:
+            await _address(thread_id=thread_id, run_id=str(run.pk))
+
+    await run.arefresh_from_db()
+    assert stamped == ("site-max", "high")
+    assert stack.create_agent.await_args.kwargs["model_names"][0] == "site-default"
+    assert (run.agent_model, run.agent_thinking_level) == ("site-default", "low")

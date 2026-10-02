@@ -1,10 +1,14 @@
+import inspect
+from annotationlib import Format
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sessions.executor.lock import NoLock
+from webhooks.managers.base import BaseManager
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
-from codebase.base import MergeRequest, User
+from codebase.base import Issue, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
 
 _CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
@@ -157,3 +161,31 @@ class TestAddressIssueTaskRef:
             "run_id": "run-1",
         }
         run_lookup.assert_awaited_once_with("tr-1")
+
+
+class TestIssueMaxLabelIsReadAtTaskTime:
+    """The callback stamps the Run from the issue it saw; the task re-fetches the issue and decides again."""
+
+    @staticmethod
+    async def _spec_for(labels: list[str]):
+        client = MagicMock()
+        client.get_issue.return_value = Issue(id=1, iid=10, title="t", author=User(id=1, username="u"), labels=labels)
+        execute = AsyncMock(return_value=SimpleNamespace(agent_result={"response": ""}))
+        with (
+            patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
+            patch("webhooks.tasks.aget_session_ref", AsyncMock(return_value="")),
+            patch("webhooks.managers.issue_addressor.execute_run", execute),
+            patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        ):
+            await address_issue_task.func(_CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1")
+        return execute.await_args.args[0]
+
+    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv-max"], True), (["daiv"], False)])
+    async def test_d10_the_max_model_follows_the_label_on_the_issue_the_task_re_fetches(self, labels, use_max):
+        spec = await self._spec_for(labels)
+
+        assert spec.use_max is use_max
+
+    def test_d10_the_task_takes_no_max_flag_from_the_callback(self):
+        parameters = inspect.signature(address_issue_task.func, annotation_format=Format.FORWARDREF).parameters
+        assert "use_max" not in parameters
