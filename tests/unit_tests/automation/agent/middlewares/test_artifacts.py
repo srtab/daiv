@@ -15,12 +15,8 @@ from sessions.artifacts import bind_active_run
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
-from automation.agent.middlewares.artifacts import (
-    ARTIFACTS_SYSTEM_PROMPT,
-    PUBLISH_ARTIFACT_TOOL_NAME,
-    ArtifactsMiddleware,
-    _workspace_path_error,
-)
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.middlewares.artifacts import ARTIFACTS_SYSTEM_PROMPT, ArtifactsMiddleware, _workspace_path_error
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE
 from tests.unit_tests.conftest import FakeWorkspace
 

@@ -23,6 +23,7 @@ from django.utils.translation import gettext_lazy as _
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
+from automation.agent.artifacts import ArtifactError
 from sessions.conf import settings
 
 if TYPE_CHECKING:
@@ -34,10 +35,6 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact
 
 logger = logging.getLogger("daiv.sessions")
-
-
-class ArtifactError(ValueError):
-    """A publish request the agent can act on: bad file name, empty or oversized file, run budget spent."""
 
 
 class ArtifactKind(models.TextChoices):

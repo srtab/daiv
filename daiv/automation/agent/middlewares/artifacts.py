@@ -13,15 +13,10 @@ from httpx import HTTPError
 from langchain.agents.middleware import AgentMiddleware
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
-from sessions.artifacts import (
-    ArtifactError,
-    aresolve_active_run,
-    astore_artifact,
-    published_tool_result,
-    serialize_artifact,
-)
+from sessions.artifacts import aresolve_active_run, astore_artifact, published_tool_result, serialize_artifact
 from sessions.conf import settings as sessions_settings
 
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -35,8 +30,6 @@ if TYPE_CHECKING:
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.tools")
-
-PUBLISH_ARTIFACT_TOOL_NAME = "publish_artifact"
 
 PUBLISH_ARTIFACT_TOOL_DESCRIPTION = f"""\
 Publish a workspace file as a run artifact the user can open, view and download from DAIV after the run ends.

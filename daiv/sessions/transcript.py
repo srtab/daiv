@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-from automation.agent.middlewares.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from sessions.artifacts import published_tool_result, serialize_artifact
 from sessions.models import RunArtifact, RunStatus, SessionOrigin

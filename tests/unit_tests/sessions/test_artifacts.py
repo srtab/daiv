@@ -13,7 +13,6 @@ from asgiref.sync import sync_to_async
 from sessions import artifacts as artifacts_module
 from sessions.artifacts import (
     KNOWN_KIND_CONTENT_TYPES,
-    ArtifactError,
     ArtifactKind,
     aresolve_active_run,
     artifact_kind,
@@ -28,6 +27,7 @@ from sessions.artifacts import (
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
+from automation.agent.artifacts import ArtifactError
 from tests.unit_tests.sessions.conftest import make_artifact
 
 pytestmark = pytest.mark.django_db(transaction=True)
