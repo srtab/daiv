@@ -13,7 +13,7 @@ from typing import Any
 
 from automation.agent.questions import is_question_close
 
-logger = logging.getLogger("daiv.chat")
+logger = logging.getLogger("daiv.sessions")
 
 # Tool-call content-block types across providers: Anthropic emits ``tool_use``, the
 # LangChain standard ``tool_call``, and the OpenAI Responses API (gpt-5.x / codex via
@@ -86,7 +86,7 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
 def _attach_tool_result(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]]) -> str | None:
     tc_id = getattr(m, "tool_call_id", None) or ((getattr(m, "additional_kwargs", None) or {}).get("tool_call_id"))
     if not tc_id or tc_id not in tool_index:
-        logger.warning("chat: dropping orphan ToolMessage with tool_call_id=%r", tc_id)
+        logger.warning("Dropping orphan ToolMessage with tool_call_id=%r", tc_id)
         return None
 
     t_idx, s_idx = tool_index[tc_id]
@@ -206,7 +206,7 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
                 # Blocks carry the ordering; the normalized ``tool_calls`` entry (looked up
                 # by canonical id) carries clean id/name/args. Fall back to the raw block
                 # only if the call is absent from ``tool_calls`` (shouldn't happen).
-                seg = _tool_call_segment(tc_by_id.get(_tc_id(block), block))
+                seg = tool_call_segment(tc_by_id.get(_tc_id(block), block))
                 segments.append(seg)
                 if seg["id"]:
                     emitted_tc_ids.add(seg["id"])
@@ -216,18 +216,18 @@ def _build_assistant_turn(m: Any) -> dict[str, Any]:
         for tc in tool_calls:
             tc_id = _tc_id(tc)
             if tc_id and tc_id not in emitted_tc_ids:
-                segments.append(_tool_call_segment(tc))
+                segments.append(tool_call_segment(tc))
                 emitted_tc_ids.add(tc_id)
     else:
         if isinstance(content, str) and content.strip():
             segments.append({"type": "text", "content": content})
         for tc in tool_calls:
-            segments.append(_tool_call_segment(tc))
+            segments.append(tool_call_segment(tc))
 
     return {"id": getattr(m, "id", "") or "", "role": "assistant", "segments": segments}
 
 
-def _tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
+def tool_call_segment(tc: Any, *, status: str = "done") -> dict[str, Any]:
     tc_id = _tc_id(tc) or ""
     if isinstance(tc, dict):
         tc_name = tc.get("name") or ""

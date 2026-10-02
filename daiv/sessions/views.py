@@ -33,7 +33,6 @@ from sandbox_envs.services import env_picker_context
 from accounts.mixins import Breadcrumb, BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
-from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
@@ -47,6 +46,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.transcript import annotate_transcript, artifact_turns
+from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")

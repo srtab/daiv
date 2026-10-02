@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from sessions.turns import build_turns
 
 from automation.agent.questions import QUESTION_DELIVERED
-from chat.turns import build_turns
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 
 
@@ -134,10 +134,10 @@ def test_build_turns_tool_message_list_content_joins_text_blocks():
 
 def test_build_turns_orphan_tool_message_is_dropped_with_warning(caplog):
     tool = ToolMessage(content="orphan", tool_call_id="tc-missing", id="t-3")
-    with caplog.at_level("WARNING", logger="daiv.chat"):
+    with caplog.at_level("WARNING", logger="daiv.sessions"):
         result = build_turns([tool])
     assert result == []
-    assert any("tc-missing" in rec.message for rec in caplog.records)
+    assert any(rec.name == "daiv.sessions" and "tc-missing" in rec.message for rec in caplog.records)
 
 
 def test_build_turns_skill_injection_folds_human_body_into_tool_result():

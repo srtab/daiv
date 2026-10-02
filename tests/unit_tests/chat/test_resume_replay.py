@@ -11,8 +11,8 @@ checkpoint already painted.
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage, ToolMessage
+from sessions.turns import build_turns
 
-from chat.turns import build_turns
 from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
