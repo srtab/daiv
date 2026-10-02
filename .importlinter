@@ -101,3 +101,12 @@ forbidden_modules =
     mcp_api
     webhooks
 allow_indirect_imports = True
+
+[importlinter:contract:triggers]
+name = trigger apps do not import each other
+type = independence
+modules =
+    chat
+    jobs
+    mcp_api
+    webhooks
