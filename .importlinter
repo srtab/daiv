@@ -1,0 +1,130 @@
+[importlinter]
+root_packages =
+    accounts
+    automation
+    chat
+    codebase
+    core
+    daiv
+    jobs
+    mcp_server
+    mcp_servers
+    memory
+    notifications
+    sandbox_envs
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+exclude_type_checking_imports = True
+
+[importlinter:contract:core]
+name = core imports no other app
+type = forbidden
+source_modules = core
+forbidden_modules =
+    accounts
+    automation
+    chat
+    codebase
+    jobs
+    mcp_server
+    mcp_servers
+    memory
+    notifications
+    sandbox_envs
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+allow_indirect_imports = True
+# Removed by step 3 (core cleanup).
+ignore_imports =
+    core.checkpointer -> codebase.base
+    core.forms -> automation.agent.base
+    core.forms -> codebase.base
+    core.forms -> codebase.conf
+    core.forms -> notifications.telegram.client
+    core.models -> automation.agent.model_catalog.service
+    core.site_settings -> automation.agent.constants
+    core.views -> accounts.mixins
+    core.views -> notifications.telegram.config
+
+[importlinter:contract:sandbox-envs]
+name = sandbox_envs sits below codebase and the agent
+type = forbidden
+source_modules = sandbox_envs
+forbidden_modules =
+    automation
+    chat
+    codebase
+    jobs
+    mcp_server
+    memory
+    notifications
+    schedules
+    sessions
+    webhooks
+allow_indirect_imports = True
+
+[importlinter:contract:codebase]
+name = codebase is platform access only
+type = forbidden
+source_modules = codebase
+forbidden_modules =
+    automation
+    chat
+    jobs
+    mcp_server
+    schedules
+    sessions
+    webhooks
+allow_indirect_imports = True
+# Removed by step 5 (config resolver).
+ignore_imports =
+    codebase.repo_config -> automation.agent.constants
+
+[importlinter:contract:agent]
+name = the agent does not import runs or triggers
+type = forbidden
+source_modules = automation
+forbidden_modules =
+    chat
+    jobs
+    mcp_server
+    schedules
+    sessions
+    webhooks
+allow_indirect_imports = True
+# Removed by step 4.
+ignore_imports =
+    automation.agent.middlewares.artifacts -> sessions.artifacts
+    automation.agent.middlewares.artifacts -> sessions.conf
+    automation.titling.tasks -> sessions.models
+
+[importlinter:contract:sessions]
+name = sessions does not import trigger apps
+type = forbidden
+source_modules = sessions
+forbidden_modules =
+    chat
+    jobs
+    mcp_server
+    webhooks
+allow_indirect_imports = True
+# Removed by step 4: turns/repo_state/AuthBearer leave chat, run_job_task leaves jobs.
+ignore_imports =
+    sessions.api.views -> chat.api.security
+    sessions.api.views -> chat.turns
+    sessions.hydration -> chat.repo_state
+    sessions.hydration -> chat.turns
+    sessions.pipeline_watch.dispatch -> jobs.tasks
+    sessions.pipeline_watch.service -> chat.repo_state
+    sessions.services -> chat.repo_state
+    sessions.services -> jobs.tasks
+    sessions.signals -> jobs.tasks
+    sessions.transcript -> chat.turns
+    sessions.views -> chat.repo_state
+    sessions.views -> chat.turns

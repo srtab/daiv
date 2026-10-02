@@ -76,6 +76,7 @@ dev = [
   "coverage==7.16.2",
   "datasets==5.0.1",
   "djade==1.9.0",
+  "import-linter==2.15",
   "openevals==0.2.0",
   "prek==0.5.4",
   "pyproject-fmt==2.29.4",
