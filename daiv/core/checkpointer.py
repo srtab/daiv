@@ -12,7 +12,7 @@ from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
-from codebase.base import MergeRequest
+from core.checkpoint_types import registered_checkpoint_types
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,14 +42,6 @@ except ImportError:  # pragma: no cover - defensive against langgraph beta churn
         "_unwrap_delta_snapshot will fall back to its lossy-legacy heuristic instead of unwrapping "
         "a live _DeltaSnapshot. Update the import path."
     )
-
-
-# Domain pydantic models that may live in checkpointed agent state. Listing a model
-# here lets DAIVRedisSerializer both encode it to RedisJSON and revive it on read.
-# Encode is generic (``_default_handler`` wraps any plain pydantic model), so a new
-# checkpointed domain model round-trips even if unlisted — but append it here anyway to
-# keep it on the documented decode allowlist (``allowed_json_modules``).
-CHECKPOINT_JSON_TYPES: tuple[type, ...] = (MergeRequest,)
 
 
 class DAIVRedisSerializer(JsonPlusRedisSerializer):
@@ -92,8 +84,9 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     silently comes back as a ``dict`` with no log. Consumers must therefore not assume the
     revived value is the model: ``merge_request`` reads all go through
     ``automation.agent.publishers.checkpointed_merge_request``, which rejects a degraded value
-    rather than letting an ``AttributeError`` surface far downstream. We also register our models
-    on ``allowed_json_modules``: in
+    rather than letting an ``AttributeError`` surface far downstream. ``__init__`` passes the types
+    apps registered with :func:`core.checkpoint_types.register_checkpoint_type` (``MergeRequest``,
+    from ``AutomationConfig.ready()``) as ``allowed_json_modules``: in
     ``langgraph-checkpoint-redis`` 0.5.2 the read path consults it for real -- a class not on
     the allowlist (and not a known-safe LangGraph/LangChain type) is refused by
     ``_check_allowed_json_modules`` and revives to the raw ``dict`` with a warning, so the
@@ -101,7 +94,7 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("allowed_json_modules", CHECKPOINT_JSON_TYPES)
+        kwargs.setdefault("allowed_json_modules", registered_checkpoint_types())
         super().__init__(**kwargs)
 
     def _default_handler(self, obj: Any) -> Any:

@@ -43,7 +43,6 @@ forbidden_modules =
     webhooks
 allow_indirect_imports = True
 ignore_imports =
-    core.checkpointer -> codebase.base
     core.models -> automation.agent.model_catalog.service
     core.site_settings -> automation.agent.constants
 
