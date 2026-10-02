@@ -3,9 +3,10 @@ from unittest.mock import patch
 from django.urls import reverse
 
 import pytest
+from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
-from core.models import Provider, ProviderType, SiteConfiguration
+from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
 
 
 def _enable_seed_provider(slug: str, api_key: str = "sk-test") -> Provider:
@@ -1240,3 +1241,125 @@ def test_providers_view_creates_custom_provider(client, admin_user):
     created = Provider.objects.get(slug="my-azure")
     assert created.is_locked is False
     assert created.api_key == "sk-new"
+
+
+def _management(total: int, initial: int = 0) -> dict[str, str]:
+    return {
+        f"{PREFIX}-TOTAL_FORMS": str(total),
+        f"{PREFIX}-INITIAL_FORMS": str(initial),
+        f"{PREFIX}-MIN_NUM_FORMS": "0",
+        f"{PREFIX}-MAX_NUM_FORMS": "1000",
+    }
+
+
+@pytest.mark.django_db
+class TestSiteConfigurationViewWithAuthHeaders:
+    def test_get_renders_formset(self, admin_client, make_auth_header):
+        make_auth_header("context7.com", "X-API-Key", "sk-abc")
+        response = admin_client.get(reverse("site_configuration", kwargs={"group_key": "web_fetch"}))
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "context7.com" in body
+        assert "X-API-Key" in body
+        # Raw value not in body
+        assert "sk-abc" not in body
+        assert f'name="{PREFIX}-TOTAL_FORMS"' in body
+
+    def test_post_creates_row(self, admin_client):
+        data = {
+            **_management(total=1),
+            f"{PREFIX}-0-domain": "context7.com",
+            f"{PREFIX}-0-header_name": "X-API-Key",
+            f"{PREFIX}-0-header_value": "sk-abc",
+        }
+        response = admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
+        assert response.status_code == 302
+        assert WebFetchAuthHeader.objects.filter(domain="context7.com", header_name="X-API-Key").exists()
+
+    def test_post_deletes_marked_row(self, admin_client, make_auth_header):
+        row = make_auth_header("context7.com", "X-API-Key", "sk-abc")
+        data = {
+            **_management(total=1, initial=1),
+            f"{PREFIX}-0-id": str(row.pk),
+            f"{PREFIX}-0-domain": "context7.com",
+            f"{PREFIX}-0-header_name": "X-API-Key",
+            f"{PREFIX}-0-header_value": "",
+            f"{PREFIX}-0-DELETE": "on",
+        }
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
+        assert not WebFetchAuthHeader.objects.filter(pk=row.pk).exists()
+
+    def test_save_is_atomic_when_headers_formset_invalid(self, admin_client):
+        """When the headers formset has an invalid row, nothing is saved."""
+        # A row with a domain but no header_name is invalid (header_name is required).
+        data = {
+            **_management(total=1),
+            f"{PREFIX}-0-domain": "context7.com",
+            f"{PREFIX}-0-header_name": "",  # required field missing → formset invalid
+            f"{PREFIX}-0-header_value": "sk-abc",
+        }
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
+        assert not WebFetchAuthHeader.objects.exists()
+
+    def test_env_locked_ignores_submitted_formset(self, admin_client, make_auth_header, monkeypatch):
+        """When ``DAIV_WEB_FETCH_AUTH_HEADERS`` is set, a POST that tries to
+        create a row OR delete an existing one must be ignored — env-locked
+        config must not be mutable through the UI.
+        """
+        from core import site_settings as ss_module
+
+        existing = make_auth_header("kept.example.com", "X-Old", "old-value")
+        monkeypatch.setenv("DAIV_WEB_FETCH_AUTH_HEADERS", '{"x.com": {"H": "v"}}')
+        ss_module._docker_secret_cache.clear()
+
+        data = {
+            **_management(total=2, initial=1),
+            # Try to delete the existing row.
+            f"{PREFIX}-0-id": str(existing.pk),
+            f"{PREFIX}-0-domain": "kept.example.com",
+            f"{PREFIX}-0-header_name": "X-Old",
+            f"{PREFIX}-0-header_value": "",
+            f"{PREFIX}-0-DELETE": "on",
+            # Try to create a new row.
+            f"{PREFIX}-1-domain": "evil.example.com",
+            f"{PREFIX}-1-header_name": "X-New",
+            f"{PREFIX}-1-header_value": "smuggled",
+        }
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
+
+        assert WebFetchAuthHeader.objects.filter(pk=existing.pk).exists()
+        assert not WebFetchAuthHeader.objects.filter(domain="evil.example.com").exists()
+
+
+@pytest.mark.django_db
+class TestTelegramGroupPage:
+    URL = "/dashboard/configuration/telegram/"
+
+    def test_page_renders_the_token_input_but_neither_generated_nor_derived_field(self, admin_client):
+        response = admin_client.get(self.URL)
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'name="telegram_bot_token"' in content
+        assert 'name="telegram_webhook_secret"' not in content
+        assert 'name="telegram_bot_username"' not in content
+
+    def test_page_flags_an_underived_bot_username(self, admin_client):
+        # An empty derived username is the ONLY signal an admin gets that derivation
+        # has not run — which is exactly the silent deep-link breakage it prevents.
+        response = admin_client.get(self.URL)
+        assert "Not derived yet" in response.content.decode()
+
+    def test_page_shows_the_derived_bot_username_when_present(self, admin_client):
+        config = SiteConfiguration.objects.get_instance()
+        config.telegram_bot_username = "daiv_test_bot"
+        config.save()
+        SiteConfiguration._invalidate_cache()
+        try:
+            content = admin_client.get(self.URL).content.decode()
+            assert "@daiv_test_bot" in content
+            assert "Not derived yet" not in content
+        finally:
+            SiteConfiguration._invalidate_cache()
+
+    def test_members_are_denied(self, member_client):
+        assert member_client.get(self.URL).status_code == 403

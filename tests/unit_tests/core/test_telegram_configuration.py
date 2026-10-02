@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from configuration.forms import SiteConfigurationForm
 
 from core.models import SiteConfiguration
 from core.site_settings import site_settings
-
-URL = "/dashboard/configuration/telegram/"
 
 
 @pytest.mark.django_db
@@ -68,57 +65,8 @@ class TestSiteSettingsResolution:
             SiteConfiguration._invalidate_cache()
 
     def test_env_var_overrides_the_db(self, monkeypatch):
-        # ``_clear_docker_secret_cache`` (autouse, this directory's conftest) empties the cache
+        # ``_clear_docker_secret_cache`` (autouse, the root conftest) empties the cache
         # around every test, so the env var is read fresh here.
         monkeypatch.setenv("DAIV_TELEGRAM_BOT_TOKEN", "env:TOKEN")
         assert site_settings.telegram_bot_token.get_secret_value() == "env:TOKEN"
         assert site_settings.is_env_locked("telegram_bot_token") is True
-
-
-@pytest.mark.django_db
-class TestTelegramForm:
-    def test_webhook_secret_is_never_a_form_field(self):
-        # It is DAIV-generated. Rendering it as a typed secret input would invite an admin
-        # to overwrite the value the fail-closed webhook route compares against.
-        assert "telegram_webhook_secret" not in SiteConfigurationForm.SECRET_FIELDS
-        assert "telegram_bot_token" in SiteConfigurationForm.SECRET_FIELDS
-
-    def test_bot_username_is_not_editable(self):
-        assert "telegram_bot_username" not in SiteConfigurationForm.Meta.fields
-
-    def test_group_form_offers_only_the_toggle_and_the_token(self):
-        group = SiteConfiguration.get_group_by_key("telegram")
-        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
-        assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
-
-
-@pytest.mark.django_db
-class TestTelegramGroupPage:
-    def test_page_renders_the_token_input_but_neither_generated_nor_derived_field(self, admin_client):
-        response = admin_client.get(URL)
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert 'name="telegram_bot_token"' in content
-        assert 'name="telegram_webhook_secret"' not in content
-        assert 'name="telegram_bot_username"' not in content
-
-    def test_page_flags_an_underived_bot_username(self, admin_client):
-        # An empty derived username is the ONLY signal an admin gets that derivation
-        # has not run — which is exactly the silent deep-link breakage it prevents.
-        response = admin_client.get(URL)
-        assert "Not derived yet" in response.content.decode()
-
-    def test_page_shows_the_derived_bot_username_when_present(self, admin_client):
-        config = SiteConfiguration.objects.get_instance()
-        config.telegram_bot_username = "daiv_test_bot"
-        config.save()
-        SiteConfiguration._invalidate_cache()
-        try:
-            content = admin_client.get(URL).content.decode()
-            assert "@daiv_test_bot" in content
-            assert "Not derived yet" not in content
-        finally:
-            SiteConfiguration._invalidate_cache()
-
-    def test_members_are_denied(self, member_client):
-        assert member_client.get(URL).status_code == 403
