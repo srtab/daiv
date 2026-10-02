@@ -4,20 +4,25 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('core', '0017_siteconfiguration_telegram'),
-    ]
+    dependencies = [("core", "0017_siteconfiguration_telegram")]
 
     operations = [
         migrations.AddField(
-            model_name='siteconfiguration',
-            name='cross_project_access_enabled',
-            field=models.BooleanField(help_text='Let the git platform tools reach other projects as the person the run acts for. The GitLab application must grant the api (or read_api) scope before this is turned on.', null=True, verbose_name='cross-project access enabled'),
+            model_name="siteconfiguration",
+            name="cross_project_access_enabled",
+            field=models.BooleanField(
+                help_text="Let the git platform tools reach other projects as the person the run acts for. The GitLab application must grant the api (or read_api) scope before this is turned on.",
+                null=True,
+                verbose_name="cross-project access enabled",
+            ),
         ),
         migrations.AddField(
-            model_name='siteconfiguration',
-            name='cross_project_webhook_runs_enabled',
-            field=models.BooleanField(help_text='Also allow it for runs started by an issue label or a mention. Issue text can be written by anyone who can open an issue, and it can steer what the agent reads and posts.', null=True, verbose_name='allow for webhook-triggered runs'),
+            model_name="siteconfiguration",
+            name="cross_project_webhook_runs_enabled",
+            field=models.BooleanField(
+                help_text="Also allow it for runs started by an issue label or a mention. Issue text can be written by anyone who can open an issue, and it can steer what the agent reads and posts.",
+                null=True,
+                verbose_name="allow for webhook-triggered runs",
+            ),
         ),
     ]
