@@ -423,6 +423,22 @@ class SiteConfiguration(models.Model):
         null=True,
         help_text=_("Maximum page content size (in characters) to analyze in one pass."),
     )
+    cross_project_access_enabled = models.BooleanField(
+        _("cross-project access enabled"),
+        null=True,
+        help_text=_(
+            "Let the git platform tools reach other projects as the person the run acts for. The GitLab "
+            "application must grant the api (or read_api) scope before this is turned on."
+        ),
+    )
+    cross_project_webhook_runs_enabled = models.BooleanField(
+        _("allow for webhook-triggered runs"),
+        null=True,
+        help_text=_(
+            "Also allow it for runs started by an issue label or a mention. Issue text can be written by "
+            "anyone who can open an issue, and it can steer what the agent reads and posts."
+        ),
+    )
 
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
@@ -612,6 +628,14 @@ class SiteConfiguration(models.Model):
             match=("web_fetch_*",),
             icon="web-fetch",
             toggle_field="web_fetch_enabled",
+            category="Agent tools",
+        ),
+        FieldGroup(
+            key="cross_project",
+            title=_("Cross-project access"),
+            match=("cross_project_*",),
+            icon="lock-closed",
+            toggle_field="cross_project_access_enabled",
             category="Agent tools",
         ),
         FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox", category="Runtime"),
