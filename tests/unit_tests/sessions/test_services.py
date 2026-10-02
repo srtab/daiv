@@ -40,7 +40,7 @@ def _task_result_row(task_id: uuid.UUID) -> mock.Mock:
     DBTaskResult.objects.create(
         id=task_id,
         status="READY",
-        task_path="jobs.tasks.run_job_task",
+        task_path="sessions.executor.tasks.run_job_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",
@@ -54,7 +54,7 @@ async def _atask_result_row(task_id: uuid.UUID) -> mock.Mock:
     await DBTaskResult.objects.acreate(
         id=task_id,
         status="READY",
-        task_path="jobs.tasks.run_job_task",
+        task_path="sessions.executor.tasks.run_job_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",
@@ -69,7 +69,7 @@ async def _make_db_task_result() -> MagicMock:
     await DBTaskResult.objects.acreate(
         id=task_id,
         status="READY",
-        task_path="jobs.tasks.run_job_task",
+        task_path="sessions.executor.tasks.run_job_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",

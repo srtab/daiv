@@ -73,7 +73,7 @@
       <span class="sidebar__collapsible">{% translate "Sandbox environments" %}</span>
     </a>
 
-    <a href="{% url 'mcp_servers:list' %}"
+    <a href="{% url 'mcp_connectors:list' %}"
        class="sidebar__nav-item {% nav_active 'mcp_servers' %}">
       {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "MCP servers" %}</span>
@@ -116,7 +116,7 @@
       <span class="sidebar__collapsible">{% translate "Skills" %}</span>
     </a>
 
-    <a href="{% url 'mcp_servers:global_list' %}"
+    <a href="{% url 'mcp_connectors:global_list' %}"
        class="sidebar__nav-item {% nav_active 'mcp_servers_global' %}">
       {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Global MCP servers" %}</span>

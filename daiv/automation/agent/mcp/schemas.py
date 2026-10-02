@@ -28,7 +28,7 @@ class ToolFilter(BaseModel):
     def allows(self, name: str) -> bool:
         """Whether ``name``, the raw MCP tool name as the server reports it, passes this
         filter. Single source of truth shared by the runtime toolkit and the
-        mcp_servers UI so the displayed 'exposed' set can't drift from what the
+        mcp_connectors UI so the displayed 'exposed' set can't drift from what the
         agent actually receives."""
         if self.mode == "allow":
             return name in self.items
@@ -38,7 +38,7 @@ class ToolFilter(BaseModel):
 class UserMcpServer(BaseModel):
     """Runtime DTO for an MCP server the toolkit consumes.
 
-    Produced from DB rows by ``mcp_servers.services.build_runtime_servers`` (built-in
+    Produced from DB rows by ``mcp_connectors.services.build_runtime_servers`` (built-in
     and custom alike) and also used to parse the legacy DAIV MCP-servers JSON config
     (``MCP_SERVERS_CONFIG_FILE``) during the one-shot 0002 import migration. That format
     shares only the ``mcpServers`` top-level key with Claude Code's ``.mcp.json`` — it has

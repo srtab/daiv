@@ -1,10 +1,11 @@
 import io
+import json
 import tarfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.core.cache import cache
@@ -24,7 +25,12 @@ from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
-from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+from core.models import (
+    PROVIDERS_CACHE_KEY,
+    SITE_CONFIGURATION_CACHE_KEY,
+    WEB_FETCH_AUTH_HEADERS_CACHE_KEY,
+    WebFetchAuthHeader,
+)
 from core.sandbox.schemas import (
     EgressConfigRequest,
     RunCommandResult,
@@ -32,6 +38,9 @@ from core.sandbox.schemas import (
     RunCommandsResponse,
     StartSessionRequest,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:
@@ -250,6 +259,29 @@ class FakeWorkspace:
         return response
 
 
+@dataclass
+class FakeArtifactStore:
+    """An ``ArtifactStore`` a test scripts: ``accepts`` answers ``aaccepts``, ``error`` makes ``astore`` raise, and
+    ``asked`` / ``stored`` record the calls."""
+
+    max_bytes: int = 10 * 1024 * 1024
+    per_run_max: int = 20
+    accepts: bool = True
+    error: Exception | None = None
+    asked: list[str] = field(default_factory=list)
+    stored: list[dict[str, Any]] = field(default_factory=list)
+
+    async def aaccepts(self, thread_id: str) -> bool:
+        self.asked.append(thread_id)
+        return self.accepts
+
+    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+        if self.error is not None:
+            raise self.error
+        self.stored.append({"thread_id": thread_id, "filename": filename, "content": content, "title": title})
+        return json.dumps({"status": "published", "filename": filename})
+
+
 def _archive_members(archive: bytes | None) -> frozenset[str] | None:
     if archive is None:
         return None
@@ -268,6 +300,33 @@ def _clear_model_caches():
     yield
     for key in keys:
         cache.delete(key)
+
+
+@pytest.fixture(autouse=True)
+def _clear_docker_secret_cache():
+    from core.site_settings import _docker_secret_cache
+
+    _docker_secret_cache.clear()
+    yield
+    _docker_secret_cache.clear()
+
+
+@pytest.fixture
+def make_auth_header() -> Callable[[str, str, str], WebFetchAuthHeader]:
+    """Factory for creating ``WebFetchAuthHeader`` rows in tests.
+
+    ``header_value`` is an :class:`EncryptedFieldDescriptor`, not a Django
+    field, so it must be set after construction rather than passed to
+    ``__init__``.
+    """
+
+    def _make(domain: str, header_name: str, header_value: str) -> WebFetchAuthHeader:
+        row = WebFetchAuthHeader(domain=domain, header_name=header_name)
+        row.header_value = header_value
+        row.save()
+        return row
+
+    return _make
 
 
 @pytest.fixture(autouse=True)
@@ -453,7 +512,7 @@ def mock_repo_authorization():
     with (
         patch("sessions.services.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("mcp_api.server.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("sessions.forms.assert_can_run", new=Mock(return_value=None)),
         patch("sessions.views.can_run", new=Mock(return_value=True)),

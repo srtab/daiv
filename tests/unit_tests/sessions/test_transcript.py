@@ -13,8 +13,8 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
+from sessions.turns import build_turns
 
-from chat.turns import build_turns
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from tests.unit_tests.sessions.conftest import make_artifact
 

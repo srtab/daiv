@@ -232,7 +232,7 @@ for this**: a viewport breakpoint can't see the shell beside it — the sidebar 
 64px rail from `md:` and 240px from `lg:`, so the content area a `sm:`/`lg:` rule
 switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
-controls stack (`mcp_servers/_server_list.html`), and it adapts per row when the
+controls stack (`mcp_connectors/_server_list.html`), and it adapts per row when the
 controls are conditional.
 
 ### Badges / Pills
@@ -247,7 +247,7 @@ Status variants use semantic colors (e.g. `bg-emerald-950/80 text-emerald-200` f
 
 ### Form Fields
 
-Form inputs are styled globally in `@layer base` inside `input.css` — no per-field classes needed. The standard field template is at `core/templates/core/fields/default.html`:
+Form inputs are styled globally in `@layer base` inside `input.css` — no per-field classes needed. The standard field template is at `configuration/templates/configuration/fields/default.html`:
 
 ```html
 <div>
@@ -479,7 +479,7 @@ sidebar's tier and that switch moves with it.
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
 | Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
 | Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |
-| Default field template  | `daiv/core/templates/core/fields/default.html` |
+| Default field template  | `daiv/configuration/templates/configuration/fields/default.html` |
 | Icon template           | `daiv/core/templates/core/icons/_icon.html`   |
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |
 | Icon template tag       | `daiv/core/templatetags/icon_tags.py`         |

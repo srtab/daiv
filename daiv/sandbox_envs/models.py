@@ -43,7 +43,7 @@ def _fmt_cpus(cpus) -> str:
 
 class SandboxEnvironmentQuerySet(models.QuerySet):
     """Queryset helpers consumed by views, services, and external callers
-    (chat, activity, mcp_server). Methods live here rather than in services
+    (chat, activity, mcp_api). Methods live here rather than in services
     so they're chainable and easy to compose with ``filter`` / ``annotate``."""
 
     def global_envs(self):

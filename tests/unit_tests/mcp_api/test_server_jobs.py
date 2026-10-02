@@ -1,0 +1,347 @@
+import json
+import uuid
+from datetime import timedelta
+from decimal import Decimal
+from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
+
+import pytest
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from accounts.models import User
+
+
+async def _user(username):
+    return await User.objects.acreate_user(username=username, email=f"{username}@e.com", password="x")  # noqa: S106
+
+
+async def _session(user, *, repo_id="a/b", thread_id=None):
+    return await Session.objects.acreate(
+        thread_id=thread_id or str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=user, repo_id=repo_id
+    )
+
+
+async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
+    return await Run.objects.acreate(
+        session=session,
+        user=session.user,
+        repo_id=session.repo_id,
+        trigger_type=SessionOrigin.MCP_JOB,
+        status=status,
+        **kwargs,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _default_mcp_user(db):
+    """Make ``get_current_user`` return a real authenticated user by default.
+
+    Mirrors ``tests/unit_tests/mcp_api/test_server.py``'s fixture of the same name:
+    tests that need a specific user (or an unauthenticated caller) patch the same
+    target within their own ``with`` block, overriding this default for that scope.
+    """
+    user = User.objects.create_user(username="mcp_default_jobs", email="mcp_jobs@test.com", password="x")  # noqa: S106
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        yield user
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_returns_user_jobs_and_excludes_result_summary():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj1")
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.SUCCESSFUL, result_summary="secret detail")
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs()
+    assert data["next_cursor"] is None
+    assert len(data["jobs"]) == 1
+    job = data["jobs"][0]
+    assert job["repo_id"] == "a/b"
+    assert job["status"] == "SUCCESSFUL"
+    assert "result_summary" not in job
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_truncates_and_caps():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj2")
+    sess = await _session(user)
+    for _ in range(3):
+        await _run(sess)
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(limit=2)
+    assert len(data["jobs"]) == 2
+    assert data["next_cursor"] is not None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_cursor_paginates_without_overlap():
+    """Walking pages via next_cursor covers every row exactly once, newest first."""
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj_pg")
+    now = timezone.now()
+    sess = await _session(user)
+    created = []
+    for _ in range(5):
+        created.append(await _run(sess))
+    # Give each a distinct created_at so ordering is deterministic. created[0] gets the
+    # latest timestamp (now - 0min), so created is already in newest-first order.
+    for offset, run in enumerate(created):
+        await Run.objects.filter(pk=run.pk).aupdate(created_at=now - timedelta(minutes=offset))
+    expected = [str(r.id) for r in created]  # newest first
+
+    seen: list[str] = []
+    cursor = None
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        for _ in range(10):  # generous upper bound; loop should break well before
+            data = await list_jobs(limit=2, cursor=cursor)
+            seen.extend(j["job_id"] for j in data["jobs"])
+            cursor = data["next_cursor"]
+            if cursor is None:
+                break
+
+    assert cursor is None
+    assert seen == expected  # no gaps, no repeats, correct order
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_cursor_tie_break_on_same_created_at():
+    """Rows sharing an identical created_at (batch submit) must not be skipped or repeated."""
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj_tie")
+    same = timezone.now()
+    sess = await _session(user)
+    created = []
+    for _ in range(4):
+        created.append(await _run(sess))
+    for run in created:
+        await Run.objects.filter(pk=run.pk).aupdate(created_at=same)
+
+    seen: list[str] = []
+    cursor = None
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        for _ in range(10):
+            data = await list_jobs(limit=2, cursor=cursor)
+            seen.extend(j["job_id"] for j in data["jobs"])
+            cursor = data["next_cursor"]
+            if cursor is None:
+                break
+
+    assert sorted(seen) == sorted(str(r.id) for r in created)
+    assert len(seen) == len(set(seen))  # each row exactly once
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_invalid_cursor_returns_error():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj_badc")
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(cursor="not-a-valid-cursor")
+    assert "error" in data
+    assert "cursor" in data["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_wrong_tool_or_bad_id_cursor_returns_invalid():
+    """A decodable cursor whose id can't coerce to Run's UUID PK (e.g. a schedules
+    cursor with an integer id, or plain junk) must be reported as "Invalid cursor." at decode
+    time — not deferred to the ORM where the generic handler mislabels it as transient."""
+    from mcp_api.server import _encode_cursor, list_jobs
+
+    user = await _user("lj_xtool")
+    bad = _encode_cursor({"c": timezone.now().isoformat(), "id": "5"})  # int id, as schedules emits
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(cursor=bad)
+    assert data.get("error") == "Invalid cursor."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_unauthenticated_returns_error():
+    from mcp_api.server import list_jobs
+
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=None)):
+        data = await list_jobs()
+    assert "error" in data
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_orders_newest_first():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj3")
+    sess = await _session(user)
+    older = await _run(sess)
+    newer = await _run(sess)
+    # created_at is auto_now_add, so nudge it explicitly to make ordering observable.
+    now = timezone.now()
+    await Run.objects.filter(pk=older.pk).aupdate(created_at=now - timedelta(hours=1))
+    await Run.objects.filter(pk=newer.pk).aupdate(created_at=now)
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs()
+    assert [j["job_id"] for j in data["jobs"]] == [str(newer.id), str(older.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_not_truncated_at_exact_limit():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj4")
+    sess = await _session(user)
+    for _ in range(2):
+        await _run(sess)
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(limit=2)
+    assert len(data["jobs"]) == 2
+    assert data["next_cursor"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_serializes_cost_and_tokens():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj5")
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.SUCCESSFUL, cost_usd=Decimal("1.234567"), total_tokens=4242)
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs()
+    job = data["jobs"][0]
+    # cost_usd is stringified (Decimal is not JSON-serializable); total_tokens stays an int.
+    assert job["cost_usd"] == "1.234567"
+    assert job["total_tokens"] == 4242
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_status_filter():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj6")
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.RUNNING)
+    await _run(sess, status=RunStatus.SUCCESSFUL)
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(status=RunStatus.RUNNING)
+    assert {j["status"] for j in data["jobs"]} == {"RUNNING"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_db_error_returns_friendly_error():
+    from mcp_api.server import list_jobs
+
+    user = await _user("lj7")
+    with (
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_api.server.alist_user_runs", new=AsyncMock(side_effect=RuntimeError("db down"))),
+    ):
+        data = await list_jobs()
+    assert "error" in data
+    assert "db down" not in data["error"]  # internal detail not leaked
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_auth_exception_returns_error():
+    from mcp_api.server import list_jobs
+
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        data = await list_jobs()
+    assert "error" in data
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_denied_repo_returns_error():
+    from mcp_api.server import submit_job
+
+    from codebase.authorization import RepositoryAccessDenied
+
+    with patch("mcp_api.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert json.loads(result)["error"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rate_limited():
+    from mcp_api.server import submit_job
+
+    with patch("mcp_api.server._allow_job_submission", return_value=False):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert "Rate limit" in json.loads(result)["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_references(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.services import BatchSubmitResult
+
+    from codebase.references import RefIn
+
+    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
+
+    def _passthrough(*, user, repos, explicit_env_id):
+        return repos
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("mcp_api.server.validate_agent_override", return_value=("", "")),
+        patch("mcp_api.server.ensure_agent_model_available"),
+        patch("mcp_api.server.aassert_can_run", new=AsyncMock()),
+        patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=_passthrough)),
+        patch(
+            "mcp_api.server.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
+        ) as submit,
+    ):
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}],
+            prompt="x",
+            references=[{"key": "DAIV-1V", "provider": "sentry", "url": "https://s.io/1", "relation": "closes"}],
+        )
+
+    assert "error" not in json.loads(result)
+    assert submit.call_args.kwargs["references"] == [
+        RefIn(key="DAIV-1V", provider="sentry", url="https://s.io/1", relation="closes")
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_malformed_references():
+    from mcp_api.server import submit_job
+
+    result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=[{"key": ""}])
+
+    assert "Invalid references" in json.loads(result)["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_too_many_references():
+    from mcp_api.server import submit_job
+
+    refs = [{"key": f"K-{i}"} for i in range(21)]
+    result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=refs)
+
+    assert "error" in json.loads(result)
+
+
+def test_the_submit_job_description_advertises_every_special_provider():
+    """``RefProvider`` owns the vocabulary, but the tool description spells it out in prose for the
+    model. A member added to the enum and not here is silently never advertised.
+    """
+    import typing
+
+    from mcp_api.server import MAX_REFS_PER_SUBMISSION, submit_job
+
+    from codebase.references import RefProvider
+
+    hints = typing.get_type_hints(submit_job, include_extras=True)
+    description = typing.get_args(hints["references"])[1].description
+
+    assert str(MAX_REFS_PER_SUBMISSION) in description
+    for provider in RefProvider:
+        if provider is not RefProvider.GENERIC:
+            assert provider.value in description, f"{provider.value} is not advertised to the model"

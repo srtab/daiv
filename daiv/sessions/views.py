@@ -25,15 +25,13 @@ from django.views.generic.detail import SingleObjectMixin
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
-from mcp_servers.selection import composer_mcp_context, mcp_picker_context
+from mcp_connectors.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
 from accounts.mixins import Breadcrumb, BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
-from chat.repo_state import aget_existing_mr_payload
-from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
@@ -44,9 +42,11 @@ from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.repo_state import aget_existing_mr_payload
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.transcript import annotate_transcript, artifact_turns
+from sessions.turns import build_turns
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")

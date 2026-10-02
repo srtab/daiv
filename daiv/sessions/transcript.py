@@ -2,7 +2,7 @@
 
 ``annotate_transcript`` is kept free of Django query code (it only reads attributes off
 already-fetched run rows) so the segmentation logic is unit-testable without the database,
-mirroring ``chat.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
+mirroring ``sessions.turns.build_turns``. The view/poller fetch runs (chronologically ordered)
 and messages, then zip them here; for a checkpoint with no messages, ``artifact_turns``
 queries the artifacts it no longer carries.
 """
@@ -12,11 +12,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-from automation.agent.middlewares.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from chat.turns import _tool_call_segment
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from sessions.artifacts import published_tool_result, serialize_artifact
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
+from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
     from sessions.models import Run
@@ -26,7 +26,7 @@ logger = logging.getLogger("daiv.sessions")
 # Closed value set for a run-status marker's ``status`` key: ``failed`` renders the red
 # error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
 # ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. (Markers stay plain
-# ``dict[str, Any]`` to interleave with ``chat.turns.build_turns`` output and serialise
+# ``dict[str, Any]`` to interleave with ``sessions.turns.build_turns`` output and serialise
 # straight into the Alpine-rendered turns payload; the shape is ``id``/``role``/``status``/
 # ``message``.)
 RunStatusValue = Literal["failed", "aborted"]
@@ -153,7 +153,7 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
 
 
 def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
-    segment = _tool_call_segment({"id": f"artifact-{artifact.id}", "name": PUBLISH_ARTIFACT_TOOL_NAME})
+    segment = tool_call_segment({"id": f"artifact-{artifact.id}", "name": PUBLISH_ARTIFACT_TOOL_NAME})
     return {**segment, "result": published_tool_result(serialize_artifact(artifact))}
 
 

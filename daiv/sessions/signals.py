@@ -11,9 +11,9 @@ from django.dispatch import Signal, receiver
 
 from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
-from jobs.tasks import run_job_task
 
 from core import ui_events
+from sessions.executor.tasks import run_job_task
 from sessions.tasks import classify_run_task
 
 logger = logging.getLogger("daiv.sessions")

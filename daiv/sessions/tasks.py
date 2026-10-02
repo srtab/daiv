@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from typing import Literal
 
 from django.core.management import call_command
 from django.db import IntegrityError
@@ -10,7 +11,7 @@ from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
-from core.constants import TASK_QUEUE_INTERACTIVE
+from core.constants import TASK_PRIORITY_TITLING, TASK_QUEUE_INTERACTIVE
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.sessions")
@@ -283,3 +284,75 @@ async def reconcile_pipeline_watches_cron_task():
 
     touched = await WatchReconciler().areconcile()
     logger.info("reconcile_pipeline_watches: touched %d watches", touched)
+
+
+@task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
+def generate_title_task(
+    entity_type: Literal["session", "run"], pk: str, prompt: str, repo_id: str, ref: str = ""
+) -> None:
+    """Overwrite a Session/Run title with an LLM-generated one.
+
+    Failures propagate to django-tasks (which logs + marks the task failed); the
+    title set synchronously remains (heuristic for chat sessions, possibly empty
+    for prompt-driven runs).
+    """
+    from automation.titling.llm import TitlerNotConfiguredError, generate_title
+    from sessions.models import Run, Session
+
+    model_cls = Session if entity_type == "session" else Run
+    try:
+        entity = model_cls.objects.get(pk=pk)
+    except model_cls.DoesNotExist:
+        logger.warning("generate_title_task: %s with pk=%s not found, skipping", entity_type, pk)
+        return
+
+    try:
+        title = generate_title(
+            prompt,
+            repo_id=repo_id,
+            ref=ref,
+            run_metadata={"entity_type": entity_type, "entity_pk": pk, "repo_id": repo_id, "ref": ref},
+        )
+    except TitlerNotConfiguredError:
+        logger.exception(
+            "generate_title_task: model not configured for %s pk=%s — feature disabled until API key is set",
+            entity_type,
+            pk,
+        )
+        return
+
+    entity.title = title
+    entity.save(update_fields=["title"])
+
+
+@task(queue_name=TASK_QUEUE_INTERACTIVE, priority=TASK_PRIORITY_TITLING)
+def generate_batch_title_task(batch_id: str, prompt: str) -> None:
+    """Generate a single LLM title for a Run batch and apply it to every untitled member.
+
+    One LLM call per batch instead of one per run. Repo/ref context is omitted because batch
+    members typically span repos. Only rows with an empty ``title`` are updated, so synchronous
+    titles (e.g. scheduled-run templates) are preserved. The same title is stamped on each
+    affected run's Session when the session title is still empty.
+    """
+    from automation.titling.llm import TitlerNotConfiguredError, generate_title
+    from sessions.models import Run, Session
+
+    try:
+        title = generate_title(prompt, run_metadata={"entity_type": "run_batch", "batch_id": batch_id})
+    except TitlerNotConfiguredError:
+        logger.exception(
+            "generate_batch_title_task: model not configured for batch_id=%s — feature disabled until API key is set",
+            batch_id,
+        )
+        return
+
+    updated = Run.objects.filter(batch_id=batch_id, title="").update(title=title)
+    # Backfill the parent session title too — a fresh batch creates one session per run,
+    # each with an empty title until this titler lands.
+    Session.objects.filter(runs__batch_id=batch_id, title="").update(title=title)
+    if updated == 0:
+        logger.warning(
+            "generate_batch_title_task: no rows updated for batch_id=%s (stale batch or all already titled)", batch_id
+        )
+    else:
+        logger.info("generate_batch_title_task: updated %d runs for batch_id=%s", updated, batch_id)

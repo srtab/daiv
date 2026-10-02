@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
-from sessions.artifacts import aresolve_active_run
+from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
@@ -80,7 +80,12 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
     )
     stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx, checkpointer=stack.checkpointer, ask_user_enabled=True, workspace=ANY, **AGENT_KWARGS
+        ctx=stack.ctx,
+        checkpointer=stack.checkpointer,
+        ask_user_enabled=True,
+        workspace=ANY,
+        artifact_store=ANY,
+        **AGENT_KWARGS,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -321,6 +326,15 @@ async def test_the_agent_runs_with_the_specs_run_bound_for_artifacts():
     assert await aresolve_active_run(session.thread_id) is None
 
 
+async def test_every_agent_it_builds_stores_artifacts_on_the_run():
+    """Chat, jobs, webhooks, schedules and evals all build their agent here; without the store the tools array loses
+    ``publish_artifact``."""
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec())
+
+    assert isinstance(stack.create_agent.await_args.kwargs["artifact_store"], RunArtifactStore)
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_a_spec_without_a_run_leaves_the_session_model_alone():
     thread_id = await amake_job_session()
@@ -524,6 +538,7 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
         workspace=ANY,
+        artifact_store=ANY,
         model_names=["model-a", "model-b"],
         thinking_level=thinking_level,
     )
@@ -544,6 +559,7 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
         workspace=ANY,
+        artifact_store=ANY,
         **AGENT_KWARGS,
         capture_patch=True,
     )

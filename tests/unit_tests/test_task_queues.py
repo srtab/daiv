@@ -21,9 +21,11 @@ import re
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.utils.module_loading import import_string
 
 import yaml
 from django_tasks.base import Task
+from django_tasks_db.models import DBTaskResult
 
 from core.constants import TASK_QUEUE_INTERACTIVE
 from tests.unit_tests.test_template_comments import DAIV_DIR, REPO_ROOT
@@ -43,6 +45,7 @@ TASK_MODULES = sorted(
     for path in DAIV_DIR.rglob("tasks.py")
     if not path.is_relative_to(DAIV_DIR / "daiv")
 )
+TASK_ALIASES = {"jobs.tasks": "sessions.executor.tasks:run_job_task"}
 
 DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 
@@ -51,13 +54,13 @@ DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 # task drifting back to ``default`` regains the latency the split removed, and a long one
 # joining ``interactive`` hands that latency to everything already there.
 INTERACTIVE_TASKS = {
-    "automation.titling.tasks:generate_title_task",
-    "automation.titling.tasks:generate_batch_title_task",
     "notifications.tasks:deliver_notification_task",
     "sessions.tasks:classify_run_task",
     "sessions.tasks:evaluate_pipeline_watch_task",
+    "sessions.tasks:generate_batch_title_task",
+    "sessions.tasks:generate_title_task",
 }
-TITLING_TASKS = {"automation.titling.tasks:generate_title_task", "automation.titling.tasks:generate_batch_title_task"}
+TITLING_TASKS = {"sessions.tasks:generate_title_task", "sessions.tasks:generate_batch_title_task"}
 
 QUEUE_ARGUMENT = re.compile(r"--queue-name \"\$\{1:-([^}]+)\}\"")
 YAML_BLOCK = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
@@ -93,11 +96,25 @@ def queues_served(stack: str) -> set[str]:
 
 
 def test_every_task_runs_on_a_queue_the_backend_declares():
-    silent = set(TASK_MODULES) - {name.split(":")[0] for name in ALL_TASKS}
+    silent = set(TASK_MODULES) - set(TASK_ALIASES) - {name.split(":")[0] for name in ALL_TASKS}
     assert not silent, f"no task discovered in {silent} — the tasks.py layout drifted"
 
     undeclared = {name: task.queue_name for name, task in ALL_TASKS.items() if task.queue_name not in DECLARED_QUEUES}
     assert not undeclared, f"queue not in TASKS['default']['QUEUES'] — enqueuing raises InvalidTask: {undeclared}"
+
+
+def test_a_row_queued_under_an_alias_path_runs_the_task_it_names():
+    """``db_worker`` runs a row through ``import_string(row.task_path)``, so a row queued before its task moved
+    must still reach that very task, while every row enqueued now stores the task's own path."""
+    for alias_module, target in TASK_ALIASES.items():
+        task = ALL_TASKS[target]
+        row = DBTaskResult(
+            task_path=f"{alias_module}.{target.split(':')[1]}", queue_name=task.queue_name, backend_name=task.backend
+        )
+
+        assert import_string(row.task_path) is task
+        assert row.task.func is task.func
+        assert task.module_path == target.replace(":", ".")
 
 
 def test_only_short_work_shares_the_queue_the_titler_runs_on():

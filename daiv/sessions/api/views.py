@@ -8,11 +8,11 @@ from ninja import Router
 from ninja.errors import HttpError
 from ninja.security import django_auth
 
-from chat.api.security import AuthBearer
-from chat.turns import build_turns
+from accounts.api.security import AuthBearer
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
 from sessions.transcript import annotate_transcript, artifact_turns
+from sessions.turns import build_turns
 
 if TYPE_CHECKING:
     from django.http import HttpRequest

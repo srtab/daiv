@@ -27,7 +27,7 @@ SURFACE_SCRIPTS = (
     "sessions/static/sessions/js/prompt-box.js",
     "schedules/static/schedules/js/subscriber-picker.js",
     "chat/static/chat/js/chat-stream.js",
-    "core/static/core/js/config-section-picker.js",
+    "configuration/static/configuration/js/config-section-picker.js",
 )
 EXPECTED_SURFACES = 10
 

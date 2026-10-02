@@ -2,7 +2,7 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
-from mcp_server.oauth import oauth_metadata
+from mcp_api.oauth import oauth_metadata
 from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from accounts.views import homepage
@@ -27,7 +27,7 @@ urlpatterns = [
     path("accounts/channels/", include("accounts.urls.channels")),
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("accounts.urls.dashboard")),
-    path("dashboard/configuration/", include("core.urls.configuration")),
+    path("dashboard/configuration/", include("configuration.urls")),
     path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
     path("dashboard/artifacts/", include("sessions.urls_artifacts")),
@@ -38,7 +38,7 @@ urlpatterns = [
     path("dashboard/schedules/", include("schedules.urls")),
     path("dashboard/memory/", include("memory.urls", namespace="memory")),
     path("dashboard/skills/", include("skills.urls", namespace="skills")),
-    path("dashboard/mcp-servers/", include("mcp_servers.urls", namespace="mcp_servers")),
+    path("dashboard/mcp-servers/", include("mcp_connectors.urls", namespace="mcp_connectors")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),

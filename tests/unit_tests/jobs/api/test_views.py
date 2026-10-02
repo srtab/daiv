@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from asgiref.sync import async_to_sync
 from django_tasks_db.models import DBTaskResult
-from jobs.tasks import run_job_task
 from ninja.testing import TestAsyncClient
+from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User

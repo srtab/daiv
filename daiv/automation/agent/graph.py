@@ -14,14 +14,7 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.constants import (
-    AGENTS_MEMORY_PATH,
-    REPO_PATH,
-    SKILLS_PATH,
-    SKILLS_SOURCES,
-    SUBAGENTS_SOURCES,
-    ModelName,
-)
+from automation.agent.constants import AGENTS_MEMORY_PATH, REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -57,7 +50,7 @@ from automation.agent.subagents import (
 )
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
-from core.constants import BOT_NAME
+from core.constants import BOT_NAME, ModelName
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -66,6 +59,7 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
+    from automation.agent.artifacts import ArtifactStore
     from automation.agent.workspace.base import Workspace
 
 
@@ -172,6 +166,7 @@ async def create_daiv_agent(
     *,
     ctx: RuntimeCtx,
     workspace: Workspace,
+    artifact_store: ArtifactStore | None = None,
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
@@ -192,6 +187,8 @@ async def create_daiv_agent(
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
+        artifact_store: Where ``publish_artifact`` keeps files; ``None`` leaves the tool out (the run executor always
+            passes one).
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
@@ -289,7 +286,7 @@ async def create_daiv_agent(
         ),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
-        ArtifactsMiddleware(workspace=workspace),
+        *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.

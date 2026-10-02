@@ -1,7 +1,7 @@
 """The shared post-run arm: what every publishing seam funnels through.
 
 The seam wiring itself (which callers reach this) is pinned per caller — see
-``tests/unit_tests/jobs/test_run_job_task_arms_watch.py``,
+``tests/unit_tests/sessions/executor/test_tasks.py``,
 ``tests/unit_tests/webhooks/managers/test_issue_addressor_arms_watch.py`` and
 ``tests/unit_tests/chat/test_chat_arms_watch.py``.
 """

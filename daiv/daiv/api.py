@@ -1,5 +1,5 @@
 from jobs.api.views import jobs_router
-from mcp_server.api.views import oauth_router
+from mcp_api.api.views import oauth_router
 from ninja import NinjaAPI
 from notifications.api.views import router as notifications_router
 from sessions.api.views import sessions_router

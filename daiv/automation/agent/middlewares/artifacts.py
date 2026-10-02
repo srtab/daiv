@@ -1,27 +1,22 @@
-"""The ``publish_artifact`` tool: copy a workspace file into DAIV as a ``sessions.RunArtifact`` that outlives a run."""
+"""The ``publish_artifact`` tool: copy a workspace file into the run's ``ArtifactStore``, which keeps it after the run.
+
+The store decides where a file goes and the limits it takes (``sessions.artifacts.RunArtifactStore`` for executor
+runs); the tool description and the too-large hint quote those limits, so each instance builds them.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Annotated
 
-from asgiref.sync import sync_to_async
 from deepagents.backends.protocol import FILE_NOT_FOUND, IS_DIRECTORY, PERMISSION_DENIED
 from httpx import HTTPError
 from langchain.agents.middleware import AgentMiddleware
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
-from sessions.artifacts import (
-    ArtifactError,
-    aresolve_active_run,
-    astore_artifact,
-    published_tool_result,
-    serialize_artifact,
-)
-from sessions.conf import settings as sessions_settings
 
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.constants import TMP_PATH, WORKSPACE_PATH
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, _fs_transport_failure_text, is_workspace_path
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -30,15 +25,15 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
-    from sessions.models import RunArtifact
 
+    from automation.agent.artifacts import ArtifactStore
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.tools")
 
-PUBLISH_ARTIFACT_TOOL_NAME = "publish_artifact"
 
-PUBLISH_ARTIFACT_TOOL_DESCRIPTION = f"""\
+def _tool_description(*, max_bytes: int, per_run_max: int) -> str:
+    return f"""\
 Publish a workspace file as a run artifact the user can open, view and download from DAIV after the run ends.
 
 Use it for deliverables that are documents rather than code: an HTML or Markdown report, a CSV/JSON dataset, \
@@ -51,12 +46,13 @@ Rules:
   - Publishing does NOT commit the file to the repository; prefer it over committing generated reports.
   - Rendered in the browser: `.md` (Markdown), `.html` (in a sandboxed frame — inline CSS/JS is fine), images \
 (`.png`, `.svg`, ...), plain text / CSV / JSON. Any other type is offered as a download.
-  - Limits: {sessions_settings.ARTIFACT_MAX_BYTES} bytes per file, {sessions_settings.ARTIFACTS_PER_RUN_MAX} files \
+  - Limits: {max_bytes} bytes per file, {per_run_max} files \
 per run.
 
 Examples:
   - `{PUBLISH_ARTIFACT_TOOL_NAME}(path="{TMP_PATH}/dependency-audit.html", title="Dependency audit")`
   - `{PUBLISH_ARTIFACT_TOOL_NAME}(path="{TMP_PATH}/findings.md")`"""
+
 
 ARTIFACTS_SYSTEM_PROMPT = f"""\
 ## Artifacts (`{PUBLISH_ARTIFACT_TOOL_NAME}`)
@@ -72,15 +68,21 @@ _GIVE_UP_ADVICE = "Do not retry; put the key content in your final response inst
 _INTERNAL_FAILURE = (
     f"DAIV could not store the file (a server-side failure, not a problem with the file). {_GIVE_UP_ADVICE}"
 )
-_DOWNLOAD_ERROR_HINTS = {
-    FILE_NOT_FOUND: "the file does not exist. Write it first, then publish.",
-    IS_DIRECTORY: "it is a directory. Publish a single file (archive a directory first if needed).",
-    PERMISSION_DENIED: "the file is not readable. Fix its permissions (`chmod`), then publish.",
-    DOWNLOAD_TOO_LARGE: (
-        f"the file is larger than the {sessions_settings.ARTIFACT_MAX_BYTES}-byte artifact limit. "
-        "Make it smaller, then publish."
-    ),
-}
+_NO_RUN_ERROR = (
+    "Error publishing artifact: this run has no session to attach artifacts to. "
+    "Put the key content in your final response instead."
+)
+
+
+def _download_error_hints(max_bytes: int) -> dict[str, str]:
+    return {
+        FILE_NOT_FOUND: "the file does not exist. Write it first, then publish.",
+        IS_DIRECTORY: "it is a directory. Publish a single file (archive a directory first if needed).",
+        PERMISSION_DENIED: "the file is not readable. Fix its permissions (`chmod`), then publish.",
+        DOWNLOAD_TOO_LARGE: (
+            f"the file is larger than the {max_bytes}-byte artifact limit. Make it smaller, then publish."
+        ),
+    }
 
 
 def _workspace_path_error(path: str) -> str | None:
@@ -93,14 +95,16 @@ def _workspace_path_error(path: str) -> str | None:
 
 
 class ArtifactsMiddleware(AgentMiddleware):
-    """Adds ``publish_artifact``, which copies a file out of the run's workspace."""
+    """Adds ``publish_artifact``, which copies a file out of the run's workspace into ``store``."""
 
-    def __init__(self, *, workspace: Workspace) -> None:
+    def __init__(self, *, workspace: Workspace, store: ArtifactStore) -> None:
         self._workspace = workspace
-        self.tools = [self._build_tool()]
+        self._store = store
+        self._download_error_hints = _download_error_hints(store.max_bytes)
+        self.tools = [self._build_tool(_tool_description(max_bytes=store.max_bytes, per_run_max=store.per_run_max))]
 
-    def _build_tool(self) -> BaseTool:
-        @tool(PUBLISH_ARTIFACT_TOOL_NAME, description=PUBLISH_ARTIFACT_TOOL_DESCRIPTION)
+    def _build_tool(self, description: str) -> BaseTool:
+        @tool(PUBLISH_ARTIFACT_TOOL_NAME, description=description)
         async def publish_artifact_tool(
             path: Annotated[str, "Absolute path of the file to publish, under /workspace."],
             runtime: ToolRuntime[RuntimeCtx],
@@ -121,47 +125,25 @@ class ArtifactsMiddleware(AgentMiddleware):
             return f"Error publishing artifact: {path_error}"
 
         thread_id = (runtime.config.get("configurable") or {}).get("thread_id")
-        run = await aresolve_active_run(thread_id) if thread_id else None
-        if run is None:
+        if not thread_id or not await self._store.aaccepts(thread_id):
             logger.warning("publish_artifact: no active run for thread_id=%s", thread_id)
-            return (
-                "Error publishing artifact: this run has no session to attach artifacts to. "
-                "Put the key content in your final response instead."
-            )
+            return _NO_RUN_ERROR
 
         try:
-            downloaded = await self._workspace.download_file(path, max_bytes=sessions_settings.ARTIFACT_MAX_BYTES)
+            downloaded = await self._workspace.download_file(path, max_bytes=self._store.max_bytes)
         except HTTPError as exc:
             return f"Error publishing artifact '{path}': {_fs_transport_failure_text(exc, 'publish', path)}"
         if downloaded.error or downloaded.content is None:
             reason = downloaded.error or "the file could not be read"
-            hint = _DOWNLOAD_ERROR_HINTS.get(reason) or f"{reason}. {_GIVE_UP_ADVICE}"
+            hint = self._download_error_hints.get(reason) or f"{reason}. {_GIVE_UP_ADVICE}"
             return f"Error publishing artifact '{path}': {hint}"
 
         try:
-            artifact = await astore_artifact(
-                run, filename=PurePosixPath(path).name, content=downloaded.content, title=title
+            return await self._store.astore(
+                thread_id=thread_id, filename=PurePosixPath(path).name, content=downloaded.content, title=title
             )
         except ArtifactError as exc:
             return f"Error publishing artifact '{path}': {exc}"
-        logger.info(
-            "publish_artifact: run=%s stored %s (%s, %d bytes)", run.pk, path, artifact.content_type, artifact.size
-        )
-        return await self._apublished_result(artifact)
-
-    @staticmethod
-    async def _apublished_result(artifact: RunArtifact) -> str:
-        try:
-            payload = await sync_to_async(serialize_artifact)(artifact)
-        except Exception:
-            logger.exception("publish_artifact: stored artifact %s but could not build its absolute URLs", artifact.pk)
-            return json.dumps({
-                "status": "published",
-                "id": str(artifact.pk),
-                "url": artifact.get_absolute_url(),
-                "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
-            })
-        return published_tool_result(payload)
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

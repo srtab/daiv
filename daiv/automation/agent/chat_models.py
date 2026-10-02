@@ -34,7 +34,7 @@ Every stream override here — reasoning capture, and the metadata dedupe below 
 wraps both transports. ``ainvoke`` is not a way around them: upstream's
 ``_should_stream`` routes it through ``_astream`` whenever a streaming callback
 handler is attached, which is every call under LangGraph. The sync ``.invoke()``
-in ``automation.titling.tasks`` runs outside that, and reaches ``_stream``.
+in ``automation.titling.llm`` runs outside that, and reaches ``_stream``.
 
 Round-tripping does **not** change how many reasoning tokens the model spends on
 later turns — measured A/B on ``z-ai/glm-5.2``, reasoning-token counts per turn
@@ -90,14 +90,14 @@ FINISH_STAMPED_KEYS = ("finish_reason", "model_name", "system_fingerprint", "ser
 # is both wasteful and failure-prone, and upstream excludes it for the same reason.
 _RESPONSE_DUMP_EXCLUDE = {"choices": {"__all__": {"message": {"parsed"}}}}
 
-# Display. Rendered by ag_ui_langgraph and chat.turns. May be assembled from stream
+# Display. Rendered by ag_ui_langgraph and sessions.turns. May be assembled from stream
 # deltas, so it is never authoritative for replay.
 DISPLAY_KEY = "reasoning_content"
 # Transport, structured. Named for the wire field it serializes straight back to.
 DETAILS_KEY = "reasoning_details"
 # Transport, plain-string fallback for providers returning no structured blocks.
 # Prefixed because a bare ``reasoning`` key already denotes the OpenAI-legacy
-# ``{"summary": [...]}`` shape that chat.turns reads.
+# ``{"summary": [...]}`` shape that sessions.turns reads.
 FALLBACK_KEY = "openrouter_reasoning"
 
 

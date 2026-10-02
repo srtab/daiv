@@ -10,12 +10,13 @@ from django.core.cache import cache
 import pytest
 from pydantic import SecretStr
 
+from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
 from automation.agent.model_catalog.exceptions import (
     CatalogFetchError,
     MissingApiKeyError,
     UnsupportedProviderTypeError,
 )
-from automation.agent.model_catalog.service import MODEL_CATALOG_CACHE_KEY_FMT, CatalogEntry, fetch_catalog
+from automation.agent.model_catalog.service import CatalogEntry, fetch_catalog
 from core.models import Provider, ProviderType
 
 

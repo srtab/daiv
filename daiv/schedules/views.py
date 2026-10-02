@@ -15,7 +15,7 @@ from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from mcp_servers.selection import mcp_picker_context
+from mcp_connectors.selection import mcp_picker_context
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 from sessions.models import SessionOrigin

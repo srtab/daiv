@@ -5,7 +5,7 @@ from openevals.prompts import CORRECTNESS_PROMPT
 from pydantic import BaseModel
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.constants import ModelName
+from core.constants import ModelName
 
 
 @cache

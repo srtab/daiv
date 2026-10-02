@@ -21,9 +21,9 @@ from sessions.executor.run import execute_run  # noqa: E402
 from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
 
 from automation.agent import ThinkingLevel  # noqa: E402
-from automation.agent.constants import ModelName  # noqa: E402
 from automation.agent.validators import validate_agent_override  # noqa: E402
 from codebase.base import GitPlatform, Scope  # noqa: E402
+from core.constants import ModelName  # noqa: E402
 
 
 async def main(

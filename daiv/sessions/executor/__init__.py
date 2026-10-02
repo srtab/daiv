@@ -19,7 +19,8 @@ step sits where it does:
 3. The model is resolved, or taken from ``spec.model_names``. For a spec with ``run_id`` it is recorded on the
    ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
 4. The agent is built over the run's workspace (a sandbox session that ``SandboxMiddleware`` acquires, reusing the
-   thread's warm container when it can, or else the worker's clone) and invoked, or handed to ``stream_run``'s stream
+   thread's warm container when it can, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``,
+   so ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
    factory, whose events are yielded as they come. Between its events, at most every
    ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale takeover
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the

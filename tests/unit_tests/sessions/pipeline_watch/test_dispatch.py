@@ -34,7 +34,7 @@ def stub_enqueue(monkeypatch):
             calls.append(kwargs)
             return holder["result"]
 
-    monkeypatch.setattr("jobs.tasks.run_job_task", FakeTask())
+    monkeypatch.setattr("sessions.executor.tasks.run_job_task", FakeTask())
     return calls, holder
 
 
@@ -194,7 +194,7 @@ async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_e
         async def aenqueue(self, **kwargs):
             raise RuntimeError("broker down")
 
-    monkeypatch.setattr("jobs.tasks.run_job_task", BrokenTask())
+    monkeypatch.setattr("sessions.executor.tasks.run_job_task", BrokenTask())
     session = await _make_watched_session(attempts=2)
 
     await FixRunDispatcher().adispatch(

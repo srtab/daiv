@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 BOT_NAME = "DAIV"
 BOT_LABEL = "daiv"
 BOT_MAX_LABEL = "daiv-max"
@@ -24,3 +26,44 @@ TASK_QUEUE_INTERACTIVE = "interactive"
 # would only starve whichever lost.
 TASK_PRIORITY_TITLING = 20
 TASK_PRIORITY_NOTIFICATION = 10
+
+
+class ModelName(StrEnum):
+    """
+    `openrouter` provider is the default provider to use any model that is supported by OpenRouter.
+
+    You can also use `anthropic`, `google` or `openai` model providers directly to use any model that is supported
+    by Anthropic, Google or OpenAI.
+
+    Only models that have been tested and are working well are listed here for the sake of convenience.
+    """
+
+    # Anthropic models
+    CLAUDE_OPUS_4_5 = "openrouter:anthropic/claude-opus-4.5"
+    CLAUDE_OPUS_4_6 = "openrouter:anthropic/claude-opus-4.6"
+    CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
+    CLAUDE_SONNET_4_6 = "openrouter:anthropic/claude-sonnet-4.6"
+    CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
+
+    # OpenAI models
+    GPT_5_3_CODEX = "openrouter:openai/gpt-5.3-codex"
+    GPT_5_4 = "openrouter:openai/gpt-5.4"
+    GPT_5_4_MINI = "openrouter:openai/gpt-5.4-mini"
+    GPT_5_6_LUNA = "openrouter:openai/gpt-5.6-luna"
+
+    # z-ai models
+    Z_AI_GLM_5_1 = "openrouter:z-ai/glm-5.1"
+    Z_AI_GLM_5_3_FLASH = "openrouter:z-ai/glm-5.3-flash"
+
+    # minimax models
+    MINIMAX_M3 = "openrouter:minimax/minimax-m3"
+
+    # MoonshotAI models
+    MOONSHOTAI_KIMI_K2_6 = "openrouter:moonshotai/kimi-k2.6"
+    MOONSHOTAI_KIMI_K2_7_CODE = "openrouter:moonshotai/kimi-k2.7-code"
+
+    # DeepSeek models
+    DEEPSEEK_V4_FLASH_0731 = "openrouter:deepseek/deepseek-v4-flash-0731"
+
+    # Google models
+    GEMINI_3_7_FLASH = "openrouter:google/gemini-3.7-flash"

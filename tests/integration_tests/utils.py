@@ -5,7 +5,7 @@ import pytest
 from langchain.messages import AIMessage
 
 from automation.agent.base import _BARE_NAME_HEURISTICS
-from automation.agent.constants import ModelName
+from core.constants import ModelName
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage

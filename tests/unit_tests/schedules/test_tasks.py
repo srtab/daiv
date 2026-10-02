@@ -22,7 +22,7 @@ def _make_task_result() -> MagicMock:
     DBTaskResult.objects.create(
         id=task_id,
         status="READY",
-        task_path="jobs.tasks.run_job_task",
+        task_path="sessions.executor.tasks.run_job_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",
@@ -37,7 +37,7 @@ async def _amake_task_result() -> MagicMock:
     await DBTaskResult.objects.acreate(
         id=task_id,
         status="READY",
-        task_path="jobs.tasks.run_job_task",
+        task_path="sessions.executor.tasks.run_job_task",
         args_kwargs={"args": [], "kwargs": {}},
         queue_name="default",
         backend_name="default",
