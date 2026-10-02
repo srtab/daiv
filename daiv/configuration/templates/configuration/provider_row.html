@@ -51,7 +51,7 @@
       <input type="hidden" name="{{ row.slug.html_name }}" value="{{ row.instance.slug }}">
       <input type="hidden" name="{{ row.provider_type.html_name }}" value="{{ row.instance.provider_type }}">
 
-      {% include "core/provider_row/_api_key.html" with row=row %}
+      {% include "configuration/provider_row/_api_key.html" with row=row %}
 
       <div>
         <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.base_url.html_name }}">
@@ -78,7 +78,7 @@
           {{ row.extra_headers }}
           {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
         </div>
-        {% include "core/provider_row/_advanced_flags.html" with row=row %}
+        {% include "configuration/provider_row/_advanced_flags.html" with row=row %}
       </div>
 
     {% else %}
@@ -114,7 +114,7 @@
         {% if row.base_url_version_warning %}<p class="mt-1 text-xs text-yellow-300">{{ row.base_url_version_warning }}</p>{% endif %}
       </div>
 
-      {% include "core/provider_row/_api_key.html" with row=row %}
+      {% include "configuration/provider_row/_api_key.html" with row=row %}
 
       <button type="button" class="provider-row__advanced-toggle" @click="advancedOpen = !advancedOpen">
         <span x-text="advancedOpen ? '▾' : '▸'"></span>
@@ -126,7 +126,7 @@
           {{ row.extra_headers }}
           {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
         </div>
-        {% include "core/provider_row/_advanced_flags.html" with row=row %}
+        {% include "configuration/provider_row/_advanced_flags.html" with row=row %}
       </div>
     {% endif %}
 

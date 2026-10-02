@@ -1,5 +1,10 @@
+import re
+from pathlib import Path
 from unittest.mock import patch
 
+from django.contrib.staticfiles import finders
+from django.template import TemplateDoesNotExist
+from django.template.loader import get_template
 from django.urls import reverse
 
 import pytest
@@ -7,6 +12,10 @@ from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+
+TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "daiv" / "configuration" / "templates"
+TEMPLATE_REFERENCE = re.compile(r"""\{%\s*(?:include|extends)\s+["']([^"']+)["']""")
+STATIC_REFERENCE = re.compile(r"""\{%\s*static\s+["']([^"']+)["']""")
 
 
 def _enable_seed_provider(slug: str, api_key: str = "sk-test") -> Provider:
@@ -161,7 +170,7 @@ class TestSectionPicker:
         # Without the script the trigger still renders and still looks pressable, so a
         # dropped `<script>` is invisible until someone taps it.
         client.force_login(admin_user)
-        assert "core/js/config-section-picker.js" in client.get(url).content.decode()
+        assert "configuration/js/config-section-picker.js" in client.get(url).content.decode()
 
 
 class TestBooleanCheckboxField:
@@ -1363,3 +1372,34 @@ class TestTelegramGroupPage:
 
     def test_members_are_denied(self, member_client):
         assert member_client.get(self.URL).status_code == 403
+
+
+def _template_sources() -> dict[str, str]:
+    return {str(path): path.read_text(encoding="utf-8") for path in sorted(TEMPLATES_DIR.rglob("*.html"))}
+
+
+def test_every_template_reference_resolves():
+    """An include behind an untaken ``{% if %}`` (the env-lock badge) is never loaded by a page test."""
+    sources = _template_sources()
+    assert sources, f"no templates under {TEMPLATES_DIR}"
+    unresolved = []
+    for path, source in sources.items():
+        for name in TEMPLATE_REFERENCE.findall(source):
+            try:
+                get_template(name)
+            except TemplateDoesNotExist:
+                unresolved.append(f"{path}: {name}")
+    assert not unresolved, "Unresolvable template references:\n" + "\n".join(unresolved)
+
+
+def test_every_static_reference_is_found():
+    """The test storage renders any ``{% static %}`` path; the production manifest storage raises on a missing one."""
+    sources = _template_sources()
+    assert sources, f"no templates under {TEMPLATES_DIR}"
+    missing = [
+        f"{path}: {name}"
+        for path, source in sources.items()
+        for name in STATIC_REFERENCE.findall(source)
+        if finders.find(name) is None
+    ]
+    assert not missing, "Static files not found:\n" + "\n".join(missing)

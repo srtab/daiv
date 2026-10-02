@@ -30,7 +30,7 @@
       <div class="provider-section__heading">{% translate "Built-in" %}</div>
       <div x-ref="builtInRows" class="space-y-1.5">
         {% for row in built_in_provider_forms %}
-          {% include "core/provider_row.html" with row=row %}
+          {% include "configuration/provider_row.html" with row=row %}
         {% endfor %}
       </div>
     </div>
@@ -39,11 +39,11 @@
       <div class="provider-section__heading">{% translate "Custom" %}</div>
       <div x-ref="customRows" class="space-y-1.5">
         {% for row in custom_provider_forms %}
-          {% include "core/provider_row.html" with row=row %}
+          {% include "configuration/provider_row.html" with row=row %}
         {% endfor %}
       </div>
       <template x-ref="rowTemplate">
-        {% include "core/provider_row.html" with row=providers_formset.empty_form %}
+        {% include "configuration/provider_row.html" with row=providers_formset.empty_form %}
       </template>
       <button type="button"
               class="mt-3 w-full rounded-xl border border-dashed border-white/[0.12] bg-transparent px-4 py-2.5 text-[13px] text-gray-400 hover:border-white/[0.20] hover:text-gray-200"

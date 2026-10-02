@@ -1,4 +1,4 @@
-{% extends "core/site_configuration.html" %}
+{% extends "configuration/site_configuration.html" %}
 {% load configuration_tags icon_tags %}
 
 {% block group_content %}
@@ -59,13 +59,13 @@
                 {% endif %}
             {% endfor %}
             {% if active_group.key == "web_fetch" %}
-                {% include "core/_web_fetch_auth_headers_section.html" %}
+                {% include "configuration/_web_fetch_auth_headers_section.html" %}
             {% endif %}
             {% if active_group.key == "providers" %}
-                {% include "core/_providers_section.html" %}
+                {% include "configuration/_providers_section.html" %}
             {% endif %}
             {% if active_group.key == "telegram" %}
-                {% include "core/_telegram_bot_username.html" %}
+                {% include "configuration/_telegram_bot_username.html" %}
             {% endif %}
         </div>
     </section>

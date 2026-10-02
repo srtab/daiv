@@ -40,11 +40,11 @@
             </div>
             <div x-ref="rows" class="space-y-3">
                 {% for row in web_fetch_auth_headers_formset %}
-                    {% include "core/web_fetch_auth_header_row.html" with row=row %}
+                    {% include "configuration/web_fetch_auth_header_row.html" with row=row %}
                 {% endfor %}
             </div>
             <template x-ref="rowTemplate">
-                {% include "core/web_fetch_auth_header_row.html" with row=web_fetch_auth_headers_formset.empty_form %}
+                {% include "configuration/web_fetch_auth_header_row.html" with row=web_fetch_auth_headers_formset.empty_form %}
             </template>
             <button type="button" class="btn-secondary mt-4" @click="addRow()">
                 {% translate "Add header" %}

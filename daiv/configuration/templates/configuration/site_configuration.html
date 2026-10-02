@@ -7,14 +7,14 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
-<script defer src="{% static 'core/js/config-section-picker.js' %}"></script>
+<script defer src="{% static 'configuration/js/config-section-picker.js' %}"></script>
 {# All model_name settings render the shared agent picker, so load the bundle on every group. #}
 <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
 {% if active_group.key == "providers" %}
 <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"
         integrity="sha384-HZZ/fukV+9G8gwTNjN7zQDG0Sp7MsZy5DDN6VfY3Be7V9dvQpEpR2jF2HlyFUUjU"
         crossorigin="anonymous"></script>
-<script defer src="{% static 'core/js/provider-reorder.js' %}"></script>
+<script defer src="{% static 'configuration/js/provider-reorder.js' %}"></script>
 {% endif %}
 {% endblock alpine_plugins %}
 
@@ -28,7 +28,7 @@
 </div>
 
 <div class="animate-fade-up mt-8 grid gap-8 popover:grid-cols-[200px_minmax(0,1fr)] popover:items-start" style="animation-delay: 100ms">
-    {% include "core/_config_section_picker.html" %}
+    {% include "configuration/_config_section_picker.html" %}
 
     <aside class="hidden popover:flex flex-col" aria-label="Configuration sections">
         {% regroup all_groups by category as grouped %}

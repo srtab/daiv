@@ -38,7 +38,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     raise ``Http404``. Saves are scoped to the group's fields only.
     """
 
-    template_name = "core/site_configuration_group.html"
+    template_name = "configuration/site_configuration_group.html"
 
     # Resolved by the GET/POST handlers from the URL kwarg ``group_key``. Declared at
     # class level so the type is visible to readers and tools without inferring it

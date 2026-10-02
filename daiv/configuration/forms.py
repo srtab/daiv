@@ -26,7 +26,7 @@ class _BooleanCheckboxField(forms.BooleanField):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("required", False)
         super().__init__(*args, **kwargs)
-        self.template_name = "core/fields/checkbox.html"
+        self.template_name = "configuration/fields/checkbox.html"
 
 
 class _SecretFormField(forms.CharField):
@@ -34,7 +34,7 @@ class _SecretFormField(forms.CharField):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.template_name = "core/fields/secret.html"
+        self.template_name = "configuration/fields/secret.html"
 
 
 # Model-name fields whose paired effort dots drive a separate thinking_level
@@ -100,7 +100,7 @@ class _AgentPickerWidget(forms.Widget):
     double up as a standalone Select.
     """
 
-    template_name = "core/fields/agent_picker_widget.html"
+    template_name = "configuration/fields/agent_picker_widget.html"
 
     def __init__(self, *, paired_thinking_field: str | None = None, attrs: dict | None = None):
         super().__init__(attrs)
@@ -327,7 +327,7 @@ class SiteConfigurationForm(forms.ModelForm):
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields
-            field_obj.template_name = "core/fields/default.html"  # type: ignore[attr-defined]
+            field_obj.template_name = "configuration/fields/default.html"  # type: ignore[attr-defined]
             field_obj.is_env_locked = False  # type: ignore[attr-defined]
             field_obj.secret_hint = None  # type: ignore[attr-defined]
 
