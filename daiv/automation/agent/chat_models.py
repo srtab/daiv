@@ -34,7 +34,7 @@ Every stream override here — reasoning capture, and the metadata dedupe below 
 wraps both transports. ``ainvoke`` is not a way around them: upstream's
 ``_should_stream`` routes it through ``_astream`` whenever a streaming callback
 handler is attached, which is every call under LangGraph. The sync ``.invoke()``
-in ``automation.titling.tasks`` runs outside that, and reaches ``_stream``.
+in ``automation.titling.llm`` runs outside that, and reaches ``_stream``.
 
 Round-tripping does **not** change how many reasoning tokens the model spends on
 later turns — measured A/B on ``z-ai/glm-5.2``, reasoning-token counts per turn

@@ -89,8 +89,6 @@ forbidden_modules =
     sessions
     webhooks
 allow_indirect_imports = True
-ignore_imports =
-    automation.titling.tasks -> sessions.models
 
 [importlinter:contract:sessions]
 name = sessions does not import trigger apps

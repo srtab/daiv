@@ -54,13 +54,13 @@ DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 # task drifting back to ``default`` regains the latency the split removed, and a long one
 # joining ``interactive`` hands that latency to everything already there.
 INTERACTIVE_TASKS = {
-    "automation.titling.tasks:generate_title_task",
-    "automation.titling.tasks:generate_batch_title_task",
     "notifications.tasks:deliver_notification_task",
     "sessions.tasks:classify_run_task",
     "sessions.tasks:evaluate_pipeline_watch_task",
+    "sessions.tasks:generate_batch_title_task",
+    "sessions.tasks:generate_title_task",
 }
-TITLING_TASKS = {"automation.titling.tasks:generate_title_task", "automation.titling.tasks:generate_batch_title_task"}
+TITLING_TASKS = {"sessions.tasks:generate_title_task", "sessions.tasks:generate_batch_title_task"}
 
 QUEUE_ARGUMENT = re.compile(r"--queue-name \"\$\{1:-([^}]+)\}\"")
 YAML_BLOCK = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
