@@ -38,9 +38,15 @@ from core.sandbox.schemas import (
     RunCommandsResponse,
     StartSessionRequest,
 )
+from core.site_settings import SiteSnapshot, site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+def site_snapshot(**overrides: Any) -> SiteSnapshot:
+    """The site at its field defaults with ``overrides`` on top, for code that takes a ``SiteSnapshot``."""
+    return SiteSnapshot(**site_settings.FIELD_DEFAULTS | overrides)
 
 
 def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:

@@ -1,4 +1,7 @@
+from dataclasses import asdict
 from unittest.mock import MagicMock, patch
+
+from django.db import models
 
 import pytest
 from pydantic import SecretStr
@@ -241,3 +244,39 @@ class TestMemoryDefaults:
     def test_max_lines_db_override(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_max_lines=50)):
             assert ss.memory_max_lines == 50
+
+
+def _value_from(source: str, name: str, default):
+    """A value unlike ``name``'s default, as the database stores it or the environment spells it."""
+    field = SiteConfiguration._meta.get_field(name)
+    if isinstance(field, models.BooleanField):
+        value = not default
+    elif isinstance(field, models.IntegerField):
+        value = 4242
+    elif isinstance(field, models.FloatField):
+        value = 42.5
+    else:
+        value = f"{source}-{name}"
+    if source == "environment":
+        return str(value).lower()
+    return value
+
+
+class TestSnapshot:
+    @pytest.mark.parametrize("source", ["default", "database", "environment"])
+    def test_agrees_with_attribute_access_from_one_configuration_read(self, ss, monkeypatch, source):
+        db_values = {}
+        for name, default in ss.FIELD_DEFAULTS.items():
+            if source == "database":
+                db_values[name] = _value_from(source, name, default)
+            elif source == "environment":
+                monkeypatch.setenv(ss.get_env_var_name(name), _value_from(source, name, default))
+
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration(**db_values)) as get_cached:
+            snapshot = ss.snapshot()
+            assert get_cached.call_count == 1
+            resolved = {name: getattr(ss, name) for name in ss.FIELD_DEFAULTS}
+
+        assert asdict(snapshot) == resolved
+        if source != "default":
+            assert all(resolved[name] != default for name, default in ss.FIELD_DEFAULTS.items())
