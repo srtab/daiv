@@ -14,14 +14,7 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.constants import (
-    AGENTS_MEMORY_PATH,
-    REPO_PATH,
-    SKILLS_PATH,
-    SKILLS_SOURCES,
-    SUBAGENTS_SOURCES,
-    ModelName,
-)
+from automation.agent.constants import AGENTS_MEMORY_PATH, REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -57,7 +50,7 @@ from automation.agent.subagents import (
 )
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
-from core.constants import BOT_NAME
+from core.constants import BOT_NAME, ModelName
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:

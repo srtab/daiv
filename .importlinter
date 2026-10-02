@@ -42,8 +42,6 @@ forbidden_modules =
     slash_commands
     webhooks
 allow_indirect_imports = True
-ignore_imports =
-    core.site_settings -> automation.agent.constants
 
 [importlinter:contract:sandbox-envs]
 name = sandbox_envs sits below codebase and the agent
@@ -77,8 +75,6 @@ forbidden_modules =
     sessions
     webhooks
 allow_indirect_imports = True
-ignore_imports =
-    codebase.repo_config -> automation.agent.constants
 
 [importlinter:contract:agent]
 name = the agent does not import runs or triggers

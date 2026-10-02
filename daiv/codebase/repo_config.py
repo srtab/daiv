@@ -10,7 +10,7 @@ import yaml
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 from yaml.parser import ParserError
 
-from automation.agent.constants import ModelName  # noqa: TC001
+from core.constants import ModelName  # noqa: TC001
 from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
 from core.site_settings import site_settings
 

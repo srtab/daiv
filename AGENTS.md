@@ -77,4 +77,4 @@ make makemessages && make compilemessages
 | MCP tool | `daiv/mcp_server/server.py` |
 | Webhook event handling | `daiv/webhooks/<platform>/callbacks.py` |
 | Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`); every new top-level package under `daiv/`, app or not, also goes in `.importlinter`: in `root_packages` and the `core` contract's `forbidden_modules` (`test_import_hygiene.py` checks both), and in the `forbidden_modules` of every other layer below it |
-| LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/automation/agent/constants.py` |
+| LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/core/constants.py` (`ModelName`) |
