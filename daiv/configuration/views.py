@@ -40,9 +40,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
     template_name = "configuration/site_configuration_group.html"
 
-    # Resolved by the GET/POST handlers from the URL kwarg ``group_key``. Declared at
-    # class level so the type is visible to readers and tools without inferring it
-    # from the assignment site.
     group: FieldGroup
 
     def get(self, request, group_key):
@@ -107,10 +104,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             self.template_name,
             self._build_context(form, providers_formset, headers_formset, headers_env_locked),
         )
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _resolve_group(group_key: str) -> FieldGroup:
