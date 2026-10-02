@@ -8,7 +8,9 @@ class AutomationConfig(AppConfig):
     verbose_name = _("Automation")
 
     def ready(self) -> None:
-        """Register the pydantic models the agent keeps in checkpointed state (``GitState.merge_request``)."""
+        """Register the pydantic models the agent keeps in checkpointed state (``GitState.merge_request``)
+        and connect the ``Provider`` receivers in ``automation.signals``."""
+        from automation import signals  # noqa: F401
         from codebase.base import MergeRequest
         from core.checkpoint_types import register_checkpoint_type
 

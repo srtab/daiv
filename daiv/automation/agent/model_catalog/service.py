@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
+from automation.agent.model_catalog.cache_keys import MODEL_CATALOG_CACHE_KEY_FMT
 from automation.agent.model_catalog.exceptions import (
     CatalogFetchError,
     MissingApiKeyError,
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MODEL_CATALOG_CACHE_KEY_FMT = "agent_picker:models:{slug}:v1"
 MODEL_CATALOG_CACHE_TTL = 60 * 15  # 15 minutes
 MODEL_CATALOG_FETCH_TIMEOUT = 4.0  # seconds, per-provider
 MODEL_CATALOG_TOTAL_TIMEOUT = 6.0  # seconds, whole gather
