@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.sites.models import Site
 from django.core.files.storage import default_storage
@@ -10,11 +11,13 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 
 import pytest
 from asgiref.sync import sync_to_async
+from deepagents.backends.protocol import FileDownloadResponse
+from langchain.tools import ToolRuntime
 from sessions import artifacts as artifacts_module
 from sessions.artifacts import (
     KNOWN_KIND_CONTENT_TYPES,
-    ArtifactError,
     ArtifactKind,
+    RunArtifactStore,
     aresolve_active_run,
     artifact_kind,
     aserialize_run_artifacts,
@@ -28,6 +31,9 @@ from sessions.artifacts import (
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
+from automation.agent.artifacts import ArtifactError
+from automation.agent.middlewares.artifacts import ArtifactsMiddleware
+from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace
 from tests.unit_tests.sessions.conftest import make_artifact
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -48,6 +54,17 @@ def _mk_run(session: Session, **kwargs) -> Run:
 async def _amk_run(**run_kwargs) -> Run:
     """Session + run built off the event loop (the ORM helpers above are sync)."""
     return await sync_to_async(lambda: _mk_run(_mk_session(), **run_kwargs))()
+
+
+def _runtime(thread_id: str) -> ToolRuntime:
+    return ToolRuntime(
+        state={},
+        context=Mock(),
+        config={"configurable": {"thread_id": thread_id}},
+        stream_writer=Mock(),
+        tool_call_id="c1",
+        store=None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -249,3 +266,109 @@ async def test_aserialize_run_artifacts_for_status_degrades_to_a_flagged_empty_l
     assert artifacts == []
     assert error is not None and "could not be listed" in error
     assert "Failed to list artifacts" in caplog.text
+
+
+def test_run_artifact_store_quotes_the_sessions_limits(monkeypatch):
+    monkeypatch.setattr(sessions_settings, "ARTIFACT_MAX_BYTES", 1234)
+    monkeypatch.setattr(sessions_settings, "ARTIFACTS_PER_RUN_MAX", 7)
+
+    store = RunArtifactStore()
+
+    assert (store.max_bytes, store.per_run_max) == (1234, 7)
+
+
+async def test_run_artifact_store_accepts_a_publish_only_on_the_bound_runs_thread():
+    run = await _amk_run()
+    other = await _amk_run()
+    store = RunArtifactStore()
+
+    assert await store.aaccepts(run.session_id) is False
+    with bind_active_run(run.pk):
+        assert await store.aaccepts(run.session_id) is True
+        assert await store.aaccepts(other.session_id) is False
+
+
+async def test_run_artifact_store_files_on_the_bound_run_and_returns_the_published_result():
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    executing = await _amk_run()
+    session = await Session.objects.aget(pk=executing.session_id)
+    await sync_to_async(_mk_run)(session, status=RunStatus.RUNNING)
+
+    with bind_active_run(executing.pk):
+        result = await RunArtifactStore().astore(
+            thread_id=session.thread_id, filename="audit.html", content=b"<h1>Audit</h1>", title="Audit"
+        )
+
+    artifact = await RunArtifact.objects.aget(run=executing)
+    viewer = f"https://daiv.example.com/dashboard/sessions/{session.thread_id}/artifacts/{artifact.pk}/"
+    assert json.loads(result) == {
+        "status": "published",
+        "id": str(artifact.pk),
+        "title": "Audit",
+        "filename": "audit.html",
+        "content_type": "text/html",
+        "kind": "html",
+        "size": 14,
+        "url": viewer,
+        "download_url": f"{viewer}raw/?download=1",
+    }
+
+
+async def test_run_artifact_store_without_a_bound_run_rejects_the_file():
+    run = await _amk_run()
+
+    with pytest.raises(ArtifactError, match="no session to attach artifacts to"):
+        await RunArtifactStore().astore(thread_id=run.session_id, filename="r.md", content=b"# r")
+
+    assert not await RunArtifact.objects.filter(run=run).aexists()
+
+
+async def test_run_artifact_store_enforces_the_per_run_budget(monkeypatch):
+    monkeypatch.setattr(sessions_settings, "ARTIFACTS_PER_RUN_MAX", 1)
+    run = await _amk_run()
+    store = RunArtifactStore()
+
+    with bind_active_run(run.pk):
+        await store.astore(thread_id=run.session_id, filename="one.md", content=b"1")
+        with pytest.raises(ArtifactError, match="already published 1 artifacts"):
+            await store.astore(thread_id=run.session_id, filename="two.md", content=b"2")
+
+    assert await RunArtifact.objects.filter(run=run).acount() == 1
+
+
+async def test_run_artifact_store_returns_a_flagged_relative_url_when_absolute_urls_fail(caplog):
+    run = await _amk_run()
+
+    with (
+        bind_active_run(run.pk),
+        patch.object(artifacts_module, "serialize_artifact", side_effect=RuntimeError("no site")),
+    ):
+        result = await RunArtifactStore().astore(thread_id=run.session_id, filename="r.md", content=b"# r")
+
+    artifact = await RunArtifact.objects.aget(run=run)
+    assert json.loads(result) == {
+        "status": "published",
+        "id": str(artifact.pk),
+        "url": f"/dashboard/sessions/{run.session_id}/artifacts/{artifact.pk}/",
+        "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
+    }
+    assert "could not build its absolute URLs" in caplog.text
+
+
+async def test_the_publish_tool_stores_through_the_run_artifact_store():
+    """The middleware's tests use a fake store; this one runs the real store through the tool."""
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    run = await _amk_run()
+    path = "/workspace/tmp/report.md"
+    workspace = FakeWorkspace()
+    workspace.download_file = AsyncMock(return_value=FileDownloadResponse(path=path, content=b"# Report", error=None))
+    (tool,) = ArtifactsMiddleware(workspace=workspace, store=RunArtifactStore()).tools
+    (default_tool,) = ArtifactsMiddleware(workspace=FakeWorkspace(), store=FakeArtifactStore()).tools
+
+    with bind_active_run(run.pk):
+        result = await tool.coroutine(path=path, runtime=_runtime(run.session_id), title="Report")
+
+    artifact = await RunArtifact.objects.aget(run=run)
+    assert json.loads(result)["status"] == "published"
+    assert json.loads(result)["id"] == str(artifact.pk)
+    assert tool.description == default_tool.description

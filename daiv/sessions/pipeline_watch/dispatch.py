@@ -37,8 +37,7 @@ class FixRunDispatcher:
         The fix run reuses the session's recorded env: it redoes that session's work, and re-matching would lose an
         explicit pick.
         """
-        from jobs.tasks import run_job_task
-
+        from sessions.executor.tasks import run_job_task
         from sessions.services import acreate_run, amark_failed_and_advance
 
         # Untranslated: this is addressed to the model, not the user. A filled catalog would

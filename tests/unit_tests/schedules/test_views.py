@@ -201,7 +201,7 @@ class TestScheduleRunNowView:
         DBTaskResult.objects.create(
             id=tid,
             status="READY",
-            task_path="jobs.tasks.run_job_task",
+            task_path="sessions.executor.tasks.run_job_task",
             args_kwargs={"args": [], "kwargs": {}},
             queue_name="default",
             backend_name="default",
@@ -218,7 +218,7 @@ class TestScheduleRunNowView:
         await DBTaskResult.objects.acreate(
             id=tid,
             status="READY",
-            task_path="jobs.tasks.run_job_task",
+            task_path="sessions.executor.tasks.run_job_task",
             args_kwargs={"args": [], "kwargs": {}},
             queue_name="default",
             backend_name="default",
@@ -751,10 +751,10 @@ class TestScheduleDuplicateFlow:
     def test_create_view_from_param_carries_the_mcp_selection_and_env(self, member_client, member_user):
         """Duplicating dropped both silently: the copy came up with the default server pool and
         Auto, which reads as "same schedule" right up until it runs against different tooling."""
-        from mcp_servers.models import MCPServer
+        from mcp_connectors.models import MCPServer
         from sandbox_envs.models import SandboxEnvironment, Scope
 
-        from tests.unit_tests.mcp_servers.helpers import only_servers
+        from tests.unit_tests.mcp_connectors.helpers import only_servers
 
         only_servers(("opt-in", MCPServer.Status.ON_DEMAND))
         env = SandboxEnvironment.objects.create(name="heavy", scope=Scope.GLOBAL)

@@ -120,7 +120,7 @@ def test_detail_renders_for_own_session(member_client, member_user):
 def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client, member_user):
     """The reloaded Tools sheet is seeded with the effective selection (defaults with the
     session's stored overrides applied), not with the raw ``mcp_overrides`` keys."""
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(

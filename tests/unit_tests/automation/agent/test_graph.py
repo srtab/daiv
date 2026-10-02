@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
 
+from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -16,7 +17,7 @@ from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
-from tests.unit_tests.conftest import FakeSandboxClient, sandbox_spec
+from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, sandbox_spec
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -102,7 +103,7 @@ async def test_sandbox_mode_shares_one_workspace_across_the_run():
     """B6: the main agent's sandbox middleware and every subagent builder get the run's one workspace, so their files,
     shell and git all reach its one session."""
     workspace, client = _sandbox_workspace()
-    built = await _build(workspace)
+    built = await _build(workspace, artifact_store=FakeArtifactStore())
 
     [sandbox_middleware] = [m for m in _middleware(built) if isinstance(m, SandboxMiddleware)]
     assert (sandbox_middleware._bash, sandbox_middleware._session) == (workspace.bash, workspace.session)
@@ -117,6 +118,22 @@ async def test_sandbox_mode_shares_one_workspace_across_the_run():
     [artifacts] = [m for m in _middleware(built) if isinstance(m, ArtifactsMiddleware)]
     assert artifacts._workspace is workspace
     assert client.calls == []
+
+
+async def test_the_artifact_store_reaches_the_publish_tool():
+    store = FakeArtifactStore()
+    built = await _build(_disk_workspace(), artifact_store=store)
+
+    [artifacts] = [m for m in _middleware(built) if isinstance(m, ArtifactsMiddleware)]
+    assert artifacts._store is store
+
+
+async def test_without_an_artifact_store_the_agent_has_no_publish_tool():
+    built = await _build(_disk_workspace())
+
+    tools = [t.name for m in _middleware(built) for t in getattr(m, "tools", None) or []]
+    assert not any(isinstance(m, ArtifactsMiddleware) for m in _middleware(built))
+    assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
 
 
 def test_ask_user_question_is_always_loaded():

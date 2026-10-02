@@ -12,7 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from automation.agent import BaseAgent
-from automation.agent.constants import AGENTS_MEMORY_PATH, ModelName
+from automation.agent.constants import AGENTS_MEMORY_PATH
 from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware.types import ModelRequest
     from langchain_core.runnables import Runnable
+
+    from core.constants import ModelName
 
 
 @dynamic_prompt

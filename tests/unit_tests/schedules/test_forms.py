@@ -4,13 +4,13 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
-from mcp_servers.models import MCPServer
+from mcp_connectors.models import MCPServer
 
 from accounts.models import User
 from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import DispatchError, Frequency, Intent, ScheduledJob
-from tests.unit_tests.mcp_servers.helpers import only_servers
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 
 @pytest.fixture
@@ -313,7 +313,7 @@ def test_schedule_form_persists_muted(member_user):
 
 
 def test_schedule_form_pool_uses_owner_not_editing_admin(member_user, admin_user):
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     # A USER server owned by member_user (only visible in member_user's pool).

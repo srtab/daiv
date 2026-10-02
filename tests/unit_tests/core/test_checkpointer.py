@@ -17,8 +17,11 @@ import orjson
 import pytest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+from pydantic import BaseModel
 
 from codebase.base import MergeRequest, User
+from core import checkpoint_types
+from core.checkpoint_types import register_checkpoint_type
 from core.checkpointer import DAIVRedisSerializer
 
 
@@ -119,6 +122,45 @@ def test_objects_with_to_json_are_not_intercepted():
 
     # Encoded by the parent's safe path, not wrapped in our ``codebase.base`` envelope.
     assert encoded.get("id", [None])[0] != "codebase.base"
+
+
+class _Snapshot(BaseModel):
+    """A pydantic model no app registers. Module-level so the reviver can import it."""
+
+    note: str
+
+
+@pytest.fixture
+def isolated_checkpoint_types(monkeypatch):
+    monkeypatch.setattr(checkpoint_types, "_registered", set())
+
+
+@pytest.mark.usefixtures("isolated_checkpoint_types")
+def test_registered_type_round_trips_as_its_own_class():
+    register_checkpoint_type(_Snapshot)
+    serde = DAIVRedisSerializer()
+
+    restored = serde.loads_typed(serde.dumps_typed({"snapshot": _Snapshot(note="n")}))
+
+    assert isinstance(restored["snapshot"], _Snapshot)
+    assert restored["snapshot"] == _Snapshot(note="n")
+
+
+@pytest.mark.parametrize("registered", [(), (MergeRequest,)], ids=["empty-registry", "merge-request-registered"])
+@pytest.mark.usefixtures("isolated_checkpoint_types")
+def test_unregistered_pydantic_type_revives_as_its_raw_envelope(registered):
+    for cls in registered:
+        register_checkpoint_type(cls)
+    serde = DAIVRedisSerializer()
+
+    restored = serde.loads_typed(serde.dumps_typed({"snapshot": _Snapshot(note="n")}))
+
+    assert restored["snapshot"] == {
+        "lc": 2,
+        "type": "constructor",
+        "id": [_Snapshot.__module__, "_Snapshot"],
+        "kwargs": {"note": "n"},
+    }
 
 
 def test_stock_redis_serializer_round_trips_sets():

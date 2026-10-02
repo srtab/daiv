@@ -623,7 +623,7 @@ async def ondemand_global_mcp():
     """A non-default (on-demand) global MCP server named ``b`` — checking it produces
     an override ``{"b": "on"}`` since it is not in the default (active) set. Clears any
     seeded servers so ``b`` is the only pool member and the diff is unambiguous."""
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     await MCPServer.objects.all().adelete()
     return await MCPServer.objects.acreate(
@@ -736,7 +736,7 @@ async def test_chat_mcp_selection_is_pool_relative_across_status_flip(
     new pool to ``{"b": "on"}``, so the user keeps the server they picked."""
     from django.core.cache import cache
 
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     _, raw, user = authed
     await cache.aclear()  # isolate from the shared per-username job-throttle bucket

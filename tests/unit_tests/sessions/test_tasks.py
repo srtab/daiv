@@ -5,13 +5,20 @@ from unittest.mock import patch
 from django.utils import timezone
 
 import pytest
+from django_tasks.base import DEFAULT_TASK_PRIORITY
+from django_tasks_db.models import DBTaskResult
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.tasks import (
     RECLASSIFY_GRACE,
     RECLASSIFY_MAX_AGE,
+    generate_batch_title_task,
+    generate_title_task,
     reclassify_missing_envelopes_cron_task,
     sync_stuck_runs_cron_task,
 )
+
+from automation.titling.llm import TitlerNotConfiguredError
+from core.constants import TASK_QUEUE_INTERACTIVE
 
 
 def test_sync_stuck_runs_cron_task_dispatches_command():
@@ -105,3 +112,130 @@ def test_reclassify_reenqueues_stranded_waiting_input_runs():
     with patch("sessions.tasks.classify_run_task") as task:
         reclassify_missing_envelopes_cron_task.func()
     assert {call.args[0] for call in task.enqueue.call_args_list} == {str(r.pk) for r in stranded}
+
+
+def _run_for_titling(
+    *, title: str = "", session_title: str = "", batch_id: uuid.UUID | None = None, repo_id: str = "group/repo"
+) -> Run:
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id=repo_id, title=session_title
+    )
+    return Run.objects.create(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id=repo_id, batch_id=batch_id, title=title
+    )
+
+
+@pytest.mark.django_db
+def test_generate_title_task_skips_a_missing_entity_without_calling_the_model():
+    with patch("automation.titling.llm.generate_title") as generate:
+        generate_title_task.func(entity_type="run", pk=str(uuid.uuid4()), prompt="any", repo_id="x/y")
+
+    generate.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_generate_title_task_overwrites_the_run_title_with_the_generated_one():
+    run = _run_for_titling(title="Heuristic placeholder")
+
+    with patch("automation.titling.llm.generate_title", return_value="LLM generated") as generate:
+        generate_title_task.func(
+            entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="feat/x"
+        )
+
+    run.refresh_from_db()
+    assert run.title == "LLM generated"
+    generate.assert_called_once_with(
+        "add login",
+        repo_id="group/repo",
+        ref="feat/x",
+        run_metadata={"entity_type": "run", "entity_pk": str(run.pk), "repo_id": "group/repo", "ref": "feat/x"},
+    )
+
+
+@pytest.mark.django_db
+def test_generate_title_task_writes_a_session_title():
+    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
+
+    with patch("automation.titling.llm.generate_title", return_value="Session title"):
+        generate_title_task.func(entity_type="session", pk=session.thread_id, prompt="do a thing", repo_id="group/repo")
+
+    session.refresh_from_db()
+    assert session.title == "Session title"
+
+
+@pytest.mark.django_db
+def test_generate_title_task_keeps_the_title_when_no_model_is_configured():
+    run = _run_for_titling(title="Heuristic placeholder")
+
+    with patch("automation.titling.llm.generate_title", side_effect=TitlerNotConfiguredError("no key")):
+        generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+
+    run.refresh_from_db()
+    assert run.title == "Heuristic placeholder"
+
+
+@pytest.mark.django_db
+def test_generate_title_task_lets_a_failed_model_call_fail_the_task():
+    run = _run_for_titling()
+
+    with (
+        patch("automation.titling.llm.generate_title", side_effect=RuntimeError("provider down")),
+        pytest.raises(RuntimeError, match="provider down"),
+    ):
+        generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+
+
+@pytest.mark.django_db
+def test_generate_batch_title_task_titles_only_the_untitled_runs_of_the_batch():
+    batch_id = uuid.uuid4()
+    untitled = [_run_for_titling(batch_id=batch_id, repo_id=f"o/r{i}") for i in range(2)]
+    prefilled = _run_for_titling(batch_id=batch_id, title="job · run #1", repo_id="o/sched")
+    outsider = _run_for_titling(repo_id="o/other")
+
+    with patch("automation.titling.llm.generate_title", return_value="Add login feature") as generate:
+        generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
+
+    generate.assert_called_once_with("add login", run_metadata={"entity_type": "run_batch", "batch_id": str(batch_id)})
+    titles = {run.pk: Run.objects.get(pk=run.pk).title for run in [*untitled, prefilled, outsider]}
+    assert titles == {
+        untitled[0].pk: "Add login feature",
+        untitled[1].pk: "Add login feature",
+        prefilled.pk: "job · run #1",
+        outsider.pk: "",
+    }
+
+
+@pytest.mark.django_db
+def test_generate_batch_title_task_backfills_only_untitled_sessions():
+    batch_id = uuid.uuid4()
+    untitled = _run_for_titling(batch_id=batch_id)
+    pinned = _run_for_titling(batch_id=batch_id, session_title="Session pinned")
+
+    with patch("automation.titling.llm.generate_title", return_value="Batch title"):
+        generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
+
+    assert Session.objects.get(pk=untitled.session_id).title == "Batch title"
+    assert Session.objects.get(pk=pinned.session_id).title == "Session pinned"
+
+
+@pytest.mark.django_db
+def test_generate_batch_title_task_keeps_titles_when_no_model_is_configured():
+    batch_id = uuid.uuid4()
+    run = _run_for_titling(batch_id=batch_id)
+
+    with patch("automation.titling.llm.generate_title", side_effect=TitlerNotConfiguredError("no key")):
+        generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
+
+    run.refresh_from_db()
+    assert run.title == ""
+
+
+@pytest.mark.django_db
+def test_the_enqueued_title_row_is_what_the_interactive_worker_claims(database_task_backend):
+    """DAIV's own backend overrides ``enqueue``, and the row is what a worker selects on."""
+    result = generate_title_task.enqueue(entity_type="session", pk=str(uuid.uuid4()), prompt="add login", repo_id="o/r")
+
+    row = DBTaskResult.objects.get(id=result.id)
+    assert row.queue_name == TASK_QUEUE_INTERACTIVE
+    assert row.priority > DEFAULT_TASK_PRIORITY
+    assert row.task_path == "sessions.tasks.generate_title_task"

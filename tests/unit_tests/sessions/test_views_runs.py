@@ -167,8 +167,8 @@ def test_post_submit_failure_rerenders_form_with_error(member_client):
 def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
     import json
 
-    from mcp_servers.models import MCPServer
-    from mcp_servers.selection import build_selection_pool, effective_selection
+    from mcp_connectors.models import MCPServer
+    from mcp_connectors.selection import build_selection_pool, effective_selection
 
     MCPServer.objects.create(
         name="b",
@@ -198,8 +198,8 @@ def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
 
 @pytest.mark.django_db
 def test_retry_prefills_selection_from_source_session(member_client, member_user):
-    from mcp_servers.models import MCPServer
-    from mcp_servers.selection import build_selection_pool, effective_selection
+    from mcp_connectors.models import MCPServer
+    from mcp_connectors.selection import build_selection_pool, effective_selection
 
     MCPServer.objects.create(
         name="b",

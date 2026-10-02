@@ -4,9 +4,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from sessions.models import Session, SessionOrigin
+from sessions.tasks import generate_title_task
 
 from automation.titling.services import TitlerService
-from automation.titling.tasks import generate_title_task
 
 if TYPE_CHECKING:
     from ag_ui.core import RunAgentInput

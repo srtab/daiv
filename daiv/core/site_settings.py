@@ -8,6 +8,8 @@ from typing import Any, ClassVar
 from get_docker_secret import get_docker_secret
 from pydantic import SecretStr
 
+from core.constants import ModelName
+
 logger = logging.getLogger("daiv.core")
 
 # Docker secrets are static for the lifetime of the container, so we cache
@@ -52,8 +54,7 @@ def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
 
 
 def _build_field_defaults() -> dict[str, Any]:
-    """Build the defaults dict at first access (avoids import-time cross-layer dependency)."""
-    from automation.agent.constants import ModelName
+    """Build the defaults dict at first access, so importing this module never loads ``core.models``."""
     from core.models import ThinkingLevelChoices, WebSearchEngineChoices
 
     return {

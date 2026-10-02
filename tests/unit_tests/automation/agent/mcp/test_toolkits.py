@@ -38,7 +38,7 @@ def servers(monkeypatch):
     """Set the ``(name, dto)`` list ``MCPToolkit.get_tools`` resolves."""
 
     def _set(*entries):
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda *args, **kwargs: list(entries))
+        monkeypatch.setattr("mcp_connectors.services.build_runtime_servers", lambda *args, **kwargs: list(entries))
 
     return _set
 
@@ -245,7 +245,7 @@ class TestLogPolicy:
 @pytest.mark.django_db(transaction=True)
 async def test_end_to_end_db_row_yields_prefixed_tools(gates):
     from asgiref.sync import sync_to_async
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     await sync_to_async(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete)()
     await sync_to_async(MCPServer.objects.create)(
@@ -262,7 +262,7 @@ async def test_end_to_end_db_row_yields_prefixed_tools(gates):
 @pytest.mark.django_db(transaction=True)
 async def test_end_to_end_db_tool_filter_is_applied(gates):
     from asgiref.sync import sync_to_async
-    from mcp_servers.models import MCPServer
+    from mcp_connectors.models import MCPServer
 
     await sync_to_async(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete)()
     await sync_to_async(MCPServer.objects.create)(

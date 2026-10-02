@@ -12,8 +12,8 @@ from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
+from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, validate_agent_override
-from chat.api.security import AuthBearer
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
