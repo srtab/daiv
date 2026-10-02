@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.sites.models import Site
 from django.core.files.storage import default_storage
@@ -11,6 +11,8 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 
 import pytest
 from asgiref.sync import sync_to_async
+from deepagents.backends.protocol import FileDownloadResponse
+from langchain.tools import ToolRuntime
 from sessions import artifacts as artifacts_module
 from sessions.artifacts import (
     KNOWN_KIND_CONTENT_TYPES,
@@ -30,6 +32,8 @@ from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from automation.agent.artifacts import ArtifactError
+from automation.agent.middlewares.artifacts import ArtifactsMiddleware
+from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace
 from tests.unit_tests.sessions.conftest import make_artifact
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -50,6 +54,17 @@ def _mk_run(session: Session, **kwargs) -> Run:
 async def _amk_run(**run_kwargs) -> Run:
     """Session + run built off the event loop (the ORM helpers above are sync)."""
     return await sync_to_async(lambda: _mk_run(_mk_session(), **run_kwargs))()
+
+
+def _runtime(thread_id: str) -> ToolRuntime:
+    return ToolRuntime(
+        state={},
+        context=Mock(),
+        config={"configurable": {"thread_id": thread_id}},
+        stream_writer=Mock(),
+        tool_call_id="c1",
+        store=None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -338,3 +353,22 @@ async def test_run_artifact_store_returns_a_flagged_relative_url_when_absolute_u
         "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
     }
     assert "could not build its absolute URLs" in caplog.text
+
+
+async def test_the_publish_tool_stores_through_the_run_artifact_store():
+    """The middleware's tests use a fake store; this one runs the real store through the tool."""
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    run = await _amk_run()
+    path = "/workspace/tmp/report.md"
+    workspace = FakeWorkspace()
+    workspace.download_file = AsyncMock(return_value=FileDownloadResponse(path=path, content=b"# Report", error=None))
+    (tool,) = ArtifactsMiddleware(workspace=workspace, store=RunArtifactStore()).tools
+    (default_tool,) = ArtifactsMiddleware(workspace=FakeWorkspace(), store=FakeArtifactStore()).tools
+
+    with bind_active_run(run.pk):
+        result = await tool.coroutine(path=path, runtime=_runtime(run.session_id), title="Report")
+
+    artifact = await RunArtifact.objects.aget(run=run)
+    assert json.loads(result)["status"] == "published"
+    assert json.loads(result)["id"] == str(artifact.pk)
+    assert tool.description == default_tool.description

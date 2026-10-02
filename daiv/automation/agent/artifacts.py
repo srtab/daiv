@@ -13,7 +13,7 @@ PUBLISH_ARTIFACT_TOOL_NAME = "publish_artifact"
 
 
 class ArtifactError(ValueError):
-    """A publish request the agent can act on: bad file name, empty or oversized file, run budget spent."""
+    """A publish the agent can act on: no run to attach to, bad file name, empty or oversized file, run budget spent."""
 
 
 class ArtifactStore(Protocol):
