@@ -54,6 +54,16 @@ def test_each_case_resolves_its_chain_and_thinking_level(case):
     assert (agent.names, agent.thinking_level) == (case.chain, case.thinking_level)
 
 
+def test_an_exact_chain_beats_a_run_override_and_max():
+    run = RunOverrides(
+        model_names=("exact-a", "exact-b"), agent_thinking_level="high", agent_model="run-model", use_max=True
+    )
+
+    agent = _resolve(site=site_snapshot(agent_max_model_name="site-max-model"), run=run).agent
+
+    assert (agent.names, agent.thinking_level) == (("exact-a", "exact-b"), "high")
+
+
 @pytest.mark.parametrize(("site_level", "warns"), [("bogus", True), ("", False)], ids=["invalid", "empty"])
 def test_a_site_level_an_override_inherits_disables_thinking_when_unusable(caplog, site_level, warns):
     with caplog.at_level(logging.WARNING, logger="daiv.agent"):

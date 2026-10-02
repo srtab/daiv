@@ -16,12 +16,10 @@ from langgraph.config import get_config
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
-from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
 from .schemas import Image
-from .validators import AgentConfigurationError
 
 logger = logging.getLogger("daiv.agent")
 
@@ -31,7 +29,6 @@ if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage, ImageContentBlock
 
     from codebase.context import RuntimeCtx
-    from codebase.repo_config import AgentModelConfig
 
 
 def extract_images_from_text(text: str) -> list[Image]:
@@ -244,51 +241,6 @@ def final_assistant_text(messages: Sequence[BaseMessage]) -> str | None:
             return text[:FINAL_ASSISTANT_TEXT_MAX_CHARS].rstrip() + "…[truncated]"
         return text
     return None
-
-
-def get_daiv_agent_kwargs(
-    *,
-    model_config: AgentModelConfig,
-    agent_model: str | None = None,
-    agent_thinking_level: str | None = None,
-    use_max: bool = False,
-) -> dict[str, Any]:
-    """Resolve model + thinking config for an agent run.
-
-    Precedence (highest to lowest):
-
-    1. ``agent_model`` (user override) → primary model is the override; the repo's
-       configured model is prepended to the fallback chain so the run degrades to
-       the repo default on provider outage. Thinking comes from ``agent_thinking_level``
-       if set, else from the repo config.
-    2. ``use_max`` (webhook-only, ``daiv-max`` label) → ``site_settings.agent_max_*``.
-       ``agent_thinking_level`` is ignored on this branch.
-    3. No override and not ``use_max`` → ``site_settings.agent_model_name`` (system
-       default) with ``site_settings.agent_fallback_model_name`` as the provider-outage
-       safety net. Raises :class:`AgentConfigurationError` when no system default is
-       configured — callers are expected to either supply ``agent_model`` or surface
-       the error so an admin sees the missing configuration.
-    """
-    if agent_model:
-        return {
-            "model_names": [agent_model, model_config.model, model_config.fallback_model],
-            "thinking_level": agent_thinking_level or model_config.thinking_level,
-        }
-    if use_max:
-        return {
-            "model_names": [site_settings.agent_max_model_name, model_config.model, model_config.fallback_model],
-            "thinking_level": site_settings.agent_max_thinking_level,
-        }
-    default_model = site_settings.agent_model_name
-    if not default_model:
-        raise AgentConfigurationError(
-            "No agent model configured. Set the system default (DAIV_AGENT_MODEL_NAME / "
-            "site settings) or pass an explicit `agent_model` override."
-        )
-    return {
-        "model_names": [default_model, site_settings.agent_fallback_model_name],
-        "thinking_level": agent_thinking_level or site_settings.agent_thinking_level,
-    }
 
 
 def conversation_thread_id() -> str | None:

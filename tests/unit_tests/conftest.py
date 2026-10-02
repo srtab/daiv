@@ -20,15 +20,18 @@ from sandbox_envs.spec import SandboxSpec
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from codebase.repo_config import RepositoryConfig
 from core.models import (
     PROVIDERS_CACHE_KEY,
     SITE_CONFIGURATION_CACHE_KEY,
     WEB_FETCH_AUTH_HEADERS_CACHE_KEY,
+    SiteConfiguration,
     WebFetchAuthHeader,
 )
 from core.sandbox.schemas import (
@@ -47,6 +50,18 @@ if TYPE_CHECKING:
 def site_snapshot(**overrides: Any) -> SiteSnapshot:
     """The site at its field defaults with ``overrides`` on top, for code that takes a ``SiteSnapshot``."""
     return SiteSnapshot(**site_settings.FIELD_DEFAULTS | overrides)
+
+
+def agent_settings(
+    *, site: SiteSnapshot | None = None, repo: RepositoryConfig | None = None, run: RunOverrides | None = None
+) -> AgentSettings:
+    """What ``resolve_agent_settings`` gives ``run`` on ``site`` for ``repo``: by default, no overrides on the field
+    defaults for a ``.daiv.yml`` that sets nothing."""
+    if repo is None:
+        # The resolver takes every unset field from ``site``, so skip the database read the config's defaults make.
+        with patch.object(SiteConfiguration, "get_cached", return_value=None):
+            repo = RepositoryConfig()
+    return resolve_agent_settings(site=site or site_snapshot(), repo=repo, run=run or RunOverrides())
 
 
 def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:

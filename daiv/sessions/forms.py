@@ -130,7 +130,7 @@ class AgentRunFieldsMixin(forms.Form):
             # client-side gate is bypassed (curl, scripted submit, a stale page
             # cached when a system default still existed), surface the same error
             # as a form error instead of letting the run enqueue and explode at
-            # ``get_daiv_agent_kwargs`` time.
+            # ``resolve_agent_settings`` time.
             ensure_agent_model_available(cleaned["agent_model"])
         except AgentOverrideError as err:
             self.add_error("agent_model", str(err))

@@ -16,8 +16,9 @@ step sits where it does:
    branch that is gone; a failed re-pin is logged.
    ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates;
    the agent then runs bound to it (``bind_active_run``), as it does to ``spec.run_id``, and step 6 measures it.
-3. The model is resolved, or taken from ``spec.model_names``. For a spec with ``run_id`` it is recorded on the
-   ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
+3. The run's agent settings are resolved once, from one site snapshot, the repository's ``.daiv.yml`` and
+   ``spec.overrides()``, so a site-settings change applies from the next run. For a spec with ``run_id`` the model is
+   recorded on the ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
 4. The agent is built over the run's workspace (a sandbox session that ``SandboxMiddleware`` acquires, reusing the
    thread's warm container when it can, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``,
    so ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream

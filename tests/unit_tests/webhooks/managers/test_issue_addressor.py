@@ -11,8 +11,8 @@ from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
+from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
-from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.repo_config import RepositoryConfig
@@ -99,9 +99,10 @@ class TestMaxLabelRoutesToMaxModel:
     @staticmethod
     async def _agent_kwargs(labels: list[str]) -> dict:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
-        with addressor_run(agent, ctx=_ctx(), resolve=get_daiv_agent_kwargs) as run:
+        with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings) as run:
             await _address(issue=_issue(labels=labels))
-        return run.create_agent.await_args.kwargs
+        chain = run.create_agent.await_args.kwargs["settings"].agent
+        return {"model_names": list(chain.names), "thinking_level": chain.thinking_level}
 
     async def test_max_label_resolves_to_max_model(self, stub_base_init):
         """``daiv-max`` label → primary model is ``site_settings.agent_max_model_name`` and thinking level is

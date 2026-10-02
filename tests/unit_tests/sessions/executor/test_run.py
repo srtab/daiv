@@ -18,6 +18,7 @@ from sessions.executor.run import RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.git_runners import LocalGitRunner
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
@@ -33,7 +34,7 @@ from tests.unit_tests.conftest import (
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import AGENT_KWARGS, agent_stack, make_spec
+from tests.unit_tests.sessions.executor.conftest import agent_stack, make_spec
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
@@ -76,16 +77,19 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "references": refs,
     }
     stack.build_spec.assert_awaited_once_with("env-1")
+    stack.snapshot.assert_called_once_with()
     stack.resolve.assert_called_once_with(
-        model_config=stack.ctx.config.models.agent, agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"
+        site=stack.site,
+        repo=stack.ctx.config,
+        run=RunOverrides(agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"),
     )
     stack.create_agent.assert_awaited_once_with(
+        settings=stack.resolve.return_value,
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
-        **AGENT_KWARGS,
     )
     stack.langsmith.assert_called_once_with(
         stack.ctx,
@@ -509,10 +513,9 @@ async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
         await execute_run(make_spec(use_max=use_max))
 
     assert stack.resolve.call_args.kwargs == {
-        "model_config": stack.ctx.config.models.agent,
-        "agent_model": None,
-        "agent_thinking_level": None,
-        **extra,
+        "site": stack.site,
+        "repo": stack.ctx.config,
+        "run": RunOverrides(**extra),
     }
 
 
@@ -521,19 +524,11 @@ async def test_an_exact_model_chain_replaces_model_resolution(thinking_level):
     """The chain and its thinking level run as given: nothing is appended, and ``None`` isn't the site default."""
     spec = make_spec(model_names=("model-a", "model-b"), agent_thinking_level=thinking_level)
 
-    with agent_stack(_agent()) as stack:
+    with agent_stack(_agent(), resolve=resolve_agent_settings) as stack:
         await execute_run(spec)
 
-    stack.resolve.assert_not_called()
-    stack.create_agent.assert_awaited_once_with(
-        ctx=stack.ctx,
-        checkpointer=stack.checkpointer,
-        ask_user_enabled=True,
-        workspace=ANY,
-        artifact_store=ANY,
-        model_names=["model-a", "model-b"],
-        thinking_level=thinking_level,
-    )
+    agent = stack.create_agent.await_args.kwargs["settings"].agent
+    assert (agent.names, agent.thinking_level) == (("model-a", "model-b"), thinking_level)
     assert stack.langsmith.call_args.kwargs["model"] == "model-a"
 
 
@@ -547,14 +542,26 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
 
     assert (stack.context_kwargs["offline"], stack.context_kwargs["repo_host"]) == (True, "github.com")
     stack.create_agent.assert_awaited_once_with(
+        settings=stack.resolve.return_value,
         ctx=stack.ctx,
         checkpointer=stack.checkpointer,
         ask_user_enabled=True,
         workspace=ANY,
         artifact_store=ANY,
-        **AGENT_KWARGS,
         capture_patch=True,
     )
+
+
+async def test_the_web_toggles_in_the_agent_options_reach_the_resolver_instead_of_the_builder():
+    spec = make_spec(agent_options={"capture_patch": True, "web_search_enabled": False, "web_fetch_enabled": True})
+
+    with agent_stack(_agent()) as stack:
+        await execute_run(spec)
+
+    run = stack.resolve.call_args.kwargs["run"]
+    assert (run.web_search_enabled, run.web_fetch_enabled) == (False, True)
+    assert {"web_search_enabled", "web_fetch_enabled"}.isdisjoint(stack.create_agent.await_args.kwargs)
+    assert stack.create_agent.await_args.kwargs["capture_patch"] is True
 
 
 async def test_a_run_that_ended_on_a_question_reports_it():
@@ -724,7 +731,8 @@ async def test_on_context_ready_sees_the_landed_ref_after_the_re_pin_and_before_
     with agent_stack(_agent()) as stack:
         stack.ctx.repo.ref = "master"
         stack.reset.side_effect = lambda **_kwargs: order.append("re-pinned")
-        stack.resolve.side_effect = lambda **_kwargs: order.append("resolved") or AGENT_KWARGS
+        settings = stack.resolve.return_value
+        stack.resolve.side_effect = lambda **_kwargs: order.append("resolved") or settings
         await execute_run(make_spec(ref="fix/10", fallback_ref_on_missing=True), RunHooks(on_context_ready=_ready))
 
     assert order == ["re-pinned", "ready on master", "resolved"]

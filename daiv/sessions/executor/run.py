@@ -211,11 +211,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec
 
+    from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.graph import create_daiv_agent
     from automation.agent.usage_tracking import track_usage_metadata
-    from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
+    from automation.agent.utils import build_langsmith_config
     from codebase.context import set_runtime_ctx
     from core.checkpointer import open_checkpointer
+    from core.site_settings import site_settings
 
     sandbox_spec = await build_sandbox_spec(spec.sandbox_env_id)
     logger.info(
@@ -254,32 +256,23 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             if hooks.on_context_ready is not None:
                 started_run_id = await hooks.on_context_ready(ctx.repo.ref)
                 run_id = run_id or started_run_id
-            agent_kwargs: dict[str, Any]
-            if spec.model_names:
-                agent_kwargs = {"model_names": list(spec.model_names), "thinking_level": spec.agent_thinking_level}
-            else:
-                agent_kwargs = get_daiv_agent_kwargs(
-                    model_config=ctx.config.models.agent,
-                    agent_model=spec.agent_model,
-                    agent_thinking_level=spec.agent_thinking_level,
-                    **({"use_max": True} if spec.use_max else {}),
-                )
-            model = agent_kwargs["model_names"][0]
-            await _persist_resolved_agent(spec, model=model, thinking_level=agent_kwargs["thinking_level"] or "")
+            settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
+            model = settings.agent.names[0]
+            await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
             agent = await create_daiv_agent(
+                settings=settings,
                 ctx=ctx,
                 checkpointer=checkpointer,
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
                 workspace=workspace,
                 artifact_store=RunArtifactStore(),
-                **agent_kwargs,
-                **spec.agent_options,
+                **spec.builder_options(),
             )
             config = build_langsmith_config(
                 ctx,
                 trigger=spec.trigger,
                 model=model,
-                thinking_level=agent_kwargs["thinking_level"],
+                thinking_level=settings.agent.thinking_level,
                 agent_name=agent.get_name(),
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},

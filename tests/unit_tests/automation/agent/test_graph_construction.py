@@ -11,12 +11,14 @@ import pytest
 
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
+from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeWorkspace
+from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
 # Matches a ``TodoListMiddleware(`` constructor call, rejecting any prefixed subclass. Catches both
 # kwarg and positional forms, unlike a ``"TodoListMiddleware(system_prompt="`` substring check.
@@ -169,12 +171,19 @@ _SITE = {
 }
 
 
-async def _construct(*, site: dict | None = None, run: dict | None = None, slash_commands: bool = True):
+async def _construct(
+    *, site: dict | None = None, run: dict | None = None, slash_commands: bool = True, memory: bool = True
+):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
-    ``site`` overrides site values, ``run`` is what the executor hands the builder for this run (``model_names``,
-    ``thinking_level``, ``web_fetch_enabled``, ``web_search_enabled``), and ``slash_commands`` is the repo's switch.
+    ``site`` overrides site values, ``run`` is what the run asks for (``RunOverrides`` fields), and ``slash_commands``
+    and ``memory`` are the repo's switches. The builder gets them resolved, as the executor hands them over.
     """
+    settings = agent_settings(
+        site=site_snapshot(**(_SITE | (site or {}))),
+        repo=RepositoryConfig(slash_commands={"enabled": slash_commands}, memory={"enabled": memory}),
+        run=RunOverrides(**(run or {})),
+    )
     graph_patches = {
         "create_general_purpose_subagent": {},
         "load_custom_subagents": {"new": AsyncMock(return_value=[])},
@@ -195,11 +204,9 @@ async def _construct(*, site: dict | None = None, run: dict | None = None, slash
         explore_models = stack.enter_context(patch("automation.agent.subagents.BaseAgent")).get_model
         stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        stack.enter_context(patch.multiple(site_settings, **(_SITE | (site or {}))))
         ctx = MagicMock()
         ctx.config.context_file_name = "AGENTS.md"
-        ctx.config.slash_commands.enabled = slash_commands
-        await create_daiv_agent(ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False, **(run or {}))
+        await create_daiv_agent(settings=settings, ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False)
 
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
@@ -211,6 +218,8 @@ async def _construct(*, site: dict | None = None, run: dict | None = None, slash
             for toggle in ("web_search_enabled", "web_fetch_enabled")
         },
         bound_config=deep_agent.return_value.with_config.call_args.args[0],
+        settings=settings,
+        git_middleware=mocks["GitMiddleware"],
     )
 
 
@@ -219,13 +228,17 @@ async def _construct(*, site: dict | None = None, run: dict | None = None, slash
     [
         (
             "low",
-            {"model_names": ("primary", "fb-1", "fb-2"), "thinking_level": "high"},
+            {"model_names": ("primary", "fb-1", "fb-2"), "agent_thinking_level": "high"},
             [("primary", "high"), ("fb-1", "low"), ("fb-2", "low")],
         ),
-        (None, {"model_names": ("primary", "fb-1"), "thinking_level": "high"}, [("primary", "high"), ("fb-1", None)]),
+        (
+            None,
+            {"model_names": ("primary", "fb-1"), "agent_thinking_level": "high"},
+            [("primary", "high"), ("fb-1", None)],
+        ),
         (
             "minimal",
-            {"model_names": ("primary", "fb-1"), "thinking_level": None},
+            {"model_names": ("primary", "fb-1"), "agent_thinking_level": None},
             [("primary", None), ("fb-1", "minimal")],
         ),
         ("low", {}, [("site-model", "medium"), ("site-fallback", "low")]),
@@ -242,7 +255,7 @@ async def test_fallback_models_take_the_sites_fallback_thinking_level_whatever_t
 
 async def test_the_explore_subagent_runs_on_the_sites_explore_chain_whatever_the_run_chooses():
     site = {"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": "explore-b"}
-    built = await _construct(site=site, run={"model_names": ("run-a", "run-b"), "thinking_level": "high"})
+    built = await _construct(site=site, run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
 
     assert built.explore_models == ["explore-a", "explore-b"]
 
@@ -280,3 +293,19 @@ async def test_slash_commands_follow_the_repos_switch(enabled):
     built = await _construct(slash_commands=enabled)
 
     assert any(isinstance(m, SlashCommandMiddleware) for m in built.middleware) is enabled
+
+
+@pytest.mark.parametrize(
+    ("site_on", "repo_on"), [(True, True), (False, True), (True, False)], ids=["both-on", "site-off", "repo-off"]
+)
+async def test_the_memory_middleware_gets_the_runs_memory_switch(site_on, repo_on):
+    built = await _construct(site={"memory_enabled": site_on}, memory=repo_on)
+
+    [memory] = [m for m in built.middleware if isinstance(m, RepositoryMemoryMiddleware)]
+    assert memory.enabled is (site_on and repo_on)
+
+
+async def test_the_git_middleware_gets_the_runs_settings():
+    built = await _construct()
+
+    assert built.git_middleware.call_args.kwargs["settings"] is built.settings

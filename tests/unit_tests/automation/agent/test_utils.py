@@ -1,7 +1,6 @@
 import base64
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
@@ -13,16 +12,10 @@ from automation.agent.utils import (
     extract_images_from_text,
     extract_text_content,
     final_assistant_text,
-    get_daiv_agent_kwargs,
     images_to_content_blocks,
     streamed_assistant_message,
 )
-from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
-from codebase.repo_config import AgentModelConfig, Models, RepositoryConfig
-from core.models import ThinkingLevelChoices
-from core.site_settings import site_settings
-from tests.unit_tests.automation.agent.agent_settings_cases import AGENT_SETTINGS_CASES
 
 
 class TestConversationThreadId:
@@ -119,140 +112,6 @@ class TestImagesToContentBlocks:
 
             assert len(result) == 1
             assert "url" in result[0] and result[0]["url"] == "https://github.com/user/repo/raw/main/image.png"
-
-
-class TestGetDaivAgentKwargs:
-    """Test the get_daiv_agent_kwargs() function."""
-
-    def test_get_daiv_agent_kwargs_without_use_max(self):
-        """Test that get_daiv_agent_kwargs returns default config when use_max=False."""
-        models_config = Models()
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
-
-        assert kwargs["model_names"] == [site_settings.agent_model_name, site_settings.agent_fallback_model_name]
-        assert kwargs["thinking_level"] == site_settings.agent_thinking_level
-
-    def test_get_daiv_agent_kwargs_with_use_max(self):
-        """Test that get_daiv_agent_kwargs sets high-performance mode when use_max=True."""
-        models_config = Models()
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
-
-        # When use_max=True, the fallback is the regular planning_model from config
-        assert kwargs["model_names"] == [
-            site_settings.agent_max_model_name,
-            site_settings.agent_model_name,
-            site_settings.agent_fallback_model_name,
-        ]
-        # When use_max=True, the fallback is the regular execution_model from config
-        assert kwargs["thinking_level"] == site_settings.agent_max_thinking_level
-
-    def test_get_daiv_agent_kwargs_does_not_include_skip_approval(self):
-        """Test that get_daiv_agent_kwargs does not set skip_approval."""
-        models_config = Models()
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
-
-        # Note: skip_approval is not in kwargs as it's handled elsewhere
-        assert "skip_approval" not in kwargs
-
-    def test_get_daiv_agent_kwargs_use_max_overrides_yaml_config(self):
-        """Test that use_max=True overrides YAML config."""
-        # Set up YAML model config
-        model_config = AgentModelConfig(model="openrouter:anthropic/claude-haiku-4.5", thinking_level="low")
-        models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=True)
-
-        # use_max should override YAML config
-        assert kwargs["model_names"][0] == site_settings.agent_max_model_name
-        assert kwargs["thinking_level"] == site_settings.agent_max_thinking_level
-
-    def test_no_override_raises_when_system_default_unset(self, monkeypatch):
-        """The Auto branch was removed: when no override is supplied and no system
-        default is configured, ``get_daiv_agent_kwargs`` must refuse rather than
-        silently falling back to the repo-config model."""
-        monkeypatch.setattr(site_settings, "agent_model_name", "")
-        models_config = Models()
-        with pytest.raises(AgentConfigurationError):
-            get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
-
-
-@pytest.fixture
-def base_config():
-    return AgentModelConfig(
-        model="openrouter:anthropic/claude-sonnet-4.6",
-        fallback_model="openrouter:openai/gpt-5.4",
-        thinking_level=ThinkingLevelChoices.MEDIUM,
-    )
-
-
-def test_system_default_branch_uses_site_settings(base_config):
-    """When no override is supplied, the model + fallback come from ``site_settings`` —
-    not from ``model_config`` (the repo .daiv.yml). The Auto-via-repo-config branch
-    was removed; repo config now only matters when an override is set (its values
-    become the ``with_fallbacks`` chain in that branch)."""
-    out = get_daiv_agent_kwargs(model_config=base_config)
-    assert out["model_names"] == [site_settings.agent_model_name, site_settings.agent_fallback_model_name]
-    assert out["thinking_level"] == site_settings.agent_thinking_level
-
-
-def test_system_default_branch_respects_explicit_thinking(base_config):
-    """``agent_thinking_level`` still overrides the system-default effort when supplied
-    without a model override."""
-    out = get_daiv_agent_kwargs(model_config=base_config, agent_thinking_level=ThinkingLevelChoices.LOW)
-    assert out["model_names"][0] == site_settings.agent_model_name
-    assert out["thinking_level"] == ThinkingLevelChoices.LOW
-
-
-def test_explicit_model_wins(base_config):
-    out = get_daiv_agent_kwargs(
-        model_config=base_config,
-        agent_model="openrouter:anthropic/claude-opus-4.6",
-        agent_thinking_level=ThinkingLevelChoices.HIGH,
-    )
-    assert out["model_names"][0] == "openrouter:anthropic/claude-opus-4.6"
-    # repo defaults prepend to the fallback chain when an override is used
-    assert out["model_names"][1:] == [base_config.model, base_config.fallback_model]
-    assert out["thinking_level"] == ThinkingLevelChoices.HIGH
-
-
-def test_explicit_model_without_thinking_inherits(base_config):
-    out = get_daiv_agent_kwargs(model_config=base_config, agent_model="openrouter:anthropic/claude-opus-4.6")
-    assert out["thinking_level"] == base_config.thinking_level
-
-
-@patch("automation.agent.utils.site_settings")
-def test_use_max_branch_ignores_user_thinking(mock_settings, base_config):
-    mock_settings.agent_max_model_name = "openrouter:anthropic/claude-opus-4.6"
-    mock_settings.agent_max_thinking_level = ThinkingLevelChoices.HIGH
-    out = get_daiv_agent_kwargs(
-        model_config=base_config,
-        use_max=True,
-        agent_thinking_level=ThinkingLevelChoices.LOW,  # ignored
-    )
-    assert out["model_names"][0] == "openrouter:anthropic/claude-opus-4.6"
-    assert out["thinking_level"] == ThinkingLevelChoices.HIGH
-
-
-def test_explicit_model_supersedes_use_max(base_config):
-    """Defense in depth: if both arrive on the same call, model wins."""
-    out = get_daiv_agent_kwargs(
-        model_config=base_config, agent_model="openrouter:anthropic/claude-haiku-4.5", use_max=True
-    )
-    assert out["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
-
-
-@pytest.mark.parametrize("case", [c for c in AGENT_SETTINGS_CASES if not c.exact_chain], ids=lambda c: c.id)
-def test_get_daiv_agent_kwargs_resolves_each_case(case):
-    """Rows 1 and 2: the model chain and thinking level each branch resolves. The exact chain is the executor's
-    (``test_an_exact_model_chain_replaces_model_resolution``), so its cases are not run here."""
-    with patch.multiple(site_settings, **case.site):
-        model_config = RepositoryConfig(models={"agent": case.repo_agent}).models.agent
-        if case.raises:
-            with pytest.raises(AgentConfigurationError):
-                get_daiv_agent_kwargs(model_config=model_config, **case.run)
-            return
-        kwargs = get_daiv_agent_kwargs(model_config=model_config, **case.run)
-
-    assert kwargs == {"model_names": list(case.chain), "thinking_level": case.thinking_level}
 
 
 # Tests for extract_images_from_text

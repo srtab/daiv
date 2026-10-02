@@ -12,13 +12,13 @@ from sessions.models import Run, Session, SessionOrigin
 from sessions.services import acreate_run
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
+from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
-from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
 from core.site_settings import site_settings
-from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
 
@@ -294,10 +294,10 @@ async def test_d3_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_th
             thread_id=thread_id,
         )
         stamped = (run.agent_model, run.agent_thinking_level)
-        with addressor_run(agent, ctx=_ctx(), resolve=get_daiv_agent_kwargs) as stack:
+        with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings, site=site_snapshot(**site)) as stack:
             await _address(thread_id=thread_id, run_id=str(run.pk))
 
     await run.arefresh_from_db()
     assert stamped == ("site-max", "high")
-    assert stack.create_agent.await_args.kwargs["model_names"][0] == "site-default"
+    assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-default"
     assert (run.agent_model, run.agent_thinking_level) == ("site-default", "low")

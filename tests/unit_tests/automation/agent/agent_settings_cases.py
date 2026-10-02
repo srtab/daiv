@@ -1,9 +1,8 @@
 """Rows 1 and 2 of the config-resolver plan as data: the model chain and thinking level one agent run gets.
 
 A repo's ``models.agent`` holds only the keys it sets: ``{"thinking_level": None}`` disables thinking, ``{}`` leaves it
-to the site. A case whose run carries ``model_names`` is the exact chain, which the executor decides before it resolves
-anything. Ids ending ``-d1`` pin divergence D1; ``-through-raw`` marks a site thinking level that reaches the model
-unvalidated, divergence D11.
+to the site. A case whose run carries ``model_names`` is the exact chain. Ids ending ``-d1`` pin divergence D1;
+``-through-raw`` marks a site thinking level that reaches the model unvalidated, divergence D11.
 """
 
 from __future__ import annotations
@@ -33,10 +32,6 @@ class AgentSettingsCase:
     chain: tuple[str, ...] = ()
     thinking_level: str | None = None
     raises: bool = False
-
-    @property
-    def exact_chain(self) -> bool:
-        return bool(self.run.get("model_names"))
 
 
 def _case(

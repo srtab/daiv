@@ -5,7 +5,7 @@ import contextlib
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
@@ -348,15 +348,19 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         pass
 
     @staticmethod
-    def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwargs) -> BaseChatModel:
+    def get_model(*, model: str, thinking_level: ThinkingLevel | str | None = None, **kwargs) -> BaseChatModel:
         """
         Get the model instance to use for the agent.
+
+        ``thinking_level`` may be a raw site value that was never validated, as a resolved ``ModelChain`` carries it.
 
         Returns:
             BaseChatModel: The model instance
         """
         resolved = parse_model_spec(model)
-        model_kwargs = BaseAgent.get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
+        model_kwargs = BaseAgent.get_model_kwargs(
+            resolved=resolved, thinking_level=cast("ThinkingLevel | None", thinking_level), **kwargs
+        )
         try:
             if resolved.row.provider_type == ProviderType.OPENROUTER:
                 # OpenRouter routes through our ChatOpenAI subclass (reasoning extraction +

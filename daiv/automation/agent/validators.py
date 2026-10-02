@@ -16,8 +16,8 @@ class AgentOverrideError(ValueError):
 class AgentConfigurationError(RuntimeError):
     """Raised when no agent model can be resolved for a run.
 
-    Fires from :func:`automation.agent.utils.get_daiv_agent_kwargs` when the
-    caller passes no ``agent_model`` override AND ``site_settings.agent_model_name``
+    Fires from :func:`automation.agent.agent_settings.resolve_agent_settings` when
+    the caller passes no ``agent_model`` override AND ``site_settings.agent_model_name``
     is also empty. Surfaces from MCP / API / webhook layers so an admin can see
     why a run was refused (instead of the request silently using a stale
     repo-config fallback).
@@ -70,7 +70,7 @@ def ensure_agent_model_available(agent_model: str) -> None:
     The override layer (:func:`validate_agent_override`) only validates that a
     *provided* value is well-formed. This helper enforces that a model is *available*
     at all — i.e. the caller supplied one OR the admin configured a system default.
-    Both reduce to the same end state in :func:`automation.agent.utils.get_daiv_agent_kwargs`,
+    Both reduce to the same end state in :func:`automation.agent.agent_settings.resolve_agent_settings`,
     but raising at submit time gives MCP / API callers a clear 4xx-style refusal
     instead of a deferred failure inside the async agent kickoff.
     """

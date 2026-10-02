@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 
-from core.site_settings import site_settings
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -28,15 +26,17 @@ class RepositoryMemoryMiddleware(AgentMiddleware):
     auto-commits filesystem changes and a materialized memory file would pollute
     commits. The ``RepositoryMemory`` row is loaded once per middleware instance
     (one instance per agent run) and the middleware silently no-ops when the
-    feature is disabled (per-repo or site-wide), no memory exists, or the lookup
-    fails: memory must never block or fail a run.
+    feature is disabled, no memory exists, or the lookup fails: memory must never
+    block or fail a run. ``enabled`` is the run's resolved memory switch (per-repo
+    and site-wide), fixed for the run.
 
     Registered after ``dynamic_daiv_system_prompt`` in ``create_daiv_agent`` so it
     sees (and appends to) the fully composed system prompt.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, enabled: bool) -> None:
         super().__init__()
+        self.enabled = enabled
         self._content: str | type[_Unloaded] = _Unloaded
 
     async def _load_content(self, repo_id: str) -> str:
@@ -54,13 +54,10 @@ class RepositoryMemoryMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
-        context = request.runtime.context
-        # Cheapest-first: the in-memory per-repo flag short-circuits before the site-wide
-        # setting read. Either being off is a silent no-op (memory must never block a run).
-        if not context.config.memory.enabled or not site_settings.memory_enabled:
+        if not self.enabled:
             return await handler(request)
 
-        content = await self._load_content(context.repository.slug)
+        content = await self._load_content(request.runtime.context.repository.slug)
         if not content:
             return await handler(request)
 

@@ -9,10 +9,14 @@ if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langgraph.types import StateSnapshot
 
+    from automation.agent.agent_settings import RunOverrides
     from automation.agent.results import AgentResult
     from codebase.base import Issue, MergeRequest, Scope
     from codebase.references import ExternalRef
     from sessions.executor.lock import LockPolicy
+
+
+_RESOLVED_AGENT_OPTIONS = frozenset({"web_search_enabled", "web_fetch_enabled"})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -29,7 +33,8 @@ class RunSpec:
 
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
-    ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
+    ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``, except
+    ``agent_options``' web toggles, which :meth:`overrides` hands the settings resolver instead.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
     """
@@ -75,6 +80,24 @@ class RunSpec:
             or self.fallback_ref_on_missing
         ):
             raise ValueError("a one-shot run (thread_id=None) has no session to lock, record, sync, arm or recover")
+
+    def overrides(self) -> RunOverrides:
+        """What this run asks of the settings resolver."""
+        # Imported here: the resolver's module loads the agent stack, which django.setup() must not.
+        from automation.agent.agent_settings import RunOverrides
+
+        return RunOverrides(
+            agent_model=self.agent_model,
+            agent_thinking_level=self.agent_thinking_level,
+            use_max=self.use_max,
+            model_names=self.model_names,
+            web_search_enabled=self.agent_options.get("web_search_enabled"),
+            web_fetch_enabled=self.agent_options.get("web_fetch_enabled"),
+        )
+
+    def builder_options(self) -> dict[str, Any]:
+        """``agent_options`` without what :meth:`overrides` takes."""
+        return {name: value for name, value in self.agent_options.items() if name not in _RESOLVED_AGENT_OPTIONS}
 
 
 @dataclass(frozen=True, kw_only=True)

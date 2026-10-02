@@ -16,6 +16,7 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware, _check_fs_permission
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.agent_settings import ModelChain
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import (
     READ_ONLY_PERMISSIONS,
@@ -36,7 +37,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_custom_subagents,
 )
-from tests.unit_tests.conftest import FakeWorkspace
+from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -517,7 +518,9 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/")
+        result = create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", models=agent_settings().explore
+        )
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
@@ -819,10 +822,11 @@ class TestCustomSubagents:
 def _explore_permissions(*, sandbox: bool) -> list:
     with (
         patch("automation.agent.subagents.BaseAgent"),
-        patch("automation.agent.subagents.site_settings", agent_explore_fallback_model_name=None),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
-        create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/")
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", models=ModelChain(("explore",))
+        )
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions

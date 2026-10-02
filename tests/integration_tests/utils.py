@@ -4,12 +4,17 @@ from typing import TYPE_CHECKING
 import pytest
 from langchain.messages import AIMessage
 
+from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.base import _BARE_NAME_HEURISTICS
 from core.constants import ModelName
+from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langchain_core.tools import ToolCall
+
+    from automation.agent.agent_settings import AgentSettings
+    from codebase.context import RuntimeCtx
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
     # SkillMiddleware
@@ -96,6 +101,13 @@ def require_provider_for_model(model_spec: str) -> None:
         env_var = f"DAIV_TEST_PROVIDER_{slug.upper()}_API_KEY"
     if not os.environ.get(env_var):
         pytest.skip(f"{env_var} not set; cannot run against {model_spec!r}.")
+
+
+def agent_settings_on(model_name: str, ctx: RuntimeCtx) -> AgentSettings:
+    """A run's settings with ``model_name`` alone as its agent chain, at the site's thinking level."""
+    site = site_settings.snapshot()
+    run = RunOverrides(model_names=(model_name,), agent_thinking_level=site.agent_thinking_level)
+    return resolve_agent_settings(site=site, repo=ctx.config, run=run)
 
 
 def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
