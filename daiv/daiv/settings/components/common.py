@@ -17,6 +17,7 @@ LOCAL_APPS = [
     "automation",
     "chat",
     "codebase",
+    "configuration",
     "core",
     "mcp_server",
     "mcp_servers",

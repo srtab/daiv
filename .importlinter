@@ -4,6 +4,7 @@ root_packages =
     automation
     chat
     codebase
+    configuration
     core
     daiv
     jobs
@@ -28,6 +29,7 @@ forbidden_modules =
     automation
     chat
     codebase
+    configuration
     jobs
     mcp_server
     mcp_servers
@@ -59,6 +61,7 @@ forbidden_modules =
     automation
     chat
     codebase
+    configuration
     jobs
     mcp_server
     memory
@@ -75,6 +78,7 @@ source_modules = codebase
 forbidden_modules =
     automation
     chat
+    configuration
     jobs
     mcp_server
     schedules
@@ -90,6 +94,7 @@ type = forbidden
 source_modules = automation
 forbidden_modules =
     chat
+    configuration
     jobs
     mcp_server
     schedules
@@ -107,6 +112,7 @@ type = forbidden
 source_modules = sessions
 forbidden_modules =
     chat
+    configuration
     jobs
     mcp_server
     webhooks
