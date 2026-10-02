@@ -40,7 +40,6 @@ forbidden_modules =
     slash_commands
     webhooks
 allow_indirect_imports = True
-# Removed by step 3 (core cleanup).
 ignore_imports =
     core.checkpointer -> codebase.base
     core.forms -> automation.agent.base
@@ -82,7 +81,6 @@ forbidden_modules =
     sessions
     webhooks
 allow_indirect_imports = True
-# Removed by step 5 (config resolver).
 ignore_imports =
     codebase.repo_config -> automation.agent.constants
 
@@ -98,7 +96,6 @@ forbidden_modules =
     sessions
     webhooks
 allow_indirect_imports = True
-# Removed by step 4.
 ignore_imports =
     automation.agent.middlewares.artifacts -> sessions.artifacts
     automation.agent.middlewares.artifacts -> sessions.conf
@@ -114,7 +111,6 @@ forbidden_modules =
     mcp_server
     webhooks
 allow_indirect_imports = True
-# Removed by step 4: turns/repo_state/AuthBearer leave chat, run_job_task leaves jobs.
 ignore_imports =
     sessions.api.views -> chat.api.security
     sessions.api.views -> chat.turns

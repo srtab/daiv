@@ -62,6 +62,4 @@ def test_import_contracts_cover_every_top_level_package():
         "`.importlinter` root_packages must list every top-level package under daiv/; "
         "`activity` is left out because it only holds migration history."
     )
-    assert core_forbidden == root_packages - {"core", "daiv"}, (
-        "the `core` contract's forbidden_modules must list every package in root_packages except `core` and `daiv`."
-    )
+    assert core_forbidden == root_packages - {"core", "daiv"}
