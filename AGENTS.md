@@ -15,6 +15,7 @@ make lint           # check only (no fixes); CI gate
 # on a changed file — before declaring a CI lint failure un-reproducible, run
 #   rm -rf .ruff_cache && uv run --only-group=dev ruff check --no-cache .
 make lint-typing    # ty, daiv/ only
+make lint-imports   # app layering contracts in .importlinter; part of lint and lint-fix
 
 # Single test / pattern
 uv run pytest tests/unit_tests/accounts/test_views.py
@@ -49,6 +50,7 @@ make makemessages && make compilemessages
 ## Invariants / footguns
 
 - **Test imports** — `pythonpath = ["daiv", "."]`; in tests import `from automation.agent.graph import ...` (no `daiv.` prefix).
+- **App layering** — `.importlinter` (run by `make lint`) forbids upward imports along `core` < `codebase`/`sandbox_envs` < `automation` < `sessions` < trigger apps (`chat`, `jobs`, `mcp_server`, `webhooks`). A broken contract means moving the code, not adding an `ignore_imports` line; a new line is a design decision for review. Deleting an import that an exception covers fails the run until its line goes too.
 - **Tools can't mutate `runtime.state`** — return a `Command(update={...}, messages=[ToolMessage(...)])`; in tests unpack `isinstance(result, Command)`.
 - **Auth** — email signup disabled (`AccountAdapter.is_open_for_signup` → `False`); `AdminRequiredMixin` needs `user.is_admin`; `APIKey.objects.create_key(...)` is **async**.
 - **`run_job_task` requires a non-empty UUID `thread_id`** — the `Activity` row and checkpointer share it; missing breaks chat resume.
@@ -74,5 +76,5 @@ make makemessages && make compilemessages
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | MCP tool | `daiv/mcp_server/server.py` |
 | Webhook event handling | `daiv/webhooks/<platform>/callbacks.py` |
-| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`) |
+| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`); every new top-level package under `daiv/`, app or not, also goes in `root_packages` in `.importlinter` (`test_import_hygiene.py` fails otherwise) |
 | LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/automation/agent/constants.py` |
