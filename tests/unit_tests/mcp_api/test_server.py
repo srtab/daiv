@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import (
+from mcp_api.server import (
     DEFAULT_LIST_LIMIT,
     _batch_response,
     _decode_repo_cursor,
@@ -77,7 +77,7 @@ def _default_mcp_user(db):
     from accounts.models import User
 
     user = User.objects.create_user(username="mcp_default", email="mcp@test.com", password="x")  # noqa: S106
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         yield user
 
 
@@ -220,14 +220,14 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
 
 
 def _capture_asubmit_batch_runs(captured: dict):
-    """Patch ``mcp_server.server.asubmit_batch_runs`` to record kwargs and return one run."""
+    """Patch ``mcp_api.server.asubmit_batch_runs`` to record kwargs and return one run."""
     from sessions.services import BatchSubmitResult
 
     async def _fake(**kwargs):
         captured.update(kwargs)
         return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[_FakeRun(task_result_id=None)], failed=[])
 
-    return patch("mcp_server.server.asubmit_batch_runs", side_effect=_fake)
+    return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -317,8 +317,8 @@ async def test_submit_job_wait_success():
         patch("sessions.services.run_job_task") as mock_task,
         patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_capture_acreate),
         patch("sessions.services.generate_batch_title_task") as mock_title,
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "sessions.executor.tasks.run_job_task"
@@ -371,11 +371,11 @@ async def test_submit_job_wait_running_when_never_terminal():
 
     with (
         patch("sessions.services.run_job_task") as mock_task,
-        patch("mcp_server.server.Run") as mock_model,
+        patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-        patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
-        patch("mcp_server.server.POLL_INTERVAL", 2.0),
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.MAX_POLL_DURATION", 4.0),
+        patch("mcp_api.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "sessions.executor.tasks.run_job_task"
@@ -392,7 +392,7 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
     """The batch poll must scope its Run lookup by ``user=mcp_user`` to prevent
     cross-user reads. Asserts the call construction (not just behavior) so a refactor
     that drops the kwarg fails immediately."""
-    from mcp_server.server import _poll_batch_until_complete
+    from mcp_api.server import _poll_batch_until_complete
 
     captured: list[dict] = []
 
@@ -410,10 +410,10 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
 
     job_id = str(uuid.uuid4())
     with (
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-        patch("mcp_server.server.MAX_POLL_DURATION", 2.0),
-        patch("mcp_server.server.POLL_INTERVAL", 2.0),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.MAX_POLL_DURATION", 2.0),
+        patch("mcp_api.server.POLL_INTERVAL", 2.0),
     ):
         mock_model.objects.filter = MagicMock(side_effect=_capture_filter)
         await _poll_batch_until_complete(
@@ -434,8 +434,8 @@ async def test_get_job_status_not_found():
         pass
 
     with (
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
-        patch("mcp_server.server.Run") as mock_model,
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_api.server.Run") as mock_model,
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=_DoesNotExistError)
@@ -446,7 +446,7 @@ async def test_get_job_status_not_found():
 
 async def test_get_job_status_invalid_uuid():
     caller = MagicMock(pk=1)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)):
         result = await get_job_status(job_id="not-a-uuid")
     data = json.loads(result)
     assert data["error"] == "Invalid job_id format."
@@ -470,8 +470,8 @@ async def test_get_job_status_wait_already_complete():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.objects.aget = AsyncMock(return_value=mock_run)
         mock_model.DoesNotExist = Exception
@@ -508,9 +508,9 @@ async def test_get_job_status_wait_polls_until_complete():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         # First call is the initial fetch (running), then polling finds it finished
         mock_model.objects.aget = AsyncMock(side_effect=[running_result, finished_result])
@@ -546,9 +546,9 @@ async def test_get_job_status_wait_not_found_then_appears():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         # Initial fetch raises DoesNotExist, then poll finds it
@@ -568,11 +568,11 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
 
     with (
         patch("sessions.services.run_job_task") as mock_task,
-        patch("mcp_server.server.Run") as mock_model,
+        patch("mcp_api.server.Run") as mock_model,
         _patch_acreate(),
-        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
-        patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
-        patch("mcp_server.server.POLL_INTERVAL", 2.0),
+        patch("mcp_api.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_api.server.MAX_POLL_DURATION", 4.0),
+        patch("mcp_api.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "sessions.executor.tasks.run_job_task"
@@ -594,8 +594,8 @@ async def test_get_job_status_db_exception():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Run") as mock_model,
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_api.server.Run") as mock_model,
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))
@@ -633,7 +633,7 @@ def _cat(slug: str, name: str, topics: list[str] | None = None):
 async def test_list_repositories_default():
     rows = [_cat("group/alpha", "alpha", ["python", "backend"]), _cat("group/beta", "beta")]
 
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
         data = await list_repositories()
 
     assert [r["slug"] for r in data["repositories"]] == ["group/alpha", "group/beta"]
@@ -646,7 +646,7 @@ async def test_list_repositories_default():
 
 async def test_list_repositories_with_search():
     with patch(
-        "mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[_cat("group/alpha", "alpha")])
+        "mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=[_cat("group/alpha", "alpha")])
     ) as mock_search:
         data = await list_repositories(search="alpha")
 
@@ -659,7 +659,7 @@ async def test_list_repositories_with_search():
 async def test_list_repositories_with_topics():
     rows = [_cat("group/alpha", "alpha", ["python"]), _cat("group/beta", "beta", ["python"])]
 
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
         data = await list_repositories(topics=["python"])
 
     assert len(data["repositories"]) == 2
@@ -672,7 +672,7 @@ async def test_list_repositories_overflow_returns_cursor():
     """More matches than the window → truncated page plus a next_cursor anchored on its last slug."""
     rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(6)]
 
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
         data = await list_repositories(limit=5)
 
     assert [r["slug"] for r in data["repositories"]] == [f"group/repo-{i}" for i in range(5)]
@@ -684,7 +684,7 @@ async def test_list_repositories_exactly_at_limit_has_no_cursor():
     """Exactly ``limit`` matches → full window, no next_cursor (negative boundary)."""
     rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(5)]
 
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
         data = await list_repositories(limit=5)
 
     assert len(data["repositories"]) == 5
@@ -692,7 +692,7 @@ async def test_list_repositories_exactly_at_limit_has_no_cursor():
 
 
 async def test_list_repositories_cursor_is_forwarded_as_after_slug():
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
         await list_repositories(search="api", cursor=_encode_cursor({"slug": "group/repo-4"}))
 
     mock_search.assert_awaited_once_with(
@@ -712,7 +712,7 @@ async def test_list_repositories_cursor_is_forwarded_as_after_slug():
     ],
 )
 async def test_list_repositories_invalid_cursor_returns_error(cursor):
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=[])) as mock_search:
         data = await list_repositories(cursor=cursor)
 
     assert data["error"] == "Invalid cursor."
@@ -720,7 +720,7 @@ async def test_list_repositories_invalid_cursor_returns_error(cursor):
 
 
 async def test_list_repositories_error_handling():
-    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(side_effect=RuntimeError("DB down"))):
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(side_effect=RuntimeError("DB down"))):
         data = await list_repositories()
 
     assert "error" in data
@@ -733,8 +733,8 @@ class TestMCPThreadContinuation:
         with (
             patch("sessions.services.run_job_task") as mock_task,
             _patch_acreate(),
-            patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
-            patch("mcp_server.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
+            patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
+            patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
         ):
             mock_task.aenqueue = AsyncMock(return_value=_mock_task())
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
@@ -744,14 +744,14 @@ class TestMCPThreadContinuation:
 
     async def test_unknown_thread_id_rejected(self):
         user = MagicMock(pk=1)
-        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=str(uuid.uuid4()))
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
     async def test_multi_repo_with_thread_id_rejected(self):
         user = MagicMock(pk=1)
-        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(
                 repos=[{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
                 prompt="x",
@@ -762,7 +762,7 @@ class TestMCPThreadContinuation:
 
     async def test_malformed_thread_id_rejected(self):
         user = MagicMock(pk=1)
-        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id="not-a-uuid")
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
@@ -771,14 +771,14 @@ class TestMCPThreadContinuation:
         """Pins the TypeError arm: direct callers passing a non-str/non-UUID value get the
         opaque error instead of an unhandled 500."""
         user = MagicMock(pk=1)
-        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=12345)
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
     async def test_unauthenticated_user_rejected(self):
         """Without a resolvable user, submit_job must reject — not silently submit as user=None."""
-        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=None)):
             result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
         data = json.loads(result)
         assert "Authentication failed" in data["error"]
@@ -808,7 +808,7 @@ async def test_get_job_status_other_user_run_returns_not_found():
         email="caller_mcp@example.com",
         password="x",  # noqa: S106
     )
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=caller)):
         result = await get_job_status(job_id=str(run.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]
@@ -832,7 +832,7 @@ async def test_get_job_status_waiting_input_carries_the_question():
         question=SAMPLE_QUESTION_PAYLOAD,
     )
 
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         result = await get_job_status(job_id=str(run.id))
 
     data = json.loads(result)
@@ -843,7 +843,7 @@ async def test_get_job_status_waiting_input_carries_the_question():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_repositories_unauthenticated_rejected():
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=None)):
         result = await list_repositories()
     assert "error" in result
 

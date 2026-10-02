@@ -2,7 +2,7 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
-from mcp_server.oauth import oauth_metadata
+from mcp_api.oauth import oauth_metadata
 from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from accounts.views import homepage

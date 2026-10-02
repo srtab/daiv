@@ -19,7 +19,7 @@ LOCAL_APPS = [
     "codebase",
     "configuration",
     "core",
-    "mcp_server",
+    "mcp_api",
     "mcp_servers",
     "memory",
     "notifications",

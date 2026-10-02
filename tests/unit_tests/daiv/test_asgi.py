@@ -5,7 +5,7 @@ import django
 
 import httpx2
 import pytest
-from mcp_server.server import mcp
+from mcp_api.server import mcp
 
 import daiv
 from accounts.models import APIKey

@@ -34,7 +34,7 @@ from codebase.references import MAX_REFS_PER_SUBMISSION, RefIn
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
-from mcp_server.auth import DjangoTokenVerifier, get_current_user
+from mcp_api.auth import DjangoTokenVerifier, get_current_user
 from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for MCPServer
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from codebase.models import RepositoryCatalog
 
-logger = logging.getLogger("daiv.mcp_server")
+logger = logging.getLogger("daiv.mcp_api")
 
 _external_url = str(core_settings.EXTERNAL_URL).rstrip("/")
 

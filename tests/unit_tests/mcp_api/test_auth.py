@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from mcp.server.auth.provider import AccessToken as MCPAccessToken
-from mcp_server.auth import API_KEY_CLIENT_ID_PREFIX, APIKeyAccessToken, DjangoTokenVerifier, get_current_user
+from mcp_api.auth import API_KEY_CLIENT_ID_PREFIX, APIKeyAccessToken, DjangoTokenVerifier, get_current_user
 
 from accounts.models import APIKey, User
 
@@ -152,7 +152,7 @@ async def test_database_error_propagates(verifier):
     mock_qs = AsyncMock()
     mock_qs.aget.side_effect = OperationalError("connection refused")
 
-    with patch("mcp_server.auth.OAuthAccessToken.objects") as mock_objects, pytest.raises(OperationalError):
+    with patch("mcp_api.auth.OAuthAccessToken.objects") as mock_objects, pytest.raises(OperationalError):
         mock_objects.select_related.return_value = mock_qs
         await verifier.verify_token("any-token")
 
@@ -161,7 +161,7 @@ async def test_database_error_propagates(verifier):
 async def test_get_current_user_returns_user(access_token, user):
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         result = await get_current_user()
 
     assert result is not None
@@ -169,7 +169,7 @@ async def test_get_current_user_returns_user(access_token, user):
 
 
 async def test_get_current_user_returns_none_without_token():
-    with patch("mcp_server.auth.get_access_token", return_value=None):
+    with patch("mcp_api.auth.get_access_token", return_value=None):
         result = await get_current_user()
 
     assert result is None
@@ -185,8 +185,8 @@ async def test_get_current_user_db_error_propagates():
     mock_qs.aget.side_effect = OperationalError("connection refused")
 
     with (
-        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
-        patch("mcp_server.auth.OAuthAccessToken.objects") as mock_objects,
+        patch("mcp_api.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_api.auth.OAuthAccessToken.objects") as mock_objects,
         pytest.raises(OperationalError),
     ):
         mock_objects.select_related.return_value = mock_qs
@@ -201,7 +201,7 @@ async def test_get_current_user_returns_none_when_token_deleted(access_token):
     # Delete the token to simulate revocation between verify_token and get_current_user
     await access_token.adelete()
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         result = await get_current_user()
 
     assert result is None
@@ -221,7 +221,7 @@ async def test_get_current_user_inactive_user_rejected(access_token, user):
     await user.asave(update_fields=["is_active"])
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         assert await get_current_user() is None
 
 
@@ -276,7 +276,7 @@ async def test_verify_api_key_inactive_user_rejected(verifier, api_key, user):
 async def test_get_current_user_returns_user_for_api_key(api_key, user):
     mcp_token = APIKeyAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         result = await get_current_user()
 
     assert result is not None
@@ -289,8 +289,8 @@ async def test_get_current_user_api_key_token_skips_oauth_probe(api_key, user):
     mcp_token = APIKeyAccessToken(token=api_key, client_id=f"{API_KEY_CLIENT_ID_PREFIX}x", scopes=["mcp"])
 
     with (
-        patch("mcp_server.auth.get_access_token", return_value=mcp_token),
-        patch("mcp_server.auth._user_from_oauth_token") as oauth_resolver,
+        patch("mcp_api.auth.get_access_token", return_value=mcp_token),
+        patch("mcp_api.auth._user_from_oauth_token") as oauth_resolver,
     ):
         result = await get_current_user()
 
@@ -305,7 +305,7 @@ async def test_get_current_user_oauth_token_with_api_key_like_client_id(access_t
     OAuth — dispatch is by token type, not by the free-form client_id."""
     mcp_token = MCPAccessToken(token="test-valid-token", client_id="api-key:custom-app", scopes=["mcp"])  # noqa: S106
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         result = await get_current_user()
 
     assert result is not None
@@ -318,7 +318,7 @@ async def test_get_current_user_returns_none_when_api_key_revoked(api_key, user)
     mcp_token = APIKeyAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
     await APIKey.objects.filter(user=user).aupdate(revoked=True)
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         assert await get_current_user() is None
 
 
@@ -328,5 +328,5 @@ async def test_get_current_user_inactive_user_rejected_for_api_key(api_key, user
     await user.asave(update_fields=["is_active"])
     mcp_token = APIKeyAccessToken(token=api_key, client_id="api-key:x", scopes=["mcp"])
 
-    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+    with patch("mcp_api.auth.get_access_token", return_value=mcp_token):
         assert await get_current_user() is None

@@ -3,7 +3,7 @@ import json
 from django.test import RequestFactory
 
 import pytest
-from mcp_server.oauth import oauth_metadata
+from mcp_api.oauth import oauth_metadata
 
 
 @pytest.fixture

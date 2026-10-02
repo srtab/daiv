@@ -52,7 +52,7 @@ def _get_mcp_application() -> ASGIApp:
             return _mcp_application
 
         from mcp.server.transport_security import TransportSecuritySettings
-        from mcp_server.server import mcp
+        from mcp_api.server import mcp
 
         _mcp_application = mcp.streamable_http_app(
             stateless_http=True, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)

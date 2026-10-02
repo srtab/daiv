@@ -15,10 +15,10 @@ async def _user(username):
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_creates_daily_schedule():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj1")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="Nightly",
             prompt="run audit",
@@ -34,10 +34,10 @@ async def test_schedule_job_creates_daily_schedule():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_accepts_and_persists_intent():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj_intent")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="Fixer",
             prompt="p",
@@ -54,10 +54,10 @@ async def test_schedule_job_accepts_and_persists_intent():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_defaults_intent_to_watch_find():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj_intent_default")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="Watcher", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
         )
@@ -69,10 +69,10 @@ async def test_schedule_job_defaults_intent_to_watch_find():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_echoes_intent():
-    from mcp_server.server import list_scheduled_jobs, schedule_job
+    from mcp_api.server import list_scheduled_jobs, schedule_job
 
     user = await _user("ls_intent")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         await schedule_job(
             name="Reporter",
             prompt="p",
@@ -88,11 +88,11 @@ async def test_list_scheduled_jobs_echoes_intent():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_once_with_aware_datetime_creates_schedule():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj6")
     run_at = (timezone.now() + timedelta(days=1)).replace(microsecond=0)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="OneOff",
             prompt="p",
@@ -111,11 +111,11 @@ async def test_schedule_job_once_with_aware_datetime_creates_schedule():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_once_naive_datetime_is_coerced_to_aware():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj7")
     naive = (timezone.now() + timedelta(days=1)).replace(microsecond=0, tzinfo=None)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="OneOffNaive",
             prompt="p",
@@ -131,10 +131,10 @@ async def test_schedule_job_once_naive_datetime_is_coerced_to_aware():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_invalid_run_at_returns_error():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj8")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.ONCE, run_at="not-a-date"
         )
@@ -145,11 +145,11 @@ async def test_schedule_job_invalid_run_at_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_past_run_at_returns_error():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj9")
     past = (timezone.now() - timedelta(days=1)).replace(microsecond=0)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x",
             prompt="p",
@@ -163,10 +163,10 @@ async def test_schedule_job_past_run_at_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_bad_time_format_returns_error():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj2")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="9am"
         )
@@ -176,10 +176,10 @@ async def test_schedule_job_bad_time_format_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_validation_error_is_mapped():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj3")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.CUSTOM, cron_expression=""
         )
@@ -189,10 +189,10 @@ async def test_schedule_job_validation_error_is_mapped():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_unknown_environment_returns_error():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj4")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x",
             prompt="p",
@@ -207,10 +207,10 @@ async def test_schedule_job_unknown_environment_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_schedule_job_invalid_agent_model_returns_error():
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     user = await _user("sj5")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await schedule_job(
             name="x",
             prompt="p",
@@ -225,10 +225,10 @@ async def test_schedule_job_invalid_agent_model_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_scopes_and_filters():
-    from mcp_server.server import list_scheduled_jobs, schedule_job
+    from mcp_api.server import list_scheduled_jobs, schedule_job
 
     user = await _user("ls1")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         await schedule_job(
             name="A", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
         )
@@ -246,12 +246,12 @@ async def test_list_scheduled_jobs_scopes_and_filters():
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_cursor_paginates_without_overlap():
     """Walking pages via next_cursor covers every schedule once, newest first."""
-    from mcp_server.server import list_scheduled_jobs, schedule_job
+    from mcp_api.server import list_scheduled_jobs, schedule_job
 
     user = await _user("ls_pg")
     now = timezone.now()
     names = ["A", "B", "C", "D", "E"]
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         for name in names:
             await schedule_job(
                 name=name, prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
@@ -279,11 +279,11 @@ async def test_list_scheduled_jobs_cursor_tie_break_on_same_created():
     """Schedules use an integer PK stringified into the cursor. With >10 rows sharing an
     identical ``created``, the id tie-break must order numerically (not lexically) so the
     9→10 boundary neither skips nor repeats a row."""
-    from mcp_server.server import list_scheduled_jobs, schedule_job
+    from mcp_api.server import list_scheduled_jobs, schedule_job
 
     user = await _user("ls_tie")
     same = timezone.now()
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         for i in range(11):
             await schedule_job(
                 name=f"s{i}", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
@@ -305,10 +305,10 @@ async def test_list_scheduled_jobs_cursor_tie_break_on_same_created():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_invalid_cursor_returns_error():
-    from mcp_server.server import list_scheduled_jobs
+    from mcp_api.server import list_scheduled_jobs
 
     user = await _user("ls_badc")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_scheduled_jobs(cursor="not-valid")
     assert "error" in data
     assert "cursor" in data["error"].lower()
@@ -321,33 +321,33 @@ async def test_list_scheduled_jobs_wrong_tool_cursor_returns_invalid_not_transie
     return "Invalid cursor.", never the generic "try again later." message."""
     import uuid
 
-    from mcp_server.server import _encode_cursor, list_scheduled_jobs
+    from mcp_api.server import _encode_cursor, list_scheduled_jobs
 
     user = await _user("ls_xtool")
     # A well-formed base64(JSON) cursor whose id is a UUID string (as list_jobs would emit).
     bad = _encode_cursor({"c": timezone.now().isoformat(), "id": str(uuid.uuid4())})
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_scheduled_jobs(cursor=bad)
     assert data.get("error") == "Invalid cursor."
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_unauthenticated_returns_error():
-    from mcp_server.server import list_scheduled_jobs
+    from mcp_api.server import list_scheduled_jobs
 
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=None)):
         data = await list_scheduled_jobs()
     assert "error" in data
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_scheduled_jobs_db_error_returns_friendly_error():
-    from mcp_server.server import list_scheduled_jobs
+    from mcp_api.server import list_scheduled_jobs
 
     user = await _user("ls2")
     with (
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_server.server.alist_scheduled_jobs", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_api.server.alist_scheduled_jobs", new=AsyncMock(side_effect=RuntimeError("db down"))),
     ):
         data = await list_scheduled_jobs()
     assert "error" in data
@@ -358,15 +358,15 @@ async def test_list_scheduled_jobs_db_error_returns_friendly_error():
 async def test_schedule_job_denied_repo_returns_error():
     from unittest.mock import AsyncMock, patch
 
-    from mcp_server.server import schedule_job
+    from mcp_api.server import schedule_job
 
     from codebase.authorization import RepositoryAccessDenied
     from schedules.models import ScheduledJob
 
     user = await _user("sj_denied")
     with (
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_server.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))),
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_api.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))),
     ):
         result = await schedule_job(name="s", prompt="p", repos=[{"repo_id": "a/b", "ref": None}], frequency="hourly")
 

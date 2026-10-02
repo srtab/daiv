@@ -9,7 +9,7 @@ from oauth2_provider.models import Application
 
 from .schemas import ClientRegistrationRequest, ClientRegistrationResponse
 
-logger = logging.getLogger("daiv.mcp_server")
+logger = logging.getLogger("daiv.mcp_api")
 
 oauth_router = Router(tags=["oauth"])
 

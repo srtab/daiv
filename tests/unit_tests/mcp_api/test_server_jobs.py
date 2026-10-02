@@ -37,23 +37,23 @@ async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
 def _default_mcp_user(db):
     """Make ``get_current_user`` return a real authenticated user by default.
 
-    Mirrors ``tests/unit_tests/mcp_server/test_server.py``'s fixture of the same name:
+    Mirrors ``tests/unit_tests/mcp_api/test_server.py``'s fixture of the same name:
     tests that need a specific user (or an unauthenticated caller) patch the same
     target within their own ``with`` block, overriding this default for that scope.
     """
     user = User.objects.create_user(username="mcp_default_jobs", email="mcp_jobs@test.com", password="x")  # noqa: S106
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         yield user
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_returns_user_jobs_and_excludes_result_summary():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj1")
     sess = await _session(user)
     await _run(sess, status=RunStatus.SUCCESSFUL, result_summary="secret detail")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     assert data["next_cursor"] is None
     assert len(data["jobs"]) == 1
@@ -65,13 +65,13 @@ async def test_list_jobs_returns_user_jobs_and_excludes_result_summary():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_truncates_and_caps():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj2")
     sess = await _session(user)
     for _ in range(3):
         await _run(sess)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
     assert data["next_cursor"] is not None
@@ -80,7 +80,7 @@ async def test_list_jobs_truncates_and_caps():
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_cursor_paginates_without_overlap():
     """Walking pages via next_cursor covers every row exactly once, newest first."""
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj_pg")
     now = timezone.now()
@@ -96,7 +96,7 @@ async def test_list_jobs_cursor_paginates_without_overlap():
 
     seen: list[str] = []
     cursor = None
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         for _ in range(10):  # generous upper bound; loop should break well before
             data = await list_jobs(limit=2, cursor=cursor)
             seen.extend(j["job_id"] for j in data["jobs"])
@@ -111,7 +111,7 @@ async def test_list_jobs_cursor_paginates_without_overlap():
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_cursor_tie_break_on_same_created_at():
     """Rows sharing an identical created_at (batch submit) must not be skipped or repeated."""
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj_tie")
     same = timezone.now()
@@ -124,7 +124,7 @@ async def test_list_jobs_cursor_tie_break_on_same_created_at():
 
     seen: list[str] = []
     cursor = None
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         for _ in range(10):
             data = await list_jobs(limit=2, cursor=cursor)
             seen.extend(j["job_id"] for j in data["jobs"])
@@ -138,10 +138,10 @@ async def test_list_jobs_cursor_tie_break_on_same_created_at():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_invalid_cursor_returns_error():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj_badc")
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(cursor="not-a-valid-cursor")
     assert "error" in data
     assert "cursor" in data["error"].lower()
@@ -152,27 +152,27 @@ async def test_list_jobs_wrong_tool_or_bad_id_cursor_returns_invalid():
     """A decodable cursor whose id can't coerce to Run's UUID PK (e.g. a schedules
     cursor with an integer id, or plain junk) must be reported as "Invalid cursor." at decode
     time — not deferred to the ORM where the generic handler mislabels it as transient."""
-    from mcp_server.server import _encode_cursor, list_jobs
+    from mcp_api.server import _encode_cursor, list_jobs
 
     user = await _user("lj_xtool")
     bad = _encode_cursor({"c": timezone.now().isoformat(), "id": "5"})  # int id, as schedules emits
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(cursor=bad)
     assert data.get("error") == "Invalid cursor."
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_unauthenticated_returns_error():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=None)):
         data = await list_jobs()
     assert "error" in data
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_orders_newest_first():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj3")
     sess = await _session(user)
@@ -182,20 +182,20 @@ async def test_list_jobs_orders_newest_first():
     now = timezone.now()
     await Run.objects.filter(pk=older.pk).aupdate(created_at=now - timedelta(hours=1))
     await Run.objects.filter(pk=newer.pk).aupdate(created_at=now)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     assert [j["job_id"] for j in data["jobs"]] == [str(newer.id), str(older.id)]
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_not_truncated_at_exact_limit():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj4")
     sess = await _session(user)
     for _ in range(2):
         await _run(sess)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
     assert data["next_cursor"] is None
@@ -203,12 +203,12 @@ async def test_list_jobs_not_truncated_at_exact_limit():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_serializes_cost_and_tokens():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj5")
     sess = await _session(user)
     await _run(sess, status=RunStatus.SUCCESSFUL, cost_usd=Decimal("1.234567"), total_tokens=4242)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     job = data["jobs"][0]
     # cost_usd is stringified (Decimal is not JSON-serializable); total_tokens stays an int.
@@ -218,25 +218,25 @@ async def test_list_jobs_serializes_cost_and_tokens():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_status_filter():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj6")
     sess = await _session(user)
     await _run(sess, status=RunStatus.RUNNING)
     await _run(sess, status=RunStatus.SUCCESSFUL)
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(status=RunStatus.RUNNING)
     assert {j["status"] for j in data["jobs"]} == {"RUNNING"}
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_db_error_returns_friendly_error():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
     user = await _user("lj7")
     with (
-        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_server.server.alist_user_runs", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_api.server.alist_user_runs", new=AsyncMock(side_effect=RuntimeError("db down"))),
     ):
         data = await list_jobs()
     assert "error" in data
@@ -245,20 +245,20 @@ async def test_list_jobs_db_error_returns_friendly_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_auth_exception_returns_error():
-    from mcp_server.server import list_jobs
+    from mcp_api.server import list_jobs
 
-    with patch("mcp_server.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("boom"))):
         data = await list_jobs()
     assert "error" in data
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_denied_repo_returns_error():
-    from mcp_server.server import submit_job
+    from mcp_api.server import submit_job
 
     from codebase.authorization import RepositoryAccessDenied
 
-    with patch("mcp_server.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+    with patch("mcp_api.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert json.loads(result)["error"] == "Repository not found or not accessible."
@@ -266,9 +266,9 @@ async def test_submit_job_denied_repo_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_rate_limited():
-    from mcp_server.server import submit_job
+    from mcp_api.server import submit_job
 
-    with patch("mcp_server.server._allow_job_submission", return_value=False):
+    with patch("mcp_api.server._allow_job_submission", return_value=False):
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert "Rate limit" in json.loads(result)["error"]
@@ -276,7 +276,7 @@ async def test_submit_job_rate_limited():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_references(_default_mcp_user):
-    from mcp_server.server import submit_job
+    from mcp_api.server import submit_job
     from sessions.services import BatchSubmitResult
 
     from codebase.references import RefIn
@@ -287,13 +287,13 @@ async def test_submit_job_forwards_references(_default_mcp_user):
         return repos
 
     with (
-        patch("mcp_server.server._allow_job_submission", return_value=True),
-        patch("mcp_server.server.validate_agent_override", return_value=("", "")),
-        patch("mcp_server.server.ensure_agent_model_available"),
-        patch("mcp_server.server.aassert_can_run", new=AsyncMock()),
-        patch("mcp_server.server.aresolve_repo_envs", new=AsyncMock(side_effect=_passthrough)),
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("mcp_api.server.validate_agent_override", return_value=("", "")),
+        patch("mcp_api.server.ensure_agent_model_available"),
+        patch("mcp_api.server.aassert_can_run", new=AsyncMock()),
+        patch("mcp_api.server.aresolve_repo_envs", new=AsyncMock(side_effect=_passthrough)),
         patch(
-            "mcp_server.server.asubmit_batch_runs",
+            "mcp_api.server.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run])),
         ) as submit,
     ):
@@ -311,7 +311,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_malformed_references():
-    from mcp_server.server import submit_job
+    from mcp_api.server import submit_job
 
     result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=[{"key": ""}])
 
@@ -320,7 +320,7 @@ async def test_submit_job_rejects_malformed_references():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_too_many_references():
-    from mcp_server.server import submit_job
+    from mcp_api.server import submit_job
 
     refs = [{"key": f"K-{i}"} for i in range(21)]
     result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", references=refs)
@@ -334,7 +334,7 @@ def test_the_submit_job_description_advertises_every_special_provider():
     """
     import typing
 
-    from mcp_server.server import MAX_REFS_PER_SUBMISSION, submit_job
+    from mcp_api.server import MAX_REFS_PER_SUBMISSION, submit_job
 
     from codebase.references import RefProvider
 

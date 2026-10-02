@@ -11,7 +11,7 @@ from accounts.models import APIKey
 if TYPE_CHECKING:
     from accounts.models import User
 
-logger = logging.getLogger("daiv.mcp_server")
+logger = logging.getLogger("daiv.mcp_api")
 
 API_KEY_CLIENT_ID_PREFIX = "api-key:"
 
