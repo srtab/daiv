@@ -109,7 +109,7 @@ async def test_it_returns_the_outcome_and_hands_it_to_on_success():
         outcome = await execute_run(make_spec(), RunHooks(on_success=on_success, on_failure=on_failure))
 
     assert outcome.response_text == "done"
-    assert outcome.agent_result == {"response": "done", "question": None}
+    assert (outcome.agent_result["response"], outcome.agent_result["question"]) == ("done", None)
     assert outcome.snapshot is agent.aget_state.return_value
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
     stack.build_result.assert_awaited_once_with(
@@ -260,7 +260,9 @@ async def test_the_ref_sync_and_the_watch_run_when_asked():
     ):
         await execute_run(spec)
 
-    stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="main", merge_request=MR)
+    stack.persist.assert_awaited_once_with(
+        thread_id=spec.thread_id, current_ref="main", merge_request=MR, published=True
+    )
     assert stack.armed == [
         {
             "repo_id": "owner/repo",
@@ -443,7 +445,8 @@ async def test_a_non_timeout_lock_error_reaches_on_failure_without_entering_the_
     ids=["redis", "os", "json", "redis-search"],
 )
 async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
-    """The agent already finished, so the hook, the ref sync and the watch still run, without a checkpoint."""
+    """The agent already finished, so the hook and the watch still run, without a checkpoint. The ref sync is skipped:
+    an unread checkpoint can't tell it what published."""
     agent = _agent()
     agent.aget_state = AsyncMock(side_effect=error)
     on_success = AsyncMock()
@@ -453,7 +456,7 @@ async def test_a_failed_checkpoint_read_still_finishes_the_run(error, caplog):
 
     assert outcome.snapshot is None
     on_success.assert_awaited_once_with(outcome)
-    stack.persist.assert_awaited_once_with(thread_id=ANY, current_ref="main", merge_request=None)
+    stack.persist.assert_not_awaited()
     assert stack.armed == [
         {
             "repo_id": "owner/repo",
@@ -482,14 +485,19 @@ async def test_a_checkpoint_read_that_fails_for_another_reason_fails_the_run():
     on_failure.assert_awaited_once()
 
 
-async def test_the_ref_sync_compares_against_the_ref_the_clone_landed_on():
+@pytest.mark.parametrize(
+    ("clone_ref", "head_detached", "expected"), [("master", False, "master"), ("v1.0", True, "")], ids=["branch", "tag"]
+)
+async def test_the_ref_sync_compares_against_the_branch_the_clone_landed_on(clone_ref, head_detached, expected):
     spec = make_spec(ref=None, persist_ref=True)
 
     with agent_stack(_agent(state={"merge_request": MR})) as stack:
-        stack.ctx.repo.ref = "master"
+        stack.ctx.repo.ref, stack.ctx.repo.head_detached = clone_ref, head_detached
         await execute_run(spec)
 
-    stack.persist.assert_awaited_once_with(thread_id=spec.thread_id, current_ref="master", merge_request=MR)
+    stack.persist.assert_awaited_once_with(
+        thread_id=spec.thread_id, current_ref=expected, merge_request=MR, published=False
+    )
 
 
 async def test_it_hands_the_webhook_context_to_the_clone():
@@ -1247,7 +1255,7 @@ class TestStreamRun:
 
         [outcome] = on_success.await_args.args
         assert (outcome.snapshot, outcome.response_text) == (None, "")
-        stack.persist.assert_awaited_once_with(thread_id=ANY, current_ref="main", merge_request=None)
+        stack.persist.assert_not_awaited()
         assert stack.armed[0]["published"] is False
 
     @pytest.mark.django_db(transaction=True)

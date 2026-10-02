@@ -334,7 +334,7 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
         rc_ctx.return_value.__aenter__.return_value = MagicMock(
-            config=MagicMock(models=MagicMock(agent=object())), repo=SimpleNamespace(ref="main")
+            config=MagicMock(models=MagicMock(agent=object())), repo=SimpleNamespace(ref="main", head_detached=False)
         )
         yield rc_ctx
 
@@ -709,7 +709,7 @@ class TestRunJobTaskAfterRunMatrix:
         async def _release(thread_id, holder_id):
             calls.append(("release", thread_id, holder_id))
 
-        async def _persist(*, thread_id, current_ref, merge_request):
+        async def _persist(*, thread_id, current_ref, merge_request, published):
             calls.append(("persist", current_ref, merge_request))
 
         class _Watch(watch_recorder([])):
