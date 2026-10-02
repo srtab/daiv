@@ -76,7 +76,7 @@ Single-run messages end with the run's summary — for a run waiting for an answ
 
 Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no in-app entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
 **Non-scheduled runs** — runs started from the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
@@ -135,7 +135,7 @@ When a run finishes with a notify-worthy classification, DAIV records the notifi
 - A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
 - Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.
 - Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads **Not configured**. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to **unverified**: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped**, and the row shows **Unverified** alongside a **Connect** control until you redo the handshake.
-- The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)
+- The in-app entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no in-app entry at all — muting is full silence.)
 
 ## Related pages
 

@@ -133,8 +133,8 @@ def test_the_label_follows_a_snapshot():
 
 
 def test_starting_twice_does_not_open_a_second_stream():
-    """Both sidebar copies and the mobile bar share one store; a second `start` would leave a
-    duplicate connection nobody can close."""
+    """`start` must be idempotent per tab: a second call would leave a duplicate connection
+    nobody can close."""
     state = drive({}, starts=2)
     assert state["closed"] is False
     assert state["constructed"] == 1

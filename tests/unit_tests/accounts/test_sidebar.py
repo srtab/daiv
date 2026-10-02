@@ -52,6 +52,17 @@ class TestSidebarSmoke:
         assert response.status_code == 200
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
+        assert b'data-testid="mobile-top-bar"' in response.content
+
+
+@pytest.mark.django_db
+class TestMobileTopBar:
+    def test_opens_the_sidebar_sheet_and_shows_unread(self, member):
+        content = _client(member).get(reverse("dashboard")).content.decode()
+        bar = content.split('data-testid="mobile-top-bar"', 1)[1].split("</header>", 1)[0]
+        assert "md:hidden" in bar.split(">", 1)[0]
+        assert '@click="mobileNavOpen = !mobileNavOpen"' in bar
+        assert 'x-show="$store.nav.unread > 0"' in bar
 
 
 @pytest.mark.django_db
@@ -68,7 +79,7 @@ class TestAdminGroupVisibility:
 
 
 def _account_menu(content: str) -> str:
-    """The account chip and its menu, up to the sign-out form that closes it."""
+    """The account chip and its menu, sliced up to the sign-out form's `</form>`."""
     return content.split('data-testid="app-user-menu"', 1)[1].split("</form>", 1)[0]
 
 
@@ -81,7 +92,7 @@ class TestAccountMenu:
 
     @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "mfa_list_webauthn"])
     def test_chip_is_active_on_the_pages_it_holds(self, member, url_name):
-        """Those pages left the nav, so the chip is the only item that can say where you are."""
+        """Those pages have no nav item of their own, so the chip is the only element that can mark them active."""
         chip = _account_menu(_client(member).get(reverse(url_name)).content.decode()).split("</button>", 1)[0]
         assert "sidebar__nav-item--active" in chip
 

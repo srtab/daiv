@@ -35,7 +35,7 @@
 
   <div class="flex flex-1 flex-col min-w-0">
     {# Below `md:` the sidebar is a sheet, and this bar is the only way to open it. #}
-    <header class="flex items-center gap-3 border-b border-border bg-surface-1 px-4 py-2 md:hidden">
+    <header data-testid="mobile-top-bar" class="flex items-center gap-3 border-b border-border bg-surface-1 px-4 py-2 md:hidden">
       <button type="button"
               @click="mobileNavOpen = !mobileNavOpen"
               class="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:text-text"

@@ -104,13 +104,8 @@
   }
 }
 
-/* The sidebar's icon-rail tier. Its width is `--app-sidebar-width`, so only what the rail
-   hides, reveals or moves lives here; `sidebar__rail-only` is the inverse of
-   `sidebar__collapsible`, shown in the rail alone. The persistent sidebar carries
-   `.sidebar--rail`; the mobile sheet reuses the same partial WITHOUT the modifier, so it
-   always shows full labels. Bounds read the breakpoint tokens rather than the px they
-   compile to, and the rules are unlayered because they have to beat the utilities on the
-   elements they restyle. */
+/* Icon-rail tier: `.sidebar--rail` only, so the mobile sheet keeps its labels. Unlayered to
+   beat the utilities; `sidebar__rail-only` is the inverse of `sidebar__collapsible`. */
 .sidebar__rail-only {
   display: none;
 }
@@ -258,9 +253,8 @@ html {
   display: none !important;
 }
 
-/* Drop <main>'s bottom padding on chat detail so the sticky dock reaches the actual
-   viewport bottom — a sticky `bottom: 0` sticks to the padding box. `!important` is needed
-   to beat the padding utility on <main>. */
+/* Chat detail drops <main>'s bottom padding so the sticky dock reaches the viewport bottom:
+   a sticky `bottom: 0` stops at the scroller's padding box. */
 main:has(.chat-shell) {
   padding-bottom: 0 !important;
 }
@@ -1814,8 +1808,8 @@ main:has(.chat-shell) {
     margin: 0;
     padding: 0 0 8px;
     background: var(--color-ground);
-    /* Above the mobile tab bar (z-30), below the nav drawer (z-40): the dock is a
-       stacking context, so its sheets' own z-60 is capped by this value. */
+    /* Below the nav sheet and the account menu (both z-40): the dock is a stacking
+       context, so its sheets' own z-60 is capped by this value. */
     z-index: 35;
   }
 

@@ -157,10 +157,10 @@
       <button type="button"
               @click="open = !open"
               :aria-expanded="open.toString()"
-              aria-label="{% translate 'Account' %}"
               class="sidebar__account {% nav_active 'channels' 'api_keys' 'passkeys' %}">
         {% user_color_index user as user_color %}
-        <span class="avatar avatar--md avatar--c{{ user_color }} shrink-0">{% user_initials user %}</span>
+        <span class="avatar avatar--md avatar--c{{ user_color }} shrink-0" aria-hidden="true">{% user_initials user %}</span>
+        <span class="sr-only">{% translate "Account" %}</span>
         <span class="sidebar__collapsible min-w-0 flex-1 truncate">{{ user.email }}</span>
         {% icon "chevron-up-down" "sidebar__collapsible h-3.5 w-3.5 shrink-0 text-text-faint" %}
       </button>

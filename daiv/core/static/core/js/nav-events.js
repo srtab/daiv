@@ -4,11 +4,11 @@
  * One SSE connection per tab. Nothing here replaces DOM — the badges bind to this
  * store — so an open menu survives every update.
  *
- * A store rather than a component because several elements read the same two numbers
- * (the sidebar's unread and running badges, each rendered twice — desktop sidebar plus
- * mobile drawer — and the mobile bar's unread dot). Seeded from the server-rendered
- * counts so the first paint has no flash, then replaced wholesale by each `snapshot`
- * frame — the stream sends state, not deltas, so a reconnect needs no replay.
+ * A store rather than a component because the counts are read from several places in
+ * the shell — both sidebar copies (persistent and mobile sheet) and the mobile top bar.
+ * Seeded from the server-rendered counts so the first paint has no flash, then replaced
+ * wholesale by each `snapshot` frame — the stream sends state, not deltas, so a
+ * reconnect needs no replay.
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
  *

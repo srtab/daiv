@@ -119,7 +119,7 @@ Use Tailwind's default spacing scale. Common values:
   the tier per page; don't hard-code arbitrary widths.
 - **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
-  The app shell itself reflows at **768px** (`md:` — sidebar → sheet + bottom tab
+  The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
   that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
@@ -301,16 +301,6 @@ plus wordmark) that is the only nav entry point on a phone.
 - **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
   a dot instead, and the mobile top bar's menu button carries the same dot.
 
-### Header
-
-Reusable partial at `accounts/templates/accounts/_header.html`:
-
-```django
-{% include "accounts/_header.html" with header_max_w="max-w-7xl" %}
-```
-
-Defaults to `max-w-5xl`. Contains logo + user name + sign-out button.
-
 ### Prose / Markdown Content
 
 Use the `.prose-dark` component class for rendered markdown inside dark containers:
@@ -430,8 +420,6 @@ All pages extend `accounts/templates/base.html`, which provides:
 {% block title %}Page Title — DAIV{% endblock %}
 
 {% block content %}
-{% include "accounts/_header.html" %}
-
 <main class="mx-auto max-w-5xl px-6 py-8">
     <!-- page content -->
 </main>
@@ -489,7 +477,6 @@ sidebar's tier and that switch moves with it.
 | App shell template      | `daiv/accounts/templates/base_app.html`       |
 | Sidebar partial         | `daiv/accounts/templates/accounts/_sidebar.html` |
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
-| Header partial          | `daiv/accounts/templates/accounts/_header.html` |
 | Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
 | Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |
 | Default field template  | `daiv/core/templates/core/fields/default.html` |

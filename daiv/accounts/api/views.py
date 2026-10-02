@@ -1,9 +1,8 @@
 """SSE stream for the dashboard shell's live counters.
 
-The nav badges — unread notifications and running runs, both in the sidebar — used
-to be refreshed by a 10s HTMX poll per tab. One long-lived stream
-replaces it: the first frame carries a snapshot, and thereafter a frame is sent
-only when a ``core.ui_events`` poke means a count actually moved.
+The nav badges (unread notifications, running runs) are fed by one long-lived stream
+per tab: the first frame carries a snapshot, and thereafter a frame is sent only when
+a ``core.ui_events`` poke means a count actually moved.
 
 Why a snapshot rather than a delta log: the payload *is* the whole state (two
 integers), so a reconnect needs no ``Last-Event-ID`` replay — it just resends the

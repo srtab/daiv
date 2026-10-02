@@ -1,9 +1,8 @@
 """Redis pub/sub bus for pushing dashboard shell state to connected browsers.
 
-The nav shell (unread badge, "N running" badge) used to poll. Now
-a single SSE connection per tab carries the updates, and this module is the
-cross-process wire that wakes it: run transitions and notification writes happen in
-the worker, the SSE readers live in the web process.
+The nav shell's live badges (unread count, "N running") are fed by one SSE connection
+per tab, and this module is the cross-process wire that wakes it: run transitions and
+notification writes happen in the worker, the SSE readers live in the web process.
 
 Four objects, split by concern:
 

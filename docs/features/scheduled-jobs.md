@@ -22,7 +22,7 @@ Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 | **Frequency**           | How often the job runs (see [Frequency options](#frequency-options)) |
 | **Time**                | Time of day for Daily, Weekdays, and Weekly schedules |
 | **Date & time**         | The specific date and time a one-off (**Once**) schedule fires |
-| **Mute**                | When checked, silences all notifications for this schedule's runs (bell and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice |
+| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice |
 | **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers)) |
 | **Sandbox environment** | The named [sandbox](sandbox.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution |
 

@@ -1,4 +1,4 @@
-"""Tests for the nav SSE stream that replaced the bell's 10s poll.
+"""Tests for the nav SSE stream (``accounts.api.views.nav_events``).
 
 The frames are asserted by driving ``_nav_frames`` directly with a fake bus stream: the
 whole point of the endpoint is what it does *between* changes — recompute, compare, and
