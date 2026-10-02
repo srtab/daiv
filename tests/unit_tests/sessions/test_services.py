@@ -662,12 +662,17 @@ def _mr(branch: str) -> MergeRequest:
     )
 
 
+_UNREVIVED_MR = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_persist_session_ref_updates_when_branch_changed():
     merge_request = _mr("feature-y")
     await Session.objects.acreate(thread_id="t-ref-1", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
 
-    await apersist_session_ref(thread_id="t-ref-1", current_ref="feature-x", merge_request=merge_request)
+    await apersist_session_ref(
+        thread_id="t-ref-1", current_ref="feature-x", merge_request=merge_request, published=True
+    )
 
     refreshed = await Session.objects.aget(thread_id="t-ref-1")
     assert refreshed.ref == "feature-y"
@@ -675,21 +680,59 @@ async def test_persist_session_ref_updates_when_branch_changed():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("current_ref", "merge_request"),
+    ("current_ref", "merge_request", "published"),
     [
-        ("feature-x", _mr("feature-x")),
-        ("feature-x", None),
-        ("main", {"source_branch": object()}),
-        ("main", SimpleNamespace(source_branch="feature-y")),
-        ("main", {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}),
+        ("feature-x", _mr("feature-x"), True),
+        ("main", None, False),
+        ("main", {"source_branch": object()}, True),
+        ("main", SimpleNamespace(source_branch="feature-y"), True),
+        ("main", _UNREVIVED_MR, True),
     ],
     ids=["branch-unchanged", "nothing-published", "branch-not-a-string", "unknown-shape", "did-not-revive"],
 )
-async def test_persist_session_ref_never_writes_without_a_new_branch(current_ref, merge_request):
-    with patch("sessions.services.Session.objects.filter") as filter_mock:
-        await apersist_session_ref(thread_id="t-ref", current_ref=current_ref, merge_request=merge_request)
+async def test_persist_session_ref_keeps_a_set_branch_without_a_new_one(current_ref, merge_request, published):
+    await Session.objects.acreate(thread_id="t-ref", origin=SessionOrigin.CHAT, repo_id="a/b", ref="feature-x")
 
-    filter_mock.assert_not_called()
+    await apersist_session_ref(
+        thread_id="t-ref", current_ref=current_ref, merge_request=merge_request, published=published
+    )
+
+    refreshed = await Session.objects.aget(thread_id="t-ref")
+    assert refreshed.ref == "feature-x"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("current_ref", "merge_request", "published", "expected"),
+    [
+        ("main", None, False, "main"),
+        ("main", _mr("main"), True, "main"),
+        ("main", _mr("daiv/fix"), True, "daiv/fix"),
+        ("main", None, True, ""),
+        ("main", _UNREVIVED_MR, False, ""),
+        ("", None, False, ""),
+    ],
+    ids=[
+        "nothing-published",
+        "mr-on-the-clone",
+        "mr-on-another-branch",
+        "published-before-the-mr-opened",
+        "did-not-revive",
+        "clone-on-a-tag",
+    ],
+)
+async def test_persist_session_ref_fills_a_blank_branch_only_when_known(
+    current_ref, merge_request, published, expected
+):
+    await Session.objects.acreate(thread_id="t-ref-blank", origin=SessionOrigin.API_JOB, repo_id="a/b", ref="")
+    await Session.objects.acreate(thread_id="t-ref-other", origin=SessionOrigin.API_JOB, repo_id="a/b", ref="")
+
+    await apersist_session_ref(
+        thread_id="t-ref-blank", current_ref=current_ref, merge_request=merge_request, published=published
+    )
+
+    assert (await Session.objects.aget(thread_id="t-ref-blank")).ref == expected
+    assert (await Session.objects.aget(thread_id="t-ref-other")).ref == ""
 
 
 @pytest.mark.django_db(transaction=True)

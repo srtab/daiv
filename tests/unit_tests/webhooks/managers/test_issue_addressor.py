@@ -36,7 +36,7 @@ def _ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
     return SimpleNamespace(
         config=RepositoryConfig(),
-        repo=SimpleNamespace(ref="main", clone_seconds=0.0),
+        repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
@@ -176,7 +176,7 @@ class TestIssueAfterRunMatrix:
         assert run.context_kwargs["fallback_ref_on_missing"] is True
         assert run.context_kwargs["issue"] is issue
         assert run.context_kwargs["ref"] == "fix/42"
-        run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr)
+        run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr, published=True)
         assert run.armed == [
             {
                 "repo_id": "owner/repo",

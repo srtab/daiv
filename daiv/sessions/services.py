@@ -128,17 +128,25 @@ async def _amerge_session_refs(session: Session, external_refs: list[dict]) -> N
     session.external_refs = await sync_to_async(_merge_locked)()
 
 
-async def apersist_session_ref(*, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None) -> None:
-    """Sync ``Session.ref`` with the branch the agent published to.
+async def apersist_session_ref(
+    *, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None, published: bool
+) -> None:
+    """Sync ``Session.ref`` with the branch the agent is working on.
 
     ``Session.ref`` is the branch a session is *working on*, not the one it started from —
     that stays on every ``Run.ref``, which nothing rewrites — so the composer pill and the
-    session list keep agreeing with the merge request beside them. A merge request that didn't
-    revive stays an ``lc:2`` envelope, with no top-level ``source_branch``: the ref is left alone.
+    session list keep agreeing with the merge request beside them. ``current_ref`` is the branch
+    the clone landed on, ``""`` when it landed on a tag or a commit.
+
+    A blank ref is filled only when the branch is known: a merge request that didn't revive stays an
+    ``lc:2`` envelope with no top-level ``source_branch``, and a publish can land before its merge
+    request opens, so either leaves it alone.
     """
-    new_ref = (mr_to_payload(merge_request) or {}).get("source_branch")
-    if isinstance(new_ref, str) and new_ref and new_ref != current_ref:
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+    branch = (mr_to_payload(merge_request) or {}).get("source_branch")
+    if isinstance(branch, str) and branch and branch != current_ref:
+        await Session.objects.filter(thread_id=thread_id).aupdate(ref=branch)
+    elif current_ref and (branch == current_ref or (merge_request is None and not published)):
+        await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
 
 
 async def aget_session_ref(*, thread_id: str) -> str:
@@ -172,7 +180,7 @@ async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     """Re-pin ``Session.ref`` after a run fell back off a vanished branch.
 
-    Unlike :func:`apersist_session_ref` (success-only, driven by the agent's final MR), this
+    Unlike :func:`apersist_session_ref` (success-only, driven by the run's outcome), this
     fires the moment the clone falls back, so the session self-heals even if the turn fails.
     """
     await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)

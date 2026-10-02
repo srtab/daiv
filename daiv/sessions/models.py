@@ -4,7 +4,7 @@ import logging
 import uuid
 from decimal import Decimal
 from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -19,6 +19,9 @@ from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.envelopes import validate_actionable
 from sessions.managers import RunArtifactManager, RunEnvelopeManager, RunManager, SessionManager
+
+if TYPE_CHECKING:
+    from automation.agent.results import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -283,6 +286,18 @@ def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:
     return updates
 
 
+def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
+    """Map an agent result to the ``Run`` fields it fills, leaving out the ones it has no value for.
+
+    Shared by the same two paths as :func:`usage_field_updates`, for the same reason.
+    """
+    updates = {
+        "merge_request_iid": result["merge_request_id"],
+        "merge_request_web_url": result["merge_request_web_url"],
+    }
+    return {field: value for field, value in updates.items() if value}
+
+
 class Run(models.Model):
     """One agent execution within a session. Successor of ``activity.Activity``;
     UUIDs are preserved by the data migration so external job IDs keep resolving.
@@ -491,12 +506,10 @@ class Run(models.Model):
             if parsed["code_changes"] and not self.code_changes:
                 self.code_changes = True
                 changed.append("code_changes")
-            if parsed["merge_request_id"] and not self.merge_request_iid:
-                self.merge_request_iid = parsed["merge_request_id"]
-                changed.append("merge_request_iid")
-            if parsed["merge_request_web_url"] and not self.merge_request_web_url:
-                self.merge_request_web_url = parsed["merge_request_web_url"]
-                changed.append("merge_request_web_url")
+            for field, value in agent_result_field_updates(parsed).items():
+                if not getattr(self, field):
+                    setattr(self, field, value)
+                    changed.append(field)
             if question and self.question is None:
                 self.question = question
                 changed.append("question")

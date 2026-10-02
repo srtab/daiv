@@ -23,6 +23,7 @@ from sessions.templatetags.session_tags import (
     format_tokens,
     origin_icon,
     session_cost,
+    session_merge_request,
     session_title,
     short_timestamp,
     status_variant,
@@ -175,6 +176,35 @@ def test_session_cost_sums_runs():
 def test_session_cost_empty_when_zero():
     session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
     assert session_cost(session) == ""
+
+
+def _mr_run(iid=None, url=""):
+    return types.SimpleNamespace(merge_request_iid=iid, merge_request_web_url=url)
+
+
+@pytest.mark.parametrize(
+    ("scoped_iid", "runs", "expected"),
+    [
+        (
+            None,
+            [_mr_run(), _mr_run(12, "https://git/mr/12"), _mr_run(9, "https://git/mr/9")],
+            (12, "https://git/mr/12"),
+        ),
+        (5, [_mr_run(12, "https://git/mr/12"), _mr_run(5, "https://git/mr/5")], (5, "https://git/mr/5")),
+        (5, [_mr_run(5), _mr_run(5, "https://git/mr/5")], (5, "https://git/mr/5")),
+        (5, [_mr_run(12, "https://git/mr/12")], (5, "")),
+        (5, [_mr_run()], (5, "")),
+    ],
+    ids=["newest-run-that-published", "session-scope-wins", "older-run-url", "never-another-mrs-url", "no-url"],
+)
+def test_session_merge_request(scoped_iid, runs, expected):
+    session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs))
+    assert session_merge_request(session) == {"iid": expected[0], "url": expected[1]}
+
+
+def test_session_merge_request_none_when_nothing_published():
+    session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]))
+    assert session_merge_request(session) is None
 
 
 def test_session_cost_skips_null_costs():

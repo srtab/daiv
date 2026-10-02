@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 from sessions.models import RunStatus, Session, SessionOrigin
 
+from automation.agent.results import parse_agent_result
 from chat.api.streaming import finalize_chat_run, start_chat_run
 
 # ``transaction=True``: these are async DB tests. Async writes commit and escape the
@@ -54,6 +55,21 @@ async def test_finalize_chat_run_success_records_usage(django_user_model):
     assert run.total_tokens == 15
     assert run.cost_usd == Decimal("0.01")
     assert run.result_summary == "done"
+
+
+async def test_finalize_chat_run_records_the_merge_request(django_user_model):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await finalize_chat_run(
+        run.pk,
+        success=True,
+        usage=None,
+        response_text="done",
+        agent_result=parse_agent_result({"merge_request_id": 7, "merge_request_web_url": "https://git.example/mr/7"}),
+    )
+    await run.arefresh_from_db()
+    assert (run.merge_request_iid, run.merge_request_web_url) == (7, "https://git.example/mr/7")
 
 
 async def test_finalize_chat_run_failure(django_user_model):
