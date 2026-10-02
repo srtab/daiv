@@ -90,8 +90,6 @@ forbidden_modules =
     webhooks
 allow_indirect_imports = True
 ignore_imports =
-    automation.agent.middlewares.artifacts -> sessions.artifacts
-    automation.agent.middlewares.artifacts -> sessions.conf
     automation.titling.tasks -> sessions.models
 
 [importlinter:contract:sessions]

@@ -1,4 +1,5 @@
 import io
+import json
 import tarfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -256,6 +257,29 @@ class FakeWorkspace:
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+
+@dataclass
+class FakeArtifactStore:
+    """An ``ArtifactStore`` a test scripts: ``accepts`` answers ``aaccepts``, ``error`` makes ``astore`` raise, and
+    ``asked`` / ``stored`` record the calls."""
+
+    max_bytes: int = 10 * 1024 * 1024
+    per_run_max: int = 20
+    accepts: bool = True
+    error: Exception | None = None
+    asked: list[str] = field(default_factory=list)
+    stored: list[dict[str, Any]] = field(default_factory=list)
+
+    async def aaccepts(self, thread_id: str) -> bool:
+        self.asked.append(thread_id)
+        return self.accepts
+
+    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+        if self.error is not None:
+            raise self.error
+        self.stored.append({"thread_id": thread_id, "filename": filename, "content": content, "title": title})
+        return json.dumps({"status": "published", "filename": filename})
 
 
 def _archive_members(archive: bytes | None) -> frozenset[str] | None:

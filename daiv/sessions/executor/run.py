@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
-from sessions.artifacts import bind_active_run
+from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -271,6 +271,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 checkpointer=checkpointer,
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
                 workspace=workspace,
+                artifact_store=RunArtifactStore(),
                 **agent_kwargs,
                 **spec.agent_options,
             )
