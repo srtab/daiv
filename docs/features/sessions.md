@@ -282,7 +282,7 @@ Old bookmarks to `/dashboard/activity/<id>/` and `/dashboard/chat/<thread_id>/` 
 
     ---
 
-    Know the moment a run finishes, via the in-app bell, email, or Rocket Chat.
+    Know the moment a run finishes, in the app, by email, or in Rocket Chat.
 
     [:octicons-arrow-right-24: Notifications](notifications.md)
 

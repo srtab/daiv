@@ -1,11 +1,11 @@
-{% load i18n icon_tags nav_tags %}
+{% load avatar_tags i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
-       class="shrink-0 overflow-y-auto bg-surface-1 {{ sidebar_root_class|default:'sidebar sidebar--rail hidden w-(--app-sidebar-width) border-r border-border md:flex md:flex-col' }}"
+       class="shrink-0 bg-surface-1 {{ sidebar_root_class|default:'sidebar sidebar--rail hidden w-(--app-sidebar-width) border-r border-border md:flex md:flex-col' }}"
        x-cloak>
   <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
-    <span class="inline-block h-6 w-6 shrink-0 rounded-md bg-brand"></span>
-    <a href="{% url 'dashboard' %}" class="sidebar__collapsible text-[17px] font-bold tracking-tight text-text-strong">DAIV</a>
+    <span class="brand-mark"></span>
+    <a href="{% url 'dashboard' %}" class="sidebar__collapsible brand-wordmark">DAIV</a>
   </div>
 
   {# Primary action — promoted out of the nav list (shared chrome, D2). Teal = DO/action. #}
@@ -19,7 +19,7 @@
     <span aria-hidden="true" class="sidebar__collapsible text-accent-ink/70 transition-transform duration-200 group-hover:translate-x-0.5">&rarr;</span>
   </a>
 
-  <nav class="flex flex-1 flex-col px-3 pb-4">
+  <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
     {# Daily work — no group label #}
     <a href="{% url 'dashboard' %}"
        class="sidebar__nav-item {% nav_active 'dashboard' %}">
@@ -36,7 +36,23 @@
       <span data-testid="nav-running-badge"
             x-show="$store.nav.running > 0" x-cloak
             x-text="$store.nav.runningLabel"
-            class="sidebar__collapsible inline-flex items-center rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium tabular-nums text-text-muted"></span>
+            class="sidebar__collapsible nav-badge bg-surface-3 font-medium text-text-muted"></span>
+    </a>
+
+    <a href="{% url 'notifications:list' %}"
+       data-testid="nav-notifications"
+       class="sidebar__nav-item {% nav_active 'notifications' %}">
+      <span class="relative inline-flex shrink-0">
+        {% icon "bell" "h-4 w-4" %}
+        {# The rail hides the count, so it shows this dot in its place. #}
+        <span x-show="$store.nav.unread > 0" x-cloak aria-hidden="true"
+              class="sidebar__rail-only status-dot absolute -top-0.5 -right-0.5 bg-accent"></span>
+      </span>
+      <span class="sidebar__collapsible flex-1">{% translate "Notifications" %}</span>
+      <span data-testid="nav-unread-badge"
+            x-show="$store.nav.unread > 0" x-cloak
+            x-text="$store.nav.unread"
+            class="sidebar__collapsible nav-badge bg-accent font-semibold text-accent-ink"></span>
     </a>
 
     <a href="{% url 'artifact_list' %}"
@@ -67,38 +83,6 @@
        class="sidebar__nav-item {% nav_active 'memory' %}">
       {% icon "cpu-chip" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Memory" %}</span>
-    </a>
-
-    {# Account group #}
-    <div class="sidebar__group-heading mt-5 mb-1 px-3">
-      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
-        {% translate "Account" %}
-      </span>
-    </div>
-
-    <a href="{% url 'user_channels' %}"
-       class="sidebar__nav-item {% nav_active 'channels' %}">
-      {% icon "envelope" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Notification channels" %}</span>
-    </a>
-
-    <a href="{% url 'api_keys' %}"
-       class="sidebar__nav-item {% nav_active 'api_keys' %}">
-      {% icon "key" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "API keys" %}</span>
-    </a>
-
-    {# Security group #}
-    <div class="sidebar__group-heading mt-5 mb-1 px-3">
-      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
-        {% translate "Security" %}
-      </span>
-    </div>
-
-    <a href="{% url 'mfa_list_webauthn' %}"
-       class="sidebar__nav-item {% nav_active 'passkeys' %}">
-      {% icon "lock-closed" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Passkeys" %}</span>
     </a>
 
     {% if user.is_admin %}
@@ -139,30 +123,71 @@
     </a>
 
     {% endif %}
+  </nav>
 
-    {# Footer — API docs pinned to the bottom #}
-    <div class="mt-auto border-t border-border pt-3">
-      <a href="{% url 'api:openapi-view' %}"
-         class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
-        {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
-        <span class="sidebar__collapsible">{% translate "API documentation" %}</span>
-      </a>
-      <div data-testid="build-info"
-           class="sidebar__collapsible flex items-center gap-1.5 px-3 pt-1 pb-2 text-[11px] text-text-faint">
-        <span>v{{ build_info.version }}</span>
-        {% if build_info.sha_short %}
+  {% comment %}
+  Outside the scrolling <nav> on purpose: an overflow ancestor would clip the account menu,
+  which opens past the rail's right edge.
+  {% endcomment %}
+  <div class="border-t border-border px-3 py-3">
+    <a href="{% url 'api:openapi-view' %}"
+       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
+      {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "API documentation" %}</span>
+    </a>
+    <div data-testid="build-info"
+         class="sidebar__collapsible flex items-center gap-1.5 px-3 pt-1 pb-2 text-[11px] text-text-faint">
+      <span>v{{ build_info.version }}</span>
+      {% if build_info.sha_short %}
+        <span aria-hidden="true">&middot;</span>
+        <a href="{{ build_info.commit_url }}"
+           target="_blank"
+           rel="noopener"
+           class="font-mono transition-colors hover:text-text-muted"
+           title="{{ build_info.sha }}">{{ build_info.sha_short }}</a>
+        {% if build_info.build_date %}
           <span aria-hidden="true">&middot;</span>
-          <a href="{{ build_info.commit_url }}"
-             target="_blank"
-             rel="noopener"
-             class="font-mono transition-colors hover:text-text-muted"
-             title="{{ build_info.sha }}">{{ build_info.sha_short }}</a>
-          {% if build_info.build_date %}
-            <span aria-hidden="true">&middot;</span>
-            <span title="{{ build_info.build_date|date:'c' }}">{{ build_info.build_date|date:"Y-m-d" }}</span>
-          {% endif %}
+          <span title="{{ build_info.build_date|date:'c' }}">{{ build_info.build_date|date:"Y-m-d" }}</span>
         {% endif %}
+      {% endif %}
+    </div>
+
+    <div data-testid="app-user-menu" x-data="{ open: false }" class="relative mt-1"
+         @keydown.escape="open = false" @click.outside="open = false">
+      <button type="button"
+              @click="open = !open"
+              :aria-expanded="open.toString()"
+              class="sidebar__account {% nav_active 'account' %}">
+        {% user_color_index user as user_color %}
+        <span class="avatar avatar--md avatar--c{{ user_color }} shrink-0" aria-hidden="true">{% user_initials user %}</span>
+        <span class="sr-only">{% translate "Account" %}</span>
+        <span class="sidebar__collapsible min-w-0 flex-1 truncate">{{ user.email }}</span>
+        {% icon "chevron-up-down" "sidebar__collapsible h-3.5 w-3.5 shrink-0 text-text-faint" %}
+      </button>
+
+      <div x-show="open" x-cloak class="sidebar__account-menu">
+        <p class="truncate px-2.5 py-2 text-xs text-text-faint">{{ user.email }}</p>
+        <a href="{% url 'user_channels' %}" class="account-menu__item">
+          {% icon "envelope" "h-4 w-4 shrink-0" %}
+          {% translate "Notification channels" %}
+        </a>
+        <a href="{% url 'api_keys' %}" class="account-menu__item">
+          {% icon "key" "h-4 w-4 shrink-0" %}
+          {% translate "API keys" %}
+        </a>
+        <a href="{% url 'mfa_list_webauthn' %}" class="account-menu__item">
+          {% icon "lock-closed" "h-4 w-4 shrink-0" %}
+          {% translate "Passkeys" %}
+        </a>
+        <div class="my-1 border-t border-border"></div>
+        <form method="post" action="{% url 'account_logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="account-menu__item">
+            {% icon "arrow-right-start-on-rectangle" "h-4 w-4 shrink-0" %}
+            {% translate "Sign out" %}
+          </button>
+        </form>
       </div>
     </div>
-  </nav>
+  </div>
 </aside>

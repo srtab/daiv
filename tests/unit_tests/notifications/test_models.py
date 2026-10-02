@@ -72,6 +72,15 @@ class TestNotification:
         # Already-read rows must keep their original read_at — the helper must scope to unread only.
         assert Notification.objects.get(pk=already_read.pk).read_at == original_read_at
 
+    def test_mark_all_read_for_leaves_other_users_unread(self, member_user, admin_user):
+        other = Notification.objects.create(recipient=admin_user, event_type="e", subject="o", body="b", link_url="/")
+        Notification.objects.create(recipient=member_user, event_type="e", subject="m", body="b", link_url="/")
+
+        Notification.mark_all_read_for(member_user)
+
+        other.refresh_from_db()
+        assert other.read_at is None
+
     def test_mark_all_read_for_bumps_modified(self, member_user):
         n = Notification.objects.create(recipient=member_user, event_type="e", subject="s", body="b", link_url="/")
         original_modified = n.modified

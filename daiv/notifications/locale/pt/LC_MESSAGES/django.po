@@ -230,17 +230,8 @@ msgstr ""
 "%(ok)d de %(total)d execuções em %(repos)s tiveram sucesso; %(failed)d "
 "falharam."
 
-msgid "Loading…"
-msgstr "A carregar…"
-
-msgid "View all"
-msgstr "Ver tudo"
-
 msgid "No notifications yet."
 msgstr "Ainda não há notificações."
-
-msgid "Notification settings"
-msgstr "Definições de notificações"
 
 msgid "ago"
 msgstr "atrás"

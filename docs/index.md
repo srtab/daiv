@@ -38,7 +38,7 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 - **[Scheduled Jobs](features/scheduled-jobs.md)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
 - **[Sandbox Environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
-- **[Notifications](features/notifications.md)** — know the moment work finishes, via the in-app bell, email, or Rocket Chat.
+- **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, or in Rocket Chat.
 - **[Merge Metrics](features/merge-metrics.md)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example

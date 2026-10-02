@@ -46,7 +46,7 @@ else restates a value.**
 | Token | Value | Role |
 |---|---|---|
 | `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
-| `surface-1` | `#10151D` | sidebar + top bar |
+| `surface-1` | `#10151D` | sidebar + mobile top bar |
 | `surface-2` | `#161C26` | cards + hero |
 | `surface-3` | `#1E2733` | hover / inset chips |
 | `border` | `#232B36` | 1px hairline separators |
@@ -119,7 +119,7 @@ Use Tailwind's default spacing scale. Common values:
   the tier per page; don't hard-code arbitrary widths.
 - **Horizontal padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — the shell's own gutter, which the bottom sheets inset by
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
-  The app shell itself reflows at **768px** (`md:` — sidebar → sheet + bottom tab
+  The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
   that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
@@ -165,7 +165,7 @@ Defined as Tailwind `@layer components` classes in `input.css`:
 
 All buttons share: `rounded-xl px-5 py-2.5 text-[14px]`, transition animations, `active:scale-[0.98]`.
 
-For smaller inline buttons (e.g. pagination, header sign-out), override with `rounded-lg px-3.5 py-1.5`.
+For smaller inline buttons (e.g. pagination), override with `rounded-lg px-3.5 py-1.5`.
 
 ### Cards
 
@@ -274,33 +274,32 @@ Requires `is_paginated` and `page_obj` in template context (standard Django `Lis
 
 ### App Shell
 
-`base_app.html` is the chrome every signed-in page inherits: sidebar, top bar,
-scrolling `<main>`, and — below `md:` — a mobile nav sheet plus a four-tab bottom bar.
+`base_app.html` is the chrome every signed-in page inherits: the sidebar and a
+scrolling `<main>`. There is no top bar from `md:` up — everything global lives in the
+sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button
+plus wordmark) that is the only nav entry point on a phone.
 
-- **Tiers.** `< md` sheet + bottom tab bar; `md–lg` icon rail; `>= lg` full sidebar.
-- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`; the
-  elements it re-centres carry `sidebar__brand` / `sidebar__cta` / `sidebar__nav-item` /
-  `sidebar__footer-link`, and a group heading keeps its box via `sidebar__group-heading`.
-  A new nav item wraps its text in `sidebar__collapsible`, or the label overflows the
-  4rem rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it
-  keeps its labels. A nav item's appearance is the `.sidebar__nav-item` component class,
-  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
-  `sidebar__nav-item--active`, the class that draws the 3px brand rail.
-- **Bottom tab bar.** The four tabs are `NAV_TABS` in `accounts/context_processors.py`,
-  beside the section keys they highlight against; `.tabbar__link` carries their appearance
-  and the ≥44px touch-target floor. Height is `--app-tabbar-height`, which `<main>` pads by
-  below `md` — that padding is also what keeps the chat surface's sticky dock off the bar.
-- **Top bar slot.** `{% block topbar_start %}` holds page-specific controls; empty by default.
-
-### Header
-
-Reusable partial at `accounts/templates/accounts/_header.html`:
-
-```django
-{% include "accounts/_header.html" with header_max_w="max-w-7xl" %}
-```
-
-Defaults to `max-w-5xl`. Contains logo + user name + sign-out button.
+- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
+  anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
+  unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
+  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, and a group heading
+  keeps its box via `sidebar__group-heading`. A new nav item wraps its text in
+  `sidebar__collapsible`, or the label overflows the 4rem rail. The mobile sheet includes
+  the same partial *without* `sidebar--rail`, so it keeps its labels. A nav item's
+  appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
+  active state comes from `{% nav_active %}` — which adds `sidebar__nav-item--active`,
+  the class that draws the 3px brand rail.
+- **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
+  (API docs, build info, account chip) stays pinned and the account menu can open past
+  the rail's edge without being clipped.
+- **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
+  menu holding the personal pages — notification channels, API keys, passkeys — and
+  sign-out. It opens upward over the full sidebar and the sheet, and beside the rail
+  (`sidebar__account-menu`). The chip takes the active state on any of those pages: they
+  share the one `account` section in `SECTION_URL_NAMES`.
+- **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
+  a dot instead, and the mobile top bar's menu button carries the same dot.
 
 ### Prose / Markdown Content
 
@@ -421,8 +420,6 @@ All pages extend `accounts/templates/base.html`, which provides:
 {% block title %}Page Title — DAIV{% endblock %}
 
 {% block content %}
-{% include "accounts/_header.html" %}
-
 <main class="mx-auto max-w-5xl px-6 py-8">
     <!-- page content -->
 </main>
@@ -480,7 +477,6 @@ sidebar's tier and that switch moves with it.
 | App shell template      | `daiv/accounts/templates/base_app.html`       |
 | Sidebar partial         | `daiv/accounts/templates/accounts/_sidebar.html` |
 | Self-hosted fonts       | `daiv/static/fonts/geist/`                    |
-| Header partial          | `daiv/accounts/templates/accounts/_header.html` |
 | Pagination partial      | `daiv/accounts/templates/accounts/_pagination.html` |
 | Quick link card partial | `daiv/accounts/templates/accounts/_quick_link_card.html` |
 | Default field template  | `daiv/core/templates/core/fields/default.html` |

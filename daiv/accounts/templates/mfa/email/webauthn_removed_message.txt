@@ -1,11 +1,11 @@
-{% load i18n %}{% autoescape off %}{% if user.name %}{% blocktrans with name=user.name %}Hi {{ name }},{% endblocktrans %}{% else %}{% trans "Hi," %}{% endif %}
+{% load i18n %}{% autoescape off %}{% if user.name %}{% blocktranslate with name=user.name %}Hi {{ name }},{% endblocktranslate %}{% else %}{% translate "Hi," %}{% endif %}
 
-{% if passkey_name %}{% blocktrans with key=passkey_name %}The passkey "{{ key }}" was removed from your DAIV account.{% endblocktrans %}{% else %}{% trans "A passkey was removed from your DAIV account." %}{% endif %}
+{% if passkey_name %}{% blocktranslate with key=passkey_name %}The passkey "{{ key }}" was removed from your DAIV account.{% endblocktranslate %}{% else %}{% translate "A passkey was removed from your DAIV account." %}{% endif %}
 
-{% blocktrans with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktrans %}
-{% blocktrans %}IP address: {{ ip }}{% endblocktrans %}
-{% blocktrans %}Browser: {{ user_agent }}{% endblocktrans %}
+{% blocktranslate with ts=timestamp|date:"DATETIME_FORMAT" %}Date: {{ ts }}{% endblocktranslate %}
+{% blocktranslate %}IP address: {{ ip }}{% endblocktranslate %}
+{% blocktranslate %}Browser: {{ user_agent }}{% endblocktranslate %}
 
-{% trans "If you did not remove this passkey yourself, you can still sign in with a one-time code sent to your email and review your passkeys under Security - Passkeys." %}
+{% translate "If you did not remove this passkey yourself, you can still sign in with a one-time code sent to your email and review your passkeys from your account menu." %}
 
 — DAIV{% endautoescape %}

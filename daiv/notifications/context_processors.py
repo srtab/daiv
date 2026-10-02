@@ -14,7 +14,7 @@ logger = logging.getLogger("daiv.notifications")
 def query_unread_count(user) -> int:
     """Count ``user``'s unread notifications.
 
-    The bell badge's single source of truth: the first page render reads it through
+    The unread count's single source of truth: the first page render reads it through
     ``unread_notification_count`` below, and every later update comes from the SSE
     endpoint (``accounts.api.views``) recomputing it on a ``core.ui_events`` poke. Raises
     on ``DatabaseError`` so each caller picks its own degradation — a page render shows 0,
@@ -27,8 +27,8 @@ def query_unread_count(user) -> int:
 def unread_notification_count(request) -> dict[str, Any]:
     """Expose the authenticated user's unread notification count to all templates.
 
-    Provides ``unread_count`` so server-rendered templates (e.g. the notification
-    bell badge) display the correct value on initial page load. Wrapped in
+    Provides ``unread_count`` to seed the ``nav`` store in ``base_app.html`` (so the unread
+    badge is right on first paint) and to gate the list page's Mark all as read. Wrapped in
     ``SimpleLazyObject`` so the COUNT runs only if the template actually references it —
     non-HTML responses (redirects, HTMX fragments, SSE) skip the query entirely.
     """

@@ -41,9 +41,14 @@ SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLA
 
 # The `surface-rise` roster by name — every class that *is* a floating surface container,
 # which is what a guard on their z-order or their ancestors has to look for. `.picker-popover`
-# is matched by CONTAINER rather than SURFACE_CLASS, and the two dropdowns are built from
-# utilities, so neither reaches SURFACE_CLASSES above.
-SURFACE_CONTAINERS = frozenset({*SURFACE_CLASSES, "picker-popover", "filter-menu", "card__menu-panel"})
+# is matched by CONTAINER rather than SURFACE_CLASS, so it doesn't reach SURFACE_CLASSES above.
+SURFACE_CONTAINERS = frozenset({
+    *SURFACE_CLASSES,
+    "picker-popover",
+    "filter-menu",
+    "card__menu-panel",
+    "sidebar__account-menu",
+})
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.
@@ -192,8 +197,8 @@ def test_the_sheet_inset_tracks_the_shell_it_dodges():
     have to *be* the shell's: the sidebar sizes itself from the width token, and `<main>`
     pads by the gutter one rather than spelling `px-6` a second time.
 
-    Scoped to each tag, not to the file: `<header>` carries a gutter of its own and
-    `md:flex-col` contains `md:flex`, so a whole-file substring passes either regression."""
+    Scoped to each tag, not to the file: `md:flex-col` contains `md:flex`, so a whole-file
+    substring passes that regression."""
     aside = re.search(r"<aside\s[^>]*>", SIDEBAR_TEMPLATE.read_text(encoding="utf-8"))
     main = re.search(r"<main\s[^>]*>", BASE_APP_TEMPLATE.read_text(encoding="utf-8"))
 

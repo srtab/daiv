@@ -4,6 +4,7 @@ from django.test import Client
 from django.urls import reverse
 
 import pytest
+from notifications.models import Notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role, User
@@ -43,6 +44,7 @@ class TestSidebarSmoke:
             ("user_channels", lambda u: {}),
             ("api_keys", lambda u: {}),
             ("mfa_list_webauthn", lambda u: {}),
+            ("notifications:list", lambda u: {}),
         ],
     )
     def test_sidebar_present_on_every_section_root(self, member, url_name, kwargs_fn):
@@ -50,8 +52,17 @@ class TestSidebarSmoke:
         assert response.status_code == 200
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
-        # The phone tier's nav — same shell, rendered on every page the sidebar is.
-        assert b'data-testid="mobile-tab-bar"' in response.content
+        assert b'data-testid="mobile-top-bar"' in response.content
+
+
+@pytest.mark.django_db
+class TestMobileTopBar:
+    def test_opens_the_sidebar_sheet_and_shows_unread(self, member):
+        content = _client(member).get(reverse("dashboard")).content.decode()
+        bar = content.split('data-testid="mobile-top-bar"', 1)[1].split("</header>", 1)[0]
+        assert "md:hidden" in bar.split(">", 1)[0]
+        assert '@click="mobileNavOpen = !mobileNavOpen"' in bar
+        assert 'x-show="$store.nav.unread > 0"' in bar
 
 
 @pytest.mark.django_db
@@ -67,14 +78,45 @@ class TestAdminGroupVisibility:
         assert b'data-testid="nav-admin-group"' not in response.content
 
 
+def _account_menu(content: str) -> str:
+    """The account chip and its menu, sliced up to the sign-out form's `</form>`."""
+    return content.split('data-testid="app-user-menu"', 1)[1].split("</form>", 1)[0]
+
+
 @pytest.mark.django_db
-class TestSecurityGroupVisibility:
-    def test_security_section_shows_passkeys_for_every_member(self, member):
-        response = _client(member).get(reverse("dashboard"))
-        content = response.content.decode()
-        assert "Security" in content
-        assert reverse("mfa_list_webauthn") in content
-        assert "Passkeys" in content
+class TestAccountMenu:
+    def test_holds_personal_settings_and_sign_out(self, member):
+        menu = _account_menu(_client(member).get(reverse("dashboard")).content.decode())
+        for url_name in ("user_channels", "api_keys", "mfa_list_webauthn", "account_logout"):
+            assert reverse(url_name) in menu
+
+    @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "mfa_list_webauthn"])
+    def test_chip_is_active_on_the_pages_it_holds(self, member, url_name):
+        """Those pages have no nav item of their own, so the chip is the only element that can mark them active."""
+        chip = _account_menu(_client(member).get(reverse(url_name)).content.decode()).split("</button>", 1)[0]
+        assert "sidebar__nav-item--active" in chip
+
+    def test_chip_is_inactive_elsewhere(self, member):
+        chip = _account_menu(_client(member).get(reverse("dashboard")).content.decode()).split("</button>", 1)[0]
+        assert "sidebar__nav-item--active" not in chip
+
+
+@pytest.mark.django_db
+class TestNotificationsNavItem:
+    def test_sidebar_links_to_notifications(self, member):
+        content = _client(member).get(reverse("dashboard")).content.decode()
+        assert 'data-testid="nav-notifications"' in content
+        assert reverse("notifications:list") in content
+
+    def test_badge_is_bound_to_the_store(self, member):
+        Notification.objects.create(
+            recipient=member, event_type="schedule.finished", subject="n", body="b", link_url="/"
+        )
+        content = _client(member).get(reverse("dashboard")).content.decode()
+        assert 'data-testid="nav-unread-badge"' in content
+        assert 'x-text="$store.nav.unread"' in content
+        # Seeded server-side so the badge does not flash in before the stream connects.
+        assert "unread_count: 1" in content
 
 
 @pytest.mark.django_db
@@ -154,9 +196,11 @@ class TestNavActiveState:
             ("session_list", "sessions"),
             ("schedule_list", "schedules"),
             ("sandbox_envs:list", "sandbox_envs"),
-            ("user_channels", "channels"),
-            ("api_keys", "api_keys"),
+            ("user_channels", "account"),
+            ("api_keys", "account"),
+            ("mfa_list_webauthn", "account"),
             ("artifact_list", "artifacts"),
+            ("notifications:list", "notifications"),
         ],
     )
     def test_active_section_matches_url(self, admin, url_name, expected_section):

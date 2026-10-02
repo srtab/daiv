@@ -1,16 +1,15 @@
-"""Guards for the app shell's three tiers — sheet + tab bar, icon rail, full sidebar.
+"""Guards for the app shell's three tiers — mobile sheet, icon rail, full sidebar.
 
 Each tier is built from something the template has to opt into, so the failure mode is
 silent: a nav item added without `sidebar__collapsible` renders its text into a 4rem rail,
-and a `<main>` that pads by a literal instead of `--app-tabbar-height` puts the chat dock
-under the tab bar. Both only show up between 768px and 1023px, or on a phone.
+which only shows up between 768px and 1023px.
 """
 
 from __future__ import annotations
 
 import re
 
-from tests.unit_tests.test_picker_popovers import BASE_APP_TEMPLATE, INPUT_CSS, SIDEBAR_TEMPLATE
+from tests.unit_tests.test_picker_popovers import INPUT_CSS, SIDEBAR_TEMPLATE
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
 RAIL_BLOCK = re.compile(
@@ -55,21 +54,22 @@ def test_every_sidebar_nav_item_labels_its_text():
     assert not unlabelled, "sidebar items whose text can overflow the icon rail:\n" + "\n".join(unlabelled)
 
 
-def test_the_chat_surface_pads_by_the_tab_bar_it_dodges():
-    """The bar is `position: fixed`, so only `<main>`'s padding keeps the chat's sticky dock
-    off it. `<main>` owns that clearance for every page; the chat rule only drops it from
-    `md:` up, where the bar is gone. Both halves read the token rather than restating 3.5rem."""
-    base_app = BASE_APP_TEMPLATE.read_text(encoding="utf-8")
-    css = INPUT_CSS.read_text(encoding="utf-8")
+def test_the_account_menu_is_not_clipped_by_the_sidebar():
+    """An `overflow` on the `<aside>` clips anything absolutely positioned inside it, and the
+    account menu opens past the rail's right edge. Only the `<nav>` list may scroll, and the
+    menu has to live after it."""
+    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
+    aside = re.search(r"<aside\s[^>]*>", sidebar)
+    nav = re.search(r"<nav\s[^>]*>", sidebar)
 
-    tab_bar = re.search(r'<nav data-testid="mobile-tab-bar".*?>', base_app, re.DOTALL)
-
-    assert tab_bar, "base_app.html no longer renders the mobile tab bar"
-    assert "h-(--app-tabbar-height)" in tab_bar.group(), "the tab bar sizes itself off-token"
-    assert "pb-(--app-tabbar-height)" in base_app, "<main> no longer reserves the tab bar's height"
-    assert re.search(
-        r"@media \(width >= theme\(--breakpoint-md\)\) \{\s*main:has\(\.chat-shell\) \{\s*padding-bottom: 0", css
-    ), "the chat surface drops <main>'s padding outside the `md:` block — its dock now sits under the tab bar"
+    assert aside and nav, "_sidebar.html no longer opens an <aside> holding a <nav>"
+    assert "overflow" not in aside.group(), "the sidebar scrolls as a whole and clips the account menu"
+    assert "overflow-y-auto" in nav.group(), (
+        "the nav list no longer scrolls — a long admin nav pushes the menu off-screen"
+    )
+    assert sidebar.index('data-testid="app-user-menu"') > sidebar.index("</nav>"), (
+        "the account menu sits inside the scrolling nav, which clips it"
+    )
 
 
 def test_no_template_loads_a_font_from_a_cdn():

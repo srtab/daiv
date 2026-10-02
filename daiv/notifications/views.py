@@ -94,18 +94,6 @@ class NotificationListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class BellDropdownView(LoginRequiredMixin, TemplateView):
-    template_name = "notifications/_bell_dropdown.html"
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        qs = Notification.objects.filter(recipient=self.request.user).prefetch_related("deliveries")
-        # Fetch before the bulk-update below so unread cues still render on first open.
-        ctx["notifications"] = list(qs[:10])
-        Notification.mark_all_read_for(self.request.user)
-        return ctx
-
-
 @method_decorator(require_POST, name="dispatch")
 class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
     template_name = "notifications/_notification_row.html"
