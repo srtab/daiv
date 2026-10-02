@@ -46,7 +46,7 @@ else restates a value.**
 | Token | Value | Role |
 |---|---|---|
 | `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
-| `surface-1` | `#10151D` | sidebar + top bar |
+| `surface-1` | `#10151D` | sidebar + mobile top bar |
 | `surface-2` | `#161C26` | cards + hero |
 | `surface-3` | `#1E2733` | hover / inset chips |
 | `border` | `#232B36` | 1px hairline separators |
@@ -165,7 +165,7 @@ Defined as Tailwind `@layer components` classes in `input.css`:
 
 All buttons share: `rounded-xl px-5 py-2.5 text-[14px]`, transition animations, `active:scale-[0.98]`.
 
-For smaller inline buttons (e.g. pagination, header sign-out), override with `rounded-lg px-3.5 py-1.5`.
+For smaller inline buttons (e.g. pagination), override with `rounded-lg px-3.5 py-1.5`.
 
 ### Cards
 
@@ -274,23 +274,32 @@ Requires `is_paginated` and `page_obj` in template context (standard Django `Lis
 
 ### App Shell
 
-`base_app.html` is the chrome every signed-in page inherits: sidebar, top bar,
-scrolling `<main>`, and — below `md:` — a mobile nav sheet plus a four-tab bottom bar.
+`base_app.html` is the chrome every signed-in page inherits: the sidebar and a
+scrolling `<main>`. There is no top bar from `md:` up — everything global lives in the
+sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button
+plus wordmark) that is the only nav entry point on a phone.
 
-- **Tiers.** `< md` sheet + bottom tab bar; `md–lg` icon rail; `>= lg` full sidebar.
-- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`; the
-  elements it re-centres carry `sidebar__brand` / `sidebar__cta` / `sidebar__nav-item` /
-  `sidebar__footer-link`, and a group heading keeps its box via `sidebar__group-heading`.
-  A new nav item wraps its text in `sidebar__collapsible`, or the label overflows the
-  4rem rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it
-  keeps its labels. A nav item's appearance is the `.sidebar__nav-item` component class,
-  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
-  `sidebar__nav-item--active`, the class that draws the 3px brand rail.
-- **Bottom tab bar.** The four tabs are `NAV_TABS` in `accounts/context_processors.py`,
-  beside the section keys they highlight against; `.tabbar__link` carries their appearance
-  and the ≥44px touch-target floor. Height is `--app-tabbar-height`, which `<main>` pads by
-  below `md` — that padding is also what keeps the chat surface's sticky dock off the bar.
-- **Top bar slot.** `{% block topbar_start %}` holds page-specific controls; empty by default.
+- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
+- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
+  anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
+  unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
+  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, and a group heading
+  keeps its box via `sidebar__group-heading`. A new nav item wraps its text in
+  `sidebar__collapsible`, or the label overflows the 4rem rail. The mobile sheet includes
+  the same partial *without* `sidebar--rail`, so it keeps its labels. A nav item's
+  appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
+  active state comes from `{% nav_active %}` — which adds `sidebar__nav-item--active`,
+  the class that draws the 3px brand rail.
+- **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
+  (API docs, build info, account chip) stays pinned and the account menu can open past
+  the rail's edge without being clipped.
+- **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
+  menu holding the personal pages — notification channels, API keys, passkeys — and
+  sign-out. It opens upward over the full sidebar and the sheet, and beside the rail
+  (`sidebar__account-menu`). The chip takes the active state on any of those pages:
+  `{% nav_active 'channels' 'api_keys' 'passkeys' %}`.
+- **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
+  a dot instead, and the mobile top bar's menu button carries the same dot.
 
 ### Header
 

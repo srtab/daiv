@@ -129,7 +129,7 @@ DAIV enforces a few guardrails so a deployment can never be locked out of admini
 
 ## Per-user settings
 
-Every signed-in user — member or admin — has these self-service pages:
+Every signed-in user — member or admin — has these self-service pages. All but the Dashboard open from the account menu at the bottom of the sidebar:
 
 | Page | Route | What it does |
 |------|-------|--------------|

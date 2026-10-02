@@ -104,8 +104,8 @@ def test_a_snapshot_replaces_both_counts():
 
 
 def test_a_zero_snapshot_is_applied_not_treated_as_missing():
-    """Clearing the bell is the common case (opening the dropdown marks everything read),
-    so a falsy-but-present count must not be skipped."""
+    """Clearing the unread badge is the common case ("Mark all as read"), so a
+    falsy-but-present count must not be skipped."""
     state = drive({"unread_count": 7}, frames=[{"unread_count": 0, "running_runs": 0}])
     assert state["unread"] == 0
 
@@ -133,7 +133,7 @@ def test_the_label_follows_a_snapshot():
 
 
 def test_starting_twice_does_not_open_a_second_stream():
-    """Both sidebar copies and the bell share one store; a second `start` would leave a
+    """Both sidebar copies and the mobile bar share one store; a second `start` would leave a
     duplicate connection nobody can close."""
     state = drive({}, starts=2)
     assert state["closed"] is False

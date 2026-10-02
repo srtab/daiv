@@ -1,17 +1,14 @@
 /**
  * Live counters for the dashboard shell — unread notifications, running runs.
  *
- * One SSE connection per tab replaces what used to be a 10s HTMX poll of the whole
- * bell fragment. That poll is also what closed an open dropdown: it swapped
- * `#notifications-bell` by `outerHTML`, which tore down the Alpine component holding
- * `open`. Nothing here replaces DOM — the badges bind to this store — so the dropdown
- * survives every update.
+ * One SSE connection per tab. Nothing here replaces DOM — the badges bind to this
+ * store — so an open menu survives every update.
  *
- * A store rather than a component because three elements read the same two numbers
- * (the bell badge, and the sidebar's running badge, which renders twice: desktop rail
- * plus mobile drawer). Seeded from the server-rendered counts so the first paint has
- * no flash, then replaced wholesale by each `snapshot` frame — the stream sends state,
- * not deltas, so a reconnect needs no replay.
+ * A store rather than a component because several elements read the same two numbers
+ * (the sidebar's unread and running badges, each rendered twice — desktop sidebar plus
+ * mobile drawer — and the mobile bar's unread dot). Seeded from the server-rendered
+ * counts so the first paint has no flash, then replaced wholesale by each `snapshot`
+ * frame — the stream sends state, not deltas, so a reconnect needs no replay.
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
  *

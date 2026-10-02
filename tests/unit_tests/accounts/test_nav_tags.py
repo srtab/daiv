@@ -22,3 +22,13 @@ class TestNavActive:
     def test_returns_empty_string_when_no_active_section_in_context(self):
         out = _render("{% load nav_tags %}{% nav_active 'activity' %}", {})
         assert out.strip() == ""
+
+    def test_returns_active_classes_when_any_of_several_sections_matches(self):
+        ctx = {"nav_active_section": "api_keys"}
+        out = _render("{% load nav_tags %}{% nav_active 'channels' 'api_keys' 'passkeys' %}", ctx)
+        assert "sidebar__nav-item--active" in out
+
+    def test_returns_empty_string_when_none_of_several_sections_matches(self):
+        ctx = {"nav_active_section": "dashboard"}
+        out = _render("{% load nav_tags %}{% nav_active 'channels' 'api_keys' 'passkeys' %}", ctx)
+        assert out.strip() == ""

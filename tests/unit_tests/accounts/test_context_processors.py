@@ -141,13 +141,13 @@ class TestResolveActiveSection:
 
     def test_namespaced_view_name_disambiguates_colliding_url_names(self):
         # ``sandbox_envs:list`` and ``notifications:list`` share ``url_name == "list"``;
-        # only the sandbox-envs namespace should resolve to the ``sandbox_envs`` section.
+        # each namespace must resolve to its own section.
         request = RequestFactory().get("/")
         request.resolver_match = type("Match", (), {"view_name": "sandbox_envs:list"})()
         assert _resolve_active_section(request) == "sandbox_envs"
 
         request.resolver_match = type("Match", (), {"view_name": "notifications:list"})()
-        assert _resolve_active_section(request) == ""
+        assert _resolve_active_section(request) == "notifications"
 
     def test_namespaced_agent_run_new_highlights_sessions_section(self):
         # The "Start a run" page lives in the ``runs`` namespace, so its view_name is

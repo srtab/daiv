@@ -1,7 +1,7 @@
 """SSE stream for the dashboard shell's live counters.
 
-The nav badges — unread notifications in the header bell, running runs in the
-sidebar — used to be refreshed by a 10s HTMX poll per tab. One long-lived stream
+The nav badges — unread notifications and running runs, both in the sidebar — used
+to be refreshed by a 10s HTMX poll per tab. One long-lived stream
 replaces it: the first frame carries a snapshot, and thereafter a frame is sent
 only when a ``core.ui_events`` poke means a count actually moved.
 
@@ -150,5 +150,5 @@ async def _nav_frames(user: User):
 
 @nav_router.get("/events", url_name="nav_events")
 async def nav_events(request: HttpRequest):
-    """Live counters for the dashboard shell (notification bell, running-runs badge)."""
+    """Live counters for the dashboard shell (unread and running-runs badges)."""
     return sse_response(_nav_frames(request.auth))  # ty: ignore[unresolved-attribute]

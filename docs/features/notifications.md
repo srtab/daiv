@@ -27,13 +27,13 @@ There are four event types for runs and schedules:
 
 ## Channels
 
-DAIV reaches you through channels. The in-app bell is always available; email, Rocket Chat, and Telegram are external delivery channels.
+DAIV reaches you through channels. In-app notifications are always available; email, Rocket Chat, and Telegram are external delivery channels.
 
 <div class="grid cards" markdown>
 
--   :octicons-bell-24: __In-app bell__
+-   :octicons-bell-24: __In-app__
 
-    The notification bell in the dashboard header shows your unread count and a dropdown of recent items. The full history lives at `/dashboard/notifications/`.
+    **Notifications** in the sidebar shows your unread count and opens your full history at `/dashboard/notifications/`.
 
 -   :octicons-mail-24: __Email__
 
@@ -49,13 +49,12 @@ DAIV reaches you through channels. The in-app bell is always available; email, R
 
 </div>
 
-### The in-app bell and list
+### The in-app list
 
-The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.
+The in-app entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.
 
-- The bell dropdown shows your ten most recent notifications and marks them read when you open it.
-- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
-- The unread badge — and the **N running** badge next to *Sessions* in the sidebar — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
+- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action. Opening a notification marks it read.
+- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
 
 ### Email
 

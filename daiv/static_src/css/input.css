@@ -21,17 +21,13 @@
   --app-sidebar-width: 4rem;
   --app-content-gutter: 1.5rem;
 
-  /* The bottom tab bar below `md`. `<main>` pads by it on the chat surface, whose
-     sticky dock would otherwise sit under the bar. */
-  --app-tabbar-height: 3.5rem;
-
   /* Dark-only semantic token layer, declared once here — DESIGN.md documents the roles,
      nothing else restates a value. They live in the Tailwind v4 `--color-*` namespace so
      the utilities generate (bg-ground, text-text-muted, border-border, …). There is no
      light variant. The `status-*` ramp is declared ahead of the surfaces that read it;
      Tailwind emits nothing for a token no utility uses. */
   --color-ground: #0d1117; /* base plane */
-  --color-surface-1: #10151d; /* sidebar + top bar */
+  --color-surface-1: #10151d; /* sidebar + mobile top bar */
   --color-surface-2: #161c26; /* cards + hero */
   --color-surface-3: #1e2733; /* hover / inset chips */
   --color-border: #232b36; /* 1px hairline separators */
@@ -109,22 +105,42 @@
 }
 
 /* The sidebar's icon-rail tier. Its width is `--app-sidebar-width`, so only what the rail
-   *hides* lives here. The persistent sidebar carries `.sidebar--rail`; the mobile sheet
-   reuses the same partial WITHOUT the modifier, so it always shows full labels. Bounds read
-   the breakpoint tokens rather than the px they compile to, and the rules are unlayered
-   because `display: none` has to beat the utilities on the elements it hides. */
+   hides, reveals or moves lives here; `sidebar__rail-only` is the inverse of
+   `sidebar__collapsible`, shown in the rail alone. The persistent sidebar carries
+   `.sidebar--rail`; the mobile sheet reuses the same partial WITHOUT the modifier, so it
+   always shows full labels. Bounds read the breakpoint tokens rather than the px they
+   compile to, and the rules are unlayered because they have to beat the utilities on the
+   elements they restyle. */
+.sidebar__rail-only {
+  display: none;
+}
+
 @media (width >= theme(--breakpoint-md)) and (width < theme(--breakpoint-lg)) {
   .sidebar--rail .sidebar__collapsible {
     display: none;
   }
 
+  .sidebar--rail .sidebar__rail-only {
+    display: block;
+  }
+
   .sidebar--rail .sidebar__brand,
   .sidebar--rail .sidebar__cta,
   .sidebar--rail .sidebar__nav-item,
-  .sidebar--rail .sidebar__footer-link {
+  .sidebar--rail .sidebar__footer-link,
+  .sidebar--rail .sidebar__account {
     justify-content: center;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+  }
+
+  /* The rail is too narrow to open over, so the menu opens beside it. The margin clears the
+     footer's own `px-3` and lands just past the rail's border. */
+  .sidebar--rail .sidebar__account-menu {
+    bottom: 0;
+    left: 100%;
+    margin-bottom: 0;
+    margin-left: 1.25rem;
   }
 
   /* The heading keeps its box so the groups stay separated once its label is hidden. */
@@ -134,8 +150,8 @@
 }
 
 @layer components {
-  /* The app shell's two nav surfaces: the sidebar's items and the mobile tab bar. One
-     declaration each, so a tweak isn't 13 or 4 identical utility chains. */
+  /* The sidebar's repeated controls, declared once so a tweak isn't a dozen identical
+     utility chains. */
   .sidebar__nav-item {
     @apply relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm
            text-text-muted transition-colors hover:text-text;
@@ -154,10 +170,15 @@
     background: var(--color-brand);
   }
 
-  /* `min-height` is the touch-target floor, not the height: the bar is
-     `--app-tabbar-height` and the links stretch to it. */
-  .tabbar__link {
-    @apply flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px];
+  /* `relative` anchors the active rail that `nav_active` draws on the chip. */
+  .sidebar__account {
+    @apply relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px]
+           text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
+  }
+
+  .account-menu__item {
+    @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
+           text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
 }
 
@@ -238,13 +259,10 @@ html {
 }
 
 /* Drop <main>'s bottom padding on chat detail so the sticky dock reaches the actual
-   viewport bottom. `!important` is needed to beat the padding utility on <main>. Only from
-   `md:` up: below it <main>'s own `pb-(--app-tabbar-height)` is what holds the dock clear
-   of the tab bar, since a sticky `bottom: 0` sticks to the padding box. */
-@media (width >= theme(--breakpoint-md)) {
-  main:has(.chat-shell) {
-    padding-bottom: 0 !important;
-  }
+   viewport bottom — a sticky `bottom: 0` sticks to the padding box. `!important` is needed
+   to beat the padding utility on <main>. */
+main:has(.chat-shell) {
+  padding-bottom: 0 !important;
 }
 
 .animate-fade-up {
@@ -516,7 +534,7 @@ html {
 
 /* -- Avatar ---------------------------------------------------------------
 
-   Shared by ``accounts/_avatar.html``, ``_user_menu.html`` and the schedule
+   Shared by ``accounts/_avatar.html``, ``_sidebar.html`` and the schedule
    subscriber picker (Alpine ``x-bind``). Initials and the palette index are
    produced by ``accounts.templatetags.avatar_tags`` so two people sharing a
    first letter still get distinct circles. Keep ``PALETTE_SIZE`` in the

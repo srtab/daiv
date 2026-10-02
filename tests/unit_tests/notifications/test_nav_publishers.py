@@ -1,4 +1,4 @@
-"""Unread-count pokes: every write that changes unread state must reach the bell.
+"""Unread-count pokes: every write that changes unread state must reach the unread badge.
 
 The publish lives on the model methods and ``create_notification`` rather than on the
 views that call them, so a future caller can't leave the badge stale. Deferred to
@@ -56,8 +56,8 @@ class TestUnreadPokes:
         publish.assert_not_called()
 
     def test_marking_all_read_pokes(self, member_user, notification):
-        """The bulk ``.update()`` fires no ``post_save``, and this is the path the bell
-        dropdown takes on open — the badge clearing depends on it."""
+        """The bulk ``.update()`` fires no ``post_save``, and this is the path "Mark all as
+        read" takes — the badge clearing depends on it."""
         with (
             patch("core.ui_events.publisher.notifications_changed") as publish,
             TestCase.captureOnCommitCallbacks(execute=True),
@@ -72,12 +72,3 @@ class TestUnreadPokes:
         ):
             Notification.mark_all_read_for(member_user)
         publish.assert_not_called()
-
-    def test_opening_the_bell_dropdown_pokes(self, member_client, member_user, notification):
-        with (
-            patch("core.ui_events.publisher.notifications_changed") as publish,
-            TestCase.captureOnCommitCallbacks(execute=True),
-        ):
-            response = member_client.get("/dashboard/notifications/bell/")
-        assert response.status_code == 200
-        publish.assert_called_once_with(member_user.pk)
