@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sessions.repo_state import aget_existing_mr_payload, mr_to_payload
 
-from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from codebase.base import MergeRequest
 from codebase.base import User as CBUser
 
@@ -26,14 +26,14 @@ def _make_mr(**overrides):
 
 
 async def test_returns_none_when_repo_id_missing():
-    with patch("chat.repo_state.RepositoryConfig.get_config") as get_config:
+    with patch("sessions.repo_state.RepositoryConfig.get_config") as get_config:
         result = await aget_existing_mr_payload("", "feature-x")
     assert result is None
     get_config.assert_not_called()
 
 
 async def test_returns_none_when_ref_missing():
-    with patch("chat.repo_state.RepositoryConfig.get_config") as get_config:
+    with patch("sessions.repo_state.RepositoryConfig.get_config") as get_config:
         result = await aget_existing_mr_payload("a/b", "")
     assert result is None
     get_config.assert_not_called()
@@ -42,8 +42,8 @@ async def test_returns_none_when_ref_missing():
 async def test_returns_none_when_ref_is_default_branch_and_skips_lookup():
     repo_client = MagicMock()
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client) as factory,
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client) as factory,
     ):
         result = await aget_existing_mr_payload("a/b", "main")
 
@@ -56,8 +56,8 @@ async def test_returns_payload_on_happy_path():
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.return_value = _make_mr()
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
@@ -71,8 +71,8 @@ async def test_returns_none_when_lookup_returns_none():
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.return_value = None
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
@@ -86,13 +86,18 @@ async def test_swallows_platform_errors_and_logs(caplog):
     import httpx
 
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")),
-        caplog.at_level("ERROR", logger="daiv.chat"),
+        patch(
+            "sessions.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")
+        ),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
     assert result is None
-    assert any("Failed to look up existing merge request" in rec.message for rec in caplog.records)
+    assert any(
+        rec.name == "daiv.sessions" and "Failed to look up existing merge request" in rec.message
+        for rec in caplog.records
+    )
 
 
 async def test_swallows_errors_from_client_call():
@@ -102,8 +107,8 @@ async def test_swallows_errors_from_client_call():
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.side_effect = GitlabError("api 500")
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
@@ -119,8 +124,8 @@ async def test_swallows_requests_transport_errors():
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.side_effect = requests.ConnectionError("dns failure")
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
     ):
         result = await aget_existing_mr_payload("a/b", "feature-x")
 
@@ -134,8 +139,8 @@ async def test_propagates_unexpected_errors():
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.side_effect = KeyError("missing field")
     with (
-        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
-        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+        patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
         pytest.raises(KeyError),
     ):
         await aget_existing_mr_payload("a/b", "feature-x")

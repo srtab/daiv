@@ -5,8 +5,8 @@ from typing import Any, NamedTuple
 
 from automation.agent.events import context_usage_payload
 from automation.agent.usage_tracking import message_model_name, resolve_window_by_name
-from chat.repo_state import mr_to_payload
 from core.checkpointer import aresolve_thread_messages, open_checkpointer
+from sessions.repo_state import mr_to_payload
 from sessions.turns import is_assistant_message
 
 logger = logging.getLogger("daiv.sessions")

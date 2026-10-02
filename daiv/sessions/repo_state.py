@@ -20,7 +20,7 @@ from codebase.base import MergeRequest
 from codebase.clients import RepoClient
 from codebase.repo_config import RepositoryConfig
 
-logger = logging.getLogger("daiv.chat")
+logger = logging.getLogger("daiv.sessions")
 
 # Platform / transport errors that warrant a soft "no MR" fallback. The platform
 # SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures

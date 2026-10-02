@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from django.utils.translation import gettext as _
 
-from chat.repo_state import mr_to_payload
 from codebase.base import Scope
 from codebase.utils import compute_thread_id
 from sessions.models import WatchState
@@ -23,6 +22,7 @@ from sessions.pipeline_watch.notifier import WatchNotifier
 from sessions.pipeline_watch.platform import WatchPlatform, log_read_failure
 from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.store import WatchStore
+from sessions.repo_state import mr_to_payload
 
 if TYPE_CHECKING:
     from codebase.base import MergeRequest

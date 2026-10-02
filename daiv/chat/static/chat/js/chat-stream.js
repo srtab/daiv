@@ -20,7 +20,7 @@
 
   // Normalize a raw GitState.merge_request snapshot (snake_case Pydantic dump)
   // into the shape the composer pill expects. Mirrors server-side
-  // ``chat.repo_state.mr_to_payload`` — keep both in sync.
+  // ``sessions.repo_state.mr_to_payload`` — keep both in sync.
   const normalizeStateMr = (raw) => {
     if (!raw || typeof raw !== "object") return null;
     return {
