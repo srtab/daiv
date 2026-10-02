@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from langchain.agents.middleware.types import ModelCallResult
+    from pydantic import ValidationError
 
 ASK_USER_QUESTION_DESCRIPTION = (
     "Ask the user 1 to 4 questions and end your turn. Use it when the request is ambiguous in a way that changes "
@@ -45,6 +46,27 @@ def ask_user_question(questions: QuestionList, runtime: ToolRuntime) -> ToolMess
             content=NOT_ALONE_ERROR, tool_call_id=runtime.tool_call_id, name=ASK_USER_QUESTION_TOOL_NAME, status="error"
         )
     return ToolMessage(content=QUESTION_DELIVERED, tool_call_id=runtime.tool_call_id, name=ASK_USER_QUESTION_TOOL_NAME)
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    """Turn an ``ask_user_question`` input :class:`ValidationError` into actionable retry feedback.
+
+    Without this, a pydantic ``ValidationError`` from ``Tool._parse_input`` (e.g. a question that does not end
+    with ``?``) re-raises out of ``Tool.run``/``arun`` and is reported as an unhandled error before the ToolNode
+    ever gets to convert it, killing the turn's Sentry signal. Routing it through ``handle_validation_error``
+    returns a ``ToolMessage`` with ``status="error"`` directly, so the agent loops back to the model with the
+    validation feedback and retries with conforming input.
+    """
+    details = "; ".join(
+        f"{'.'.join(str(loc) for loc in err['loc']) or 'input'}: {err['msg'].removeprefix('Value error, ')}"
+        for err in exc.errors()
+    )
+    return f"Invalid {ASK_USER_QUESTION_TOOL_NAME} arguments: {details}. Fix the arguments and call the tool again."
+
+
+# Recoverable input validation: a non-conforming question (e.g. not ending in '?') becomes a tool-error
+# message the model retries on, instead of an unhandled ValidationError that aborts the chat turn.
+ask_user_question.handle_validation_error = _format_validation_error
 
 
 class AskUserQuestionMiddleware(AgentMiddleware):
