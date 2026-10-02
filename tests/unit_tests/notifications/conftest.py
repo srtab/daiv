@@ -108,6 +108,8 @@ def configured_site(db):
         for name, value in fields.items():
             setattr(config, name, value)
         config.save()
+        # save() evicts on commit, which never fires inside the test transaction.
+        SiteConfiguration._invalidate_cache()
         return config
 
     try:
