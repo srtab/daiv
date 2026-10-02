@@ -41,7 +41,7 @@ make makemessages && make compilemessages
 - `daiv/automation/` — LangGraph/deepagents agent: tools are provided by middlewares (`agent/middlewares/`, e.g. `web_fetch.py`, `artifacts.py`), skills (`agent/skills/`), deferred tools (`agent/deferred/`)
 - `daiv/codebase/` — GitLab/GitHub clients (`clients/`), `.daiv.yml` repo config
 - `daiv/webhooks/` — GitLab/GitHub webhook callbacks, the `address_*` tasks and the issue/MR addressors; the views register onto `codebase.api.router` in `WebhooksConfig.ready()`, so the URLs stay `/api/codebase/callbacks/{gitlab,github}`
-- `daiv/mcp_server/` + `daiv/jobs/` — MCP sub-app (`submit_job`/`get_job_status`) + `run_job_task` (MCP + webhooks)
+- `daiv/mcp_server/` + `daiv/jobs/` — MCP sub-app (`submit_job`/`get_job_status`) + jobs API; `run_job_task` (MCP + webhooks) lives in `daiv/sessions/executor/tasks.py`
 - `daiv/core/` — sandbox client, Redis, shared constants
 - `daiv/daiv/settings/components/` — split settings; `common.py` has `INSTALLED_APPS`
 - `evals/` — eval suite, **not** run by `make test`

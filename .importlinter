@@ -105,7 +105,3 @@ forbidden_modules =
     mcp_server
     webhooks
 allow_indirect_imports = True
-ignore_imports =
-    sessions.pipeline_watch.dispatch -> jobs.tasks
-    sessions.services -> jobs.tasks
-    sessions.signals -> jobs.tasks

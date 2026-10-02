@@ -2,19 +2,19 @@ import logging
 from typing import TYPE_CHECKING
 
 from django_tasks import task
+
+from codebase.base import Scope
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
-
-from codebase.base import Scope
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.results import AgentResult
 
-logger = logging.getLogger("daiv.jobs")
+logger = logging.getLogger("daiv.sessions")
 
 
 @task()

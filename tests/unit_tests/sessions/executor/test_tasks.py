@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from jobs.tasks import run_job_task
+from sessions.executor.tasks import run_job_task
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
@@ -453,7 +453,10 @@ async def test_run_job_task_forwards_ask_user_enabled(ask_user_enabled):
         captured["spec"] = spec
         return SimpleNamespace(agent_result={"response": "ok"})
 
-    with patch("jobs.tasks.Session.objects.filter") as session_filter, patch("jobs.tasks.execute_run", _execute_run):
+    with (
+        patch("sessions.executor.tasks.Session.objects.filter") as session_filter,
+        patch("sessions.executor.tasks.execute_run", _execute_run),
+    ):
         session_filter.return_value.only.return_value.afirst = AsyncMock(return_value=None)
         await run_job_task.func(
             repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()), ask_user_enabled=ask_user_enabled
@@ -486,7 +489,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
-            patch("jobs.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
+            patch("sessions.executor.tasks.LOCK_WAIT_TIMEOUT_S", 0.05),
             patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
             patch("sessions.executor.lock.SessionLock.try_claim", wraps=SessionLock.try_claim) as try_claim,
             pytest.raises(TimeoutError, match="not released within"),
@@ -594,7 +597,7 @@ class TestRunJobTaskAfterRunMatrix:
 
         with (
             _job_scaffolding(agent, armed=[]),
-            caplog.at_level("ERROR", logger="daiv.jobs"),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
             await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=str(uuid.uuid4()))
@@ -723,3 +726,71 @@ class TestRunJobTaskAfterRunMatrix:
             await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id=thread_id, run_id="run-1")
 
         assert calls == [("persist", "main", mr), ("arm", True), ("release", thread_id, "run-1")]
+
+
+MR = {"merge_request_id": 7, "source_branch": "daiv/branch"}
+
+
+async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int | None = None) -> list[dict]:
+    """Run the task over a canned final checkpoint and return the watch-arm calls."""
+    armed: list[dict] = []
+
+    last_message = MagicMock()
+    last_message.content = "ok"
+
+    agent = AsyncMock()
+    agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
+    agent.aget_state = AsyncMock(return_value=SimpleNamespace(values=state_values))
+
+    runtime_ctx = MagicMock()
+    runtime_ctx.config.models.agent = MagicMock()
+
+    with (
+        patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("core.checkpointer.open_checkpointer") as cp_ctx,
+        patch("codebase.context.set_runtime_ctx") as rc_ctx,
+        patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch(
+            "automation.agent.utils.get_daiv_agent_kwargs",
+            return_value={"model_names": ["m"], "thinking_level": "medium"},
+        ),
+        patch("automation.agent.utils.build_langsmith_config", return_value={}),
+        patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("automation.agent.usage_tracking.track_usage_metadata"),
+        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("sessions.executor.run.PipelineWatch", watch_recorder(armed)),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        cp_ctx.return_value.__aenter__.return_value = object()
+        rc_ctx.return_value.__aenter__.return_value = runtime_ctx
+
+        await run_job_task.func(
+            repo_id="group/repo", prompt="p", ref="main", thread_id="t-1", run_id=run_id, user_id=user_id
+        )
+
+    return armed
+
+
+@pytest.mark.django_db
+async def test_it_arms_off_the_published_flag():
+    """The watch is armed off the publisher's own verdict: ``published``, read from the checkpoint the task
+    already fetches for ``apersist_session_ref``."""
+    armed = await _drive({"merge_request": MR, "published": True}, run_id="run-1", user_id=9)
+
+    assert len(armed) == 1
+    assert armed[0]["repo_id"] == "group/repo"
+    assert armed[0]["merge_request"] == MR
+    assert armed[0]["published"] is True
+    assert armed[0]["run_id"] == "run-1"
+    assert armed[0]["user_id"] == 9
+
+
+@pytest.mark.django_db
+async def test_a_clean_tree_on_its_mr_is_not_reported_as_published():
+    """The regression that matters: ``code_changes`` is true here, ``published`` is not. Passing
+    the former let a fix run that changed nothing re-arm instead of giving up, stranding the
+    watch in ``watching`` until the six-hour expiry."""
+    armed = await _drive({"merge_request": MR, "code_changes": True, "published": False}, run_id="run-1")
+
+    assert armed[0]["published"] is False

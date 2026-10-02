@@ -201,7 +201,7 @@ class TestScheduleRunNowView:
         DBTaskResult.objects.create(
             id=tid,
             status="READY",
-            task_path="jobs.tasks.run_job_task",
+            task_path="sessions.executor.tasks.run_job_task",
             args_kwargs={"args": [], "kwargs": {}},
             queue_name="default",
             backend_name="default",
@@ -218,7 +218,7 @@ class TestScheduleRunNowView:
         await DBTaskResult.objects.acreate(
             id=tid,
             status="READY",
-            task_path="jobs.tasks.run_job_task",
+            task_path="sessions.executor.tasks.run_job_task",
             args_kwargs={"args": [], "kwargs": {}},
             queue_name="default",
             backend_name="default",

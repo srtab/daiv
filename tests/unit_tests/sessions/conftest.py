@@ -56,7 +56,7 @@ def create_db_task_result():
         return DBTaskResult.objects.create(
             id=uuid.uuid4(),
             status=status,
-            task_path="jobs.tasks.run_job_task",
+            task_path="sessions.executor.tasks.run_job_task",
             args_kwargs={"args": [], "kwargs": {}},
             queue_name="default",
             backend_name="default",

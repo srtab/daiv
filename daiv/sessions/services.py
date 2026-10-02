@@ -10,11 +10,11 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from asgiref.sync import async_to_sync, sync_to_async
-from jobs.tasks import run_job_task
 
 from automation.titling.tasks import generate_batch_title_task
 from codebase.authorization import aassert_can_run
 from codebase.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
+from sessions.executor.tasks import run_job_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal

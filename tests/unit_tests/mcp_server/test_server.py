@@ -321,7 +321,7 @@ async def test_submit_job_wait_success():
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
+        mock_task.module_path = "sessions.executor.tasks.run_job_task"
         mock_title.aenqueue = AsyncMock(return_value=None)
 
         # We need to capture the run ID after submit to build the finished mock.
@@ -378,7 +378,7 @@ async def test_submit_job_wait_running_when_never_terminal():
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
+        mock_task.module_path = "sessions.executor.tasks.run_job_task"
         mock_model.objects.filter = MagicMock(return_value=_EmptyAsyncRows())
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
@@ -575,7 +575,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
-        mock_task.module_path = "jobs.tasks.run_job_task"
+        mock_task.module_path = "sessions.executor.tasks.run_job_task"
         mock_model.objects.filter = MagicMock(side_effect=RuntimeError("DB down"))
 
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
