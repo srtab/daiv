@@ -73,6 +73,24 @@ async def test_noop_when_disabled_site_wide():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_site_switch_turned_off_between_calls_stops_the_next_injection():
+    await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Pitfalls\n- something")
+    middleware = RepositoryMemoryMiddleware()
+    handler = AsyncMock(return_value="response")
+    first, _ = _request()
+    second, _ = _request()
+
+    with patch("automation.agent.middlewares.memory.site_settings") as ss:
+        ss.memory_enabled = True
+        await middleware.awrap_model_call(first, handler)
+        ss.memory_enabled = False
+        await middleware.awrap_model_call(second, handler)
+
+    first.override.assert_called_once()
+    second.override.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_loads_memory_once_per_instance():
     await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Workflow\n- use kebab-case branches")
     middleware = RepositoryMemoryMiddleware()
