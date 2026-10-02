@@ -20,7 +20,7 @@ LOCAL_APPS = [
     "configuration",
     "core",
     "mcp_api",
-    "mcp_servers",
+    "mcp_connectors",
     "memory",
     "notifications",
     "sandbox_envs",

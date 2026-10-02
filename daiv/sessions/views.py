@@ -25,7 +25,7 @@ from django.views.generic.detail import SingleObjectMixin
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
-from mcp_servers.selection import composer_mcp_context, mcp_picker_context
+from mcp_connectors.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context

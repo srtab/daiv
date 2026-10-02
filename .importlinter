@@ -9,7 +9,7 @@ root_packages =
     daiv
     jobs
     mcp_api
-    mcp_servers
+    mcp_connectors
     memory
     notifications
     sandbox_envs
@@ -32,7 +32,7 @@ forbidden_modules =
     configuration
     jobs
     mcp_api
-    mcp_servers
+    mcp_connectors
     memory
     notifications
     sandbox_envs

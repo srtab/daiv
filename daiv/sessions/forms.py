@@ -11,7 +11,7 @@ from __future__ import annotations
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from mcp_servers.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
+from mcp_connectors.selection import build_selection_pool, diff_selection, effective_selection, parse_server_names
 from sandbox_envs.models import SandboxEnvironment
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override

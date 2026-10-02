@@ -38,7 +38,7 @@ urlpatterns = [
     path("dashboard/schedules/", include("schedules.urls")),
     path("dashboard/memory/", include("memory.urls", namespace="memory")),
     path("dashboard/skills/", include("skills.urls", namespace="skills")),
-    path("dashboard/mcp-servers/", include("mcp_servers.urls", namespace="mcp_servers")),
+    path("dashboard/mcp-servers/", include("mcp_connectors.urls", namespace="mcp_connectors")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),

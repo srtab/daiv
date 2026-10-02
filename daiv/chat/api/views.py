@@ -5,7 +5,7 @@ from django.http import Http404, HttpRequest
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from asgiref.sync import sync_to_async
-from mcp_servers.selection import build_selection_pool, diff_selection, parse_server_names
+from mcp_connectors.selection import build_selection_pool, diff_selection, parse_server_names
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth

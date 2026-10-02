@@ -9,11 +9,11 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 
 import pytest
-from mcp_servers.models import MCPServer
+from mcp_connectors.models import MCPServer
 from sessions.forms import AgentRunCreateForm, MCPSelectionField, RepoListField
 
 from automation.agent.validators import AgentOverrideError
-from tests.unit_tests.mcp_servers.helpers import only_servers
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 pytestmark = pytest.mark.django_db
 

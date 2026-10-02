@@ -69,14 +69,14 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     # Only page-rendering routes need a section for sidebar highlighting. The endpoints that only
     # return JSON (``test``) or redirect (``toggle``, ``refresh_tools``) never render a sidebar, so
     # they are omitted; ``delete`` stays because its GET renders a confirmation page.
-    "mcp_servers": {"mcp_servers:list", "mcp_servers:create", "mcp_servers:edit", "mcp_servers:delete"},
-    NAV_SECTION_MCP_GLOBAL: {"mcp_servers:global_list", "mcp_servers:global_create"},
+    "mcp_servers": {"mcp_connectors:list", "mcp_connectors:create", "mcp_connectors:edit", "mcp_connectors:delete"},
+    NAV_SECTION_MCP_GLOBAL: {"mcp_connectors:global_list", "mcp_connectors:global_create"},
 }
 
 
 def _resolve_active_section(request) -> str:
     # A view may pin the section explicitly — needed where one URL serves rows of
-    # several sections (e.g. mcp_servers:edit renders global AND personal rows).
+    # several sections (e.g. mcp_connectors:edit renders global AND personal rows).
     override = getattr(request, "nav_section_override", None)
     if override:
         return override

@@ -54,7 +54,7 @@ class MCPToolkit(BaseToolkit):
     @classmethod
     async def get_tools(cls, user_id: int | None = None, overrides: dict | None = None) -> list[BaseTool]:
         from asgiref.sync import sync_to_async
-        from mcp_servers.services import build_runtime_servers
+        from mcp_connectors.services import build_runtime_servers
 
         servers = await sync_to_async(build_runtime_servers)(user_id, overrides)
         if not servers:
