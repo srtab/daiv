@@ -797,10 +797,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-in-app-bell-and-list" class="md-nav__link">
+  <a href="#the-in-app-list" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The in-app bell and list
+        The in-app list
       
     </span>
   </a>
@@ -1519,10 +1519,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-in-app-bell-and-list" class="md-nav__link">
+  <a href="#the-in-app-list" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The in-app bell and list
+        The in-app list
       
     </span>
   </a>
@@ -1742,12 +1742,12 @@
 <p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.</p>
 </div>
 <h2 id="channels">Channels</h2>
-<p>DAIV reaches you through channels. The in-app bell is always available; email, Rocket Chat, and Telegram are external delivery channels.</p>
+<p>DAIV reaches you through channels. In-app notifications are always available; email, Rocket Chat, and Telegram are external delivery channels.</p>
 <div class="grid cards">
 <ul>
 <li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1c3.681 0 7 2.565 7 6v4.539c0 .642.189 1.269.545 1.803l2.2 3.298A1.517 1.517 0 0 1 20.482 19H15.5a3.5 3.5 0 1 1-7 0H3.519a1.518 1.518 0 0 1-1.265-2.359l2.2-3.299A3.25 3.25 0 0 0 5 11.539V7c0-3.435 3.318-6 7-6M6.5 7v4.539a4.75 4.75 0 0 1-.797 2.635l-2.2 3.298-.003.01.001.007.004.006.006.004.007.001h16.964l.007-.001.006-.004.004-.006.001-.006-.003-.01-2.199-3.299a4.75 4.75 0 0 1-.798-2.635V7c0-2.364-2.383-4.5-5.5-4.5S6.5 4.636 6.5 7M14 19h-4a2 2 0 1 0 4 0"/></svg></span> <strong>In-app bell</strong></p>
-<p>The notification bell in the dashboard header shows your unread count and a dropdown of recent items. The full history lives at <code>/dashboard/notifications/</code>.</p>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1c3.681 0 7 2.565 7 6v4.539c0 .642.189 1.269.545 1.803l2.2 3.298A1.517 1.517 0 0 1 20.482 19H15.5a3.5 3.5 0 1 1-7 0H3.519a1.518 1.518 0 0 1-1.265-2.359l2.2-3.299A3.25 3.25 0 0 0 5 11.539V7c0-3.435 3.318-6 7-6M6.5 7v4.539a4.75 4.75 0 0 1-.797 2.635l-2.2 3.298-.003.01.001.007.004.006.006.004.007.001h16.964l.007-.001.006-.004.004-.006.001-.006-.003-.01-2.199-3.299a4.75 4.75 0 0 1-.798-2.635V7c0-2.364-2.383-4.5-5.5-4.5S6.5 4.636 6.5 7M14 19h-4a2 2 0 1 0 4 0"/></svg></span> <strong>In-app</strong></p>
+<p><strong>Notifications</strong> in the sidebar shows your unread count and opens your full history at <code>/dashboard/notifications/</code>.</p>
 </li>
 <li>
 <p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1.75 3h20.5c.966 0 1.75.784 1.75 1.75v14a1.75 1.75 0 0 1-1.75 1.75H1.75A1.75 1.75 0 0 1 0 18.75v-14C0 3.784.784 3 1.75 3M1.5 7.412V18.75c0 .138.112.25.25.25h20.5a.25.25 0 0 0 .25-.25V7.412l-9.52 6.433c-.592.4-1.368.4-1.96 0Zm0-2.662v.852l10.36 7a.25.25 0 0 0 .28 0l10.36-7V4.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25"/></svg></span> <strong>Email</strong></p>
@@ -1763,12 +1763,11 @@
 </li>
 </ul>
 </div>
-<h3 id="the-in-app-bell-and-list">The in-app bell and list</h3>
-<p>The bell entry is written for <strong>notify-worthy</strong> runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.</p>
+<h3 id="the-in-app-list">The in-app list</h3>
+<p>The in-app entry is written for <strong>notify-worthy</strong> runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.</p>
 <ul>
-<li>The bell dropdown shows your ten most recent notifications and marks them read when you open it.</li>
-<li><code>/dashboard/notifications/</code> lists your full history with <code>All</code> / <code>Unread</code> / <code>Read</code> filters and a <strong>Mark all as read</strong> action.</li>
-<li>The unread badge — and the <strong>N running</strong> badge next to <em>Sessions</em> in the sidebar — update live over a server-sent-events stream (<code>GET /api/nav/events</code>), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.</li>
+<li><code>/dashboard/notifications/</code> lists your full history with <code>All</code> / <code>Unread</code> / <code>Read</code> filters and a <strong>Mark all as read</strong> action. Opening a notification marks it read.</li>
+<li>The unread badge next to <em>Notifications</em> — and the <strong>N running</strong> badge next to <em>Sessions</em> — update live over a server-sent-events stream (<code>GET /api/nav/events</code>), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.</li>
 </ul>
 <h3 id="email">Email</h3>
 <p>Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email is delivered for any notify-worthy, un-muted run.</p>
@@ -1780,7 +1779,7 @@
 <p>Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.</p>
 <h2 id="muting">Muting</h2>
 <p>Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is <strong>Mute</strong>.</p>
-<p><strong>Per-schedule mute</strong> — each schedule has a <strong>Mute</strong> checkbox (default off). When enabled, it silences <em>all</em> notifications for that schedule's runs: no bell entry and no external delivery. It doesn't silence <strong>Schedule can't run</strong>, which is about the schedule not running at all. A per-run override is available via <code>Run.muted</code> (the same field the <code>muted</code> flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.</p>
+<p><strong>Per-schedule mute</strong> — each schedule has a <strong>Mute</strong> checkbox (default off). When enabled, it silences <em>all</em> notifications for that schedule's runs: no in-app entry and no external delivery. It doesn't silence <strong>Schedule can't run</strong>, which is about the schedule not running at all. A per-run override is available via <code>Run.muted</code> (the same field the <code>muted</code> flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.</p>
 <p><strong>Non-scheduled runs</strong> — runs started from the dashboard, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a> notify their initiator on a notify-worthy outcome. Pass the <code>muted</code> flag in the API or MCP call to silence a specific run.</p>
 <p>Muting a schedule silences its runs completely. Disconnecting your email channel (from <code>/accounts/channels/</code>) suppresses email delivery without silencing in-app notifications.</p>
 <h2 id="connecting-rocket-chat">Connecting Rocket Chat</h2>
@@ -1838,7 +1837,7 @@
 <li>A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as <strong>skipped</strong> rather than attempted.</li>
 <li>Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked <strong>failed</strong> and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.</li>
 <li>Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads <strong>Not configured</strong>. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to <strong>unverified</strong>: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as <strong>skipped</strong>, and the row shows <strong>Unverified</strong> alongside a <strong>Connect</strong> control until you redo the handshake.</li>
-<li>The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)</li>
+<li>The in-app entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no in-app entry at all — muting is full silence.)</li>
 </ul>
 <h2 id="related-pages">Related pages</h2>
 <div class="grid cards">
@@ -1883,7 +1882,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 09:29:05 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 11:17:00 UTC">October 2, 2026</span>
   </span>
 
     

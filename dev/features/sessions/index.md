@@ -285,6 +285,6 @@ ______________________________________________________________________
 
   ______________________________________________________________________
 
-  Know the moment a run finishes, via the in-app bell, email, or Rocket Chat.
+  Know the moment a run finishes, in the app, by email, or in Rocket Chat.
 
   [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md)

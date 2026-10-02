@@ -131,7 +131,7 @@ Setting a user to inactive blocks them from signing in while preserving their hi
 
 ## Per-user settings
 
-Every signed-in user — member or admin — has these self-service pages:
+Every signed-in user — member or admin — has these self-service pages. All but the Dashboard open from the account menu at the bottom of the sidebar:
 
 | Page                      | Route                 | What it does                                                                                              |
 | ------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |

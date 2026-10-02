@@ -29,11 +29,11 @@ Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for examp
 
 ## Channels
 
-DAIV reaches you through channels. The in-app bell is always available; email, Rocket Chat, and Telegram are external delivery channels.
+DAIV reaches you through channels. In-app notifications are always available; email, Rocket Chat, and Telegram are external delivery channels.
 
-- **In-app bell**
+- **In-app**
 
-  The notification bell in the dashboard header shows your unread count and a dropdown of recent items. The full history lives at `/dashboard/notifications/`.
+  **Notifications** in the sidebar shows your unread count and opens your full history at `/dashboard/notifications/`.
 
 - **Email**
 
@@ -47,13 +47,12 @@ DAIV reaches you through channels. The in-app bell is always available; email, R
 
   A direct message from the DAIV bot, when your administrator has enabled Telegram and you have linked your chat.
 
-### The in-app bell and list
+### The in-app list
 
-The bell entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce a bell entry.
+The in-app entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.
 
-- The bell dropdown shows your ten most recent notifications and marks them read when you open it.
-- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
-- The unread badge — and the **N running** badge next to *Sessions* in the sidebar — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
+- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action. Opening a notification marks it read.
+- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
 
 ### Email
 
@@ -75,7 +74,7 @@ Single-run messages end with the run's summary — for a run waiting for an answ
 
 Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no bell entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no in-app entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
 **Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
@@ -142,7 +141,7 @@ When a run finishes with a notify-worthy classification, DAIV records the notifi
 - A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
 - Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.
 - Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads **Not configured**. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to **unverified**: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped**, and the row shows **Unverified** alongside a **Connect** control until you redo the handshake.
-- The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no bell entry at all — muting is full silence.)
+- The in-app entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no in-app entry at all — muting is full silence.)
 
 ## Related pages
 
