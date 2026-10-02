@@ -1,3 +1,4 @@
+import configparser
 import os
 import subprocess  # noqa: S404
 import sys
@@ -44,3 +45,21 @@ def test_django_setup_does_not_load_agent_stack():
         f"django.setup() eagerly imports the agent stack via: {offenders}. "
         "Defer the offending import into the function that uses it (see jobs/tasks.py)."
     )
+
+
+def test_import_contracts_cover_every_top_level_package():
+    """A package missing from ``root_packages`` is invisible to ``make lint-imports``, and one that no
+    contract forbids can be imported from below unchecked; ``core`` sits below every app, so its
+    contract must forbid them all.
+    """
+    config = configparser.ConfigParser()
+    config.read(SOURCE_ROOT.parent / ".importlinter")
+    root_packages = set(config["importlinter"]["root_packages"].split())
+    core_forbidden = set(config["importlinter:contract:core"]["forbidden_modules"].split())
+    packages = {path.name for path in SOURCE_ROOT.iterdir() if (path / "__init__.py").is_file()}
+
+    assert root_packages == packages - {"activity"}, (
+        "`.importlinter` root_packages must list every top-level package under daiv/; "
+        "`activity` is left out because it only holds migration history."
+    )
+    assert core_forbidden == root_packages - {"core", "daiv"}

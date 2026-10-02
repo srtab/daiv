@@ -164,6 +164,7 @@ config.toml
 state-snapshots.txt
 
 .ruff_cache/
+.import_linter_cache/
 .cursor
 # Agent scratch state stays local; the shared session-start hook is checked in so
 # every web session gets a working toolchain. Glob the contents rather than the

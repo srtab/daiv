@@ -1,14 +1,15 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-typing evals tailwind-build tailwind-watch
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-typing evals tailwind-build tailwind-watch
 
 help:
 	@echo "Available commands:"
 	@echo "  make setup          - Set up local development environment"
 	@echo "  make test           - Run tests with coverage report"
-	@echo "  make lint           - Run lint check and format check"
+	@echo "  make lint           - Run lint, format and import-layering checks"
 	@echo "  make lint-check     - Run lint check only (ruff)"
 	@echo "  make lint-format    - Check code formatting"
+	@echo "  make lint-imports   - Check app import layering (import-linter)"
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
@@ -41,7 +42,7 @@ setup:
 test:
 	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests -n auto
 
-lint: lint-check lint-format
+lint: lint-check lint-format lint-imports
 
 lint-check:
 	uv run --only-group=dev ruff check .
@@ -51,11 +52,15 @@ lint-format:
 	uv run --only-group=dev pyproject-fmt pyproject.toml --check
 	git ls-files -z -- '*templates/*.html' | xargs -0r uv run --only-group=dev djade --target-version 6.0 --check
 
+lint-imports:
+	PYTHONPATH=daiv uv run --only-group=dev lint-imports
+
 lint-fix:
 	uv run --only-group=dev ruff check . --fix
 	uv run --only-group=dev ruff format .
 	uv run --only-group=dev pyproject-fmt pyproject.toml
 	git ls-files -z -- '*templates/*.html' | xargs -0r uv run --only-group=dev djade --target-version 6.0
+	$(MAKE) --no-print-directory lint-imports
 
 lint-typing:
 	uv run --only-group=dev ty check daiv
