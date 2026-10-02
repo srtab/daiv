@@ -14,13 +14,13 @@ from sessions.locks import SessionLock, stale_cutoff
 from sessions.models import Session
 from sessions.spend import build_session_spend
 
+from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import relay, runner
-from .security import AuthBearer
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 

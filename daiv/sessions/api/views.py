@@ -8,7 +8,7 @@ from ninja import Router
 from ninja.errors import HttpError
 from ninja.security import django_auth
 
-from chat.api.security import AuthBearer
+from accounts.api.security import AuthBearer
 from chat.turns import build_turns
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session

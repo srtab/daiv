@@ -106,7 +106,6 @@ forbidden_modules =
     webhooks
 allow_indirect_imports = True
 ignore_imports =
-    sessions.api.views -> chat.api.security
     sessions.api.views -> chat.turns
     sessions.hydration -> chat.repo_state
     sessions.hydration -> chat.turns

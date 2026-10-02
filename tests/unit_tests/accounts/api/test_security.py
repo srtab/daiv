@@ -4,8 +4,8 @@ from django.utils import timezone
 
 import pytest
 
+from accounts.api.security import AuthBearer
 from accounts.models import APIKey, User
-from chat.api.security import AuthBearer
 
 
 @pytest.fixture
