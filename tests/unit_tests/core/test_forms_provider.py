@@ -1,6 +1,6 @@
 import pytest
+from configuration.forms import PROVIDERS_FORMSET_PREFIX, ProviderForm, SiteConfigurationForm, build_provider_formset
 
-from core.forms import PROVIDERS_FORMSET_PREFIX, ProviderForm, SiteConfigurationForm, build_provider_formset
 from core.models import Provider, ProviderType, SiteConfiguration
 
 

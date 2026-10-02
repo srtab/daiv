@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from configuration.forms import SiteConfigurationForm
 
-from core.forms import SiteConfigurationForm
 from core.models import SiteConfiguration
 from core.site_settings import site_settings
 

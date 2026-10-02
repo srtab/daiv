@@ -44,14 +44,8 @@ forbidden_modules =
 allow_indirect_imports = True
 ignore_imports =
     core.checkpointer -> codebase.base
-    core.forms -> automation.agent.base
-    core.forms -> codebase.base
-    core.forms -> codebase.conf
-    core.forms -> notifications.telegram.client
     core.models -> automation.agent.model_catalog.service
     core.site_settings -> automation.agent.constants
-    core.views -> accounts.mixins
-    core.views -> notifications.telegram.config
 
 [importlinter:contract:sandbox-envs]
 name = sandbox_envs sits below codebase and the agent

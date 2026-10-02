@@ -27,7 +27,7 @@ urlpatterns = [
     path("accounts/channels/", include("accounts.urls.channels")),
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("accounts.urls.dashboard")),
-    path("dashboard/configuration/", include("core.urls.configuration")),
+    path("dashboard/configuration/", include("configuration.urls")),
     path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
     path("dashboard/artifacts/", include("sessions.urls_artifacts")),

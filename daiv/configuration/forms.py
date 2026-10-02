@@ -17,7 +17,7 @@ from core.models import Provider, ProviderType, SiteConfiguration, ThinkingLevel
 if TYPE_CHECKING:
     from core.models import FieldGroup
 
-logger = logging.getLogger("daiv.core")
+logger = logging.getLogger("daiv.configuration")
 
 
 class _BooleanCheckboxField(forms.BooleanField):

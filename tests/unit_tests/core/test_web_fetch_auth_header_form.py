@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from configuration.forms import WebFetchAuthHeaderForm, build_web_fetch_auth_header_formset
 
-from core.forms import WebFetchAuthHeaderForm, build_web_fetch_auth_header_formset
 from core.models import WebFetchAuthHeader
 
 

@@ -165,19 +165,19 @@ class TestSectionPicker:
 
 class TestBooleanCheckboxField:
     def test_checked_returns_true(self):
-        from core.forms import _BooleanCheckboxField
+        from configuration.forms import _BooleanCheckboxField
 
         field = _BooleanCheckboxField()
         assert field.clean("on") is True
 
     def test_unchecked_returns_false(self):
-        from core.forms import _BooleanCheckboxField
+        from configuration.forms import _BooleanCheckboxField
 
         field = _BooleanCheckboxField()
         assert field.clean("") is False
 
     def test_missing_returns_false(self):
-        from core.forms import _BooleanCheckboxField
+        from configuration.forms import _BooleanCheckboxField
 
         field = _BooleanCheckboxField()
         assert field.clean(None) is False
@@ -380,8 +380,8 @@ class TestPostSave:
 
     def test_collect_provider_warnings_skips_deleted_and_empty_rows(self, db):
         """Rows marked for delete or with empty cleaned_data must not produce warnings."""
-        from core.forms import PROVIDERS_FORMSET_PREFIX, build_provider_formset
-        from core.views import SiteConfigurationGroupView
+        from configuration.forms import PROVIDERS_FORMSET_PREFIX, build_provider_formset
+        from configuration.views import SiteConfigurationGroupView
 
         existing = Provider.objects.create(
             slug="will-delete",
@@ -423,7 +423,7 @@ class TestPostSave:
 class TestModelApiKeyValidation:
     def test_model_without_enabled_provider_rejected(self, db):
         """Default seed rows are disabled when no env var is set; selecting one should fail."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         # Ensure the anthropic seed row is disabled.
         p = Provider.objects.get(slug="anthropic")
@@ -438,7 +438,7 @@ class TestModelApiKeyValidation:
         assert "API key" in str(form.errors["agent_model_name"][0])
 
     def test_disabled_provider_rejected(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         p = Provider.objects.get(slug="anthropic")
         p.api_key = "sk-x"
@@ -452,7 +452,7 @@ class TestModelApiKeyValidation:
         assert "disabled" in str(form.errors["agent_model_name"][0])
 
     def test_enabled_provider_with_key_accepted(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         _enable_seed_provider("anthropic")
 
@@ -461,14 +461,14 @@ class TestModelApiKeyValidation:
         assert form.is_valid(), f"Form errors: {form.errors}"
 
     def test_empty_model_name_skips_validation(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(data={}, instance=config)
         assert form.is_valid(), f"Form errors: {form.errors}"
 
     def test_multiple_unconfigured_models_each_get_errors(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         p = Provider.objects.get(slug="anthropic")
         p.api_key = None
@@ -488,7 +488,7 @@ class TestModelApiKeyValidation:
         assert "agent_fallback_model_name" in form.errors
 
     def test_unknown_provider_prefix_rejected(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(data={"agent_model_name": "no-such-provider:some-model"}, instance=config)
@@ -498,7 +498,7 @@ class TestModelApiKeyValidation:
 
 class TestWebSearchApiKeyValidation:
     def test_tavily_without_api_key_rejected(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(data={"web_search_engine": "tavily"}, instance=config)
@@ -506,7 +506,7 @@ class TestWebSearchApiKeyValidation:
         assert "web_search_engine" in form.errors
 
     def test_tavily_with_api_key_accepted(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         config.web_search_api_key = "tvly-test"
@@ -516,7 +516,7 @@ class TestWebSearchApiKeyValidation:
         assert form.is_valid(), f"Form errors: {form.errors}"
 
     def test_duckduckgo_without_api_key_accepted(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(data={"web_search_engine": "duckduckgo"}, instance=config)
@@ -546,7 +546,7 @@ class TestEnvLockedSecretSave:
     """Env-locked secrets are not overwritten by form submission."""
 
     def test_env_locked_secret_not_overwritten(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         config.web_search_api_key = "sk-original"
@@ -564,8 +564,9 @@ class TestEnvLockedSecretSave:
 
 class TestAuthFieldFiltering:
     def _get_form_fields(self, platform):
+        from configuration.forms import SiteConfigurationForm
+
         from codebase.base import GitPlatform
-        from core.forms import SiteConfigurationForm
         from core.models import SiteConfiguration
 
         config = SiteConfiguration.objects.get_instance()
@@ -601,8 +602,9 @@ class TestAuthFieldFiltering:
 
 class TestAuthCredentialValidation:
     def _make_form(self, data, *, instance=None, cleared_secrets=None, env_locked_fields=None):
+        from configuration.forms import SiteConfigurationForm
+
         from codebase.base import GitPlatform
-        from core.forms import SiteConfigurationForm
         from core.models import SiteConfiguration
 
         config = instance or SiteConfiguration.objects.get_instance()
@@ -676,7 +678,8 @@ class TestSiteConfigurationFormScoping:
     """When constructed with a ``group=`` kwarg, the form must only expose that group's fields."""
 
     def test_scoped_to_agent_drops_other_fields(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
+
         from core.models import SiteConfiguration
 
         agent_group = next(g for g in SiteConfiguration.get_field_groups() if g.key == "agent")
@@ -690,7 +693,8 @@ class TestSiteConfigurationFormScoping:
         assert "rocketchat_enabled" not in form.fields
 
     def test_unscoped_keeps_all_fields(self, db):
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
+
         from core.models import SiteConfiguration
 
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
@@ -891,7 +895,7 @@ class TestPerGroupSaveIsolation:
 
 def test_split_provider_forms_handles_none():
     """Non-providers groups pass formset=None and must get back ([], [])."""
-    from core.views import SiteConfigurationGroupView
+    from configuration.views import SiteConfigurationGroupView
 
     assert SiteConfigurationGroupView._split_provider_forms(None) == ([], [])
 
@@ -1028,7 +1032,7 @@ class TestAgentPickerWidget:
         """``_apply_defaults`` plumbs the Pydantic / env default into the widget
         so the unselected pill can render "Default (short-name)". This pins
         ``_shorten_model_spec`` collapsing of provider + org/ prefixes."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         form = SiteConfigurationForm(
             instance=SiteConfiguration.objects.get_instance(),
@@ -1054,14 +1058,14 @@ class TestAgentPickerWidget:
         """Pure-Python coverage of ``_shorten_model_spec``'s five branches:
         the ``or name`` fallback at the end is only reached by the trailing-slash
         case, so removing it would silently return ``""`` for that input — caught here."""
-        from core.forms import _shorten_model_spec
+        from configuration.forms import _shorten_model_spec
 
         assert _shorten_model_spec(spec) == expected
 
     def test_paired_widget_receives_thinking_default_and_initial(self, db):
         """Paired pickers must also carry the thinking default + the form's
         initial thinking value so the popover seeds the effort dots correctly."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         config.agent_thinking_level = "low"
@@ -1082,7 +1086,7 @@ class TestAgentPickerWidget:
     def test_widget_value_from_datadict_returns_single_spec(self):
         """Submission carries the full spec under the field name (no _provider/_model split).
         Pure-Python — no DB fixture needed."""
-        from core.forms import _AgentPickerWidget
+        from configuration.forms import _AgentPickerWidget
 
         widget = _AgentPickerWidget()
         assert (
@@ -1100,7 +1104,7 @@ class TestAgentPickerWidget:
         trigger button), so ``id_for_label`` must return empty so the surrounding template
         drops ``for=`` — pointing a label at a hidden input fools browser autofill and a11y
         tools into thinking the field is reachable."""
-        from core.forms import _AgentPickerWidget
+        from configuration.forms import _AgentPickerWidget
 
         assert _AgentPickerWidget().id_for_label("id_agent_model_name") == ""
 
@@ -1128,7 +1132,7 @@ class TestAgentPickerWidget:
         must hold uniformly across the 10 ``MODEL_NAME_FIELDS``. Goes through the
         form layer directly to avoid pulling in the web_fetch headers formset
         management data (the e2e flow is covered for the paired case)."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         config.web_fetch_model_name = "openai:gpt-5.4"
@@ -1144,7 +1148,7 @@ class TestAgentPickerWidget:
         popover) AND use the env-var tooltip — not the run-time "Locked for
         this conversation" text. The latter is the default in the partial; if
         the widget stops threading ``locked_title``, this regresses silently."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         form = SiteConfigurationForm(
             instance=SiteConfiguration.objects.get_instance(), env_locked_fields={"agent_model_name"}
@@ -1162,7 +1166,7 @@ class TestAgentPickerWidget:
         """A non-paired field must not pick up a thinking-level partner. Pins
         the ``_PAIRED_THINKING_FIELDS.get(name)`` branch that returns None for
         all 8 standalone model fields."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
         widget = form.fields["web_fetch_model_name"].widget
@@ -1179,7 +1183,7 @@ class TestAgentPickerWidget:
         what the user submitted — not the DB-stored value. Otherwise the effort
         dots silently revert to the pre-submit state and the user can't tell
         why their pick keeps being lost."""
-        from core.forms import SiteConfigurationForm
+        from configuration.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
         config.agent_thinking_level = "low"

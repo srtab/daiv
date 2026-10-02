@@ -3,8 +3,8 @@ from __future__ import annotations
 from django.urls import reverse
 
 import pytest
+from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
-from core.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 from core.models import WebFetchAuthHeader
 
 
