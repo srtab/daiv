@@ -41,9 +41,14 @@ SURFACE_CLASS = re.compile(r'class="(?:{})(?![-\w])'.format("|".join(SURFACE_CLA
 
 # The `surface-rise` roster by name — every class that *is* a floating surface container,
 # which is what a guard on their z-order or their ancestors has to look for. `.picker-popover`
-# is matched by CONTAINER rather than SURFACE_CLASS, and the account menu is built from
-# utilities, so neither reaches SURFACE_CLASSES above.
-SURFACE_CONTAINERS = frozenset({*SURFACE_CLASSES, "picker-popover", "filter-menu", "card__menu-panel"})
+# is matched by CONTAINER rather than SURFACE_CLASS, so it doesn't reach SURFACE_CLASSES above.
+SURFACE_CONTAINERS = frozenset({
+    *SURFACE_CLASSES,
+    "picker-popover",
+    "filter-menu",
+    "card__menu-panel",
+    "sidebar__account-menu",
+})
 
 # The popover container itself. The negative lookahead drops `picker-popover__search` and
 # `__list`, which are content *inside* a popover and carry their own utilities.

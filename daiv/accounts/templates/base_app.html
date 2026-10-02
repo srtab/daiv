@@ -42,15 +42,15 @@
               aria-label="{% translate 'Open navigation' %}">
         {% icon "bars-3" "h-5 w-5" %}
         <span x-show="$store.nav.unread > 0" x-cloak aria-hidden="true"
-              class="absolute top-2 right-2 h-2 w-2 rounded-full bg-accent"></span>
+              class="status-dot absolute top-2 right-2 bg-accent"></span>
       </button>
-      <a href="{% url 'dashboard' %}" class="flex items-center gap-2.5 text-[17px] font-bold tracking-tight text-text-strong">
-        <span class="inline-block h-6 w-6 shrink-0 rounded-md bg-brand"></span>
+      <a href="{% url 'dashboard' %}" class="brand-wordmark flex items-center gap-2.5">
+        <span class="brand-mark"></span>
         DAIV
       </a>
     </header>
 
-    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 pb-10 sm:px-(--app-content-gutter) sm:pt-8">
+    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
       {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
       <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
         {% block breadcrumb %}{% endblock %}

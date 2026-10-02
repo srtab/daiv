@@ -42,10 +42,12 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "schedule_template_delete",
     },
     "notifications": {"notifications:list"},
-    "channels": {"user_channels"},
-    "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
-    # Passkey (WebAuthn) management pages, mounted under /accounts/mfa/.
-    "passkeys": {
+    # The account menu's pages; the mfa_* names are passkey (WebAuthn) pages under /accounts/mfa/.
+    "account": {
+        "user_channels",
+        "api_keys",
+        "api_key_create",
+        "api_key_revoke",
         "mfa_index",
         "mfa_list_webauthn",
         "mfa_add_webauthn",

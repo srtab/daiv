@@ -54,16 +54,6 @@ def test_every_sidebar_nav_item_labels_its_text():
     assert not unlabelled, "sidebar items whose text can overflow the icon rail:\n" + "\n".join(unlabelled)
 
 
-def test_the_chat_dock_reaches_the_viewport_bottom_at_every_width():
-    """Nothing is pinned under `<main>` at any tier, so the chat rule that drops its bottom
-    padding must not sit inside a breakpoint block — on a phone the sticky dock would float."""
-    css = INPUT_CSS.read_text(encoding="utf-8")
-
-    assert re.search(r"^main:has\(\.chat-shell\) \{\s*padding-bottom: 0", css, re.MULTILINE), (
-        "the chat surface keeps <main>'s bottom padding at some width"
-    )
-
-
 def test_the_account_menu_is_not_clipped_by_the_sidebar():
     """An `overflow` on the `<aside>` clips anything absolutely positioned inside it, and the
     account menu opens past the rail's right edge. Only the `<nav>` list may scroll, and the

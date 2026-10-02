@@ -4,6 +4,8 @@
 {% block title %}{% if session.title %}{{ session.title }} — {% endif %}DAIV Sessions{% endblock %}
 
 {% block container_width %}max-w-6xl flex flex-col min-h-full{% endblock %}
+{# The dock's sticky `bottom: 0` stops at <main>'s padding box, so it would float above the viewport bottom. #}
+{% block main_padding_bottom %}pb-0{% endblock %}
 
 {% block head_extra %}
   <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">

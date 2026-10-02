@@ -43,9 +43,8 @@ document.addEventListener("alpine:init", () => {
       this._runningLabel = runningLabel || "";
       if (this._url || !url || !window.EventSource) return;
       this._url = url;
-      // The poll this replaced was gated on `document.visibilityState === 'visible'`;
-      // an ungated stream would hold a worker, a DB recount per poke and one of the
-      // browser's six per-origin connections for every backgrounded tab.
+      // Gated on `document.visibilityState`: an ungated stream would hold a worker, a DB
+      // recount per poke and one of the browser's six per-origin connections per hidden tab.
       document.addEventListener("visibilitychange", () => this._sync());
       this._sync();
     },

@@ -296,8 +296,8 @@ plus wordmark) that is the only nav entry point on a phone.
 - **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
   menu holding the personal pages — notification channels, API keys, passkeys — and
   sign-out. It opens upward over the full sidebar and the sheet, and beside the rail
-  (`sidebar__account-menu`). The chip takes the active state on any of those pages:
-  `{% nav_active 'channels' 'api_keys' 'passkeys' %}`.
+  (`sidebar__account-menu`). The chip takes the active state on any of those pages: they
+  share the one `account` section in `SECTION_URL_NAMES`.
 - **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
   a dot instead, and the mobile top bar's menu button carries the same dot.
 

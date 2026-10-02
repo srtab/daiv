@@ -154,6 +154,10 @@
 
   /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
      the one active item instead of hidden with `opacity-0` inside every other. */
+  .sidebar__nav-item--active {
+    position: relative;
+  }
+
   .sidebar__nav-item--active::before {
     content: "";
     position: absolute;
@@ -165,15 +169,32 @@
     background: var(--color-brand);
   }
 
-  /* `relative` anchors the active rail that `nav_active` draws on the chip. */
-  .sidebar__account {
-    @apply relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px]
-           text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
+  .nav-badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] tabular-nums;
   }
 
+  .brand-mark {
+    @apply inline-block h-6 w-6 shrink-0 rounded-md bg-brand;
+  }
+
+  .brand-wordmark {
+    @apply text-[17px] font-bold tracking-tight text-text-strong;
+  }
+
+  .sidebar__account,
   .account-menu__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
+  }
+
+  .sidebar__account {
+    @apply px-2;
+  }
+
+  /* Opens upward over the full sidebar and the sheet; the rail tier above moves it beside. */
+  .sidebar__account-menu {
+    @apply absolute bottom-full left-0 z-40 mb-2 w-56 rounded-xl border border-border bg-surface-2 p-1
+           shadow-overlay;
   }
 }
 
@@ -207,7 +228,8 @@
 .composer-sheet,
 .composer-autocomplete,
 .filter-menu,
-.card__menu-panel {
+.card__menu-panel,
+.sidebar__account-menu {
   animation: surface-rise 180ms ease-out backwards;
 }
 
@@ -251,12 +273,6 @@ html {
 
 [x-cloak] {
   display: none !important;
-}
-
-/* Chat detail drops <main>'s bottom padding so the sticky dock reaches the viewport bottom:
-   a sticky `bottom: 0` stops at the scroller's padding box. */
-main:has(.chat-shell) {
-  padding-bottom: 0 !important;
 }
 
 .animate-fade-up {
