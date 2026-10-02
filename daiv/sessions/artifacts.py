@@ -4,6 +4,9 @@ Rendering is keyed on ``content_type``, derived from the file extension by ``gue
 rather than sniffed from the bytes: the browser is told what to expect, ``nosniff`` holds it to
 that, and the raw endpoint serves every artifact under a ``sandbox`` CSP so agent-authored HTML
 never runs in DAIV's origin.
+
+``RunArtifactStore`` is the agent's ``automation.agent.artifacts.ArtifactStore`` for executor runs: a file goes to the
+``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits.
 """
 
 from __future__ import annotations
@@ -220,6 +223,48 @@ def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
 def published_tool_result(payload: ArtifactPayload) -> str:
     """The ``publish_artifact`` success result, which the transcript's artifact card parses."""
     return json.dumps({"status": "published", **payload.model_dump()})
+
+
+class RunArtifactStore:
+    """The executor's ``ArtifactStore``: a published file goes to the run that :func:`bind_active_run` names."""
+
+    @property
+    def max_bytes(self) -> int:
+        return settings.ARTIFACT_MAX_BYTES
+
+    @property
+    def per_run_max(self) -> int:
+        return settings.ARTIFACTS_PER_RUN_MAX
+
+    async def aaccepts(self, thread_id: str) -> bool:
+        return await aresolve_active_run(thread_id) is not None
+
+    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+        if (run := await aresolve_active_run(thread_id)) is None:
+            raise ArtifactError("this run has no session to attach artifacts to.")
+        artifact = await astore_artifact(run, filename=filename, content=content, title=title)
+        logger.info(
+            "publish_artifact: run=%s stored %s (%s, %d bytes)",
+            run.pk,
+            artifact.filename,
+            artifact.content_type,
+            artifact.size,
+        )
+        return await _apublished_result(artifact)
+
+
+async def _apublished_result(artifact: RunArtifact) -> str:
+    try:
+        payload = await sync_to_async(serialize_artifact)(artifact)
+    except Exception:
+        logger.exception("publish_artifact: stored artifact %s but could not build its absolute URLs", artifact.pk)
+        return json.dumps({
+            "status": "published",
+            "id": str(artifact.pk),
+            "url": artifact.get_absolute_url(),
+            "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
+        })
+    return published_tool_result(payload)
 
 
 async def aserialize_run_artifacts(run: Run) -> list[ArtifactPayload]:
