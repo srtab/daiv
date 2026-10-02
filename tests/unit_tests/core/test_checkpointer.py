@@ -146,8 +146,11 @@ def test_registered_type_round_trips_as_its_own_class():
     assert restored["snapshot"] == _Snapshot(note="n")
 
 
+@pytest.mark.parametrize("registered", [(), (MergeRequest,)], ids=["empty-registry", "merge-request-registered"])
 @pytest.mark.usefixtures("isolated_checkpoint_types")
-def test_unregistered_pydantic_type_revives_as_its_raw_envelope():
+def test_unregistered_pydantic_type_revives_as_its_raw_envelope(registered):
+    for cls in registered:
+        register_checkpoint_type(cls)
     serde = DAIVRedisSerializer()
 
     restored = serde.loads_typed(serde.dumps_typed({"snapshot": _Snapshot(note="n")}))
