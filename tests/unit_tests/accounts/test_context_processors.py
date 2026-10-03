@@ -165,6 +165,11 @@ class TestResolveActiveSection:
         request.nav_section_override = "mcp_servers_global"
         assert _resolve_active_section(request) == "mcp_servers_global"
 
+    def test_cross_project_access_log_highlights_its_own_section(self):
+        request = RequestFactory().get("/")
+        request.resolver_match = type("Match", (), {"view_name": "codebase:cross-project-access"})()
+        assert _resolve_active_section(request) == "cross_project_access"
+
     @pytest.mark.parametrize("view_name", ["artifact_list", "session_artifact_detail", "session_artifact_raw"])
     def test_artifacts_section_covers_list_detail_and_raw(self, view_name):
         request = RequestFactory().get("/")

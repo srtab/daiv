@@ -7,7 +7,7 @@ import pytest
 
 from codebase.base import GitPlatform, RepoAccessLevel, RepoMember, Repository
 from codebase.conf import settings as codebase_settings
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
+from codebase.models import CrossProjectAccessRecord, RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
 from codebase.tasks import sync_repository_access_cron_task
 
 
@@ -319,3 +319,35 @@ class TestSyncRepositoryCatalog:
         assert not RepositoryAccess.objects.filter(repo_id="old/gone").exists()
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+
+@pytest.mark.django_db
+class TestCrossProjectRecordPruneInSync:
+    @staticmethod
+    def _members(mock_repo_client):
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+    def test_sync_prunes_expired_records(self, mock_repo_client):
+        self._members(mock_repo_client)
+        old = CrossProjectAccessRecord.objects.create(provider="gitlab", target_repo_id="g/a", outcome="allowed")
+        CrossProjectAccessRecord.objects.filter(pk=old.pk).update(occurred_at=timezone.now() - timedelta(days=365))
+
+        sync_repository_access_cron_task.func()
+
+        assert not CrossProjectAccessRecord.objects.exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.OK
+
+    def test_prune_failure_degrades_the_run_without_blocking_the_access_sync(self, mock_repo_client):
+        self._members(mock_repo_client)
+
+        with patch("codebase.tasks.prune_cross_project_access_records", side_effect=RuntimeError("boom")):
+            sync_repository_access_cron_task.func()
+
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+        assert state.last_success_at is None

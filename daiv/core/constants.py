@@ -7,6 +7,22 @@ BOT_AUTO_LABEL = "daiv-auto"
 
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
 
+# A cross-project write carries a person's attribution, so the webhook's "is this my own event?"
+# check cannot recognise it. Renders as nothing on both platforms.
+CROSS_PROJECT_CONTENT_MARKER = "<!-- daiv:cross-project -->"
+
+
+class CrossProjectOutcome(StrEnum):
+    """How one cross-project attempt ended."""
+
+    ALLOWED = "allowed"
+    DENIED_NO_ACCESS = "denied_no_access"
+    DENIED_NO_CREDENTIAL = "denied_no_credential"
+    DENIED_DISABLED = "denied_disabled"
+    DENIED_POLICY = "denied_policy"
+    ERROR = "error"
+
+
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the
 # RUN_ERROR event message and persisted to Run.error_message), and rendered verbatim in
 # the session transcript on reload, so they must never carry raw exception text. The

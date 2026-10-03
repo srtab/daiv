@@ -1,8 +1,8 @@
-"""HTMX-fragment views for the prompt-box pickers.
+"""Server-rendered views for the codebase app.
 
-These views return HTML fragments intended to be swapped into an existing
-Alpine + HTMX scope. They are not JSON endpoints and are not part of the
-Ninja API under ``/api/``.
+The picker views return HTML fragments intended to be swapped into an existing Alpine + HTMX
+scope; they are not JSON endpoints and are not part of the Ninja API under ``/api/``. The
+cross-project access log is a full page.
 """
 
 from __future__ import annotations
@@ -16,12 +16,16 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import urlencode
 
+from django_filters.views import FilterView
 from github import GithubException
 from gitlab.exceptions import GitlabError
 from requests.exceptions import RequestException
 
+from accounts.mixins import AdminRequiredMixin
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, can_view, search_viewable_repositories
 from codebase.clients import RepoClient
+from codebase.filters import CrossProjectAccessRecordFilterSet
+from codebase.models import CrossProjectAccessRecord
 
 if TYPE_CHECKING:
     from django.http import HttpRequest, HttpResponse
@@ -77,3 +81,28 @@ def picker_branches_view(request: HttpRequest, slug: str) -> HttpResponse:
         logger.exception("picker_branches_view failed slug=%s q=%r user=%s", slug, query, request.user.pk)
         return render(request, "codebase/_branch_picker_list.html", {"error": True})
     return render(request, "codebase/_branch_picker_list.html", {"branches": branches, "selected": selected})
+
+
+class CrossProjectAccessLogView(AdminRequiredMixin, FilterView):
+    """Which projects runs reached and under whose identity. Admin-only: it names people."""
+
+    model = CrossProjectAccessRecord
+    filterset_class = CrossProjectAccessRecordFilterSet
+    template_name = "codebase/cross_project_access.html"
+    context_object_name = "records"
+    ordering = ["-occurred_at"]
+    paginate_by = 50
+    strict = False
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("acting_user")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = context["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        context["search_query"] = cleaned.get("target_repo_id") or ""
+        context["current_outcome"] = cleaned.get("outcome") or ""
+        context["thread_query"] = cleaned.get("thread_id") or ""
+        context["outcome_choices"] = CrossProjectAccessRecord.OUTCOME_CHOICES
+        return context
