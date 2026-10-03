@@ -32,7 +32,7 @@ def _resolve(*, site=None, repo=None, run=None):
 
 @pytest.mark.parametrize("case", AGENT_SETTINGS_CASES, ids=lambda case: case.id)
 def test_each_case_resolves_its_chain_and_thinking_level(case):
-    """Rows 1 and 2, the exact chain included. ``-d1`` cases pin D1, ``-through-raw`` cases pin D11."""
+    """Rows 1 and 2, the exact chain included. ``-through-raw`` cases pin D11."""
     site = site_snapshot(**case.site)
     repo = RepositoryConfig(models={"agent": case.repo_agent})
     run = RunOverrides(**case.run)
@@ -210,13 +210,15 @@ def test_the_consolidation_chain(site_model, repo_agent, expected):
 
 
 def test_the_consolidation_chain_resolves_alone_where_the_agent_chain_would_raise():
-    site = site_snapshot(agent_model_name="", agent_fallback_model_name="", memory_consolidation_model_name=None)
-    repo = RepositoryConfig(models={"agent": {"model": "repo-model", "fallback_model": "repo-fallback"}})
+    site = site_snapshot(
+        agent_model_name="", agent_fallback_model_name="", memory_consolidation_model_name="consolidator"
+    )
+    repo = RepositoryConfig(models={"agent": {"fallback_model": "repo-fallback"}})
 
     with pytest.raises(AgentConfigurationError):
         resolve_agent_settings(site=site, repo=repo, run=RunOverrides())
 
-    assert resolve_consolidation_chain(site=site, repo=repo) == ModelChain(names=("repo-model", "repo-fallback"))
+    assert resolve_consolidation_chain(site=site, repo=repo) == ModelChain(names=("consolidator", "repo-fallback"))
 
 
 AND_SWITCHES = {

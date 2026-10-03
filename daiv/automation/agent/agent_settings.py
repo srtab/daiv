@@ -5,10 +5,10 @@ chain the first matching branch wins. "Repo" is a value ``.daiv.yml`` sets (in `
 attempt cap counts as unset), else the site's.
 
  1. Agent model chain: exact chain (``model_names``) → run override: ``[override, repo model, repo fallback]`` →
-    ``use_max``: ``[site max, repo model, repo fallback]`` → default: ``[site model, site fallback]``, raising
-    ``AgentConfigurationError`` when the site has no model.
+    ``use_max``: ``[site max, repo model, repo fallback]`` → default: ``[repo model, repo fallback]``, raising
+    ``AgentConfigurationError`` when neither the repo nor the site has a model.
  2. Agent thinking level: exact: as given · override: run, then repo · max: site max, run value ignored · default:
-    run, then site.
+    run, then repo, then site.
  3. Fallback-model thinking: site ``agent_fallback_thinking_level``, every branch.
  4. Explore subagent chain: site only, without a fallback when the site sets none.
  5. Diff-to-metadata chain: site only; ``.daiv.yml`` does not choose it (D2).
@@ -154,17 +154,22 @@ def _resolve_agent(
             thinking_level=site.agent_max_thinking_level,
             fallback_thinking_level=fallback_thinking_level,
         )
-    if not site.agent_model_name:
+    if not repo_chain[0]:
         # Imported here: validators pulls in the agent stack, which the memory tasks and the watch policy must not load.
         from .validators import AgentConfigurationError
 
         raise AgentConfigurationError(
             "No agent model configured. Set the system default (DAIV_AGENT_MODEL_NAME / "
-            "site settings) or pass an explicit `agent_model` override."
+            "site settings), set `models.agent.model` in the repository's .daiv.yml, or pass an explicit "
+            "`agent_model` override."
         )
+    if "thinking_level" in repo_agent.model_fields_set:
+        inherited_thinking_level = repo_agent.thinking_level
+    else:
+        inherited_thinking_level = site.agent_thinking_level
     return ModelChain(
-        names=(site.agent_model_name, site.agent_fallback_model_name),
-        thinking_level=run.agent_thinking_level or site.agent_thinking_level,
+        names=repo_chain,
+        thinking_level=run.agent_thinking_level or inherited_thinking_level,
         fallback_thinking_level=fallback_thinking_level,
     )
 

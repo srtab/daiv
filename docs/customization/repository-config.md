@@ -150,6 +150,8 @@ The main DAIV agent used for issue addressing, pull request assistance, and all 
 | `models.agent.fallback_model` | `str` | site setting | Fallback if the primary model fails. |
 | `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | site setting | Thinking depth. Set to `null` to disable. |
 
+A model picked for a single run (in the agent picker, or as `agent_model` through the API and MCP) is tried first, with the model and fallback above after it, and a thinking level picked for a run beats `thinking_level`.
+
 ### Diff to metadata
 
 Generates pull request titles, descriptions, and commit messages from diffs.

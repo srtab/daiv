@@ -1,8 +1,8 @@
 """Rows 1 and 2 of the config-resolver plan as data: the model chain and thinking level one agent run gets.
 
 A repo's ``models.agent`` holds only the keys it sets: ``{"thinking_level": None}`` disables thinking, ``{}`` leaves it
-to the site. A case whose run carries ``model_names`` is the exact chain. Ids ending ``-d1`` pin divergence D1;
-``-through-raw`` marks a site thinking level that reaches the model unvalidated, divergence D11.
+to the site. A case whose run carries ``model_names`` is the exact chain. ``-through-raw`` marks a site thinking
+level that reaches the model unvalidated, divergence D11.
 """
 
 from __future__ import annotations
@@ -183,25 +183,68 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         chain=("site-max-model", "repo-model", "repo-fallback"),
         thinking="high",
     ),
-    # Default: the site's model and fallback, whatever the repo says; thinking from the run, then the site.
+    # Default: the repo's model and fallback, each the site's when the repo sets none; thinking from the run, then the
+    # repo (null disables it), then the site.
     _case("default-uses-the-site", repo={}, run={}, chain=("site-model", "site-fallback"), thinking="medium"),
     _case(
-        "default-ignores-the-repo-model-and-thinking-d1",
+        "default-uses-the-repo-chain-and-thinking",
         repo=REPO,
         run={},
-        chain=("site-model", "site-fallback"),
+        chain=("repo-model", "repo-fallback"),
+        thinking="low",
+    ),
+    _case(
+        "default-repo-sets-only-the-model",
+        repo={"model": "repo-model"},
+        run={},
+        chain=("repo-model", "site-fallback"),
         thinking="medium",
     ),
     _case(
-        "default-ignores-a-repo-null-thinking-d1",
+        "default-repo-sets-only-the-fallback",
+        repo={"fallback_model": "repo-fallback"},
+        run={},
+        chain=("site-model", "repo-fallback"),
+        thinking="medium",
+    ),
+    _case(
+        "default-repo-sets-only-thinking",
+        repo={"thinking_level": "low"},
+        run={},
+        chain=("site-model", "site-fallback"),
+        thinking="low",
+    ),
+    _case(
+        "default-repo-null-thinking-disables-thinking",
         repo={"thinking_level": None},
         run={},
         chain=("site-model", "site-fallback"),
-        thinking="medium",
+        thinking=None,
+    ),
+    _case(
+        "default-repo-null-thinking-keeps-the-repo-chain",
+        repo=REPO | {"thinking_level": None},
+        run={},
+        chain=("repo-model", "repo-fallback"),
+        thinking=None,
+    ),
+    _case(
+        "default-run-thinking-beats-the-repos",
+        repo=REPO,
+        run={"agent_thinking_level": "high"},
+        chain=("repo-model", "repo-fallback"),
+        thinking="high",
+    ),
+    _case(
+        "default-run-thinking-beats-a-repo-null",
+        repo=REPO | {"thinking_level": None},
+        run={"agent_thinking_level": "high"},
+        chain=("repo-model", "repo-fallback"),
+        thinking="high",
     ),
     _case(
         "default-run-thinking-beats-the-sites",
-        repo=REPO,
+        repo={},
         run={"agent_thinking_level": "low"},
         chain=("site-model", "site-fallback"),
         thinking="low",
@@ -215,6 +258,14 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking="bogus",
     ),
     _case(
+        "default-repo-thinking-beats-an-invalid-site-level",
+        site={"agent_thinking_level": "bogus"},
+        repo={"thinking_level": "low"},
+        run={},
+        chain=("site-model", "site-fallback"),
+        thinking="low",
+    ),
+    _case(
         "default-run-thinking-beats-an-invalid-site-level",
         site={"agent_thinking_level": "bogus"},
         repo={},
@@ -222,12 +273,27 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         chain=("site-model", "site-fallback"),
         thinking="low",
     ),
-    _case("default-without-a-site-model-raises", site={"agent_model_name": ""}, repo=REPO, run={}, raises=True),
     _case(
-        "default-without-a-site-model-raises-with-run-thinking",
+        "default-needs-no-site-default-when-the-repo-sets-a-model",
         site={"agent_model_name": ""},
         repo=REPO,
+        run={},
+        chain=("repo-model", "repo-fallback"),
+        thinking="low",
+    ),
+    _case("default-without-any-model-raises", site={"agent_model_name": ""}, repo={}, run={}, raises=True),
+    _case(
+        "default-without-any-model-raises-with-run-thinking",
+        site={"agent_model_name": ""},
+        repo={},
         run={"agent_thinking_level": "low"},
+        raises=True,
+    ),
+    _case(
+        "default-without-any-model-raises-when-the-repo-sets-only-a-fallback-and-thinking",
+        site={"agent_model_name": ""},
+        repo={"fallback_model": "repo-fallback", "thinking_level": "low"},
+        run={},
         raises=True,
     ),
 )

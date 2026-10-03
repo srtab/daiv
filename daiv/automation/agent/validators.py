@@ -17,10 +17,9 @@ class AgentConfigurationError(RuntimeError):
     """Raised when no agent model can be resolved for a run.
 
     Fires from :func:`automation.agent.agent_settings.resolve_agent_settings` when
-    the caller passes no ``agent_model`` override AND ``site_settings.agent_model_name``
-    is also empty. Surfaces from MCP / API / webhook layers so an admin can see
-    why a run was refused (instead of the request silently using a stale
-    repo-config fallback).
+    the caller passes no ``agent_model`` override AND neither the repository's
+    ``models.agent.model`` nor ``site_settings.agent_model_name`` is set. Surfaces
+    from MCP / API / webhook layers so an admin can see why a run was refused.
     """
 
 
