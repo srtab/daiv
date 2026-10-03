@@ -261,7 +261,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 run_id = run_id or started_run_id
             settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
-            await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
+            await _persist_resolved_agent(
+                spec, run_id=run_id, model=model, thinking_level=settings.agent.thinking_level or ""
+            )
             agent = await create_daiv_agent(
                 settings=settings,
                 ctx=ctx,
@@ -435,16 +437,19 @@ async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
         return None
 
 
-async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: str) -> None:
-    """Overwrite the requested ``agent_model`` on the Run and its Session with the resolved one, so the
-    detail view shows what ran instead of the "Auto" pill. Best-effort: a DB error is logged, never raised.
+async def _persist_resolved_agent(spec: RunSpec, *, run_id: str | None, model: str, thinking_level: str) -> None:
+    """Overwrite the requested ``agent_model`` on the Run with the resolved one, so the detail view shows what ran
+    instead of the "Auto" pill. A spec that names its Run also updates the Session; a Run only the ``on_context_ready``
+    hook started (chat) does not, since chat reads ``Session.agent_model`` as a pinned override.
+    Best-effort: a DB error is logged, never raised.
     """
-    if not spec.run_id:
+    if not run_id:
         return
     fields = {"agent_model": model, "agent_thinking_level": thinking_level}
     try:
-        await Run.objects.filter(pk=spec.run_id).aupdate(**fields)
-        await Session.objects.filter(pk=spec.thread_id).aupdate(**fields)
+        await Run.objects.filter(pk=run_id).aupdate(**fields)
+        if spec.run_id:
+            await Session.objects.filter(pk=spec.thread_id).aupdate(**fields)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
 

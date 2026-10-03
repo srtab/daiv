@@ -772,6 +772,23 @@ async def test_a_run_started_on_context_ready_is_bound_and_measured():
     assert (resolved, run.clone_seconds) == ([run], 1.5)
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_a_run_started_on_context_ready_records_its_model_but_leaves_the_session_unpinned():
+    """Chat reads ``Session.agent_model`` as a pinned override, so only the Run may take the resolved model."""
+    session, run = await _job_run()
+
+    async def _ready(_ref):
+        return str(run.pk)
+
+    with agent_stack(_agent()):
+        await execute_run(make_spec(thread_id=session.thread_id), RunHooks(on_context_ready=_ready))
+
+    await session.arefresh_from_db()
+    await run.arefresh_from_db()
+    assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
+
+
 async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     error = LookupError("Sandbox environment 'env-1' not found")
     on_failure = AsyncMock()

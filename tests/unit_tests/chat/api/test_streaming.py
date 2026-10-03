@@ -1020,7 +1020,7 @@ class TestResolvedModelRecord:
         """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
 
     @pytest.mark.django_db(transaction=True)
-    async def test_d9_a_chat_run_records_no_model_on_its_run_or_its_session(self):
+    async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned(self):
         await amake_job_session("t-stream")
 
         with (
@@ -1034,7 +1034,7 @@ class TestResolvedModelRecord:
 
         run = await Run.objects.aget(session_id="t-stream")
         session = await Session.objects.aget(thread_id="t-stream")
-        assert (run.agent_model, run.agent_thinking_level) == ("", "")
+        assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
         assert (session.agent_model, session.agent_thinking_level) == ("", "")
 
 
