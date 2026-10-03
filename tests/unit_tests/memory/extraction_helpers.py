@@ -5,20 +5,24 @@ from langchain_core.messages import AIMessage, HumanMessage
 from memory.schemas import ExtractedObservations
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.conftest import site_snapshot
+
 
 def _enabled_config(enabled=True):
-    config = MagicMock()
-    config.memory.enabled = enabled
-    return config
+    return RepositoryConfig(memory={"enabled": enabled})
 
 
 def _site_settings(**overrides):
-    """Mock of the site-settings singleton with the memory defaults the task reads."""
+    """Mock of the site-settings singleton: the memory defaults the task reads, and the one snapshot of them."""
+    fields = {
+        "memory_enabled": True,
+        "memory_extraction_model_name": "openrouter:openai/gpt-5.4-mini",
+        "memory_extraction_fallback_model_name": "openrouter:anthropic/claude-haiku-4.5",
+    } | overrides
     ss = MagicMock()
-    ss.memory_enabled = True
-    ss.memory_extraction_model_name = "openrouter:openai/gpt-5.4-mini"
-    ss.memory_extraction_fallback_model_name = "openrouter:anthropic/claude-haiku-4.5"
-    for key, value in overrides.items():
+    ss.snapshot.return_value = site_snapshot(**fields)
+    for key, value in fields.items():
         setattr(ss, key, value)
     return ss
 

@@ -138,15 +138,18 @@ async def submit_job(
             description=(
                 "Model override as 'provider_slug:model_name' (e.g. "
                 "'openrouter:anthropic/claude-sonnet-4.6'). Provider slug must match "
-                "an enabled Provider row. Omit to use the system default; the call is "
-                "refused when no system default is configured."
+                "an enabled Provider row. Omit to use the repository's models.agent model, else the system "
+                "default; the call is refused when no system default is configured."
             )
         ),
     ] = None,
     agent_thinking_level: Annotated[
         ThinkingLevelChoices | None,
         Field(
-            description="Optional thinking effort: minimal/low/medium/high. Omit to inherit from the system default."
+            description=(
+                "Optional thinking effort: minimal/low/medium/high. "
+                "Omit to inherit the repository's models.agent level, else the system default."
+            )
         ),
     ] = None,
     muted: Annotated[bool, Field(description="Mute notifications for every job in this batch.")] = False,
@@ -837,7 +840,14 @@ async def schedule_job(
         ),
     ] = None,
     agent_model: Annotated[
-        str | None, Field(description="Model override 'provider_slug:model_name'. Omit for the system default.")
+        str | None,
+        Field(
+            description=(
+                "Model override 'provider_slug:model_name'. "
+                "Omit for the repository's models.agent model, else the system default; "
+                "the call is refused when no system default is configured."
+            )
+        ),
     ] = None,
     agent_thinking_level: Annotated[
         ThinkingLevelChoices | None, Field(description="Thinking effort: minimal/low/medium/high.")

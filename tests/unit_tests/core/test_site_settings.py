@@ -1,4 +1,7 @@
+from dataclasses import asdict
 from unittest.mock import MagicMock, patch
+
+from django.db import models
 
 import pytest
 from pydantic import SecretStr
@@ -82,6 +85,21 @@ class TestEnvOverride:
             result = ss.auth_client_secret
             assert isinstance(result, SecretStr)
             assert result.get_secret_value() == "sk-test-env"
+
+
+@pytest.mark.parametrize("field", ["agent_thinking_level", "agent_max_thinking_level"])
+class TestEmptyThinkingLevel:
+    """The help text on these fields says an empty value disables thinking."""
+
+    def test_an_empty_value_in_the_database_falls_back_to_the_default(self, ss, field):
+        """Pins current behaviour, not a requirement: it contradicts the help text."""
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: ""})):
+            assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
+
+    def test_an_empty_value_in_the_environment_disables_thinking(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), "")
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
+            assert getattr(ss, field) == ""
 
 
 class TestEnvLocked:
@@ -227,3 +245,68 @@ class TestMemoryDefaults:
     def test_max_lines_db_override(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_max_lines=50)):
             assert ss.memory_max_lines == 50
+
+
+def _value_from(source: str, name: str, default):
+    """A value unlike ``name``'s default, as the database stores it or the environment spells it."""
+    field = SiteConfiguration._meta.get_field(name)
+    if isinstance(field, models.BooleanField):
+        value = not default
+    elif isinstance(field, models.IntegerField):
+        value = 4242
+    elif isinstance(field, models.FloatField):
+        value = 42.5
+    else:
+        value = f"{source}-{name}"
+    if source == "environment":
+        return str(value).lower()
+    return value
+
+
+class TestSnapshot:
+    @pytest.mark.parametrize("source", ["default", "database", "environment"])
+    def test_agrees_with_attribute_access_from_one_configuration_read(self, ss, monkeypatch, source):
+        db_values = {}
+        for name, default in ss.FIELD_DEFAULTS.items():
+            if source == "database":
+                db_values[name] = _value_from(source, name, default)
+            elif source == "environment":
+                monkeypatch.setenv(ss.get_env_var_name(name), _value_from(source, name, default))
+
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration(**db_values)) as get_cached:
+            snapshot = ss.snapshot()
+            assert get_cached.call_count == 1
+            resolved = {name: getattr(ss, name) for name in ss.FIELD_DEFAULTS}
+
+        assert asdict(snapshot) == resolved
+        if source != "default":
+            assert all(resolved[name] != default for name, default in ss.FIELD_DEFAULTS.items())
+
+    def test_a_malformed_env_var_fails_only_reads_of_its_field(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_FETCH_TIMEOUT_SECONDS", "15s")
+
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            snapshot = ss.snapshot()
+            with pytest.raises(ValueError, match="Cannot parse") as from_attribute_access:
+                ss.web_fetch_timeout_seconds  # noqa: B018
+
+        errors = []
+        for _ in range(2):
+            with pytest.raises(ValueError, match="Cannot parse") as from_snapshot:
+                snapshot.web_fetch_timeout_seconds  # noqa: B018
+            assert type(from_snapshot.value) is type(from_attribute_access.value)
+            errors.append(from_snapshot.value)
+        assert errors[0] is not errors[1]
+        assert errors[0].__cause__ is errors[1].__cause__
+        others = {name: getattr(snapshot, name) for name in ss.FIELD_DEFAULTS if name != "web_fetch_timeout_seconds"}
+        assert others == {name: value for name, value in ss.FIELD_DEFAULTS.items() if name in others}
+
+    def test_the_repr_shows_a_malformed_field_instead_of_raising(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_FETCH_TIMEOUT_SECONDS", "15s")
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            snapshot = ss.snapshot()
+
+        text = repr(snapshot)
+
+        assert "web_fetch_timeout_seconds=_Unresolved(" in text
+        assert f"agent_recursion_limit={ss.FIELD_DEFAULTS['agent_recursion_limit']!r}" in text

@@ -16,8 +16,10 @@ step sits where it does:
    branch that is gone; a failed re-pin is logged.
    ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates;
    the agent then runs bound to it (``bind_active_run``), as it does to ``spec.run_id``, and step 6 measures it.
-3. The model is resolved, or taken from ``spec.model_names``. For a spec with ``run_id`` it is recorded on the
-   ``Run`` and its session before the invoke, so a run that fails mid-way still shows what it ran with.
+3. The run's agent settings are resolved once, from one site snapshot, the repository's ``.daiv.yml`` and
+   ``spec.overrides()``, so a site-settings change applies from the next run. The model is recorded before the invoke,
+   so a run that fails mid-way still shows what it ran with: on the ``Run`` and its session for a spec with ``run_id``,
+   on the ``Run`` alone for one only ``on_context_ready`` started (chat reads the session's model as a pinned override).
 4. The agent is built over the run's workspace (a sandbox session that ``SandboxMiddleware`` acquires, reusing the
    thread's warm container when it can, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``,
    so ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
@@ -26,8 +28,8 @@ step sits where it does:
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
    stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a lost slot
    or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is published from its
-   checkpoint through that workspace while the clone and sandbox are still open, and the checkpoint is read again for
-   the failure hook. Setup errors skip this.
+   checkpoint through that workspace, with the settings the run resolved, while the clone and sandbox are still open,
+   and the checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch

@@ -122,11 +122,13 @@ class IssueCallback(BaseCallback):
         # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        use_max = self.object_attributes.has_max_label()
         result = await address_issue_task.aenqueue(
             repo_id=self.project.path_with_namespace,
             issue_iid=self.object_attributes.iid,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            use_max=use_max,
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
@@ -135,7 +137,7 @@ class IssueCallback(BaseCallback):
                 task_result_id=result.id,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
-                use_max=self.object_attributes.has_max_label(),
+                use_max=use_max,
                 user=daiv_user,
                 external_username=self.user.username,
                 title=self.object_attributes.title,
@@ -206,12 +208,14 @@ class NoteCallback(BaseCallback):
             )
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+            use_max = self.issue.has_max_label()
             result = await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                use_max=use_max,
             )
             try:
                 await acreate_run(
@@ -220,7 +224,7 @@ class NoteCallback(BaseCallback):
                     repo_id=self.project.path_with_namespace,
                     issue_iid=self.issue.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=self.issue.has_max_label(),
+                    use_max=use_max,
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.issue.title,

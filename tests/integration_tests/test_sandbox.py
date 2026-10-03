@@ -6,7 +6,13 @@ from automation.agent.graph import create_daiv_agent
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from core.site_settings import site_settings
 
-from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls, require_provider_for_model
+from .utils import (
+    CODING_MODEL_NAMES,
+    INTERRUPT_ALL_TOOLS_CONFIG,
+    agent_settings_on,
+    extract_tool_calls,
+    require_provider_for_model,
+)
 
 TEST_SUITE = "DAIV: Sandbox"
 
@@ -85,9 +91,9 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx, sand
     t.log_inputs({"model_name": model_name, "inputs": inputs})
 
     agent = await create_daiv_agent(
+        settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
         workspace=SandboxWorkspace(sandbox_session),
-        model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),
@@ -150,9 +156,9 @@ async def test_sandbox_policy_blocks_forbidden_commands(
     })
 
     agent = await create_daiv_agent(
+        settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
         workspace=SandboxWorkspace(sandbox_session),
-        model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),

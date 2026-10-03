@@ -34,7 +34,6 @@ from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMidd
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -43,6 +42,7 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
+    from automation.agent.agent_settings import ModelChain
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -372,14 +372,15 @@ Complete the user's search request efficiently and report your findings clearly.
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def create_explore_subagent(workspace: Workspace, working_directory: str) -> CompiledSubAgent:
+def create_explore_subagent(workspace: Workspace, working_directory: str, *, models: ModelChain) -> CompiledSubAgent:
     """
-    Create the explore subagent.
+    Create the explore subagent on ``models``, the run's explore chain.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    model = BaseAgent.get_model(model=site_settings.agent_explore_model_name)
+    model_name, *fallback_model_names = models.names
+    model = BaseAgent.get_model(model=model_name, thinking_level=models.thinking_level)
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -392,14 +393,18 @@ def create_explore_subagent(workspace: Workspace, working_directory: str) -> Com
         *_shared_subagent_middleware(model, workspace.backend),
     ]
 
-    if fallback_model_name := site_settings.agent_explore_fallback_model_name:
+    fallback_models = []
+    for fallback_model_name in fallback_model_names:
         try:
-            fallback_model = BaseAgent.get_model(model=fallback_model_name)
-            middleware.append(ModelFallbackMiddleware(fallback_model))
+            fallback_models.append(
+                BaseAgent.get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level)
+            )
         except Exception:
-            logger.warning(
+            logger.exception(
                 "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
             )
+    if fallback_models:
+        middleware.append(ModelFallbackMiddleware(*fallback_models))
 
     runnable = create_agent(
         model=model,

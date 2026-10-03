@@ -10,6 +10,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
+from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 from tests.unit_tests.sessions.conftest import make_artifact
@@ -287,6 +288,20 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
     assert response.status_code == 202
     assert captured.get("muted") is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_queues_a_run_without_a_model_when_the_site_has_none(authenticated_client: TestAsyncClient):
+    """Pins current behaviour, not a requirement: the run fails at start unless the repository sets a model."""
+    captured: dict = {}
+    with (
+        patch.multiple(site_settings, agent_model_name=""),
+        patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
+    ):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body())
+
+    assert response.status_code == 202
+    assert not captured["agent_model"]
 
 
 @pytest.mark.django_db(transaction=True)

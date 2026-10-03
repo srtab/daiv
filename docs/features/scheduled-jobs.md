@@ -18,7 +18,7 @@ Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 | **Name**                | A short label for the schedule (e.g., "Weekly dep audit") |
 | **Prompt**              | What the agent should do — same format as a Jobs API prompt |
 | **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository |
-| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. Leave it on the default to use the instance's configured model |
+| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. The picker pre-selects the instance's configured model, so the runs try it first and the repository's `models.agent` model after it. A schedule without a model, such as one created over [MCP](mcp-endpoint.md) without `agent_model`, leads with the repository's model, else the system default |
 | **Frequency**           | How often the job runs (see [Frequency options](#frequency-options)) |
 | **Time**                | Time of day for Daily, Weekdays, and Weekly schedules |
 | **Date & time**         | The specific date and time a one-off (**Once**) schedule fires |

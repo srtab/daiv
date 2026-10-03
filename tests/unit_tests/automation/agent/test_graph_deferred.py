@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.unit_tests.conftest import FakeWorkspace
+from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
 
 def _common_patches():
@@ -15,7 +15,6 @@ def _common_patches():
         # middlewares.deferred_tools (used by both the main agent and subagents), so patch it there.
         patch("automation.agent.middlewares.deferred_tools.deferred_settings"),
         patch("automation.agent.graph.BaseAgent"),
-        patch("automation.agent.graph.site_settings"),
         # Middleware constructors that validate input — replaced with no-op mocks
         patch("automation.agent.graph.SkillsMiddleware"),
         patch("automation.agent.graph.AnthropicPromptCachingMiddleware"),
@@ -42,7 +41,6 @@ class TestCreateDaivAgentDeferredFlag:
                 mock_toolkit,
                 mock_deferred_settings,
                 mock_base_agent,
-                mock_site_settings,
                 *_,
             ) = managers
 
@@ -56,12 +54,14 @@ class TestCreateDaivAgentDeferredFlag:
 
             mock_base_agent.get_model.return_value = MagicMock()
 
-            mock_site_settings.agent_recursion_limit = 50
-            mock_site_settings.agent_model_name = "claude"
-            mock_site_settings.agent_fallback_model_name = "claude"
-            mock_site_settings.agent_thinking_level = None
-            mock_site_settings.web_fetch_enabled = False
-            mock_site_settings.web_search_enabled = False
+            site = site_snapshot(
+                agent_recursion_limit=50,
+                agent_model_name="claude",
+                agent_fallback_model_name="claude",
+                agent_thinking_level=None,
+                web_fetch_enabled=False,
+                web_search_enabled=False,
+            )
 
             mock_create_deep_agent.return_value.with_config.return_value = MagicMock()
 
@@ -69,7 +69,9 @@ class TestCreateDaivAgentDeferredFlag:
             ctx.config.context_file_name = "AGENTS.md"
             ctx.git_platform = MagicMock()
 
-            await create_daiv_agent(ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False)
+            await create_daiv_agent(
+                settings=agent_settings(site=site), ctx=ctx, workspace=FakeWorkspace(), auto_commit_changes=False
+            )
             return (
                 mock_create_deep_agent,
                 mock_toolkit,

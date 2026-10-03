@@ -4,6 +4,7 @@ from sessions.pipeline_watch.policy import WatchPolicy
 
 from codebase.repo_config import RepositoryConfig
 from core.models import SiteConfiguration
+from tests.unit_tests.conftest import site_snapshot
 
 
 def test_the_attempt_cap_is_clamped_to_the_site_value(site_setting):
@@ -31,7 +32,7 @@ def test_reading_enabled_reaches_site_settings_for_a_repo_that_wants_the_watch()
     """
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": True}})
 
-    with patch.object(SiteConfiguration, "get_cached") as get_cached:
+    with patch.object(SiteConfiguration, "get_cached", return_value=None) as get_cached:
         WatchPolicy.enabled_for(config)
 
     assert get_cached.call_count >= 1
@@ -58,8 +59,19 @@ def test_asking_only_for_enabled_never_costs_the_attempt_cap():
     """
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": True, "max_attempts": 10}})
 
-    with patch.object(SiteConfiguration, "get_cached") as get_cached:
+    with patch.object(SiteConfiguration, "get_cached", return_value=None) as get_cached:
         assert WatchPolicy(config).enabled is True
+
+    assert get_cached.call_count == 1
+
+
+def test_the_switch_and_the_cap_share_one_snapshot():
+    config = RepositoryConfig(**{"pipeline_watch": {"enabled": True, "max_attempts": 10}})
+
+    with patch.object(SiteConfiguration, "get_cached", return_value=None) as get_cached:
+        policy = WatchPolicy(config)
+        assert policy.enabled is True
+        assert policy.max_attempts == site_snapshot().pipeline_watch_max_attempts
 
     assert get_cached.call_count == 1
 

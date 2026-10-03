@@ -17,7 +17,7 @@ from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
-from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, sandbox_spec
+from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, agent_settings, sandbox_spec, site_snapshot
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -28,7 +28,6 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "create_deep_agent": ("create_deep_agent", {}),
         "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
         "base_agent": ("BaseAgent", {}),
-        "site_settings": ("site_settings", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
         "git_middleware": ("GitMiddleware", {}),
         "git_platform_middleware": ("GitPlatformMiddleware", {}),
@@ -46,7 +45,7 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             for name, (target, kwargs) in _patches().items()
         }
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        mocks["site_settings"].configure_mock(
+        site = site_snapshot(
             agent_recursion_limit=50,
             agent_model_name="m",
             agent_fallback_model_name="m",
@@ -57,7 +56,9 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
         ctx = MagicMock()
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
-        await create_daiv_agent(ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs)
+        await create_daiv_agent(
+            settings=agent_settings(site=site), ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs
+        )
     return SimpleNamespace(**mocks)
 
 

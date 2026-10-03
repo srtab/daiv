@@ -4,23 +4,33 @@ from memory.constants import MEMORY_MAX_BYTES, MEMORY_MAX_LINES
 from memory.models import MemoryEntry, MemoryObservation, ObservationCategory
 from memory.schemas import MemoryOperation, MemoryOperations
 
+from codebase.repo_config import RepositoryConfig
+from tests.unit_tests.conftest import site_snapshot
+
 
 def _enabled_config(enabled=True):
-    config = MagicMock()
-    config.memory.enabled = enabled
-    config.models.agent.model = "openrouter:anthropic/claude-sonnet-4.6"
-    config.models.agent.fallback_model = "openrouter:openai/gpt-5.3-codex"
-    return config
+    return RepositoryConfig(
+        memory={"enabled": enabled},
+        models={
+            "agent": {
+                "model": "openrouter:anthropic/claude-sonnet-4.6",
+                "fallback_model": "openrouter:openai/gpt-5.3-codex",
+            }
+        },
+    )
 
 
 def _site_settings(**overrides):
-    """Mock of the site-settings singleton with the memory defaults consolidation reads."""
+    """Mock of the site-settings singleton: the memory defaults consolidation reads, and the one snapshot of them."""
+    fields = {
+        "memory_enabled": True,
+        "memory_consolidation_model_name": None,  # empty → reuse repo agent model
+        "memory_max_lines": MEMORY_MAX_LINES,
+        "memory_max_bytes": MEMORY_MAX_BYTES,
+    } | overrides
     ss = MagicMock()
-    ss.memory_enabled = True
-    ss.memory_consolidation_model_name = None  # empty → reuse repo agent model
-    ss.memory_max_lines = MEMORY_MAX_LINES
-    ss.memory_max_bytes = MEMORY_MAX_BYTES
-    for key, value in overrides.items():
+    ss.snapshot.return_value = site_snapshot(**fields)
+    for key, value in fields.items():
         setattr(ss, key, value)
     return ss
 

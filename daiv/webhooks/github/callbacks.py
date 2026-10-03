@@ -105,11 +105,13 @@ class IssueCallback(GitHubCallback):
         # user=None: the webhook fires for whoever touched the issue/PR, not the agent owner, so USER envs never apply.
         sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
         sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        use_max = self.issue.has_max_label()
         result = await address_issue_task.aenqueue(
             repo_id=self.repository.full_name,
             issue_iid=self.issue.number,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            use_max=use_max,
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
@@ -118,7 +120,7 @@ class IssueCallback(GitHubCallback):
                 task_result_id=result.id,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
-                use_max=self.issue.has_max_label(),
+                use_max=use_max,
                 user=daiv_user,
                 external_username=self.sender.username,
                 title=self.issue.title,
@@ -183,12 +185,14 @@ class IssueCommentCallback(GitHubCallback):
             )
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+            use_max = self.issue.has_max_label()
             result = await address_issue_task.aenqueue(
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                use_max=use_max,
             )
             try:
                 await acreate_run(
@@ -197,7 +201,7 @@ class IssueCommentCallback(GitHubCallback):
                     repo_id=self.repository.full_name,
                     issue_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    use_max=self.issue.has_max_label(),
+                    use_max=use_max,
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,

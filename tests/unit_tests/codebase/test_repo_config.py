@@ -1,6 +1,5 @@
-import warnings
+from unittest.mock import patch
 
-from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
 
 
@@ -16,34 +15,28 @@ def test_repo_config_ignores_legacy_sandbox_block():
     assert config.default_branch == "main"
 
 
-def test_default_thinking_level_coerces_raw_site_settings_string(monkeypatch):
-    """Site settings return raw strings for DB/env-set values, and pydantic skips
-    validation of default_factory results — without coercion the raw string sits in
-    the enum-typed field and every full model_dump() emits
-    PydanticSerializationUnexpectedValue warnings."""
+def test_the_model_and_attempt_defaults_hold_nothing_from_the_site():
+    """The resolver takes an unset value from the site snapshot, so a config that copied the site in at load time
+    would pin a stale value into every run the cached entry serves."""
     from codebase.repo_config import RepositoryConfig
 
-    monkeypatch.setattr(site_settings, "agent_thinking_level", "xhigh")
-    config = RepositoryConfig()
+    site = {
+        "agent_model_name": "site-model",
+        "agent_fallback_model_name": "site-fallback",
+        "agent_thinking_level": "high",
+        "diff_to_metadata_model_name": "site-d2m",
+        "diff_to_metadata_fallback_model_name": "site-d2m-fallback",
+        "pipeline_watch_max_attempts": 1,
+    }
+    with patch.multiple(site_settings, **site):
+        config = RepositoryConfig()
 
-    assert config.models.agent.thinking_level is ThinkingLevelChoices.XHIGH
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        config.model_dump()
-    assert not [w for w in caught if "Pydantic serializer warnings" in str(w.message)]
-
-
-def test_default_thinking_level_degrades_invalid_value_to_none(monkeypatch):
-    """An invalid DAIV_AGENT_THINKING_LEVEL env value must not break repository
-    config loading; it degrades to None (thinking disabled)."""
-    from codebase.repo_config import RepositoryConfig
-
-    monkeypatch.setattr(site_settings, "agent_thinking_level", "banana")
-    assert RepositoryConfig().models.agent.thinking_level is None
-
-    monkeypatch.setattr(site_settings, "agent_thinking_level", "")
-    assert RepositoryConfig().models.agent.thinking_level is None
+    assert config.models.model_dump() == {
+        "agent": {"model": None, "fallback_model": None, "thinking_level": None},
+        "diff_to_metadata": {"model": None, "fallback_model": None},
+    }
+    assert config.pipeline_watch.max_attempts is None
+    assert config.model_fields_set == set()
 
 
 def test_memory_section_defaults_enabled():
@@ -60,12 +53,12 @@ def test_memory_section_can_be_disabled():
     assert config.memory.enabled is False
 
 
-def test_pipeline_watch_defaults_come_from_site_settings():
+def test_pipeline_watch_defaults_leave_the_cap_to_the_site():
     from codebase.repo_config import RepositoryConfig
 
     config = RepositoryConfig()
     assert config.pipeline_watch.enabled is True
-    assert config.pipeline_watch.max_attempts == 3
+    assert config.pipeline_watch.max_attempts is None
 
 
 def test_pipeline_watch_a_repo_can_disable_the_watch():
@@ -73,7 +66,7 @@ def test_pipeline_watch_a_repo_can_disable_the_watch():
 
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": False}})
     assert config.pipeline_watch.enabled is False
-    assert config.pipeline_watch.max_attempts == 3
+    assert config.pipeline_watch.max_attempts is None
 
 
 def test_pipeline_watch_a_repo_can_tighten_the_attempt_cap():

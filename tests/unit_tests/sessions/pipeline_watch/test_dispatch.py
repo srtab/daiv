@@ -185,6 +185,28 @@ async def test_a_session_without_an_environment_runs_its_fix_on_the_global_defau
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_the_fix_run_carries_neither_the_sessions_model_nor_its_thinking_level(
+    stub_enqueue, create_db_task_result
+):
+    """Pins current behaviour, not a requirement: a fix run resolves its model afresh."""
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    session = await _make_watched_session()
+    session.agent_model = "openrouter:anthropic/claude-opus-4.6"
+    session.agent_thinking_level = "high"
+    await session.asave(update_fields=["agent_model", "agent_thinking_level"])
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    run = await Run.objects.aget(session_id=session.thread_id)
+    assert not calls[0].get("agent_model")
+    assert not calls[0].get("agent_thinking_level")
+    assert (run.agent_model, run.agent_thinking_level) == ("", "")
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_failed_enqueue_refunds_the_attempt_and_reopens_the_watch(stub_enqueue, monkeypatch):
     """The claim charges the attempt before the dispatch, so a broker failure would otherwise
     spend it on nothing and leave the row in ``fixing`` until the 30-minute stale sweep."""

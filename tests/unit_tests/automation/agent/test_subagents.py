@@ -8,6 +8,7 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -16,6 +17,7 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware, _check_fs_permission
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.agent_settings import ModelChain
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import (
     READ_ONLY_PERMISSIONS,
@@ -36,7 +38,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_custom_subagents,
 )
-from tests.unit_tests.conftest import FakeWorkspace
+from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -517,7 +519,9 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/")
+        result = create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", models=agent_settings().explore
+        )
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
@@ -819,13 +823,39 @@ class TestCustomSubagents:
 def _explore_permissions(*, sandbox: bool) -> list:
     with (
         patch("automation.agent.subagents.BaseAgent"),
-        patch("automation.agent.subagents.site_settings", agent_explore_fallback_model_name=None),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
-        create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/")
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", models=ModelChain(("explore",))
+        )
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions
+
+
+def test_explore_skips_a_fallback_that_fails_to_build(caplog):
+    built = {"explore": Mock(), "working-fallback": Mock()}
+
+    def get_model(*, model, thinking_level=None):
+        if model == "broken-fallback":
+            raise RuntimeError("Provider 'x' has no API key configured.")
+        return built[model]
+
+    with (
+        patch("automation.agent.subagents.BaseAgent.get_model", side_effect=get_model),
+        patch("automation.agent.subagents.create_agent") as create_agent,
+        caplog.at_level(logging.ERROR, logger="daiv.agent"),
+    ):
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True),
+            "/workspace/repo/",
+            models=ModelChain(("explore", "broken-fallback", "working-fallback")),
+        )
+
+    [fallback] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
+    assert fallback.models == [built["working-fallback"]]
+    assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
+    assert "no API key configured" in caplog.text
 
 
 def test_explore_in_a_sandbox_is_only_read_only():

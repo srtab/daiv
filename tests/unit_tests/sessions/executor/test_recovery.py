@@ -12,8 +12,10 @@ from sessions.executor.recovery import recover_draft
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
-from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, sandbox_spec
+from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
+
+SETTINGS = agent_settings()
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -68,6 +70,7 @@ async def _publish(*, checkpointed_mr, current_ref: str, workspace=None) -> Mock
             {},
             thread_id="t-1",
             workspace=workspace or FakeWorkspace(),
+            settings=SETTINGS,
         )
     return pub_cls
 
@@ -116,6 +119,11 @@ class TestPublishTarget:
 
         assert pub_cls.call_args.kwargs["thread_id"] == "t-1"
 
+    async def test_it_hands_the_publisher_the_settings_the_run_resolved(self):
+        pub_cls = await _publish(checkpointed_mr=None, current_ref="master")
+
+        assert pub_cls.call_args.kwargs["settings"] is SETTINGS
+
 
 class TestSandboxMode:
     @staticmethod
@@ -123,7 +131,12 @@ class TestSandboxMode:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
-                _ctx(sandbox=sandbox_spec()), agent, {}, thread_id="t-1", workspace=SandboxWorkspace(session)
+                _ctx(sandbox=sandbox_spec()),
+                agent,
+                {},
+                thread_id="t-1",
+                workspace=SandboxWorkspace(session),
+                settings=SETTINGS,
             )
         return published, agent
 
@@ -170,6 +183,7 @@ class TestSandboxMode:
                 {},
                 thread_id="t-1",
                 workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec())),
+                settings=SETTINGS,
             )
 
         assert published is False

@@ -108,7 +108,7 @@ async def test_a_no_op_turn_on_an_existing_mr_does_not_re_arm(stub_watch):
     assert stub_watch.enqueued == []
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_the_fix_run_verdict_comes_from_the_run_row(stub_watch, django_user_model):
     """``WatchStore.ais_fix_run`` is the real read here rather than a stub: a dispatcher that
     forgets to thread its ``run_id`` through silently resets the attempt counter and unbounds the loop."""
