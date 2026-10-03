@@ -11,6 +11,7 @@ from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunSpec
 
 from automation.agent.agent_settings import RunOverrides
+from automation.agent.results import parse_agent_result
 from codebase.base import Scope
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
@@ -54,7 +55,9 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapsh
         context_kwargs={},
         ctx=ctx
         if ctx is not None
-        else MagicMock(repo=SimpleNamespace(ref="main", clone_seconds=1.5), sandbox=None, sandbox_client=None),
+        else MagicMock(
+            repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), sandbox=None, sandbox_client=None
+        ),
         checkpointer=object(),
         armed=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
@@ -79,7 +82,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapsh
 
     async def _build_result(*_args, **kwargs):
         stack.events.append("result built")
-        return {"response": kwargs["response"], "question": kwargs.get("question")}
+        return parse_agent_result(kwargs)
 
     class _Watch(watch_recorder(stack.armed)):
         async def aarm_after_run(self, **kwargs):

@@ -30,6 +30,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
+from automation.agent.results import parse_agent_result
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
@@ -71,6 +72,7 @@ def _mock_ctx(*_args, **_kwargs):
     ctx = MagicMock()
     entered = MagicMock()
     entered.repo.ref = "main"
+    entered.repo.head_detached = False
     ctx.__aenter__ = AsyncMock(return_value=entered)
     ctx.__aexit__ = AsyncMock(return_value=None)
     return ctx
@@ -120,7 +122,7 @@ async def test_events_persists_the_checkpoints_merge_request_and_releases_the_sl
     persist_calls = []
     release_calls = []
 
-    async def _capture_persist(*, thread_id, current_ref, merge_request):
+    async def _capture_persist(*, thread_id, current_ref, merge_request, published):
         persist_calls.append((thread_id, current_ref, merge_request))
 
     async def _capture_release(thread_id, run_id):
@@ -147,7 +149,7 @@ async def test_events_persists_the_checkpoints_merge_request_over_the_streamed_o
     finished = {"source_branch": "feature-final"}
     persist_calls = []
 
-    async def _capture_persist(*, thread_id, current_ref, merge_request):
+    async def _capture_persist(*, thread_id, current_ref, merge_request, published):
         persist_calls.append((thread_id, current_ref, merge_request))
 
     with (
@@ -168,10 +170,10 @@ async def test_events_persists_the_checkpoints_merge_request_over_the_streamed_o
 
 @pytest.mark.django_db(transaction=True)
 async def test_events_persists_none_when_the_checkpoint_has_no_merge_request():
-    # A turn that ends without a merge request leaves the thread's ref untouched; apersist_session_ref gets None.
+    # A turn that ends without a merge request still reaches apersist_session_ref, with None.
     persist_calls = []
 
-    async def _capture_persist(*, thread_id, current_ref, merge_request):
+    async def _capture_persist(*, thread_id, current_ref, merge_request, published):
         persist_calls.append((thread_id, current_ref, merge_request))
 
     with (
@@ -208,7 +210,7 @@ async def test_events_skips_persist_ref_when_run_errored():
     persist_calls: list = []
     release_calls: list = []
 
-    async def _capture_persist(*, thread_id, current_ref, merge_request):
+    async def _capture_persist(*, thread_id, current_ref, merge_request, published):
         persist_calls.append((thread_id, current_ref, merge_request))
 
     async def _capture_release(*args):
@@ -294,12 +296,12 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     persist_calls: list = []
 
-    async def _capture_persist(*, thread_id, current_ref, merge_request):
+    async def _capture_persist(*, thread_id, current_ref, merge_request, published):
         persist_calls.append((thread_id, current_ref, merge_request))
 
     streamed_events: list = []
@@ -341,7 +343,7 @@ async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -526,7 +528,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     release_calls: list = []
@@ -578,7 +580,7 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -619,7 +621,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
 
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, error_message="", **_kwargs):
         finalize_calls.append({"success": success, "error_message": error_message})
 
     with (
@@ -691,7 +693,7 @@ async def test_events_buffers_text_deltas_into_result_summary():
 
     captured: dict = {}
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, success, response_text, **_kwargs):
         captured["response_text"] = response_text
         captured["success"] = success
 
@@ -726,7 +728,7 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
     """The question is never streamed as text; the checkpoint is the only place the finished turn reads it from."""
     finalize_calls: list = []
 
-    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _capture_finalize(run_pk, *, response_text, question=None, **_kwargs):
         finalize_calls.append({"question": question, "response_text": response_text})
 
     with (
@@ -741,6 +743,28 @@ async def test_the_turn_finalizes_with_the_question_it_ended_on(checkpoint_messa
             pass
 
     assert finalize_calls == [expected]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_turn_finalizes_with_its_agent_result(_executor_stack):
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, agent_result=None, **_kwargs):
+        finalize_calls.append(agent_result)
+
+    agent_result = parse_agent_result({"merge_request_id": 7, "merge_request_web_url": "https://git.example/mr/7"})
+    _executor_stack.build_result.side_effect = None
+    _executor_stack.build_result.return_value = agent_result
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert finalize_calls == [agent_result]
 
 
 class TestReasoningProvenance:
@@ -1071,10 +1095,10 @@ def _recorded_turn(
         _log("start")
         return SimpleNamespace(pk="run-pk")
 
-    async def _finalize(_run_pk, *, success, usage, response_text, error_message="", question=None):
+    async def _finalize(_run_pk, *, success, error_message="", **_kwargs):
         _log("finalize", success, error_message)
 
-    async def _persist(*, thread_id, current_ref, merge_request):
+    async def _persist(*, thread_id, current_ref, merge_request, published):
         _log("persist", current_ref, merge_request)
 
     class _Watch(watch_recorder([])):

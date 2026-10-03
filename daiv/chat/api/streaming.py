@@ -23,7 +23,7 @@ from sessions.executor.lock import Held, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.locks import SessionLock
-from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
+from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 from automation.agent.usage_tracking import build_usage_summary
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from sessions.executor.run import AgentRun
     from sessions.executor.spec import RunOutcome
 
+    from automation.agent.results import AgentResult
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from codebase.context import RuntimeCtx
     from codebase.references import ExternalRef
@@ -73,11 +74,11 @@ async def finalize_chat_run(
     response_text: str,
     error_message: str = "",
     question: dict | None = None,
+    agent_result: AgentResult | None = None,
 ) -> None:
-    """Terminal transition for a chat Run. Reuses ``usage_field_updates`` so the
-    token/cost denormalization stays identical to the task-backed path
-    (``Run.sync_from_task_result``). On failure, ``error_message`` is persisted so the
-    run timeline shows a reason instead of a blank FAILED pill.
+    """Terminal transition for a chat Run. Reuses ``usage_field_updates`` and ``agent_result_field_updates`` so
+    the denormalization stays identical to the task-backed path (``Run.sync_from_task_result``). On failure,
+    ``error_message`` is persisted so the run timeline shows a reason instead of a blank FAILED pill.
     """
     if not success:
         status = RunStatus.FAILED
@@ -92,6 +93,8 @@ async def finalize_chat_run(
         update["result_summary"] = response_text[:2000]
     if not success and error_message:
         update["error_message"] = error_message[:2000]
+    if agent_result:
+        update.update(agent_result_field_updates(agent_result))
     if usage:
         update.update(usage_field_updates(usage, run_ref=run_pk))
     await Run.objects.filter(pk=run_pk).aupdate(**update)
@@ -246,6 +249,7 @@ class _Turn:
     response: str = ""
     error: str | None = None
     question: dict | None = None
+    agent_result: AgentResult | None = None
 
     def add_text(self, delta: str | None) -> None:
         """Buffer assistant text for ``result_summary``, capped at the 2000 chars ``finalize_chat_run`` keeps."""
@@ -383,6 +387,7 @@ class ChatRunStreamer:
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
         """A turn that ended on a question keeps the rendered question as its summary, since the question
         itself was never streamed as text."""
+        turn.agent_result = outcome.agent_result
         if (question := outcome.agent_result["question"]) is not None:
             turn.question = question
             turn.response = outcome.response_text
@@ -427,6 +432,7 @@ class ChatRunStreamer:
                     response_text=turn.response,
                     error_message=turn.error or "",
                     question=turn.question,
+                    agent_result=turn.agent_result,
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)

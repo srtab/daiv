@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 import uuid
 
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 import pytest
@@ -233,6 +235,26 @@ class TestSessionListView:
         with django_assert_num_queries(0):
             latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
         assert latest.pk == newest.pk
+
+    def test_row_links_the_merge_request_a_job_run_published(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
+
+    def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
+        """A run field the row reads but ``.only()`` leaves out costs a query per row."""
+        _create_run(_create_session(user=user), merge_request_iid=1, merge_request_web_url="https://git.example/mr/1")
+        logged_in_client.get(reverse("session_list"))  # the first render also warms per-process caches
+        with CaptureQueriesContext(connection) as baseline:
+            logged_in_client.get(reverse("session_list"))
+        for iid in (2, 3, 4):
+            _create_run(_create_session(user=user), merge_request_iid=iid, merge_request_web_url=f"https://git/{iid}")
+
+        with django_assert_num_queries(len(baseline.captured_queries)):
+            logged_in_client.get(reverse("session_list"))
 
     def test_header_has_new_cta(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))

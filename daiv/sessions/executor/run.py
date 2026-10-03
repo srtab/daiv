@@ -380,10 +380,15 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     if response_text is None:
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
-    if spec.persist_ref:
+    published = bool(values.get("published"))
+    # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
+    if spec.persist_ref and snapshot is not None:
         try:
             await apersist_session_ref(
-                thread_id=run.thread_id, current_ref=run.ctx.repo.ref, merge_request=merge_request
+                thread_id=run.thread_id,
+                current_ref="" if run.ctx.repo.head_detached else run.ctx.repo.ref,
+                merge_request=merge_request,
+                published=published,
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
@@ -392,7 +397,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             await PipelineWatch(spec.repo_id).aarm_after_run(
                 run_id=spec.run_id,
                 merge_request=merge_request,
-                published=bool(values.get("published")),
+                published=published,
                 user_id=spec.acting_user_id,
                 sandbox_environment_id=spec.sandbox_env_id,
             )

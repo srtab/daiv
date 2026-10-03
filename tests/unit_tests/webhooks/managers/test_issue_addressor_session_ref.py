@@ -40,7 +40,7 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
     )
     ctx = SimpleNamespace(
         config=MagicMock(),
-        repo=SimpleNamespace(ref=cloned_ref),
+        repo=SimpleNamespace(ref=cloned_ref, head_detached=False),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
@@ -69,12 +69,13 @@ class TestIssueAddressorPersistsSessionRef:
         # The snapshot this reads is threaded into the result, so the turn pays one checkpoint read, not two.
         agent.aget_state.assert_awaited_once()
 
-    async def test_a_run_that_published_nothing_moves_no_pointer(self, stub_base_init):
-        """``apersist_session_ref`` is a no-op on a ``None`` MR, but it must still be reached with it rather than
-        skipped on a guess — the checkpoint is the authority on what published."""
+    async def test_a_run_that_published_nothing_still_reaches_the_ref_sync(self, stub_base_init):
+        """A ``None`` MR must still reach ``apersist_session_ref`` rather than be skipped on a guess: the checkpoint is
+        the authority on what published, and an issue session's blank ref takes the clone's from it."""
         persist, _, _ = await _run(published_mr=None, cloned_ref="master")
 
         assert persist.await_args.kwargs["merge_request"] is None
+        assert persist.await_args.kwargs["published"] is False
 
     async def test_a_failed_pointer_write_does_not_fail_the_run(self, stub_base_init, caplog):
         """The agent finished and its work already landed, before the ref sync runs. A cosmetic pointer must never

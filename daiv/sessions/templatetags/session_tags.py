@@ -139,6 +139,18 @@ def artifact_icon(kind) -> str:
 
 
 @register.simple_tag
+def session_merge_request(session) -> dict | None:
+    """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
+    runs. Expects ``runs`` prefetched newest first, as ``SessionListView`` does."""
+    runs = [r for r in session.runs.all() if r.merge_request_iid]
+    iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
+    if iid is None:
+        return None
+    url = next((r.merge_request_web_url for r in runs if r.merge_request_iid == iid and r.merge_request_web_url), "")
+    return {"iid": iid, "url": url}
+
+
+@register.simple_tag
 def session_cost(session) -> str:
     """Sum cost_usd across a session's runs (uses the prefetch cache), formatted."""
     total = sum((r.cost_usd for r in session.runs.all() if r.cost_usd is not None), Decimal("0"))

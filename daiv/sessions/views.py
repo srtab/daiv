@@ -163,6 +163,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
                         "status",
                         "started_at",
                         "finished_at",
+                        "merge_request_iid",
                         "merge_request_web_url",
                         "cost_usd",
                         "created_at",
