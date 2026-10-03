@@ -4,7 +4,7 @@ The only module permitted to decrypt :attr:`accounts.models.PlatformCredential.a
 Every other caller asks here and receives either a usable token or a typed
 :class:`CredentialReason`.
 
-Five invariants this module exists to keep:
+Six invariants this module exists to keep:
 
 * the token cache is keyed on the **identity**, never the thread — a resumed thread whose acting
   person differs must not read the previous person's token;
@@ -16,7 +16,9 @@ Five invariants this module exists to keep:
   error, a 5xx or a rotated-token race yields :attr:`CredentialReason.REFRESH_FAILED` and leaves
   the row alone. A grant DAIV gives up on logs at ``error`` — an authorisation lost to key
   rotation or a dead refresh token is operator-actionable; a person revoking their own is not;
-* no token, and no fragment of one, reaches a log record or a ``repr``.
+* no token, and no fragment of one, reaches a log record or a ``repr``;
+* a local holding a secret is named ``access_token``, ``refresh_token``, ``token`` or ``client_secret``,
+  because Sentry's scrubber matches frame-local names exactly.
 """
 
 from __future__ import annotations
@@ -237,8 +239,8 @@ async def aresolve_access_token(
         return ResolvedCredential(reason=CredentialReason.INSUFFICIENT_SCOPE, scopes=scopes, user_id=owner_id)
 
     cache_key = token_cache_key(owner_id, provider_value, host)
-    if cached := await cache.aget(cache_key):
-        return ResolvedCredential(token=cached, scopes=scopes, user_id=owner_id)
+    if access_token := await cache.aget(cache_key):
+        return ResolvedCredential(token=access_token, scopes=scopes, user_id=owner_id)
 
     if _needs_refresh(credential):
         refreshed = await _arefresh(credential)
@@ -497,13 +499,14 @@ def _token_endpoint(provider: GitPlatform) -> str:
     return f"{_gitlab_auth_base().rstrip('/')}/oauth/token"
 
 
-def _oauth_client() -> tuple[str, str] | None:
+def _oauth_client() -> dict[str, str] | None:
+    """The OAuth client credentials, keyed so Sentry's scrubber recognises the secret in a frame local."""
     client_id = site_settings.auth_client_id
     secret = site_settings.auth_client_secret
-    secret_value = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
-    if not client_id or not secret_value:
+    client_secret = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
+    if not client_id or not client_secret:
         return None
-    return client_id, secret_value
+    return {"client_id": client_id, "client_secret": client_secret}
 
 
 async def _arefresh(credential):
@@ -549,7 +552,7 @@ async def _arefresh(credential):
         )
         return CredentialReason.REFRESH_FAILED
 
-    new_refresh = payload.get("refresh_token") or refresh_token
+    refresh_token = payload.get("refresh_token") or refresh_token
     expires_in = payload.get("expires_in")
     expires_at = timezone.now() + timedelta(seconds=int(expires_in)) if expires_in not in (None, "") else None
     scopes = _as_scopes(payload.get("scope")) or _as_scopes(credential.scopes)
@@ -557,7 +560,7 @@ async def _arefresh(credential):
         credential.pk,
         seen_modified=seen_modified,
         access_token=access_token,
-        refresh_token=new_refresh,
+        refresh_token=refresh_token,
         expires_at=expires_at,
         scopes=scopes,
     )
@@ -636,15 +639,9 @@ async def _arequest_refresh(credential, refresh_token: str) -> dict[str, Any] | 
         # Transient: a missing client must not destroy the grants it cannot renew.
         logger.error("Cannot refresh platform credentials: no OAuth client is configured.")
         return RefreshFailure.TRANSIENT
-    client_id, client_secret = client
 
     provider = GitPlatform(credential.provider)
-    data = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-    }
+    data = {**client, "grant_type": "refresh_token", "refresh_token": refresh_token}
     try:
         async with httpx.AsyncClient(timeout=REFRESH_TIMEOUT_SECONDS) as http:
             response = await http.post(
