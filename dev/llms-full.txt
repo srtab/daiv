@@ -875,6 +875,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
    - Contents: **Read & Write** (to create branches and commits)
    - Issues: **Read & Write** (to read and comment on issues)
    - Pull requests: **Read & Write** (to create and update pull requests)
+   - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md))
    - Metadata: **Read-only** (automatically selected)
    - **Subscribe to events:**
    - ✅ Push
@@ -1006,7 +1007,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
      - ✅ Issue comment
      - ✅ Pull request review
      - ✅ Pull request
-     - ✅ Workflow run
+     - ✅ Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
 
 1. **Test Webhook Delivery**:
 
@@ -1842,8 +1843,10 @@ The management command does nothing on GitHub
 Subscribe the App instead — this covers every repository it is installed on at once:
 
 1. Open your GitHub App's settings page → **Permissions & events**.
+1. Under **Repository permissions**, set **Actions** to **Read-only**. This is required to subscribe to **Workflow run** and to read job logs.
 1. Under **Subscribe to events**, check **Workflow run**.
-1. Save. No re-installation or permission re-approval is needed for an event-only change.
+1. Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's **Configure** page; until then, pipeline watch is inert on that installation.
+1. After the next workflow run, check **Advanced → Recent Deliveries** for a `workflow_run` delivery.
 
 See [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) for the full event checklist.
 

@@ -159,8 +159,10 @@ The management command does nothing on GitHub
 Subscribe the App instead — this covers every repository it is installed on at once:
 
 1. Open your GitHub App's settings page → **Permissions & events**.
+1. Under **Repository permissions**, set **Actions** to **Read-only**. This is required to subscribe to **Workflow run** and to read job logs.
 1. Under **Subscribe to events**, check **Workflow run**.
-1. Save. No re-installation or permission re-approval is needed for an event-only change.
+1. Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's **Configure** page; until then, pipeline watch is inert on that installation.
+1. After the next workflow run, check **Advanced → Recent Deliveries** for a `workflow_run` delivery.
 
 See [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) for the full event checklist.
 
