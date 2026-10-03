@@ -2,8 +2,7 @@
 one agent run gets.
 
 A repo's ``models.agent`` holds only the keys it sets: ``{"thinking_level": None}`` disables thinking, ``{}`` leaves it
-to the site. A case whose run carries ``model_names`` is the exact chain. ``-through-raw`` marks a site thinking
-level that reaches the model unvalidated.
+to the site. A case whose run carries ``model_names`` is the exact chain.
 """
 
 from __future__ import annotations
@@ -57,7 +56,7 @@ def _case(
 
 
 AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
-    # Exact chain: as given, nothing appended, and no thinking is not the site default.
+    # Exact chain
     _case(
         "exact-chain-runs-as-given",
         repo=REPO,
@@ -72,7 +71,14 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         chain=("exact-a", "exact-b"),
         thinking=None,
     ),
-    # Run override: the override first, then the repo's model and fallback; thinking from the run, then the repo.
+    _case(
+        "exact-chain-with-an-invalid-run-level-gets-no-thinking",
+        repo=REPO,
+        run={"model_names": ("exact-a",), "agent_thinking_level": "bogus"},
+        chain=("exact-a",),
+        thinking=None,
+    ),
+    # Run override
     _case(
         "override-leads-the-repo-chain",
         repo=REPO,
@@ -153,7 +159,15 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         chain=(RUN_MODEL, "repo-model", "repo-fallback"),
         thinking="low",
     ),
-    # Max (the daiv-max label): the site's max model first, then the repo's; thinking from the site's max level only.
+    _case(
+        "override-drops-a-blank-site-model",
+        site={"agent_model_name": ""},
+        repo={},
+        run={"agent_model": RUN_MODEL},
+        chain=(RUN_MODEL, "site-fallback"),
+        thinking="medium",
+    ),
+    # Max (the daiv-max label)
     _case(
         "max-leads-the-repo-chain",
         repo=REPO,
@@ -176,12 +190,12 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking="high",
     ),
     _case(
-        "max-passes-an-invalid-site-max-level-through-raw",
+        "max-gets-no-thinking-when-the-site-max-level-is-invalid",
         site={"agent_max_thinking_level": "bogus"},
         repo=REPO,
         run={"use_max": True},
         chain=("site-max-model", "repo-model", "repo-fallback"),
-        thinking="bogus",
+        thinking=None,
     ),
     _case(
         "max-needs-no-site-default",
@@ -191,8 +205,22 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         chain=("site-max-model", "repo-model", "repo-fallback"),
         thinking="high",
     ),
-    # Default: the repo's model and fallback, each the site's when the repo sets none; thinking from the run, then the
-    # repo (null disables it), then the site.
+    _case(
+        "max-drops-a-blank-site-model",
+        site={"agent_model_name": ""},
+        repo={},
+        run={"use_max": True},
+        chain=("site-max-model", "site-fallback"),
+        thinking="high",
+    ),
+    _case(
+        "max-without-any-model-raises",
+        site={"agent_max_model_name": "", "agent_model_name": "", "agent_fallback_model_name": ""},
+        repo={},
+        run={"use_max": True},
+        raises=True,
+    ),
+    # Default
     _case("default-uses-the-site", repo={}, run={}, chain=("site-model", "site-fallback"), thinking="medium"),
     _case(
         "default-uses-the-repo-chain-and-thinking",
@@ -272,12 +300,20 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking="low",
     ),
     _case(
-        "default-passes-an-invalid-site-level-through-raw",
+        "default-gets-no-thinking-when-the-site-level-is-invalid",
         site={"agent_thinking_level": "bogus"},
         repo={},
         run={},
         chain=("site-model", "site-fallback"),
-        thinking="bogus",
+        thinking=None,
+    ),
+    _case(
+        "default-drops-a-blank-site-fallback",
+        site={"agent_fallback_model_name": ""},
+        repo={},
+        run={},
+        chain=("site-model",),
+        thinking="medium",
     ),
     _case(
         "default-repo-thinking-beats-an-invalid-site-level",

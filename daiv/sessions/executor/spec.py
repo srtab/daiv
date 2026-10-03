@@ -16,9 +16,6 @@ if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
 
 
-_RESOLVED_AGENT_OPTIONS = frozenset({"web_search_enabled", "web_fetch_enabled"})
-
-
 @dataclass(frozen=True, kw_only=True)
 class RunSpec:
     """What a trigger decided about one agent run.
@@ -33,8 +30,8 @@ class RunSpec:
 
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
-    ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``, except
-    ``agent_options``' web toggles, which :meth:`overrides` hands the settings resolver instead.
+    ``web_search_enabled`` / ``web_fetch_enabled`` override the site's toggles (``None``: the site's).
+    ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
     """
@@ -62,6 +59,8 @@ class RunSpec:
     recover_draft: bool = False
     extra_metadata: dict[str, Any] = field(default_factory=dict)
     model_names: tuple[str, ...] = ()
+    web_search_enabled: bool | None = None
+    web_fetch_enabled: bool | None = None
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
     ask_user_enabled: bool = True
@@ -90,13 +89,9 @@ class RunSpec:
             agent_thinking_level=self.agent_thinking_level,
             use_max=self.use_max,
             model_names=self.model_names,
-            web_search_enabled=self.agent_options.get("web_search_enabled"),
-            web_fetch_enabled=self.agent_options.get("web_fetch_enabled"),
+            web_search_enabled=self.web_search_enabled,
+            web_fetch_enabled=self.web_fetch_enabled,
         )
-
-    def builder_options(self) -> dict[str, Any]:
-        """``agent_options`` without what :meth:`overrides` takes."""
-        return {name: value for name, value in self.agent_options.items() if name not in _RESOLVED_AGENT_OPTIONS}
 
 
 @dataclass(frozen=True, kw_only=True)

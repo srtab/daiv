@@ -1123,7 +1123,7 @@ class TestAgentPickerWidget:
         must persist NULL on both — not "" — because the field's ``CharField(null=True)``
         formfield sets ``empty_value=None``, so an empty submission goes to the DB
         as NULL rather than empty string. The ORM then reads back ``None``, which
-        ``resolve_agent_settings`` falls back from to the system default."""
+        ``site_settings`` resolves to the field's default."""
         _enable_seed_provider("anthropic")
         config = SiteConfiguration.objects.get_instance()
         config.agent_model_name = "anthropic:claude-sonnet-4-6"

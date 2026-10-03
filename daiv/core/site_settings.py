@@ -203,8 +203,11 @@ class SiteSnapshot:
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)
         if isinstance(value, _Unresolved):
-            raise value.error
+            raise ValueError(*value.error.args) from value.error
         return value
+
+    def __repr__(self) -> str:
+        return f"SiteSnapshot({', '.join(f'{name}={value!r}' for name, value in vars(self).items())})"
 
 
 class SiteSettings:

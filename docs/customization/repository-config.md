@@ -136,9 +136,10 @@ Override the default models on a per-repository basis. Useful for using smaller 
 
 Configuration priority (highest to lowest):
 
-1. **Issue labels** (`daiv-max`) — see [Issue Addressing](../features/issue-addressing.md#max-mode)
-2. **`.daiv.yml` models section** — per-repository overrides
-3. **Environment variables** — global defaults
+1. **A model picked for the run** — in the agent picker, or as `agent_model` through the API and MCP
+2. **Issue labels** (`daiv-max`) — see [Issue Addressing](../features/issue-addressing.md#max-mode); max mode uses the site's max thinking level, not `thinking_level`
+3. **`.daiv.yml` models section** — per-repository overrides
+4. **Site settings** — global defaults (environment variables or the configuration page)
 
 ### Agent
 

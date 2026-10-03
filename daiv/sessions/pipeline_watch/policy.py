@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
-from automation.agent.agent_settings import resolve_features
+from automation.agent.agent_settings import resolve_pipeline_watch_enabled, resolve_pipeline_watch_max_attempts
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
-    from automation.agent.agent_settings import Features
+    from core.site_settings import SiteSnapshot
 
 
 class WatchPolicy:
@@ -33,16 +33,18 @@ class WatchPolicy:
         self._config = config
 
     @functools.cached_property
-    def _features(self) -> Features:
-        return resolve_features(site=site_settings.snapshot(), repo=self._config)
+    def _site(self) -> SiteSnapshot:
+        return site_settings.snapshot()
 
     @functools.cached_property
     def enabled(self) -> bool:
-        return bool(self._config.pipeline_watch.enabled and self._features.pipeline_watch)
+        return self._config.pipeline_watch.enabled and resolve_pipeline_watch_enabled(
+            site=self._site, repo=self._config
+        )
 
     @functools.cached_property
     def max_attempts(self) -> int:
-        return self._features.pipeline_watch_max_attempts
+        return resolve_pipeline_watch_max_attempts(site=self._site, repo=self._config)
 
     @classmethod
     def enabled_for(cls, config: RepositoryConfig) -> bool:

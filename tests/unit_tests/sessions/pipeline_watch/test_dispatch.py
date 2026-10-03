@@ -185,9 +185,10 @@ async def test_a_session_without_an_environment_runs_its_fix_on_the_global_defau
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_d4_the_fix_run_carries_neither_the_sessions_model_nor_its_thinking_level(
+async def test_the_fix_run_carries_neither_the_sessions_model_nor_its_thinking_level(
     stub_enqueue, create_db_task_result
 ):
+    """Pins current behaviour, not a requirement: a fix run resolves its model afresh."""
     calls, holder = stub_enqueue
     holder["result"] = await sync_to_async(create_db_task_result)()
     session = await _make_watched_session()

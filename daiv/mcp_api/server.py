@@ -844,7 +844,8 @@ async def schedule_job(
         Field(
             description=(
                 "Model override 'provider_slug:model_name'. "
-                "Omit for the repository's models.agent model, else the system default."
+                "Omit for the repository's models.agent model, else the system default; "
+                "the call is refused when no system default is configured."
             )
         ),
     ] = None,

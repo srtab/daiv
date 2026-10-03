@@ -104,14 +104,14 @@ class DiffToMetadataModelConfig(BaseModel):
         default=None,
         description=(
             "Model name to transform a diff into metadata for a pull request/commit message. "
-            "Overrides DIFF_TO_METADATA_MODEL_NAME environment variable."
+            "Overrides DAIV_DIFF_TO_METADATA_MODEL_NAME environment variable."
         ),
     )
     fallback_model: ModelName | str | None = Field(
         default=None,
         description=(
             "Fallback model name for diff to metadata. "
-            "Overrides DIFF_TO_METADATA_FALLBACK_MODEL_NAME environment variable."
+            "Overrides DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME environment variable."
         ),
     )
 

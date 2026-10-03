@@ -274,7 +274,8 @@ async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(mention):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_d3_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_max_stamp(mention):
+async def test_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_max_stamp(mention):
+    """Pins current behaviour, not a requirement: the review addressor does not run max mode."""
     site = {
         "agent_model_name": "site-default",
         "agent_thinking_level": "low",

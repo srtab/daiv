@@ -1542,7 +1542,7 @@ def _publisher_with_graph_capture(monkeypatch):
     return publisher, captured
 
 
-async def test_d2_the_diff_to_metadata_chain_and_trace_label_are_the_sites_whatever_the_repo_sets(tmp_path):
+async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos(tmp_path):
     site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
     repo_models = {"diff_to_metadata": {"model": "repo-model", "fallback_model": "repo-fallback"}}
     publisher = _make_publisher(settings=_settings(site=site, models=repo_models))
@@ -1561,8 +1561,8 @@ async def test_d2_the_diff_to_metadata_chain_and_trace_label_are_the_sites_whate
     ):
         await publisher._diff_to_metadata(commit_message_diff="diff")
 
-    assert [c.kwargs["model"] for c in base_agent.get_model.call_args_list] == ["site-model", "site-fallback"]
-    assert trace_models == ["site-model"]
+    assert [c.kwargs["model"] for c in base_agent.get_model.call_args_list] == ["repo-model", "repo-fallback"]
+    assert trace_models == ["repo-model"]
 
 
 class TestDiffToMetadataExtraContext:

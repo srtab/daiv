@@ -164,7 +164,7 @@ class TestAddressIssueTaskRef:
 
 class TestIssueMaxModelIsDecidedByTheCallback:
     """The callback decides max mode when it stamps the Run and hands it to the task; only a task queued without
-    it (before the deploy) reads the label off the issue the task re-fetches."""
+    ``use_max`` reads the label off the issue the task re-fetches."""
 
     @staticmethod
     async def _spec_for(labels: list[str], **task_kwargs):

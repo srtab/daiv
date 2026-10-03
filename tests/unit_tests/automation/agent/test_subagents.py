@@ -8,6 +8,7 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -830,6 +831,31 @@ def _explore_permissions(*, sandbox: bool) -> list:
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions
+
+
+def test_explore_skips_a_fallback_that_fails_to_build(caplog):
+    built = {"explore": Mock(), "working-fallback": Mock()}
+
+    def get_model(*, model, thinking_level=None):
+        if model == "broken-fallback":
+            raise RuntimeError("Provider 'x' has no API key configured.")
+        return built[model]
+
+    with (
+        patch("automation.agent.subagents.BaseAgent.get_model", side_effect=get_model),
+        patch("automation.agent.subagents.create_agent") as create_agent,
+        caplog.at_level(logging.ERROR, logger="daiv.agent"),
+    ):
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True),
+            "/workspace/repo/",
+            models=ModelChain(("explore", "broken-fallback", "working-fallback")),
+        )
+
+    [fallback] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
+    assert fallback.models == [built["working-fallback"]]
+    assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
+    assert "no API key configured" in caplog.text
 
 
 def test_explore_in_a_sandbox_is_only_read_only():

@@ -5,6 +5,7 @@ from memory.models import ObservationStatus, RepositoryMemory
 from memory.schemas import MemoryOperation
 from memory.tasks import consolidate_memory_task
 
+from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.memory.consolidation_helpers import (
     _enabled_config,
     _entry,
@@ -200,6 +201,24 @@ class TestPreconditionsAndPrompt:
         await obs.arefresh_from_db()
         assert obs.status == ObservationStatus.PENDING
 
+    async def test_noop_when_no_model_is_configured_anywhere(self, caplog):
+        obs = await _observation()
+        site = _site_settings(agent_model_name="", agent_fallback_model_name="")
+
+        with (
+            patch("memory.tasks.RepositoryConfig") as cfg,
+            patch("memory.consolidation.build_structured_llm") as build,
+            patch("memory.consolidation.site_settings", site),
+            caplog.at_level("ERROR", "daiv.memory"),
+        ):
+            cfg.get_config.return_value = RepositoryConfig(memory={"enabled": True})
+            await consolidate_memory_task.func("group/project")
+
+        build.assert_not_called()
+        assert "no consolidation model configured" in caplog.text
+        await obs.arefresh_from_db()
+        assert obs.status == ObservationStatus.PENDING
+
     @pytest.mark.parametrize(
         ("override_model", "expected_model"),
         [
@@ -224,8 +243,7 @@ class TestPreconditionsAndPrompt:
         _schema, models = build.call_args.args
         assert models[0] == expected_model
 
-    async def test_a_repo_with_its_own_agent_model_consolidates_when_the_site_has_no_default(self):
-        # The agent chain raises without a site default model; consolidation outside a run must not.
+    async def test_a_repo_with_its_own_agent_model_consolidates_on_it_when_the_site_has_no_default(self):
         await _observation()
         site = _site_settings(agent_model_name="", agent_fallback_model_name="")
 

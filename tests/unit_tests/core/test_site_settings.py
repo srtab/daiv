@@ -91,11 +91,12 @@ class TestEnvOverride:
 class TestEmptyThinkingLevel:
     """The help text on these fields says an empty value disables thinking."""
 
-    def test_d7_an_empty_value_in_the_database_falls_back_to_the_default(self, ss, field):
+    def test_an_empty_value_in_the_database_falls_back_to_the_default(self, ss, field):
+        """Pins current behaviour, not a requirement: it contradicts the help text."""
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: ""})):
             assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
 
-    def test_d7_an_empty_value_in_the_environment_disables_thinking(self, ss, field, monkeypatch):
+    def test_an_empty_value_in_the_environment_disables_thinking(self, ss, field, monkeypatch):
         monkeypatch.setenv(ss.get_env_var_name(field), "")
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
             assert getattr(ss, field) == ""
@@ -289,9 +290,23 @@ class TestSnapshot:
             with pytest.raises(ValueError, match="Cannot parse") as from_attribute_access:
                 ss.web_fetch_timeout_seconds  # noqa: B018
 
+        errors = []
         for _ in range(2):
             with pytest.raises(ValueError, match="Cannot parse") as from_snapshot:
                 snapshot.web_fetch_timeout_seconds  # noqa: B018
             assert type(from_snapshot.value) is type(from_attribute_access.value)
+            errors.append(from_snapshot.value)
+        assert errors[0] is not errors[1]
+        assert errors[0].__cause__ is errors[1].__cause__
         others = {name: getattr(snapshot, name) for name in ss.FIELD_DEFAULTS if name != "web_fetch_timeout_seconds"}
         assert others == {name: value for name, value in ss.FIELD_DEFAULTS.items() if name in others}
+
+    def test_the_repr_shows_a_malformed_field_instead_of_raising(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_FETCH_TIMEOUT_SECONDS", "15s")
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            snapshot = ss.snapshot()
+
+        text = repr(snapshot)
+
+        assert "web_fetch_timeout_seconds=_Unresolved(" in text
+        assert f"agent_recursion_limit={ss.FIELD_DEFAULTS['agent_recursion_limit']!r}" in text

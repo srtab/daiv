@@ -60,12 +60,8 @@ async def test_each_instance_runs_as_a_one_shot_run_on_the_exact_model_chain(tmp
     assert (spec.repo_id, spec.ref, spec.scope) == ("owner/repo", "abc123", Scope.GLOBAL)
     assert (spec.model_names, spec.agent_thinking_level) == (("model-a", "model-b"), ThinkingLevel.HIGH)
     assert spec.context_options == {"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"}
-    assert spec.agent_options == {
-        "auto_commit_changes": False,
-        "capture_patch": True,
-        "web_search_enabled": False,
-        "web_fetch_enabled": False,
-    }
+    assert spec.agent_options == {"auto_commit_changes": False, "capture_patch": True}
+    assert (spec.web_search_enabled, spec.web_fetch_enabled) == (False, False)
     assert spec.extra_metadata == {"instance_id": "owner__repo-1"}
     [message] = spec.input_messages
     assert "Parsing an empty file crashes." in message.content
@@ -181,9 +177,7 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     spec = swebench._run_spec(ITEM, ["model-a"])
 
     agent_sig = inspect.signature(create_daiv_agent, annotation_format=annotationlib.Format.FORWARDREF)
-    agent_sig.bind(settings=None, ctx=None, checkpointer=None, workspace=None, **spec.builder_options())
-    overrides = spec.overrides()
-    assert (overrides.web_search_enabled, overrides.web_fetch_enabled) == (False, False)
+    agent_sig.bind(settings=None, ctx=None, checkpointer=None, workspace=None, **spec.agent_options)
 
     ctx_sig = inspect.signature(set_runtime_ctx, annotation_format=annotationlib.Format.FORWARDREF)
     explicit_params = set(ctx_sig.parameters) - {"kwargs"}

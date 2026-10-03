@@ -11,7 +11,7 @@ It lives at `/dashboard/configuration/` and is reachable only by users with the 
 
 Open `/dashboard/configuration/`. The index immediately redirects you to the first group, **Agent**, at `/dashboard/configuration/agent/`. Each group is a separate page reached at `/dashboard/configuration/<group_key>/`; an unknown key returns a 404.
 
-Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. An agent run resolves its agent, explore and commit & PR writer models, the agent's thinking levels, the web search and fetch switches, the memory switch, the merge request session link and the context-file suggestion once, when it starts, so a run already in progress keeps the values it started with. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
+Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. An agent run reads its settings once, when it starts, so a change applies from the next run. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
 
 ## Setting groups
 

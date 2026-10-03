@@ -291,7 +291,8 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_d6_submit_job_queues_a_run_that_has_no_model_to_run_on(authenticated_client: TestAsyncClient):
+async def test_submit_job_queues_a_run_without_a_model_when_the_site_has_none(authenticated_client: TestAsyncClient):
+    """Pins current behaviour, not a requirement: the run fails at start unless the repository sets a model."""
     captured: dict = {}
     with (
         patch.multiple(site_settings, agent_model_name=""),

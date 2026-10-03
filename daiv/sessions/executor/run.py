@@ -271,7 +271,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
                 workspace=workspace,
                 artifact_store=RunArtifactStore(),
-                **spec.builder_options(),
+                **spec.agent_options,
             )
             config = build_langsmith_config(
                 ctx,

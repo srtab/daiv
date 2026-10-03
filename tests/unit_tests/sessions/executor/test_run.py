@@ -560,16 +560,14 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
     )
 
 
-async def test_the_web_toggles_in_the_agent_options_reach_the_resolver_instead_of_the_builder():
-    spec = make_spec(agent_options={"capture_patch": True, "web_search_enabled": False, "web_fetch_enabled": True})
+async def test_the_web_toggles_reach_the_resolver():
+    spec = make_spec(web_search_enabled=False, web_fetch_enabled=True)
 
     with agent_stack(_agent()) as stack:
         await execute_run(spec)
 
     run = stack.resolve.call_args.kwargs["run"]
     assert (run.web_search_enabled, run.web_fetch_enabled) == (False, True)
-    assert {"web_search_enabled", "web_fetch_enabled"}.isdisjoint(stack.create_agent.await_args.kwargs)
-    assert stack.create_agent.await_args.kwargs["capture_patch"] is True
 
 
 async def test_a_run_that_ended_on_a_question_reports_it():

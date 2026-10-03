@@ -400,7 +400,7 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
                 BaseAgent.get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level)
             )
         except Exception:
-            logger.warning(
+            logger.exception(
                 "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
             )
     if fallback_models:
