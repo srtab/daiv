@@ -113,7 +113,7 @@ class TestMaxLabelRoutesToMaxModel:
         model_names = captured["model_names"]
         assert model_names[0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
-        assert RepositoryConfig().models.agent.model in model_names[1:]
+        assert site_settings.agent_model_name in model_names[1:]
 
     async def test_max_label_case_insensitive(self, stub_base_init):
         """Label matching must be case-insensitive — GitHub UIs upper-case labels freely."""

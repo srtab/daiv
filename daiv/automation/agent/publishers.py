@@ -477,7 +477,7 @@ class GitChangePublisher(ChangePublisher):
             model_names=self.settings.diff_to_metadata.names, ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff)
         )
         config = build_langsmith_config(
-            self.ctx, trigger="diff_to_metadata", model=self.ctx.config.models.diff_to_metadata.model
+            self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]
         )
         result = await changes_metadata_graph.ainvoke(input_data, config=config)
         if result and ("pr_metadata" in result or "commit_message" in result):

@@ -37,7 +37,6 @@ from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
-from core.models import SiteConfiguration
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
@@ -99,9 +98,7 @@ def _make_merge_request(**overrides) -> MergeRequest:
 
 def _settings(*, site: dict | None = None, **daiv_yml) -> AgentSettings:
     """The run's settings for a ``.daiv.yml`` that sets ``daiv_yml``, on a site that overrides ``site``."""
-    with patch.object(SiteConfiguration, "get_cached", return_value=None):
-        repo = RepositoryConfig(**daiv_yml)
-    return agent_settings(site=site_snapshot(**(site or {})), repo=repo)
+    return agent_settings(site=site_snapshot(**(site or {})), repo=RepositoryConfig(**daiv_yml))
 
 
 def _make_publisher(
@@ -1545,15 +1542,13 @@ def _publisher_with_graph_capture(monkeypatch):
     return publisher, captured
 
 
-async def test_d2_the_diff_to_metadata_chain_is_the_sites_and_the_repos_model_only_labels_the_trace(tmp_path):
+async def test_d2_the_diff_to_metadata_chain_and_trace_label_are_the_sites_whatever_the_repo_sets(tmp_path):
     site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
     repo_models = {"diff_to_metadata": {"model": "repo-model", "fallback_model": "repo-fallback"}}
     publisher = _make_publisher(settings=_settings(site=site, models=repo_models))
     publisher.ctx.config.omit_content_patterns = []
     publisher.ctx.scope = None
     publisher.ctx.gitrepo.working_dir = str(tmp_path / "clone")
-    publisher.ctx.config.models.diff_to_metadata.model = "repo-model"
-    publisher.ctx.config.models.diff_to_metadata.fallback_model = "repo-fallback"
     trace_models = []
 
     def fake_agent(_input, config):
@@ -1567,7 +1562,7 @@ async def test_d2_the_diff_to_metadata_chain_is_the_sites_and_the_repos_model_on
         await publisher._diff_to_metadata(commit_message_diff="diff")
 
     assert [c.kwargs["model"] for c in base_agent.get_model.call_args_list] == ["site-model", "site-fallback"]
-    assert trace_models == ["repo-model"]
+    assert trace_models == ["site-model"]
 
 
 class TestDiffToMetadataExtraContext:

@@ -12,7 +12,6 @@ from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
 from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
-from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -46,14 +45,11 @@ class PipelineWatch(BaseModel):
     CI babysitting configuration.
     """
 
-    # No site-settings factory here, unlike ``max_attempts``: ``WatchPolicy.enabled_for`` ANDs this
-    # with the site switch, so inheriting it would only re-derive a value that gets ANDed away.
     enabled: bool = Field(
         default=True, description="Watch CI on merge requests DAIV publishes and try to fix failures."
     )
-    max_attempts: int = Field(
-        default_factory=lambda: site_settings.pipeline_watch_max_attempts,
-        description="How many fix attempts to spend on one merge request before handing back.",
+    max_attempts: int | None = Field(
+        default=None, description="How many fix attempts to spend on one merge request before handing back."
     )
 
 
@@ -63,26 +59,6 @@ class SlashCommands(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable slash command features.")
-
-
-def _default_thinking_level() -> ThinkingLevel | None:
-    """Coerce ``site_settings.agent_thinking_level`` into a ``ThinkingLevel`` member.
-
-    The site setting comes back as a raw string when set via the DB or an env var,
-    and pydantic does not validate ``default_factory`` results — a raw string would
-    sit unvalidated in the enum-typed field and trigger
-    ``PydanticSerializationUnexpectedValue`` warnings on every ``model_dump``.
-    Invalid values degrade to ``None`` (thinking disabled) instead of failing
-    every repository config load.
-    """
-    raw = site_settings.agent_thinking_level
-    if not raw:
-        return None
-    try:
-        return ThinkingLevel(raw)
-    except ValueError:
-        logger.warning("Invalid agent thinking level %r in site settings; ignoring it.", raw)
-        return None
 
 
 class Memory(BaseModel):
@@ -104,18 +80,17 @@ class AgentModelConfig(BaseModel):
     Model configuration for the DAIV agent.
     """
 
-    model: ModelName | str = Field(
-        default_factory=lambda: site_settings.agent_model_name,
-        description=("Model name for DAIV tasks. Overrides DAIV_AGENT_MODEL_NAME environment variable."),
+    model: ModelName | str | None = Field(
+        default=None, description=("Model name for DAIV tasks. Overrides DAIV_AGENT_MODEL_NAME environment variable.")
     )
-    fallback_model: ModelName | str = Field(
-        default_factory=lambda: site_settings.agent_fallback_model_name,
+    fallback_model: ModelName | str | None = Field(
+        default=None,
         description=(
             "Fallback model name for DAIV tasks. Overrides DAIV_AGENT_FALLBACK_MODEL_NAME environment variable."
         ),
     )
     thinking_level: ThinkingLevel | None = Field(
-        default_factory=_default_thinking_level,
+        default=None,
         description=("Thinking level for DAIV tasks. Overrides DAIV_AGENT_THINKING_LEVEL environment variable."),
     )
 
@@ -125,15 +100,15 @@ class DiffToMetadataModelConfig(BaseModel):
     Model configuration for the diff to metadata agent.
     """
 
-    model: ModelName | str = Field(
-        default_factory=lambda: site_settings.diff_to_metadata_model_name,
+    model: ModelName | str | None = Field(
+        default=None,
         description=(
             "Model name to transform a diff into metadata for a pull request/commit message. "
             "Overrides DIFF_TO_METADATA_MODEL_NAME environment variable."
         ),
     )
-    fallback_model: ModelName | str = Field(
-        default_factory=lambda: site_settings.diff_to_metadata_fallback_model_name,
+    fallback_model: ModelName | str | None = Field(
+        default=None,
         description=(
             "Fallback model name for diff to metadata. "
             "Overrides DIFF_TO_METADATA_FALLBACK_MODEL_NAME environment variable."

@@ -475,8 +475,8 @@ async def test_dispatching_a_fix_run_restamps_the_staleness_clock(watched_sessio
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_repo_cannot_raise_the_cap_above_the_site_value(watched_session, watch, monkeypatch, site_setting):
-    """The docs promise a repo can only tighten, but ``max_attempts`` is a plain int whose default
-    comes from site settings — an explicit ``.daiv.yml`` value replaces it rather than clamping."""
+    """The docs promise a repo can only tighten, so an explicit ``.daiv.yml`` value is clamped to the
+    site cap rather than replacing it."""
     site_setting("pipeline_watch_max_attempts", 2)
     watch.platform.pipeline = make_pipeline("failed", pipeline_id=700)
     watched_session.watch_attempts = 2
@@ -710,8 +710,6 @@ async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
     """``aarm`` runs at the end of every publishing chat turn, job and issue-addressor run. Each site
     read is a blocking thread hop, so the policy must take one snapshot rather than read per field.
     """
-    # Built before recording starts: its ``max_attempts`` default factory reads site settings too,
-    # and in production that cost is paid once an hour by the config cache, not by the arm path.
     config = RepositoryConfig()
     monkeypatch.setattr("sessions.pipeline_watch.policy.RepositoryConfig.get_config", lambda *_a, **_kw: config)
     # No injected policy: this is the only test on the ``WatchPolicy.afor_repo`` fallback that

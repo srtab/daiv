@@ -31,7 +31,6 @@ from core.models import (
     PROVIDERS_CACHE_KEY,
     SITE_CONFIGURATION_CACHE_KEY,
     WEB_FETCH_AUTH_HEADERS_CACHE_KEY,
-    SiteConfiguration,
     WebFetchAuthHeader,
 )
 from core.sandbox.schemas import (
@@ -57,11 +56,9 @@ def agent_settings(
 ) -> AgentSettings:
     """What ``resolve_agent_settings`` gives ``run`` on ``site`` for ``repo``: by default, no overrides on the field
     defaults for a ``.daiv.yml`` that sets nothing."""
-    if repo is None:
-        # The resolver takes every unset field from ``site``, so skip the database read the config's defaults make.
-        with patch.object(SiteConfiguration, "get_cached", return_value=None):
-            repo = RepositoryConfig()
-    return resolve_agent_settings(site=site or site_snapshot(), repo=repo, run=run or RunOverrides())
+    return resolve_agent_settings(
+        site=site or site_snapshot(), repo=repo or RepositoryConfig(), run=run or RunOverrides()
+    )
 
 
 def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:

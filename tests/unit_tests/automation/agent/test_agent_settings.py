@@ -16,17 +16,6 @@ from core.site_settings import site_settings
 from tests.unit_tests.automation.agent.agent_settings_cases import AGENT_SETTINGS_CASES
 from tests.unit_tests.conftest import site_snapshot
 
-# What the global site settings hold while a repository config is built; its default factories copy these in, so a
-# resolver that took an unset ``.daiv.yml`` value from the config instead of the snapshot would return them.
-AMBIENT_SITE = {
-    "agent_model_name": "ambient-model",
-    "agent_fallback_model_name": "ambient-fallback",
-    "agent_thinking_level": "minimal",
-    "diff_to_metadata_model_name": "ambient-d2m",
-    "diff_to_metadata_fallback_model_name": "ambient-d2m-fallback",
-    "pipeline_watch_max_attempts": 1,
-}
-
 BRANCHES = {
     "exact": RunOverrides(model_names=("exact-a", "exact-b"), agent_thinking_level="minimal"),
     "override": RunOverrides(agent_model="run-model", agent_thinking_level="minimal"),
@@ -35,20 +24,17 @@ BRANCHES = {
 }
 
 
-def _repo(**daiv_yml) -> RepositoryConfig:
-    with patch.multiple(site_settings, **AMBIENT_SITE):
-        return RepositoryConfig(**daiv_yml)
-
-
 def _resolve(*, site=None, repo=None, run=None):
-    return resolve_agent_settings(site=site or site_snapshot(), repo=repo or _repo(), run=run or RunOverrides())
+    return resolve_agent_settings(
+        site=site or site_snapshot(), repo=repo or RepositoryConfig(), run=run or RunOverrides()
+    )
 
 
 @pytest.mark.parametrize("case", AGENT_SETTINGS_CASES, ids=lambda case: case.id)
 def test_each_case_resolves_its_chain_and_thinking_level(case):
     """Rows 1 and 2, the exact chain included. ``-d1`` cases pin D1, ``-through-raw`` cases pin D11."""
     site = site_snapshot(**case.site)
-    repo = _repo(models={"agent": case.repo_agent})
+    repo = RepositoryConfig(models={"agent": case.repo_agent})
     run = RunOverrides(**case.run)
     if case.raises:
         with pytest.raises(AgentConfigurationError):
@@ -83,9 +69,8 @@ def test_a_repo_null_thinking_level_survives_the_repo_config_cache(mock_repo_cli
     mock_repo_client.get_repository_file.return_value = "models:\n  agent:\n    thinking_level: null\n"
     repo_id = "group/null-thinking"
     try:
-        with patch.multiple(site_settings, **AMBIENT_SITE):
-            RepositoryConfig.get_config(repo_id)
-            cached = RepositoryConfig.get_config(repo_id)
+        RepositoryConfig.get_config(repo_id)
+        cached = RepositoryConfig.get_config(repo_id)
     finally:
         RepositoryConfig.invalidate_cache(repo_id)
 
@@ -97,12 +82,63 @@ def test_a_repo_null_thinking_level_survives_the_repo_config_cache(mock_repo_cli
     assert agent.thinking_level is None
 
 
+@pytest.mark.parametrize(
+    ("entry", "expected_chain", "expected_thinking_level", "expected_attempts"),
+    [
+        (
+            {
+                "default_branch": "main",
+                "pipeline_watch": {"max_attempts": 2},
+                "models": {"agent": {"model": "repo-model", "thinking_level": None}},
+            },
+            ("run-model", "repo-model", "site-fallback"),
+            None,
+            2,
+        ),
+        ({"default_branch": "main"}, ("run-model", "site-model", "site-fallback"), "medium", 3),
+    ],
+    ids=["the-fields-a-repo-set", "nothing-set"],
+)
+def test_a_cache_entry_written_before_the_config_stopped_copying_the_site_resolves_the_same(
+    entry, expected_chain, expected_thinking_level, expected_attempts
+):
+    """Entries hold only what a repo set, so they load as they did and the resolver fills in the rest from the site."""
+    with patch("codebase.repo_config.cache") as cache:
+        cache.get.return_value = entry
+        repo = RepositoryConfig.get_config("group/old-entry")
+    site = site_snapshot(
+        agent_model_name="site-model",
+        agent_fallback_model_name="site-fallback",
+        agent_thinking_level="medium",
+        pipeline_watch_max_attempts=3,
+    )
+
+    settings = _resolve(site=site, repo=repo, run=RunOverrides(agent_model="run-model"))
+
+    assert (settings.agent.names, settings.agent.thinking_level) == (expected_chain, expected_thinking_level)
+    assert settings.features.pipeline_watch_max_attempts == expected_attempts
+
+
+def test_a_null_model_or_attempt_cap_in_the_repo_is_unset():
+    repo = RepositoryConfig(
+        models={"agent": {"model": None, "fallback_model": None}}, pipeline_watch={"max_attempts": None}
+    )
+    site = site_snapshot(
+        agent_model_name="site-model", agent_fallback_model_name="site-fallback", pipeline_watch_max_attempts=3
+    )
+
+    settings = _resolve(site=site, repo=repo, run=RunOverrides(agent_model="run-model"))
+
+    assert settings.agent.names == ("run-model", "site-model", "site-fallback")
+    assert settings.features.pipeline_watch_max_attempts == 3
+
+
 @pytest.mark.parametrize("run", BRANCHES.values(), ids=list(BRANCHES))
 def test_the_fallback_thinking_level_is_the_sites_on_every_branch(run):
     site = site_snapshot(
         agent_thinking_level="medium", agent_max_thinking_level="high", agent_fallback_thinking_level="low"
     )
-    repo = _repo(models={"agent": {"thinking_level": "xhigh"}})
+    repo = RepositoryConfig(models={"agent": {"thinking_level": "xhigh"}})
 
     assert _resolve(site=site, repo=repo, run=run).agent.fallback_thinking_level == "low"
 
@@ -116,7 +152,7 @@ def test_d11_an_invalid_site_fallback_thinking_level_passes_through_raw():
 @pytest.mark.parametrize("run", BRANCHES.values(), ids=list(BRANCHES))
 def test_the_explore_chain_is_the_sites_whatever_the_run_chooses(run):
     site = site_snapshot(agent_explore_model_name="explore", agent_explore_fallback_model_name="explore-fallback")
-    repo = _repo(models={"agent": {"model": "repo-model", "thinking_level": "high"}})
+    repo = RepositoryConfig(models={"agent": {"model": "repo-model", "thinking_level": "high"}})
 
     assert _resolve(site=site, repo=repo, run=run).explore == ModelChain(names=("explore", "explore-fallback"))
 
@@ -129,7 +165,7 @@ def test_the_explore_chain_has_no_fallback_when_the_site_sets_none():
 
 def test_d2_the_diff_to_metadata_chain_is_the_sites_whatever_the_repo_sets():
     site = site_snapshot(diff_to_metadata_model_name="site-d2m", diff_to_metadata_fallback_model_name="site-d2m-fb")
-    repo = _repo(models={"diff_to_metadata": {"model": "repo-d2m", "fallback_model": "repo-d2m-fb"}})
+    repo = RepositoryConfig(models={"diff_to_metadata": {"model": "repo-d2m", "fallback_model": "repo-d2m-fb"}})
 
     assert _resolve(site=site, repo=repo).diff_to_metadata == ModelChain(names=("site-d2m", "site-d2m-fb"))
 
@@ -165,7 +201,7 @@ def test_the_consolidation_chain(site_model, repo_agent, expected):
         agent_fallback_model_name="site-fallback",
     )
 
-    repo = _repo(models={"agent": repo_agent})
+    repo = RepositoryConfig(models={"agent": repo_agent})
 
     settings = _resolve(site=site, repo=repo)
 
@@ -175,7 +211,7 @@ def test_the_consolidation_chain(site_model, repo_agent, expected):
 
 def test_the_consolidation_chain_resolves_alone_where_the_agent_chain_would_raise():
     site = site_snapshot(agent_model_name="", agent_fallback_model_name="", memory_consolidation_model_name=None)
-    repo = _repo(models={"agent": {"model": "repo-model", "fallback_model": "repo-fallback"}})
+    repo = RepositoryConfig(models={"agent": {"model": "repo-model", "fallback_model": "repo-fallback"}})
 
     with pytest.raises(AgentConfigurationError):
         resolve_agent_settings(site=site, repo=repo, run=RunOverrides())
@@ -196,7 +232,7 @@ AND_SWITCHES = {
 def test_a_switch_is_on_only_when_both_the_site_and_the_repo_turn_it_on(feature, site_on, repo_on):
     site_field, daiv_yml = AND_SWITCHES[feature]
 
-    features = resolve_features(site=site_snapshot(**{site_field: site_on}), repo=_repo(**daiv_yml(repo_on)))
+    features = resolve_features(site=site_snapshot(**{site_field: site_on}), repo=RepositoryConfig(**daiv_yml(repo_on)))
 
     assert getattr(features, feature) is (site_on and repo_on)
 
@@ -205,7 +241,9 @@ def test_a_switch_is_on_only_when_both_the_site_and_the_repo_turn_it_on(feature,
 def test_slash_commands_follow_the_repo_whatever_the_site_switches_say(repo_on):
     site_off = {name: False for name, default in site_settings.FIELD_DEFAULTS.items() if isinstance(default, bool)}
 
-    features = resolve_features(site=site_snapshot(**site_off), repo=_repo(slash_commands={"enabled": repo_on}))
+    features = resolve_features(
+        site=site_snapshot(**site_off), repo=RepositoryConfig(slash_commands={"enabled": repo_on})
+    )
 
     assert features.slash_commands is repo_on
 
@@ -216,13 +254,13 @@ def test_slash_commands_follow_the_repo_whatever_the_site_switches_say(repo_on):
     ids=["site-when-the-repo-sets-none", "a-repo-lowers-it", "a-repo-cannot-raise-it"],
 )
 def test_the_watch_attempt_cap_is_the_lower_of_the_repos_and_the_sites(daiv_yml, expected):
-    features = resolve_features(site=site_snapshot(pipeline_watch_max_attempts=3), repo=_repo(**daiv_yml))
+    features = resolve_features(site=site_snapshot(pipeline_watch_max_attempts=3), repo=RepositoryConfig(**daiv_yml))
 
     assert features.pipeline_watch_max_attempts == expected
 
 
 def test_the_settings_carry_the_resolved_features():
     site = site_snapshot(memory_enabled=False, pipeline_watch_max_attempts=4)
-    repo = _repo(session_link=False, pipeline_watch={"max_attempts": 2})
+    repo = RepositoryConfig(session_link=False, pipeline_watch={"max_attempts": 2})
 
     assert _resolve(site=site, repo=repo).features == resolve_features(site=site, repo=repo)
