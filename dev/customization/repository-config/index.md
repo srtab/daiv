@@ -138,28 +138,31 @@ Override the default models on a per-repository basis. Useful for using smaller 
 
 Configuration priority (highest to lowest):
 
-1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode)
+1. **A model picked for the run** — in the agent picker, or as `agent_model` through the API and MCP
+1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode); max mode uses the site's max thinking level, not `thinking_level`
 1. **`.daiv.yml` models section** — per-repository overrides
-1. **Environment variables** — global defaults
+1. **Site settings** — global defaults (environment variables or the configuration page)
 
 ### Agent
 
 The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.
 
-| Option                        | Type                                                          | Default             | Description                               |
-| ----------------------------- | ------------------------------------------------------------- | ------------------- | ----------------------------------------- |
-| `models.agent.model`          | `str`                                                         | `claude-sonnet-4.6` | Primary model.                            |
-| `models.agent.fallback_model` | `str`                                                         | `gpt-5.3-codex`     | Fallback if the primary model fails.      |
-| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | `medium`            | Thinking depth. Set to `null` to disable. |
+| Option                        | Type                                                          | Default      | Description                               |
+| ----------------------------- | ------------------------------------------------------------- | ------------ | ----------------------------------------- |
+| `models.agent.model`          | `str`                                                         | site setting | Primary model.                            |
+| `models.agent.fallback_model` | `str`                                                         | site setting | Fallback if the primary model fails.      |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | site setting | Thinking depth. Set to `null` to disable. |
+
+A model picked for a single run (in the agent picker, or as `agent_model` through the API and MCP) is tried first, with the model and fallback above after it, and a thinking level picked for a run beats `thinking_level`.
 
 ### Diff to metadata
 
 Generates pull request titles, descriptions, and commit messages from diffs.
 
-| Option                                   | Type  | Default            | Description                          |
-| ---------------------------------------- | ----- | ------------------ | ------------------------------------ |
-| `models.diff_to_metadata.model`          | `str` | `gpt-5.4-mini`     | Primary model.                       |
-| `models.diff_to_metadata.fallback_model` | `str` | `claude-haiku-4.5` | Fallback if the primary model fails. |
+| Option                                   | Type  | Default      | Description                          |
+| ---------------------------------------- | ----- | ------------ | ------------------------------------ |
+| `models.diff_to_metadata.model`          | `str` | site setting | Primary model.                       |
+| `models.diff_to_metadata.fallback_model` | `str` | site setting | Fallback if the primary model fails. |
 
 Note
 

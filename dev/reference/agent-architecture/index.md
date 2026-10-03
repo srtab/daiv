@@ -187,8 +187,9 @@ This ensures the agent always has up-to-date context about the repository it's w
 
 ## Model configuration
 
-Models are resolved at three levels (highest priority first):
+Models are resolved at four levels (highest priority first):
 
+1. **Per-run model** — a model picked in the agent picker, or `agent_model` through the API and MCP
 1. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
 1. **Repository config** — `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides)
 1. **Environment variables** — global defaults (`DAIV_AGENT_*`)

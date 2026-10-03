@@ -98,9 +98,9 @@ daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo
 
 ## Cost considerations
 
-The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
+The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
 
-- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the system default model then runs at its default effort.
+- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the repository's `models.agent` model, else the system default model, then runs at its default effort.
 - Adding a queue-level rate limit via a separate DAIV API-key user with a lower `jobs_throttle_rate` (Site Configuration).
 
 ## Files

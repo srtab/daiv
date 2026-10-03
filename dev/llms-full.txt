@@ -2470,18 +2470,18 @@ This is useful when you want to:
 
 Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 
-| Field                   | Description                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                | A short label for the schedule (e.g., "Weekly dep audit")                                                                                                                                                                                                                                                                                                                              |
-| **Prompt**              | What the agent should do — same format as a Jobs API prompt                                                                                                                                                                                                                                                                                                                            |
-| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository |
-| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. Leave it on the default to use the instance's configured model                                                                                                                                                                                                                                                |
-| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                                                                                                                                                                   |
-| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                                                                                                                                                                                  |
-| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                                                                                                                                                                         |
-| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice                                                                                                                         |
-| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                                                                                                                                                                       |
-| **Sandbox environment** | The named [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                                                                                                                                                                     |
+| Field                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                | A short label for the schedule (e.g., "Weekly dep audit")                                                                                                                                                                                                                                                                                                                                                                   |
+| **Prompt**              | What the agent should do — same format as a Jobs API prompt                                                                                                                                                                                                                                                                                                                                                                 |
+| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository                                      |
+| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. The picker pre-selects the instance's configured model, so the runs try it first and the repository's `models.agent` model after it. A schedule without a model, such as one created over [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) without `agent_model`, leads with the repository's model, else the system default |
+| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                                                                                                                                                                                                        |
+| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                                                                                                                                                                                                                       |
+| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                                                                                                                                                                                                              |
+| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice                                                                                                                                                              |
+| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                                                                                                                                                                                                            |
+| **Sandbox environment** | The named [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                                                                                                                                                                                                          |
 
 Schedule times use the DAIV instance's configured timezone (set by the deployment); there is no per-schedule timezone choice. See [Timezone handling](#timezone-handling).
 
@@ -2717,8 +2717,8 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 
 `submit_job` also accepts these optional parameters:
 
-- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the system default.
-- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
+- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the repository's `models.agent` thinking level, else the system default.
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
 - `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you. This is also how you answer a `WAITING_INPUT` job: submit a new job with the same `thread_id` and the answer as `prompt`.
@@ -3665,9 +3665,9 @@ daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo
 
 ## Cost considerations
 
-The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
+The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
 
-- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the system default model then runs at its default effort.
+- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the repository's `models.agent` model, else the system default model, then runs at its default effort.
 - Adding a queue-level rate limit via a separate DAIV API-key user with a lower `jobs_throttle_rate` (Site Configuration).
 
 ## Files
@@ -3815,28 +3815,31 @@ Override the default models on a per-repository basis. Useful for using smaller 
 
 Configuration priority (highest to lowest):
 
-1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode)
+1. **A model picked for the run** — in the agent picker, or as `agent_model` through the API and MCP
+1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode); max mode uses the site's max thinking level, not `thinking_level`
 1. **`.daiv.yml` models section** — per-repository overrides
-1. **Environment variables** — global defaults
+1. **Site settings** — global defaults (environment variables or the configuration page)
 
 ### Agent
 
 The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.
 
-| Option                        | Type                                                          | Default             | Description                               |
-| ----------------------------- | ------------------------------------------------------------- | ------------------- | ----------------------------------------- |
-| `models.agent.model`          | `str`                                                         | `claude-sonnet-4.6` | Primary model.                            |
-| `models.agent.fallback_model` | `str`                                                         | `gpt-5.3-codex`     | Fallback if the primary model fails.      |
-| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | `medium`            | Thinking depth. Set to `null` to disable. |
+| Option                        | Type                                                          | Default      | Description                               |
+| ----------------------------- | ------------------------------------------------------------- | ------------ | ----------------------------------------- |
+| `models.agent.model`          | `str`                                                         | site setting | Primary model.                            |
+| `models.agent.fallback_model` | `str`                                                         | site setting | Fallback if the primary model fails.      |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | site setting | Thinking depth. Set to `null` to disable. |
+
+A model picked for a single run (in the agent picker, or as `agent_model` through the API and MCP) is tried first, with the model and fallback above after it, and a thinking level picked for a run beats `thinking_level`.
 
 ### Diff to metadata
 
 Generates pull request titles, descriptions, and commit messages from diffs.
 
-| Option                                   | Type  | Default            | Description                          |
-| ---------------------------------------- | ----- | ------------------ | ------------------------------------ |
-| `models.diff_to_metadata.model`          | `str` | `gpt-5.4-mini`     | Primary model.                       |
-| `models.diff_to_metadata.fallback_model` | `str` | `claude-haiku-4.5` | Fallback if the primary model fails. |
+| Option                                   | Type  | Default      | Description                          |
+| ---------------------------------------- | ----- | ------------ | ------------------------------------ |
+| `models.diff_to_metadata.model`          | `str` | site setting | Primary model.                       |
+| `models.diff_to_metadata.fallback_model` | `str` | site setting | Fallback if the primary model fails. |
 
 Note
 
@@ -4626,7 +4629,7 @@ Both the index and the per-group pages are guarded by `AdminRequiredMixin`. A si
 
 Open `/dashboard/configuration/`. The index immediately redirects you to the first group, **Agent**, at `/dashboard/configuration/agent/`. Each group is a separate page reached at `/dashboard/configuration/<group_key>/`; an unknown key returns a 404.
 
-Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
+Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. An agent run reads its settings once, when it starts, so a change applies from the next run. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
 
 ## Setting groups
 
@@ -4935,8 +4938,9 @@ This ensures the agent always has up-to-date context about the repository it's w
 
 ## Model configuration
 
-Models are resolved at three levels (highest priority first):
+Models are resolved at four levels (highest priority first):
 
+1. **Per-run model** — a model picked in the agent picker, or `agent_model` through the API and MCP
 1. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
 1. **Repository config** — `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides)
 1. **Environment variables** — global defaults (`DAIV_AGENT_*`)

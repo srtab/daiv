@@ -1912,9 +1912,10 @@
 <p>Override the default models on a per-repository basis. Useful for using smaller models on simple projects or larger models on complex ones.</p>
 <p>Configuration priority (highest to lowest):</p>
 <ol>
-<li><strong>Issue labels</strong> (<code>daiv-max</code>) — see <a href="../../features/issue-addressing/#max-mode">Issue Addressing</a></li>
+<li><strong>A model picked for the run</strong> — in the agent picker, or as <code>agent_model</code> through the API and MCP</li>
+<li><strong>Issue labels</strong> (<code>daiv-max</code>) — see <a href="../../features/issue-addressing/#max-mode">Issue Addressing</a>; max mode uses the site's max thinking level, not <code>thinking_level</code></li>
 <li><strong><code>.daiv.yml</code> models section</strong> — per-repository overrides</li>
-<li><strong>Environment variables</strong> — global defaults</li>
+<li><strong>Site settings</strong> — global defaults (environment variables or the configuration page)</li>
 </ol>
 <h3 id="agent">Agent</h3>
 <p>The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.</p>
@@ -1931,23 +1932,24 @@
 <tr>
 <td><code>models.agent.model</code></td>
 <td><code>str</code></td>
-<td><code>claude-sonnet-4.6</code></td>
+<td>site setting</td>
 <td>Primary model.</td>
 </tr>
 <tr>
 <td><code>models.agent.fallback_model</code></td>
 <td><code>str</code></td>
-<td><code>gpt-5.3-codex</code></td>
+<td>site setting</td>
 <td>Fallback if the primary model fails.</td>
 </tr>
 <tr>
 <td><code>models.agent.thinking_level</code></td>
 <td><code>"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null</code></td>
-<td><code>medium</code></td>
+<td>site setting</td>
 <td>Thinking depth. Set to <code>null</code> to disable.</td>
 </tr>
 </tbody>
 </table>
+<p>A model picked for a single run (in the agent picker, or as <code>agent_model</code> through the API and MCP) is tried first, with the model and fallback above after it, and a thinking level picked for a run beats <code>thinking_level</code>.</p>
 <h3 id="diff-to-metadata">Diff to metadata</h3>
 <p>Generates pull request titles, descriptions, and commit messages from diffs.</p>
 <table>
@@ -1963,13 +1965,13 @@
 <tr>
 <td><code>models.diff_to_metadata.model</code></td>
 <td><code>str</code></td>
-<td><code>gpt-5.4-mini</code></td>
+<td>site setting</td>
 <td>Primary model.</td>
 </tr>
 <tr>
 <td><code>models.diff_to_metadata.fallback_model</code></td>
 <td><code>str</code></td>
-<td><code>claude-haiku-4.5</code></td>
+<td>site setting</td>
 <td>Fallback if the primary model fails.</td>
 </tr>
 </tbody>
@@ -2000,7 +2002,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 26, 2026 14:47:25 UTC">August 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 20:20:26 UTC">October 3, 2026</span>
   </span>
 
     

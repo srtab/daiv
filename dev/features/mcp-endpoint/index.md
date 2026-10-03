@@ -93,8 +93,8 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 
 `submit_job` also accepts these optional parameters:
 
-- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the system default.
-- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
+- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the repository's `models.agent` thinking level, else the system default.
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
 - `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you. This is also how you answer a `WAITING_INPUT` job: submit a new job with the same `thread_id` and the answer as `prompt`.
