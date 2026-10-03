@@ -32,6 +32,24 @@ msgstr "Leitura"
 msgid "Write"
 msgstr "Escrita"
 
+msgid "Allowed"
+msgstr "Permitido"
+
+msgid "Denied — no access"
+msgstr "Recusado — sem acesso"
+
+msgid "Denied — no usable credential"
+msgstr "Recusado — sem credencial utilizável"
+
+msgid "Denied — capability disabled"
+msgstr "Recusado — funcionalidade desativada"
+
+msgid "Denied — not permitted cross-project"
+msgstr "Recusado — não permitido entre projetos"
+
+msgid "Error"
+msgstr "Erro"
+
 msgid "repository ID"
 msgstr "ID do repositório"
 
@@ -149,6 +167,27 @@ msgstr "tópicos"
 msgid "Repository Catalog"
 msgstr "Catálogo de Repositórios"
 
+msgid "occurred at"
+msgstr "ocorreu em"
+
+msgid "thread ID"
+msgstr "ID da thread"
+
+msgid "acting user"
+msgstr "utilizador que agiu"
+
+msgid "target repository ID"
+msgstr "ID do repositório de destino"
+
+msgid "outcome"
+msgstr "resultado"
+
+msgid "Cross-Project Access Record"
+msgstr "Registo de Acesso entre Projetos"
+
+msgid "Cross-Project Access Records"
+msgstr "Registos de Acesso entre Projetos"
+
 msgid "Repository"
 msgstr "Repositório"
 
@@ -190,3 +229,37 @@ msgstr "Não foi possível carregar os repositórios."
 
 msgid "Could not load more repositories."
 msgstr "Não foi possível carregar mais repositórios."
+
+msgid "Cross-project access"
+msgstr "Acesso entre projetos"
+
+msgid ""
+"Every attempt to reach a project other than the one a run was started on, "
+"and whose identity it used."
+msgstr ""
+"Todas as tentativas de aceder a um projeto diferente daquele em que uma "
+"execução foi iniciada, e a identidade que usou."
+
+msgid "Filter by target project…"
+msgstr "Filtrar por projeto de destino…"
+
+msgid "Thread ID"
+msgstr "ID da thread"
+
+msgid "All outcomes"
+msgstr "Todos os resultados"
+
+msgid "Filter"
+msgstr "Filtrar"
+
+msgid "unknown user"
+msgstr "utilizador desconhecido"
+
+msgid "ago"
+msgstr "atrás"
+
+msgid "No access records match your filter."
+msgstr "Nenhum registo de acesso corresponde ao filtro."
+
+msgid "No cross-project access has been attempted yet."
+msgstr "Ainda não foi tentado nenhum acesso entre projetos."
