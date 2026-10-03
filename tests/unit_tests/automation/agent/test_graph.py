@@ -58,7 +58,7 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
         await create_daiv_agent(ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs)
-    return SimpleNamespace(**mocks)
+    return SimpleNamespace(**mocks, ctx=ctx)
 
 
 def _disk_workspace() -> DiskWorkspace:
@@ -134,6 +134,12 @@ async def test_without_an_artifact_store_the_agent_has_no_publish_tool():
     tools = [t.name for m in _middleware(built) for t in getattr(m, "tools", None) or []]
     assert not any(isinstance(m, ArtifactsMiddleware) for m in _middleware(built))
     assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
+
+
+async def test_the_platform_tools_follow_the_runs_cross_project_snapshot():
+    built = await _build(_disk_workspace())
+
+    assert built.git_platform_middleware.call_args.kwargs["cross_project_enabled"] is built.ctx.cross_project_enabled
 
 
 def test_ask_user_question_is_always_loaded():

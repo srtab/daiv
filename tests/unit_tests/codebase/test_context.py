@@ -41,6 +41,14 @@ def _context_deps(repo_client=None):
     )
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_cross_project_enabled_is_snapshotted_from_site_settings(enabled):
+    with _context_deps(), patch("codebase.context.site_settings") as mock_site:
+        mock_site.cross_project_access_enabled = enabled
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)) as ctx:
+            assert ctx.cross_project_enabled is enabled
+
+
 async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled():
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)

@@ -148,7 +148,11 @@ def _build_general_purpose_middleware(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=workspace.fs_permissions,
         ),
-        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=workspace.backend),
+        GitPlatformMiddleware(
+            git_platform=runtime.git_platform,
+            backend=workspace.backend,
+            cross_project_enabled=runtime.cross_project_enabled,
+        ),
         *_shared_subagent_middleware(model, workspace.backend),
     ]
 

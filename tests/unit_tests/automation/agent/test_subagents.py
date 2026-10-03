@@ -83,6 +83,21 @@ class TestGeneralPurposeMiddleware:
         sandbox_middlewares = [m for m in middleware if isinstance(m, SandboxMiddleware)]
         assert len(sandbox_middlewares) == 1
 
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_the_platform_tools_follow_the_runs_cross_project_snapshot(
+        self, mock_model, mock_backend, mock_runtime_ctx, enabled
+    ):
+        mock_runtime_ctx.cross_project_enabled = enabled
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            _workspace(mock_backend, sandbox=True),
+            mock_runtime_ctx,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+        )
+        [git_platform] = [m for m in middleware if isinstance(m, GitPlatformMiddleware)]
+        assert git_platform._cross_project_enabled is enabled
+
     def test_threads_the_workspace_into_sandbox_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
         """The parent's workspace must reach the subagent's SandboxMiddleware: the subagent's bash tool runs through its
         shell, in the parent's session."""

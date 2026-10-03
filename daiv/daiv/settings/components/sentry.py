@@ -29,6 +29,9 @@ def _traces_sampler(sampling_context: dict) -> float:
 # ``GH_TOKEN`` and friends survive it; ``recursive`` is what reaches inside a captured env dict.
 SENTRY_EXTRA_SCRUB_KEYS = [
     "gitlab_private_token",
+    "gitlab_oauth_token",
+    "acting_token",
+    "service_token",
     "gh_token",
     "github_token",
     "gh_enterprise_token",
