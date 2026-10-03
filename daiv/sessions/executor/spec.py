@@ -83,7 +83,6 @@ class RunSpec:
 
     def overrides(self) -> RunOverrides:
         """What this run asks of the settings resolver."""
-        # Imported here: the resolver's module loads the agent stack, which django.setup() must not.
         from automation.agent.agent_settings import RunOverrides
 
         return RunOverrides(

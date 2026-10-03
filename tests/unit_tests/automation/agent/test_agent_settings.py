@@ -32,7 +32,7 @@ def _resolve(*, site=None, repo=None, run=None):
 
 @pytest.mark.parametrize("case", AGENT_SETTINGS_CASES, ids=lambda case: case.id)
 def test_each_case_resolves_its_chain_and_thinking_level(case):
-    """Rows 1 and 2, the exact chain included. ``-through-raw`` cases pin D11."""
+    """Rows 1 and 2, the exact chain included. ``-through-raw`` cases pin a site level passed on unvalidated."""
     site = site_snapshot(**case.site)
     repo = RepositoryConfig(models={"agent": case.repo_agent})
     run = RunOverrides(**case.run)

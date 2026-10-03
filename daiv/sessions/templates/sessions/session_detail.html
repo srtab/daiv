@@ -46,8 +46,9 @@
   {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
   {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
   {# The agent pill is locked here, so an empty ``agent_model`` means the run used the #}
-  {# site default (auto) — mirror the env pill's "Auto" rather than the hero picker's #}
-  {# "Pick a model" prompt, which only makes sense where the model is actually selectable. #}
+  {# repository's model, else the site default (auto) — mirror the env pill's "Auto" #}
+  {# rather than the hero picker's "Pick a model" prompt, which only makes sense where #}
+  {# the model is actually selectable. #}
   {% translate "Auto" as locked_agent_fallback %}
   {% translate "Auto" as locked_env_fallback %}
 

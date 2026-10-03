@@ -94,8 +94,9 @@ PROMPT
             repos                => [ { repo_id => $repo } ],
             prompt               => $prompt,
             # Request high reasoning effort for triage. This applies high
-            # effort to the system default model. To force the most capable
-            # model, also pass an explicit agent_model, e.g.:
+            # effort to the repository's models.agent model, else the system
+            # default model. To force the most capable model, also pass an
+            # explicit agent_model, e.g.:
             #   agent_model => 'openrouter:anthropic/claude-opus-4.6',
             agent_thinking_level => 'high',
         });

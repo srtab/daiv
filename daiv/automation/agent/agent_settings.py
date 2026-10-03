@@ -1,8 +1,8 @@
 """The settings one agent run gets, resolved once from the site, the repository's ``.daiv.yml`` and the run.
 
-Precedence, row for row with the config-resolver plan's Today table. Inputs are listed highest first; for the model
-chain the first matching branch wins. "Repo" is a value ``.daiv.yml`` sets (in ``model_fields_set``; a null or empty
-model and a null attempt cap count as unset), else the site's.
+This docstring is the precedence table. Inputs are listed highest first; for the model chain the first matching branch
+wins. "Repo" is a value ``.daiv.yml`` sets (in ``model_fields_set``; a null or empty model and a null attempt cap count
+as unset), else the site's.
 
  1. Agent model chain: exact chain (``model_names``) → run override: ``[override, repo model, repo fallback]`` →
     ``use_max``: ``[site max, repo model, repo fallback]`` → default: ``[repo model, repo fallback]``, raising
@@ -11,8 +11,8 @@ model and a null attempt cap count as unset), else the site's.
     run, then repo, then site.
  3. Fallback-model thinking: site ``agent_fallback_thinking_level``, every branch.
  4. Explore subagent chain: site only, without a fallback when the site sets none.
- 5. Diff-to-metadata chain: site only; ``.daiv.yml`` does not choose it (D2).
- 6. Recursion limit: site ``agent_recursion_limit``; chat's call-time 500 stays at its call site (D5).
+ 5. Diff-to-metadata chain: site only; ``.daiv.yml`` ``models.diff_to_metadata`` only labels its trace.
+ 6. Recursion limit: site ``agent_recursion_limit``; chat passes 500 at call time, which beats it.
  7. Web search, web fetch: the run's option, then site.
  8. Memory: site AND repo.
  9. Consolidation chain: site ``memory_consolidation_model_name``, then the repo agent model; then the repo fallback.
@@ -21,8 +21,9 @@ model and a null attempt cap count as unset), else the site's.
 11. Slash commands: repo only.
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site).
 
-Site thinking levels reach the model unvalidated (D11), so ``ModelChain`` levels may be raw ``str``; only the site level
-an override inherits as the repo default is coerced to ``None``, with a warning.
+Site thinking levels are not validated (an env var may hold any string) and reach the model as they are, so
+``ModelChain`` levels may be raw ``str``. Only the site level a run override inherits, when ``.daiv.yml`` sets no
+``thinking_level``, is checked: an invalid one becomes ``None``, with a warning.
 """
 
 from __future__ import annotations

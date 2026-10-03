@@ -1,8 +1,9 @@
-"""Rows 1 and 2 of the config-resolver plan as data: the model chain and thinking level one agent run gets.
+"""Rows 1 and 2 of ``automation.agent.agent_settings``'s precedence table as data: the model chain and thinking level
+one agent run gets.
 
 A repo's ``models.agent`` holds only the keys it sets: ``{"thinking_level": None}`` disables thinking, ``{}`` leaves it
 to the site. A case whose run carries ``model_names`` is the exact chain. ``-through-raw`` marks a site thinking
-level that reaches the model unvalidated, divergence D11.
+level that reaches the model unvalidated.
 """
 
 from __future__ import annotations
