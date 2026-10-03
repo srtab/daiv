@@ -59,6 +59,13 @@ OAuth is configured by an admin in **Site Configuration** under the **Authentica
 !!! tip
     OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](../reference/env-variables.md#authentication) and [Deployment](deployment.md).
 
+!!! info "Cross-project access changes what sign-in requests"
+    Once an admin turns on [cross-project access](../features/cross-project-access.md), signing in also
+    authorises DAIV to reach *other* projects as you, so a run you start can read what you can read.
+    People who signed in before it was turned on sign in again to grant it; until they do,
+    everything they could already do keeps working. Review or disconnect it under
+    **Account → Git authorisation**.
+
 ### Email login-by-code
 
 Users can also sign in **without a password** using a one-time code emailed to them:
@@ -136,6 +143,7 @@ Every signed-in user — member or admin — has these self-service pages. All b
 | **Dashboard** | `/dashboard/` | Your activity summary and quick links. Admins also see system-wide velocity metrics and total user count. |
 | **API keys** | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access. |
 | **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled). |
+| **Git authorisation** | `/accounts/git-authorisation/` | See, renew or disconnect the git platform authorisation DAIV uses to reach other projects as you, when [cross-project access](../features/cross-project-access.md) is on. |
 
 API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). Members see only their own keys; admins see every user's keys in the list.
 
