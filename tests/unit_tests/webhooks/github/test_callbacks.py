@@ -8,7 +8,7 @@ from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repo
 
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 
 
 @pytest.fixture
@@ -43,12 +43,13 @@ def create_issue_callback(
     label: Label | None = None,
     sender_username: str = "testuser",
     sender_id: int = 10,
+    issue_body: str | None = None,
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
         action=action,
         repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-        issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels),
+        issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels, body=issue_body),
         label=label,
         sender=User(**{"id": sender_id, "login": sender_username}),
     )
@@ -593,3 +594,53 @@ class TestReactionFailureVisibility:
             await callback.process_callback()
 
         mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)
+
+
+class TestCrossProjectMarker:
+    """Content DAIV published in another project, as a person, must not start a run here."""
+
+    MARKED = f"body\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+
+    @staticmethod
+    def _comment_callback(body: str, *, pull_request: dict | None = None) -> IssueCommentCallback:
+        return IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", pull_request=pull_request),
+            comment=Comment(id=200, body=body, user=User(**{"id": 10, "login": "alice"})),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _repo_setup(self, monkeypatch_dependencies, mock_repo_client, mock_repo_config):
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+        mock_repo_config.pull_request_assistant.enabled = True
+
+    @pytest.mark.parametrize(
+        ("action", "label"), [("opened", None), ("labeled", Label(id=1, name=BOT_LABEL))], ids=["opened", "labeled"]
+    )
+    def test_an_issue_carrying_the_marker_is_ignored(self, action, label):
+        callback = create_issue_callback(
+            action=action, issue_labels=[Label(id=1, name=BOT_LABEL)], label=label, issue_body=self.MARKED
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("body", ["body", None])
+    def test_an_issue_without_the_marker_is_accepted(self, body):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)], issue_body=body)
+
+        assert callback.accept_callback() is True
+
+    @pytest.mark.parametrize("pull_request", [None, {"url": "https://example/pr/42"}], ids=["issue", "pull_request"])
+    def test_a_comment_carrying_the_marker_is_ignored(self, pull_request):
+        callback = self._comment_callback(
+            f"@daiv-bot help\n\n{CROSS_PROJECT_CONTENT_MARKER}", pull_request=pull_request
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("pull_request", [None, {"url": "https://example/pr/42"}], ids=["issue", "pull_request"])
+    def test_a_comment_without_the_marker_is_accepted(self, pull_request):
+        callback = self._comment_callback("@daiv-bot help", pull_request=pull_request)
+
+        assert callback.accept_callback() is True

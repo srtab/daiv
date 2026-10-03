@@ -18,7 +18,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.github.client import github_conclusion_to_status
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 from webhooks.callbacks import BaseCallback
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
@@ -55,6 +55,7 @@ class IssueCallback(GitHubCallback):
             self._repo_config.issue_addressing.enabled
             and self.issue.state == "open"
             and self.action in ["opened", "reopened", "labeled"]
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.issue.body or "")
         ):
             return False
 
@@ -151,6 +152,7 @@ class IssueCommentCallback(GitHubCallback):
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
+            or CROSS_PROJECT_CONTENT_MARKER in self.comment.body
         ):
             return False
 

@@ -23,6 +23,7 @@ from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+from core.constants import CROSS_PROJECT_CONTENT_MARKER
 
 
 class StubClient:
@@ -243,6 +244,7 @@ def create_issue_callback(
     changes: IssueChanges | None = None,
     username: str = "testuser",
     user_id: int = 10,
+    description: str | None = "Test description",
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
@@ -253,7 +255,7 @@ def create_issue_callback(
             id=100,
             iid=42,
             title="Test Issue",
-            description="Test description",
+            description=description,
             state=issue_state,
             assignee_id=None,
             action=action,
@@ -724,7 +726,7 @@ class TestProcessCallbackSandboxEnvironment:
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
 
 
-def create_issue_note_callback(*, user_id: int, issue_iid: int = 7) -> NoteCallback:
+def create_issue_note_callback(*, user_id: int, issue_iid: int = 7, note: str = "@daiv please look") -> NoteCallback:
     """A NoteCallback for a comment on an issue that mentions DAIV."""
     return NoteCallback(
         object_kind="note",
@@ -747,7 +749,7 @@ def create_issue_note_callback(*, user_id: int, issue_iid: int = 7) -> NoteCallb
             noteable_type=NoteableType.ISSUE,
             noteable_id=issue_iid,
             discussion_id="discussion_2",
-            note="@daiv please look",
+            note=note,
             system=False,
         ),
     )
@@ -798,3 +800,40 @@ class TestProcessCallbackActingPlatformUid:
         assert label_kwargs["thread_id"] == mention_kwargs["thread_id"]
         assert label_kwargs["acting_platform_uid"] == "1001"
         assert mention_kwargs["acting_platform_uid"] == "2002"
+
+
+class TestCrossProjectMarker:
+    """Content DAIV published in another project, as a person, must not start a run here."""
+
+    MARKED = f"body\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+
+    @pytest.mark.parametrize("action", [IssueAction.OPEN, IssueAction.UPDATE])
+    def test_an_issue_carrying_the_marker_is_ignored(self, monkeypatch_dependencies, action):
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="daiv")]))
+        callback = create_issue_callback(
+            action=action, issue_labels=[Label(title="daiv")], changes=changes, description=self.MARKED
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("description", ["body", None])
+    def test_an_issue_without_the_marker_is_accepted(self, monkeypatch_dependencies, description):
+        callback = create_issue_callback(
+            action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], description=description
+        )
+
+        assert callback.accept_callback() is True
+
+    def test_a_merge_request_note_carrying_the_marker_is_ignored(self, monkeypatch_dependencies):
+        callback = create_note_callback(f"@daiv please look\n\n{CROSS_PROJECT_CONTENT_MARKER}")
+
+        assert callback.accept_callback() is False
+
+    def test_an_issue_note_carrying_the_marker_is_ignored(self, monkeypatch_dependencies):
+        callback = create_issue_note_callback(user_id=2, note=f"@daiv please look\n\n{CROSS_PROJECT_CONTENT_MARKER}")
+
+        assert callback.accept_callback() is False
+
+    def test_a_note_without_the_marker_is_accepted(self, monkeypatch_dependencies):
+        assert create_note_callback("@daiv please look").accept_callback() is True
+        assert create_issue_note_callback(user_id=2).accept_callback() is True
