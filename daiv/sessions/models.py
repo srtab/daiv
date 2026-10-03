@@ -69,6 +69,11 @@ class SessionOrigin(models.TextChoices):
         return frozenset({cls.ISSUE_WEBHOOK, cls.MR_WEBHOOK})
 
     @classmethod
+    def daiv_authenticated(cls) -> frozenset[str]:
+        """Trigger types whose user is a DAIV sign-in (session, API key or MCP token), never a webhook match."""
+        return frozenset({cls.CHAT, cls.API_JOB, cls.MCP_JOB, cls.SCHEDULE, cls.UI_JOB})
+
+    @classmethod
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})

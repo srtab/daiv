@@ -253,6 +253,7 @@ def _enqueue_queued_run(run: Any) -> bool:
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
+            acting_user_authenticated=run.trigger_type in SessionOrigin.daiv_authenticated(),
             ask_user_enabled=run.trigger_type not in SessionOrigin.unattended(),
         )
     except Exception as err:  # noqa: BLE001

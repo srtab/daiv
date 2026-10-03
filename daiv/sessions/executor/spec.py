@@ -32,6 +32,8 @@ class RunSpec:
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
+    ``acting_user_authenticated`` marks ``acting_user_id`` as a DAIV sign-in; webhook runs name their person by
+    ``acting_platform_uid``.
     """
 
     thread_id: str | None
@@ -49,6 +51,8 @@ class RunSpec:
     use_max: bool = False
     sandbox_env_id: str | None = None
     acting_user_id: int | None = None
+    acting_platform_uid: str | None = None
+    acting_user_authenticated: bool = False
     mcp_overrides: dict[str, str] = field(default_factory=dict)
     references: tuple[ExternalRef, ...] = ()
     run_id: str | None = None

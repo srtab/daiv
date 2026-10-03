@@ -338,6 +338,19 @@ class TestDispatchNextInSession:
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
 
+    @pytest.mark.parametrize(
+        ("trigger_type", "expected"), [(SessionOrigin.UI_JOB, True), (SessionOrigin.ISSUE_WEBHOOK, False)]
+    )
+    def test_enqueue_marks_only_daiv_triggers_authenticated(self, create_db_task_result, trigger_type, expected):
+        from sessions.signals import _enqueue_queued_run
+
+        run = _create_run(session=_make_session(), trigger_type=trigger_type)
+        with patch("sessions.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=create_db_task_result().id))
+            assert _enqueue_queued_run(run) is True
+
+        assert mock_task.aenqueue.await_args.kwargs["acting_user_authenticated"] is expected
+
     def test_enqueue_failure_reemit_uses_skip_dispatch(self):
         """The dispatch-failure path must re-emit ``run_finished`` with
         ``skip_dispatch=True`` so the dispatcher does not recurse — notifications still fire."""

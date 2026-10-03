@@ -415,6 +415,18 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_the_authenticated_flag():
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42, acting_user_authenticated=True)
+    assert captured.get("acting_user_authenticated") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_is_unauthenticated_by_default():
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42)
+    assert captured.get("acting_user_authenticated") is False
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_session_references():
     """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
     from codebase.references import ExternalRef

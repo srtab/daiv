@@ -363,6 +363,7 @@ class ChatRunStreamer:
             agent_thinking_level=self.agent_thinking_level,
             sandbox_env_id=self.sandbox_environment_id,
             acting_user_id=self.user_id,
+            acting_user_authenticated=True,
             mcp_overrides=self.mcp_overrides,
             references=self.external_refs,
             persist_ref=True,

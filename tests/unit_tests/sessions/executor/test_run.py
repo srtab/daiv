@@ -55,6 +55,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         agent_thinking_level="low",
         sandbox_env_id="env-1",
         acting_user_id=7,
+        acting_platform_uid="4242",
+        acting_user_authenticated=True,
         mcp_overrides={"sentry": "off"},
         references=refs,
         extra_metadata={"ref": "feat/x"},
@@ -72,6 +74,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "fallback_ref_on_missing": False,
         "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
+        "acting_platform_uid": "4242",
+        "acting_user_authenticated": True,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }

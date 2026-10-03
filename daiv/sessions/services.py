@@ -409,6 +409,7 @@ async def asubmit_batch_runs(
                 sandbox_environment_id=target.sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=user.id if user is not None else None,
+                acting_user_authenticated=trigger_type in SessionOrigin.daiv_authenticated(),
                 ask_user_enabled=trigger_type not in SessionOrigin.unattended(),
             )
         except Exception as err:  # noqa: BLE001
