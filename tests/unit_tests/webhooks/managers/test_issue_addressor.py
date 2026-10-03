@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import SessionLockTimeoutError
+from sessions.executor.lock import NoLock, SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
+from webhooks.managers.base import BaseManager
 from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
 from automation.agent.questions import render_questions
@@ -90,6 +91,19 @@ async def _address(**kwargs):
     return await IssueAddressorManager.address_issue(
         **({"repo_id": "owner/repo", "issue": _issue(labels=[BOT_LABEL])} | kwargs)
     )
+
+
+async def test_the_run_spec_carries_the_triggering_platform_uid(stub_base_init):
+    with (
+        patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        patch(
+            "webhooks.managers.issue_addressor.execute_run", AsyncMock(return_value=SimpleNamespace(agent_result={}))
+        ) as execute_run,
+    ):
+        await _address(acting_platform_uid="4242")
+
+    spec = execute_run.await_args.args[0]
+    assert (spec.acting_platform_uid, spec.acting_user_id, spec.acting_user_authenticated) == ("4242", None, False)
 
 
 class TestMaxLabelRoutesToMaxModel:

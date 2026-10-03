@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from github.GithubException import GithubException
@@ -42,6 +42,7 @@ def create_issue_callback(
     issue_state: str = "open",
     label: Label | None = None,
     sender_username: str = "testuser",
+    sender_id: int = 10,
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
@@ -49,7 +50,7 @@ def create_issue_callback(
         repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
         issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels),
         label=label,
-        sender=User(**{"id": 10, "login": sender_username}),
+        sender=User(**{"id": sender_id, "login": sender_username}),
     )
 
 
@@ -473,6 +474,58 @@ class TestProcessCallbackSandboxEnvironment:
 
         assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+
+
+class TestProcessCallbackActingPlatformUid:
+    """The task carries the platform user id of the event that triggered it, never one remembered by the session."""
+
+    @staticmethod
+    async def _enqueue_kwargs(callback, task: str) -> dict:
+        with (
+            patch(f"webhooks.github.callbacks.{task}") as mock_task,
+            patch("webhooks.github.callbacks.acreate_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
+            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
+            await callback.process_callback()
+        return mock_task.aenqueue.await_args.kwargs
+
+    async def test_label_run_carries_the_senders_platform_uid(self, monkeypatch_dependencies):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)], sender_id=1001)
+
+        kwargs = await self._enqueue_kwargs(callback, "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "1001"
+
+    async def test_issue_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies):
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
+            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 2002, "login": "alice"})),
+        )
+
+        kwargs = await self._enqueue_kwargs(callback, "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
+
+    async def test_pr_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies, mock_repo_config):
+        mock_repo_config.pull_request_assistant.enabled = True
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 2002, "login": "alice"})),
+        )
+
+        kwargs = await self._enqueue_kwargs(callback, "address_mr_comments_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
 
 
 class TestReactionFailureVisibility:

@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import SessionLockTimeoutError
+from sessions.executor.lock import NoLock, SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
+from webhooks.managers.base import BaseManager
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from automation.agent.questions import render_questions
@@ -66,6 +67,19 @@ async def _address(**kwargs):
     return await CommentsAddressorManager.address_comments(
         **({"repo_id": "owner/repo", "merge_request": _merge_request(), "mention_comment_id": "c-1"} | kwargs)
     )
+
+
+async def test_the_run_spec_carries_the_triggering_platform_uid(mention):
+    with (
+        patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        patch(
+            "webhooks.managers.review_addressor.execute_run", AsyncMock(return_value=SimpleNamespace(agent_result={}))
+        ) as execute_run,
+    ):
+        await _address(acting_platform_uid="4242")
+
+    spec = execute_run.await_args.args[0]
+    assert (spec.acting_platform_uid, spec.acting_user_id, spec.acting_user_authenticated) == ("4242", None, False)
 
 
 class TestReviewAfterRunMatrix:

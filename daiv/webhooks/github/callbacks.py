@@ -110,6 +110,7 @@ class IssueCallback(GitHubCallback):
             issue_iid=self.issue.number,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_platform_uid=str(self.sender.id),
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
@@ -189,6 +190,7 @@ class IssueCommentCallback(GitHubCallback):
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.comment.user.id),
             )
             try:
                 await acreate_run(
@@ -227,6 +229,7 @@ class IssueCommentCallback(GitHubCallback):
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.comment.user.id),
             )
             # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
             # fails the activity is still useful without a branch — don't drop it.

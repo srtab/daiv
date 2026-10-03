@@ -27,10 +27,11 @@ def stub_client() -> MagicMock:
 
 
 def _stub_init(client: MagicMock):
-    def _init(self, *, repo_id, thread_id, mention_comment_id=None):
+    def _init(self, *, repo_id, thread_id, mention_comment_id=None, acting_platform_uid=None):
         self.repo_id = repo_id
         self.thread_id = thread_id
         self.mention_comment_id = mention_comment_id
+        self.acting_platform_uid = acting_platform_uid
         self.client = client
 
     return _init

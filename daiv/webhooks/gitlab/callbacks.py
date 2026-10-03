@@ -127,6 +127,7 @@ class IssueCallback(BaseCallback):
             issue_iid=self.object_attributes.iid,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_platform_uid=str(self.user.id),
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
@@ -212,6 +213,7 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.user.id),
             )
             try:
                 await acreate_run(
@@ -250,6 +252,7 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.user.id),
             )
             try:
                 await acreate_run(

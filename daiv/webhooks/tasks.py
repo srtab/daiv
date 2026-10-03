@@ -38,6 +38,7 @@ async def address_issue_task(
     ref: str | None = None,
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult | None:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -51,6 +52,7 @@ async def address_issue_task(
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the manager computes the deterministic id from the repository and the issue iid.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        acting_platform_uid (str | None): The platform user id that triggered the event.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -66,6 +68,7 @@ async def address_issue_task(
         ref=effective_ref or None,
         thread_id=thread_id,
         sandbox_env_id=sandbox_environment_id,
+        acting_platform_uid=acting_platform_uid,
         run_id=await aget_task_run_id(context.task_result.id),
     )
 
@@ -78,6 +81,7 @@ async def address_mr_comments_task(
     mention_comment_id: str,
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
+    acting_platform_uid: str | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -90,6 +94,7 @@ async def address_mr_comments_task(
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the manager computes the deterministic id from the repository and the merge request iid.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
+        acting_platform_uid (str | None): The platform user id that triggered the event.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 
@@ -113,6 +118,7 @@ async def address_mr_comments_task(
             mention_comment_id=mention_comment_id,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
+            acting_platform_uid=acting_platform_uid,
             run_id=await aget_task_run_id(context.task_result.id),
         )
     except CloneRefNotFoundError:

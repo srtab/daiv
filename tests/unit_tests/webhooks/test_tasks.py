@@ -96,9 +96,26 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "mention_comment_id": "d1",
         "thread_id": "t-7",
         "sandbox_env_id": "e",
+        "acting_platform_uid": None,
         "run_id": "run-1",
     }
     run_lookup.assert_awaited_once_with("tr-1")
+
+
+async def test_address_mr_comments_forwards_the_acting_platform_uid():
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=False)
+    address = AsyncMock(return_value={"response": "done"})
+
+    with (
+        patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
+        patch("webhooks.managers.review_addressor.CommentsAddressorManager.address_comments", address),
+    ):
+        await address_mr_comments_task.func(
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", acting_platform_uid="4242"
+        )
+
+    assert address.await_args.kwargs["acting_platform_uid"] == "4242"
 
 
 class TestAddressIssueTaskRef:
@@ -154,6 +171,21 @@ class TestAddressIssueTaskRef:
             "ref": None,
             "thread_id": "t-1",
             "sandbox_env_id": "e",
+            "acting_platform_uid": None,
             "run_id": "run-1",
         }
         run_lookup.assert_awaited_once_with("tr-1")
+
+    async def test_the_task_forwards_the_acting_platform_uid(self):
+        client = MagicMock()
+        addressed = AsyncMock(return_value={"response": "", "code_changes": False})
+        with (
+            patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
+            patch("webhooks.tasks.aget_session_ref", AsyncMock(return_value="")),
+            patch("webhooks.managers.issue_addressor.IssueAddressorManager.address_issue", addressed),
+        ):
+            await address_issue_task.func(
+                _CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1", acting_platform_uid="4242"
+            )
+
+        assert addressed.await_args.kwargs["acting_platform_uid"] == "4242"
