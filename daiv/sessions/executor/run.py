@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
     from langgraph.types import StateSnapshot
 
+    from automation.agent.agent_settings import AgentSettings
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.session import SandboxSession
@@ -45,7 +46,8 @@ class RunStoppedError(Exception):
 class AgentRun:
     """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
-    agent works; draft recovery publishes through it, and the executor releases its sandbox session."""
+    agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
+    what the run resolved once; draft recovery publishes with it."""
 
     ctx: RuntimeCtx
     agent: CompiledAgent
@@ -53,6 +55,7 @@ class AgentRun:
     usage: CostAwareUsageMetadataCallbackHandler
     thread_id: str
     workspace: Workspace
+    settings: AgentSettings
 
 
 async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
@@ -200,7 +203,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     if not spec.recover_draft:
         return
     recovery.draft_published = await recover_draft(
-        run.ctx, run.agent, run.config, thread_id=run.thread_id, workspace=run.workspace
+        run.ctx, run.agent, run.config, thread_id=run.thread_id, workspace=run.workspace, settings=run.settings
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
 
@@ -279,7 +282,13 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             )
             with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
-                    ctx=ctx, agent=agent, config=config, usage=usage, thread_id=thread_id, workspace=workspace
+                    ctx=ctx,
+                    agent=agent,
+                    config=config,
+                    usage=usage,
+                    thread_id=thread_id,
+                    workspace=workspace,
+                    settings=settings,
                 )
                 try:
                     yield run

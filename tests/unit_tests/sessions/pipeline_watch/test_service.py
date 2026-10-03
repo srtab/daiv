@@ -1,6 +1,7 @@
 import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -17,7 +18,7 @@ from sessions.pipeline_watch.service import PipelineWatch
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id
-from core.site_settings import site_settings
+from core.models import SiteConfiguration
 
 from ..conftest import amake_watched_session, make_job, make_pipeline
 
@@ -706,9 +707,8 @@ async def test_a_watched_branch_enqueues_the_evaluation(watched_session, watch, 
 
 @pytest.mark.django_db(transaction=True)
 async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
-    """``aarm`` runs at the end of every publishing chat turn, job and issue-addressor run, and
-    reads only ``enabled``. Each ``site_settings`` read is a blocking thread hop, so a policy that
-    resolves the attempt cap it never looks at doubles the cost of the whole arm path.
+    """``aarm`` runs at the end of every publishing chat turn, job and issue-addressor run. Each site
+    read is a blocking thread hop, so the policy must take one snapshot rather than read per field.
     """
     # Built before recording starts: its ``max_attempts`` default factory reads site settings too,
     # and in production that cost is paid once an hour by the config cache, not by the arm path.
@@ -717,19 +717,11 @@ async def test_arming_costs_one_site_settings_read(watch, monkeypatch):
     # No injected policy: this is the only test on the ``WatchPolicy.afor_repo`` fallback that
     # production takes, and the cost it measures is the fallback's.
     pw = PipelineWatch("group/repo", platform=watch.platform, dispatcher=watch.dispatcher, notifier=watch.notifier)
-    read = []
-    original = type(site_settings).__getattr__
 
-    def record(self, name):
-        if name.startswith("pipeline_watch_"):
-            read.append(name)
-        return original(self, name)
+    with patch.object(SiteConfiguration, "get_cached", wraps=SiteConfiguration.get_cached) as get_cached:
+        await pw.aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
 
-    monkeypatch.setattr(type(site_settings), "__getattr__", record)
-
-    await pw.aarm(merge_request_iid=81, ref="daiv/branch", was_fix_run=False)
-
-    assert read == ["pipeline_watch_enabled"]
+    assert get_cached.call_count == 1
 
 
 @pytest.mark.django_db(transaction=True)

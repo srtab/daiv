@@ -224,6 +224,22 @@ class TestPreconditionsAndPrompt:
         _schema, models = build.call_args.args
         assert models[0] == expected_model
 
+    async def test_a_repo_with_its_own_agent_model_consolidates_when_the_site_has_no_default(self):
+        # The agent chain raises without a site default model; consolidation outside a run must not.
+        await _observation()
+        site = _site_settings(agent_model_name="", agent_fallback_model_name="")
+
+        with (
+            patch("memory.tasks.RepositoryConfig") as cfg,
+            patch("memory.consolidation.build_structured_llm", return_value=_structured_llm_returning()) as build,
+            patch("memory.consolidation.site_settings", site),
+        ):
+            cfg.get_config.return_value = _enabled_config()
+            await consolidate_memory_task.func("group/project")
+
+        _schema, models = build.call_args.args
+        assert models == ("openrouter:anthropic/claude-sonnet-4.6", "openrouter:openai/gpt-5.3-codex")
+
     async def test_prompt_carries_entry_and_observation_ids(self):
         # The model can only target an entry by copying its ID back, so both lists must reach it.
         entry = await _entry("a fact already known")

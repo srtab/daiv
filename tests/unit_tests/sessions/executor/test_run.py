@@ -682,6 +682,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         stack.langsmith.return_value,
         thread_id=spec.thread_id,
         workspace=stack.create_agent.await_args.kwargs["workspace"],
+        settings=stack.resolve.return_value,
     )
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
@@ -1101,6 +1102,7 @@ class TestStreamRun:
             stack.langsmith.return_value,
             thread_id=ANY,
             workspace=stack.create_agent.await_args.kwargs["workspace"],
+            settings=stack.resolve.return_value,
         )
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
 

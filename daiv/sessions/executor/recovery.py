@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
 
+    from automation.agent.agent_settings import AgentSettings
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -12,14 +13,20 @@ logger = logging.getLogger("daiv.sessions")
 
 
 async def recover_draft(
-    ctx: RuntimeCtx, agent: CompiledAgent, config: RunnableConfig, *, thread_id: str, workspace: Workspace
+    ctx: RuntimeCtx,
+    agent: CompiledAgent,
+    config: RunnableConfig,
+    *,
+    thread_id: str,
+    workspace: Workspace,
+    settings: AgentSettings,
 ) -> bool:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return whether one landed.
 
     Runs inside the run's context, so the clone (and, on a sandbox run, its session) is still open. It publishes through
-    ``workspace``, the one the agent worked in, and recovers nothing when that workspace never became ready: the agent
-    raised before acquiring its sandbox session. Never raises: this is the last attempt to save the run's work, and a
-    failure only means no draft.
+    ``workspace``, the one the agent worked in, with the run's own ``settings``, and recovers nothing when that
+    workspace never became ready: the agent raised before acquiring its sandbox session. Never raises: this is the last
+    attempt to save the run's work, and a failure only means no draft.
     """
     from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
 
@@ -37,7 +44,7 @@ async def recover_draft(
             state_mr=checkpointed_merge_request(snapshot.values, strict=False),
             current_ref=ctx.repo.current_ref,
         )
-        publisher = GitChangePublisher(ctx, workspace, thread_id=thread_id)
+        publisher = GitChangePublisher(ctx, workspace, settings=settings, thread_id=thread_id)
         outcome = await publisher.publish(
             merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
         )

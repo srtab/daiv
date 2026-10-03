@@ -1,5 +1,5 @@
 import inspect
-from contextlib import nullcontext
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -35,11 +35,15 @@ from codebase.base import (
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import ExternalRef
+from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+from core.models import SiteConfiguration
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
-from core.site_settings import site_settings
-from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session
+from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
+
+if TYPE_CHECKING:
+    from automation.agent.agent_settings import AgentSettings
 
 # The fake ``"diff"`` body has no hunks, so counting it yields zeros.
 _LOCAL_STATS = MergeRequestDiffStats()
@@ -93,20 +97,26 @@ def _make_merge_request(**overrides) -> MergeRequest:
     return MergeRequest(**defaults)
 
 
+def _settings(*, site: dict | None = None, **daiv_yml) -> AgentSettings:
+    """The run's settings for a ``.daiv.yml`` that sets ``daiv_yml``, on a site that overrides ``site``."""
+    with patch.object(SiteConfiguration, "get_cached", return_value=None):
+        repo = RepositoryConfig(**daiv_yml)
+    return agent_settings(site=site_snapshot(**(site or {})), repo=repo)
+
+
 def _make_publisher(
     *,
     git_platform: GitPlatform = GitPlatform.GITLAB,
     context_file_name: str | None = "AGENTS.md",
     thread_id: str | None = None,
     base_ref: str = "main",
+    settings: AgentSettings | None = None,
 ):
     ctx = Mock()
     ctx.repository.slug = "owner/repo"
     ctx.repository.html_url = "https://gitlab.com/owner/repo"
     ctx.repository.git_platform = git_platform
     ctx.config.context_file_name = context_file_name
-    ctx.config.suggest_context_file = True
-    ctx.config.session_link = True
     ctx.config.default_branch = "main"
     ctx.git_platform = git_platform
     ctx.references = ()
@@ -117,7 +127,7 @@ def _make_publisher(
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
 
-    publisher = GitChangePublisher(ctx, FakeWorkspace(), thread_id=thread_id)
+    publisher = GitChangePublisher(ctx, FakeWorkspace(), settings=settings or agent_settings(), thread_id=thread_id)
     publisher.client = Mock()
     publisher.client.is_branch_protected.return_value = False
     publisher.client.push_uses_ephemeral_token.return_value = False
@@ -191,8 +201,7 @@ class TestSuggestContextFile:
         publisher.client.create_merge_request_comment.assert_not_called()
 
     async def test_skips_when_disabled_per_repo(self):
-        publisher = _make_publisher()
-        publisher.ctx.config.suggest_context_file = False
+        publisher = _make_publisher(settings=_settings(suggest_context_file=False))
         mr = _make_merge_request()
 
         await publisher._suggest_context_file(mr)
@@ -201,13 +210,10 @@ class TestSuggestContextFile:
         publisher.client.create_merge_request_comment.assert_not_called()
 
     async def test_skips_when_globally_disabled(self):
-        publisher = _make_publisher()
+        publisher = _make_publisher(settings=_settings(site={"suggest_context_file_enabled": False}))
         mr = _make_merge_request()
 
-        # patch.object, not monkeypatch.setattr: SiteSettings serves these through __getattr__,
-        # so monkeypatch's undo would leave a permanent instance attribute shadowing it.
-        with patch.object(site_settings, "suggest_context_file_enabled", False):
-            await publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
@@ -290,15 +296,13 @@ class TestCreateMergeRequestDescription:
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "master"
 
 
-def _session_link_disabled(publisher, where: str | None):
-    """Turn the session link off site-wide or per-repository; ``None`` leaves it on."""
+def _session_link_settings(where: str | None) -> AgentSettings:
+    """Settings with the session link off site-wide or per-repository; ``None`` leaves it on."""
     if where == "site":
-        # patch.object, not monkeypatch.setattr: SiteSettings serves this through __getattr__, so
-        # monkeypatch's undo would leave a permanent instance attribute shadowing it process-wide.
-        return patch.object(site_settings, "session_link_enabled", False)
+        return _settings(site={"session_link_enabled": False})
     if where == "repo":
-        publisher.ctx.config.session_link = False
-    return nullcontext()
+        return _settings(session_link=False)
+    return _settings()
 
 
 @pytest.fixture
@@ -348,10 +352,9 @@ class TestCreateMergeRequestSessionLink:
         """Every disabled path short-circuits before the Site lookup, not after."""
         build_absolute_url = Mock()
         monkeypatch.setattr("automation.agent.publishers.build_absolute_url", build_absolute_url)
-        publisher = _publisher_no_issue(thread_id=thread_id)
+        publisher = _publisher_no_issue(thread_id=thread_id, settings=_session_link_settings(disable))
 
-        with _session_link_disabled(publisher, disable):
-            await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
+        await publisher._create_merge_request("feature", "Title", "Body", target_branch="main")
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "view sessions" not in description
@@ -438,10 +441,9 @@ class TestCommitSessionTrailer:
         ],
     )
     async def test_message_untouched_when_unavailable(self, thread_id, disable):
-        publisher = _publisher_no_issue(thread_id=thread_id)
+        publisher = _publisher_no_issue(thread_id=thread_id, settings=_session_link_settings(disable))
 
-        with _session_link_disabled(publisher, disable):
-            assert await publisher._with_trailers("msg") == "msg"
+        assert await publisher._with_trailers("msg") == "msg"
 
     async def test_unresolvable_link_leaves_the_commit_message_intact(self, monkeypatch):
         """The commit must survive a misconfigured Sites row; only the trailer is lost."""
@@ -1528,7 +1530,7 @@ def _publisher_with_graph_capture(monkeypatch):
     publisher.ctx.config.omit_content_patterns = []
     captured = {}
 
-    def fake_create(ctx, include_pr_metadata):
+    def fake_create(model_names, ctx, include_pr_metadata):
         graph = Mock()
 
         async def ainvoke(input_data, config=None):
@@ -1544,7 +1546,9 @@ def _publisher_with_graph_capture(monkeypatch):
 
 
 async def test_d2_the_diff_to_metadata_chain_is_the_sites_and_the_repos_model_only_labels_the_trace(tmp_path):
-    publisher = _make_publisher()
+    site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
+    repo_models = {"diff_to_metadata": {"model": "repo-model", "fallback_model": "repo-fallback"}}
+    publisher = _make_publisher(settings=_settings(site=site, models=repo_models))
     publisher.ctx.config.omit_content_patterns = []
     publisher.ctx.scope = None
     publisher.ctx.gitrepo.working_dir = str(tmp_path / "clone")
@@ -1556,9 +1560,7 @@ async def test_d2_the_diff_to_metadata_chain_is_the_sites_and_the_repos_model_on
         trace_models.append(config["metadata"]["model"])
         return {"structured_response": Mock()}
 
-    site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
     with (
-        patch.multiple(site_settings, **site),
         patch("automation.agent.diff_to_metadata.graph.BaseAgent") as base_agent,
         patch("automation.agent.diff_to_metadata.graph.create_agent", return_value=RunnableLambda(fake_agent)),
     ):

@@ -3,7 +3,13 @@ from unittest.mock import patch
 
 import pytest
 
-from automation.agent.agent_settings import ModelChain, RunOverrides, resolve_agent_settings, resolve_features
+from automation.agent.agent_settings import (
+    ModelChain,
+    RunOverrides,
+    resolve_agent_settings,
+    resolve_consolidation_chain,
+    resolve_features,
+)
 from automation.agent.validators import AgentConfigurationError
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
@@ -159,9 +165,22 @@ def test_the_consolidation_chain(site_model, repo_agent, expected):
         agent_fallback_model_name="site-fallback",
     )
 
-    settings = _resolve(site=site, repo=_repo(models={"agent": repo_agent}))
+    repo = _repo(models={"agent": repo_agent})
+
+    settings = _resolve(site=site, repo=repo)
 
     assert settings.consolidation == ModelChain(names=expected)
+    assert resolve_consolidation_chain(site=site, repo=repo) == settings.consolidation
+
+
+def test_the_consolidation_chain_resolves_alone_where_the_agent_chain_would_raise():
+    site = site_snapshot(agent_model_name="", agent_fallback_model_name="", memory_consolidation_model_name=None)
+    repo = _repo(models={"agent": {"model": "repo-model", "fallback_model": "repo-fallback"}})
+
+    with pytest.raises(AgentConfigurationError):
+        resolve_agent_settings(site=site, repo=repo, run=RunOverrides())
+
+    assert resolve_consolidation_chain(site=site, repo=repo) == ModelChain(names=("repo-model", "repo-fallback"))
 
 
 AND_SWITCHES = {

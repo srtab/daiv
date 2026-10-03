@@ -422,7 +422,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        publisher = GitChangePublisher(runtime.context, self._workspace, thread_id=conversation_thread_id())
+        publisher = GitChangePublisher(
+            runtime.context, self._workspace, settings=self._settings, thread_id=conversation_thread_id()
+        )
         outcome = await publisher.publish(
             merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
         )

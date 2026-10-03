@@ -21,7 +21,6 @@ from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.references import render_agent_context, render_commit_trailers, render_references_block
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
-from core.site_settings import site_settings
 from core.utils import build_absolute_url
 
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
@@ -30,6 +29,7 @@ from .diff_to_metadata.prompts import sanitize_agent_report
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from automation.agent.agent_settings import AgentSettings
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -145,9 +145,10 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(self, ctx: RuntimeCtx, workspace: Workspace, *, thread_id: str | None = None):
+    def __init__(self, ctx: RuntimeCtx, workspace: Workspace, *, settings: AgentSettings, thread_id: str | None = None):
         self.ctx = ctx
         self.workspace = workspace
+        self.settings = settings
         self.client = RepoClient.create_instance()
         self.thread_id = thread_id
 
@@ -472,7 +473,9 @@ class GitChangePublisher(ChangePublisher):
                 pr_metadata_diff, self.ctx.config.omit_content_patterns
             )
 
-        changes_metadata_graph = create_diff_to_metadata_graph(ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff))
+        changes_metadata_graph = create_diff_to_metadata_graph(
+            model_names=self.settings.diff_to_metadata.names, ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff)
+        )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.ctx.config.models.diff_to_metadata.model
         )
@@ -578,7 +581,7 @@ class GitChangePublisher(ChangePublisher):
         This runs before the commit, so every failure degrades to no link: losing a cosmetic
         link is always preferable to losing the run's work.
         """
-        if not self.thread_id or not self.ctx.config.session_link or not site_settings.session_link_enabled:
+        if not self.thread_id or not self.settings.features.session_link:
             return None
 
         try:
@@ -604,7 +607,7 @@ class GitChangePublisher(ChangePublisher):
         return message
 
     async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
-        if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:
+        if not self.settings.features.suggest_context_file:
             return
 
         context_file_name = self.ctx.config.context_file_name

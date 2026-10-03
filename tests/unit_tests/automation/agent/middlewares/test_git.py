@@ -95,6 +95,15 @@ class TestGitMiddleware:
             await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
         assert pub_cls.call_args.kwargs["thread_id"] == thread_id
 
+    async def test_aafter_agent_hands_the_publisher_the_runs_settings(self):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert pub_cls.call_args.kwargs["settings"] is SETTINGS
+
     async def test_aafter_agent_surfaces_diff_stats_as_a_plain_dict(self):
         """``diff_stats`` streams to the chat composer through the same STATE_SNAPSHOT the MR
         rides on, so it is dumped to plain ints rather than checkpointed as a model."""

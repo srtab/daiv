@@ -15,6 +15,7 @@ chain the first matching branch wins. "Repo" is a value ``.daiv.yml`` sets (in `
  7. Web search, web fetch: the run's option, then site.
  8. Memory: site AND repo.
  9. Consolidation chain: site ``memory_consolidation_model_name``, then the repo agent model; then the repo fallback.
+    ``resolve_consolidation_chain`` gives it alone and never raises, for consolidation outside a run.
 10. Suggest context file, session link: site AND repo; the session link's thread check stays at its call site.
 11. Slash commands: repo only.
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site).
@@ -30,8 +31,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from core.models import ThinkingLevelChoices as ThinkingLevel
-
-from .validators import AgentConfigurationError
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -97,22 +96,34 @@ def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:
     """Every per-run agent setting, by the precedence in this module's docstring."""
     repo_agent = repo.models.agent
-    repo_model = _repo_value(repo_agent, "model", site.agent_model_name)
-    repo_fallback = _repo_value(repo_agent, "fallback_model", site.agent_fallback_model_name)
     explore_names: tuple[str, ...] = (site.agent_explore_model_name,)
     if site.agent_explore_fallback_model_name:
         explore_names += (site.agent_explore_fallback_model_name,)
     return AgentSettings(
-        agent=_resolve_agent(site=site, repo_agent=repo_agent, repo_chain=(repo_model, repo_fallback), run=run),
+        agent=_resolve_agent(site=site, repo_agent=repo_agent, repo_chain=_repo_models(site, repo_agent), run=run),
         explore=ModelChain(names=explore_names),
         diff_to_metadata=ModelChain(
             names=(site.diff_to_metadata_model_name, site.diff_to_metadata_fallback_model_name)
         ),
-        consolidation=ModelChain(names=(site.memory_consolidation_model_name or repo_model, repo_fallback)),
+        consolidation=resolve_consolidation_chain(site=site, repo=repo),
         recursion_limit=site.agent_recursion_limit,
         web_search_enabled=_run_or_site(run.web_search_enabled, site.web_search_enabled),
         web_fetch_enabled=_run_or_site(run.web_fetch_enabled, site.web_fetch_enabled),
         features=resolve_features(site=site, repo=repo),
+    )
+
+
+def resolve_consolidation_chain(*, site: SiteSnapshot, repo: RepositoryConfig) -> ModelChain:
+    """Row 9 on its own: unlike ``resolve_agent_settings`` it never raises, so a repo with its own agent model
+    still consolidates when the site has no default one."""
+    repo_model, repo_fallback = _repo_models(site, repo.models.agent)
+    return ModelChain(names=(site.memory_consolidation_model_name or repo_model, repo_fallback))
+
+
+def _repo_models(site: SiteSnapshot, repo_agent: AgentModelConfig) -> tuple[str, str]:
+    return (
+        _repo_value(repo_agent, "model", site.agent_model_name),
+        _repo_value(repo_agent, "fallback_model", site.agent_fallback_model_name),
     )
 
 
@@ -143,6 +154,9 @@ def _resolve_agent(
             fallback_thinking_level=fallback_thinking_level,
         )
     if not site.agent_model_name:
+        # Imported here: validators pulls in the agent stack, which the memory tasks and the watch policy must not load.
+        from .validators import AgentConfigurationError
+
         raise AgentConfigurationError(
             "No agent model configured. Set the system default (DAIV_AGENT_MODEL_NAME / "
             "site settings) or pass an explicit `agent_model` override."

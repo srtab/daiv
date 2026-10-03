@@ -27,8 +27,8 @@ step sits where it does:
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
    stream (the trigger's generator), abandoning the graph run inside it. If the agent or its stream raises (a lost slot
    or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request is published from its
-   checkpoint through that workspace while the clone and sandbox are still open, and the checkpoint is read again for
-   the failure hook. Setup errors skip this.
+   checkpoint through that workspace, with the settings the run resolved, while the clone and sandbox are still open,
+   and the checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch

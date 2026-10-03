@@ -176,6 +176,7 @@ class TestReviewAfterRunMatrix:
         assert run.recover.await_args.kwargs == {
             "thread_id": session.thread_id,
             "workspace": run.create_agent.await_args.kwargs["workspace"],
+            "settings": run.resolve.return_value,
         }
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]

@@ -7,11 +7,16 @@ No I/O of its own: the caller hands in a ``RepositoryConfig``, and only ``afor_r
 from __future__ import annotations
 
 import functools
+from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from automation.agent.agent_settings import resolve_features
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
+
+if TYPE_CHECKING:
+    from automation.agent.agent_settings import Features
 
 
 class WatchPolicy:
@@ -20,21 +25,24 @@ class WatchPolicy:
     The site switch is a ceiling in both directions: a repository can turn the watch off but never
     turn one on that the operator disabled, and can lower the attempt cap but never raise it.
 
-    Both fields resolve on first read. Every ``site_settings`` access blocks the event loop on a
-    thread hop, and the arm path reads only ``enabled`` while the act path reads only
-    ``max_attempts`` — computing both eagerly made each of them pay for the other.
+    The site is read on first use, once: ``snapshot()`` blocks the event loop on a thread hop, and
+    ``enabled`` checks the repository first, so a repository that turned the watch off never pays for it.
     """
 
     def __init__(self, config: RepositoryConfig) -> None:
         self._config = config
 
     @functools.cached_property
+    def _features(self) -> Features:
+        return resolve_features(site=site_settings.snapshot(), repo=self._config)
+
+    @functools.cached_property
     def enabled(self) -> bool:
-        return bool(self._config.pipeline_watch.enabled and site_settings.pipeline_watch_enabled)
+        return bool(self._config.pipeline_watch.enabled and self._features.pipeline_watch)
 
     @functools.cached_property
     def max_attempts(self) -> int:
-        return min(self._config.pipeline_watch.max_attempts, site_settings.pipeline_watch_max_attempts)
+        return self._features.pipeline_watch_max_attempts
 
     @classmethod
     def enabled_for(cls, config: RepositoryConfig) -> bool:

@@ -115,7 +115,7 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
     """A ``GitChangePublisher`` stand-in that pushes through the shell of whatever workspace it is handed."""
 
     class _Publisher:
-        def __init__(self, ctx, workspace, *, thread_id):
+        def __init__(self, ctx, workspace, *, settings, thread_id):
             self.workspace = workspace
             created.append(self)
 
