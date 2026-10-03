@@ -1,5 +1,3 @@
-import inspect
-from annotationlib import Format
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -159,15 +157,17 @@ class TestAddressIssueTaskRef:
             "thread_id": "t-1",
             "sandbox_env_id": "e",
             "run_id": "run-1",
+            "use_max": None,
         }
         run_lookup.assert_awaited_once_with("tr-1")
 
 
-class TestIssueMaxLabelIsReadAtTaskTime:
-    """The callback stamps the Run from the issue it saw; the task re-fetches the issue and decides again."""
+class TestIssueMaxModelIsDecidedByTheCallback:
+    """The callback decides max mode when it stamps the Run and hands it to the task; only a task queued without
+    it (before the deploy) reads the label off the issue the task re-fetches."""
 
     @staticmethod
-    async def _spec_for(labels: list[str]):
+    async def _spec_for(labels: list[str], **task_kwargs):
         client = MagicMock()
         client.get_issue.return_value = Issue(id=1, iid=10, title="t", author=User(id=1, username="u"), labels=labels)
         execute = AsyncMock(return_value=SimpleNamespace(agent_result={"response": ""}))
@@ -177,15 +177,17 @@ class TestIssueMaxLabelIsReadAtTaskTime:
             patch("webhooks.managers.issue_addressor.execute_run", execute),
             patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         ):
-            await address_issue_task.func(_CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1")
+            await address_issue_task.func(_CONTEXT, repo_id="group/repo", issue_iid=10, thread_id="t-1", **task_kwargs)
         return execute.await_args.args[0]
 
     @pytest.mark.parametrize(("labels", "use_max"), [(["daiv-max"], True), (["daiv"], False)])
-    async def test_d10_the_max_model_follows_the_label_on_the_issue_the_task_re_fetches(self, labels, use_max):
+    async def test_without_a_use_max_the_max_model_follows_the_label_on_the_re_fetched_issue(self, labels, use_max):
         spec = await self._spec_for(labels)
 
         assert spec.use_max is use_max
 
-    def test_d10_the_task_takes_no_max_flag_from_the_callback(self):
-        parameters = inspect.signature(address_issue_task.func, annotation_format=Format.FORWARDREF).parameters
-        assert "use_max" not in parameters
+    @pytest.mark.parametrize(("labels", "use_max"), [(["daiv"], True), (["daiv-max"], False)])
+    async def test_a_use_max_from_the_callback_wins_over_a_label_changed_since(self, labels, use_max):
+        spec = await self._spec_for(labels, use_max=use_max)
+
+        assert spec.use_max is use_max

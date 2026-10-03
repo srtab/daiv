@@ -99,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed an issue run using a different model from the one shown on it when the `daiv-max` label changed between the trigger and the run starting. The run now uses the max model decided when it was triggered.
 - Fixed chat runs not recording the model and thinking level they ran on, so the run detail showed the "Auto" pill instead. A chat run now records its resolved model and thinking level; the conversation itself is not pinned to them, so a later turn still follows the repository's and the site's current default.
 - Fixed `.daiv.yml` `models.agent` being ignored by a run that picks no model. Such a run now uses the repository's model, fallback and thinking level, each falling back to the site setting when `.daiv.yml` leaves it out, as documented; `thinking_level: null` disables thinking.
 - Fixed every call to OpenAI GPT-6 models (`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, including their OpenRouter slugs) failing with a 400 (`Unsupported parameter: 'temperature'`). DAIV now drops `temperature` for GPT-6. A selected thinking effort, which was previously silently ignored on the OpenAI provider, is now sent to GPT-6: `minimal` maps to `low` because GPT-6 rejects `minimal`, and `xhigh` passes through unchanged. Bare `gpt-6-*` model names now resolve to the OpenAI provider.

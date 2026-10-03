@@ -718,3 +718,68 @@ class TestProcessCallbackSandboxEnvironment:
 
         assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+
+
+@pytest.mark.parametrize(("label", "use_max"), [("daiv-max", True), ("daiv", False)])
+class TestProcessCallbackUseMax:
+    """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
+
+    @staticmethod
+    async def _process(callback) -> tuple[dict, dict]:
+        from unittest.mock import AsyncMock, patch
+
+        with (
+            patch("webhooks.gitlab.callbacks.address_issue_task") as mock_task,
+            patch("webhooks.gitlab.callbacks.acreate_run") as mock_run,
+            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_run.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        return mock_task.aenqueue.call_args.kwargs, mock_run.call_args.kwargs
+
+    async def test_issue_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, label, use_max
+    ):
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title=label)])
+
+        task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max
+
+    async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, label, use_max
+    ):
+        callback = NoteCallback(
+            object_kind="note",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+            issue=Issue(
+                id=100,
+                iid=7,
+                title="Bug",
+                description="x",
+                state="opened",
+                assignee_id=None,
+                action=IssueAction.OPEN,
+                labels=[Label(title=label)],
+                type="Issue",
+            ),
+            object_attributes=Note(
+                id=200,
+                action=NoteAction.CREATE,
+                noteable_type=NoteableType.ISSUE,
+                noteable_id=7,
+                discussion_id="discussion_2",
+                note="@daiv please look",
+                system=False,
+            ),
+        )
+
+        task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max
