@@ -175,6 +175,10 @@
           {% icon "key" "h-4 w-4 shrink-0" %}
           {% translate "API keys" %}
         </a>
+        <a href="{% url 'platform_credential' %}" class="account-menu__item">
+          {% icon "lock-closed" "h-4 w-4 shrink-0" %}
+          {% translate "Git authorisation" %}
+        </a>
         <a href="{% url 'mfa_list_webauthn' %}" class="account-menu__item">
           {% icon "lock-closed" "h-4 w-4 shrink-0" %}
           {% translate "Passkeys" %}
