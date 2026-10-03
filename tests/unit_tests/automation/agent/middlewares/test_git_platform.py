@@ -16,6 +16,7 @@ from automation.agent.middlewares.git_platform import (
     GITHUB_TOOL_DESCRIPTION,
     GITLAB_TOOL_DESCRIPTION,
     REFUSAL_BODY_FILE_CROSS_PROJECT,
+    REFUSAL_BOT_LABEL_CROSS_PROJECT,
     REFUSAL_CREDENTIAL_REJECTED,
     REFUSAL_DESTRUCTIVE_CROSS_PROJECT,
     REFUSAL_DISABLED,
@@ -29,15 +30,19 @@ from automation.agent.middlewares.git_platform import (
     REFUSAL_PROJECT_IS_A_FLAG,
     REFUSAL_PROJECT_NOT_A_PATH,
     REFUSAL_PROJECT_NOT_OWNER_REPO,
+    REFUSAL_QUICK_ACTION_CROSS_PROJECT,
     REFUSAL_REVOKED,
     REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT,
     REFUSAL_WRONG_HOST,
     GitPlatformMiddleware,
+    _decide_target,
     _file_write_confirmation,
     _is_allowed_cli_command,
     _large_tool_results_prefix,
+    _names_a_bot_label,
     _run_github_subcommand,
     _run_gitlab_subcommand,
+    _TargetDecision,
     _validate_project,
     _write_output_to_file,
 )
@@ -1572,6 +1577,295 @@ class TestGitHubFlagSpellings:
         assert mocks.create_proc.call_args.args[:5] == ("gh", "run", "list", "-b", "main")
 
 
+class TestBotLabelsAreNotAddedCrossProject:
+    """A body marker cannot cover a label, and a label event starts a DAIV run in the other project as the person."""
+
+    REFUSED_GITLAB = [
+        "project-issue update --iid 1 --labels daiv",
+        "project-issue update --iid 1 --labels=daiv",
+        "project-issue update --iid 1 --label daiv",
+        "project-issue update --iid 1 --lab=daiv",
+        "project-issue update --iid 1 --labels bug,daiv-max",
+        'project-issue update --iid 1 --labels "bug, DAIV-Auto"',
+        "project-issue update --iid 1 --labels bug --labels daiv",
+        "project-issue create --title t --description x --labels daiv",
+        "project-merge-request update --iid 1 --labels daiv-auto",
+    ]
+    REFUSED_GITHUB = [
+        "issue create -t T -b x --label daiv",
+        "issue create -t T -b x --label=daiv",
+        "issue create -t T -b x -l daiv",
+        "issue create -t T -b x -ldaiv",
+        "issue create -t T -b x -l=daiv",
+        "issue create -t T -b x --label bug,daiv-max",
+        "issue create -t T -b x --label bug --label daiv",
+        "pr create -t T -b x -l DAIV-Auto",
+        "pr create -t T -b x -dl daiv",
+        "issue edit 1 --add-label daiv",
+        "issue edit 1 --add-label=DAIV",
+        "pr edit 2 --add-label bug,daiv-auto",
+        "pr edit 2 --add-label bug --add-label daiv",
+        "issue edit 1 --add-label '\"daiv\"'",
+    ]
+
+    PADDINGS = ["\xa0", "\u3000", "\u2003", "\u2028", "\x0b", "\x0c", "\x1f", "\x85"]
+    PADDED_BOT_LABELS = [
+        *(f"daiv{pad}" for pad in PADDINGS),
+        *(f"{pad}daiv" for pad in PADDINGS),
+        *(f"{pad}DAIV-Max{pad}" for pad in PADDINGS),
+        *(f'"{pad}daiv-auto{pad}"' for pad in PADDINGS),
+        "daiv\u200b",
+        "\u200bdaiv",
+        "\ufeffdaiv",
+        "\uff44\uff41\uff49\uff56",
+    ]
+
+    @staticmethod
+    def _assert_refused_without_spending(result, mocks):
+        assert result == REFUSAL_BOT_LABEL_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+        assert mocks.record.await_args.kwargs["outcome"] == CrossProjectOutcome.DENIED_POLICY
+
+    @pytest.mark.parametrize("subcommand", REFUSED_GITLAB)
+    async def test_gitlab_refuses_a_bot_label_before_any_credential(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        self._assert_refused_without_spending(result, mocks)
+
+    @pytest.mark.parametrize("subcommand", REFUSED_GITHUB)
+    async def test_github_refuses_a_bot_label_before_any_credential(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        self._assert_refused_without_spending(result, mocks)
+
+    @pytest.mark.parametrize("label", PADDED_BOT_LABELS, ids=ascii)
+    async def test_gitlab_refuses_a_padded_bot_label(self, label):
+        """python-gitlab ``strip()``s every label, so ``daiv`` plus any Unicode whitespace is still ``daiv``."""
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                f"project-issue update --iid 1 --labels 'bug,{label}'",
+                runtime,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        self._assert_refused_without_spending(result, mocks)
+
+    @pytest.mark.parametrize("label", PADDED_BOT_LABELS, ids=ascii)
+    @pytest.mark.parametrize("subcommand", ["issue edit 1 --add-label {}", "issue create -t T -b x --label {}"])
+    async def test_github_refuses_a_padded_bot_label(self, subcommand, label):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand.format(f"'{label}'"), runtime, project=OTHER, cross_project_enabled=True)
+
+        self._assert_refused_without_spending(result, mocks)
+
+    @pytest.mark.parametrize("label", ["bug\xa0", "\u3000daiv-docs", "good first issue", "daiv\xa0docs"], ids=ascii)
+    async def test_a_padded_label_that_is_not_a_bot_label_still_crosses(self, label):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                f"project-issue update --iid 1 --labels 'bug,{label}'",
+                runtime,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        assert result == "ok"
+        assert f"bug,{label}" in mocks.create_proc.call_args.args
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("daiv", True),
+            ("bug, DAIV-Auto ,x", True),
+            ("\x00daiv\x00", True),
+            ("'daiv'", True),
+            ("bug\uff0cdaiv", True),
+            ("daiv-docs", False),
+            ("good first issue", False),
+            ("", False),
+        ],
+        ids=ascii,
+    )
+    def test_names_a_bot_label(self, value, expected):
+        assert _names_a_bot_label(value) is expected
+
+    async def test_gitlab_has_no_add_labels_flag_to_slip_past(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                "project-issue update --iid 1 --add-labels daiv", runtime, project=OTHER, cross_project_enabled=True
+            )
+
+        assert result == REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT.format(
+            flag="--add-labels", command="project-issue update"
+        )
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "project-issue update --iid 1 --labels bug,daiv-docs",
+            "project-issue update --iid 1 --labels bug",
+            "project-issue create --title t --description x --labels triage",
+            "project-issue list --labels daiv",
+            "project-merge-request list --labels daiv-max",
+        ],
+    )
+    async def test_gitlab_other_labels_and_label_filters_still_cross(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == "ok"
+        assert subcommand.split()[-1] in mocks.create_proc.call_args.args
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "issue create -t T -b x --label bug,daiv-docs",
+            "issue create -t T -b x -l triage",
+            "pr create -t T -b x -dl bug",
+            "issue edit 1 --add-label bug",
+            "issue edit 1 --remove-label daiv",
+            "pr edit 2 --remove-label daiv-max",
+            "issue list --label daiv",
+            "pr list --label daiv-max",
+        ],
+    )
+    async def test_github_other_labels_removals_and_label_filters_still_cross(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == "ok"
+        assert mocks.create_proc.call_args.args[:3] == ("gh", *subcommand.split()[:2])
+
+    async def test_the_attached_project_keeps_the_label_on_gitlab(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                "project-issue update --iid 1 --labels daiv", runtime, project="", cross_project_enabled=True
+            )
+
+        assert result == "ok"
+        assert mocks.create_proc.call_args.args[:6] == ("gitlab", "project-issue", "update", "--iid", "1", "--labels")
+        assert mocks.create_proc.call_args.kwargs["env"]["GITLAB_PRIVATE_TOKEN"] == "service-token"  # noqa: S105
+        mocks.record.assert_not_called()
+
+    async def test_the_attached_project_keeps_the_label_on_github(self):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            decision = await _decide_target(
+                "issue",
+                "edit",
+                ["1", "--add-label", "daiv"],
+                "",
+                runtime,
+                provider=GitPlatform.GITHUB,
+                cross_project_enabled=True,
+            )
+
+        assert decision == _TargetDecision()
+        mocks.resolve.assert_not_called()
+        mocks.record.assert_not_called()
+
+
+class TestGitLabQuickActionsAreRefusedCrossProject:
+    """GitLab runs a body line starting with ``/`` as the person, past every denied verb and flag, so the line is
+    refused rather than published."""
+
+    @staticmethod
+    def _note(body):
+        return f'project-issue-note create --issue-iid 1 --body "{body}"'
+
+    @staticmethod
+    def _description(body):
+        return f'project-issue create --title t --description "{body}"'
+
+    @pytest.mark.parametrize("body", ["/label ~daiv", "/close", "  /merge", "\t/assign @bob", "hello\n/close"])
+    @pytest.mark.parametrize("build", [_note, _description], ids=["note", "description"])
+    async def test_a_quick_action_line_is_refused_before_any_credential(self, build, body):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(build(body), runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+        assert mocks.record.await_args.kwargs["outcome"] == CrossProjectOutcome.DENIED_POLICY
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            'project-issue create --title t --desc "/close"',
+            "project-issue create --title t --desc=/close",
+            "project-issue create --title t --description=/close",
+            'project-issue-note create --issue-iid 1 --bo "/close"',
+            'project-merge-request-note create --mr-iid 1 --body "/merge"',
+            'project-issue-discussion create --issue-iid 1 --body "/label ~daiv"',
+            'project-issue update --iid 1 --description "/reopen"',
+            'project-merge-request-draft-note create --mr-iid 1 --note "/merge"',
+        ],
+    )
+    async def test_every_spelling_of_a_body_flag_is_checked(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=ATTACHED, project=OTHER)
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+
+    @pytest.mark.parametrize("body", ["see a/b", "docs live in /etc/hosts, not here", "https://example.com/a/b"])
+    @pytest.mark.parametrize("build", [_note, _description], ids=["note", "description"])
+    async def test_a_slash_inside_a_line_still_crosses_marked(self, build, body):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(build(body), runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == "ok"
+        assert _marked(mocks.create_proc.call_args.args, body)
+
+    async def test_a_slash_in_a_flag_that_is_not_a_body_still_crosses(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                'project-issue list --search "/close"', runtime, project=OTHER, cross_project_enabled=True
+            )
+
+        assert result == "ok"
+        mocks.create_proc.assert_called_once()
+
+    async def test_the_attached_project_keeps_quick_actions(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(self._note("/close"), runtime, project="", cross_project_enabled=True)
+
+        assert result == "ok"
+        assert "/close" in mocks.create_proc.call_args.args
+        assert not any(CROSS_PROJECT_CONTENT_MARKER in arg for arg in mocks.create_proc.call_args.args)
+        mocks.record.assert_not_called()
+
+    async def test_github_has_no_quick_actions_to_refuse(self):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(
+                'issue comment 1 --body "/close"', runtime, project=OTHER, cross_project_enabled=True
+            )
+
+        assert result == "ok"
+        assert _marked(mocks.create_proc.call_args.args, "/close")
+
+
 DENIED = "secret-group/secret-repo"
 TARGET_CONTENT = "ACQUISITION-CODENAME-BLUEBIRD"
 
@@ -1855,6 +2149,8 @@ class TestPolicyRefusalsSpendNothing:
             ("project-merge-request update --iid 1 --target-branch other", "repoints an MR"),
             ("project-merge-request-note update --mr-iid 1 --note-id 2 --body x", "edits someone else's note"),
             ("project-label create --name x --color '#fff'", "changes project configuration"),
+            ("project-issue update --iid 1 --labels daiv", "adds the label that starts a DAIV run there"),
+            ('project-issue-note create --issue-iid 1 --body "/close"', "a quick action runs as the person"),
             ("project-merge-request update --iid 1 --state-ev close", "closes through an abbreviated flag"),
             (
                 f"project-merge-request-discussion create --mr-iid 1 --position '{json.dumps(VALID_POSITION)}'",

@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shlex
+import unicodedata
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired, TypedDict
@@ -33,7 +34,7 @@ from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
-from core.constants import CROSS_PROJECT_CONTENT_MARKER
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 from core.constants import CrossProjectOutcome as _Outcome
 from daiv import USER_AGENT
 
@@ -271,7 +272,7 @@ CROSS_PROJECT_TOOL_DESCRIPTION = """
 - Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
 - A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
 - Pass a project path, not a flag and not a URL with a different host.
-- Not every allowed subcommand crosses. Reads, and creating an issue, merge request or note, do. Refused outside the current project: anything that deletes, relocates or reassigns existing data, edits a note somebody else wrote, changes project configuration (labels, snippets), drives CI (pipelines, jobs, workflow runs), creates branches, tags or releases, closes/reopens/locks an issue or PR, or approves a pull request. Inline merge request diff comments are also current-project only — use a regular note there.
+- Not every allowed subcommand crosses. Reads, and creating an issue, merge request or note, do. Refused outside the current project: anything that deletes, relocates or reassigns existing data, edits a note somebody else wrote, changes project configuration (labels, snippets), drives CI (pipelines, jobs, workflow runs), creates branches, tags or releases, closes/reopens/locks an issue or PR, approves a pull request, adds one of DAIV's own trigger labels, or (on GitLab) has a body line starting with `/`, which is a quick action. Inline merge request diff comments are also current-project only — use a regular note there.
 - The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
 
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
@@ -677,6 +678,16 @@ REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT = (
     "as '{command} --help' lists it."
 )
 REFUSAL_NO_ACTING_IDENTITY = "error: Could not establish the requesting user's identity for {project}."
+REFUSAL_BOT_LABEL_CROSS_PROJECT = (
+    f"error: '{BOT_LABEL}', '{BOT_AUTO_LABEL}' and '{BOT_MAX_LABEL}' start a DAIV run, so they cannot be added "
+    "outside {attached}. On {project} they would launch a run as the person who requested this one; leave them off, "
+    "or ask someone with access to {project} to add them."
+)
+REFUSAL_QUICK_ACTION_CROSS_PROJECT = (
+    "error: A body line starting with '/' is a GitLab quick action (/label, /close, /merge, /assign, ...), and quick "
+    "actions cannot be used outside {attached}, so this is refused on {project}. Reword the line so it does not "
+    "start with '/'."
+)
 
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -773,6 +784,13 @@ CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
 # Read filters share these names (``project-merge-request list --target-branch``), so only writes are checked.
 _FLAG_CHECKED_ACTIONS = frozenset({"create", "update", "edit"})
 _PUBLISHING_ACTIONS = _FLAG_CHECKED_ACTIONS | {"comment"}
+
+# A label event, unlike a body, carries no marker the webhook could read, so these writes may not name a bot label.
+_LABEL_FLAGS: dict[GitPlatform, frozenset[str]] = {
+    GitPlatform.GITLAB: frozenset({"--labels"}),
+    GitPlatform.GITHUB: frozenset({"--label", "--add-label"}),
+}
+_BOT_LABELS = frozenset(label.lower() for label in (BOT_LABEL, BOT_AUTO_LABEL, BOT_MAX_LABEL))
 
 _BODY_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset({"--body", "--description", "--note"}),
@@ -873,10 +891,11 @@ _GITLAB_PROJECT_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 
 @dataclass(frozen=True)
 class _FlagUse:
-    """One flag as the CLI will read it: its full name, and the argument whose text ends with its value."""
+    """One flag as the CLI will read it: its full name, the argument whose text ends with its value, and the value."""
 
     name: str
     value_index: int | None
+    value: str | None = None
 
 
 class _UncheckedFlagError(ValueError):
@@ -912,6 +931,11 @@ def _resolve_gitlab_flag(spelled: str, flags: dict[str, bool]) -> str:
     return matches[0] if len(matches) == 1 else spelled
 
 
+def _separate_value_use(name: str, args: list[str], index: int) -> _FlagUse:
+    """A flag whose value is the next argument, which may be missing."""
+    return _FlagUse(name, index, args[index]) if index < len(args) else _FlagUse(name, None)
+
+
 def _gitlab_flag_uses(resource: str, action: str, args: list[str]) -> list[_FlagUse]:
     # The subcommand parsers accept any unambiguous prefix of an option, so ``--state-ev`` is ``--state-event``.
     flags = _gitlab_cli_flags(resource, action)
@@ -920,15 +944,15 @@ def _gitlab_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
     while index < len(args):
         arg = args[index]
         if arg.startswith("--") and len(arg) > 2:
-            spelled, has_value, _ = arg.partition("=")
+            spelled, has_value, attached = arg.partition("=")
             name = _resolve_gitlab_flag(spelled, flags)
             if name not in flags:
                 raise _UncheckedFlagError(spelled)
             if has_value:
-                uses.append(_FlagUse(name, index))
+                uses.append(_FlagUse(name, index, attached))
             elif flags[name]:
                 index += 1
-                uses.append(_FlagUse(name, index if index < len(args) else None))
+                uses.append(_separate_value_use(name, args, index))
             else:
                 uses.append(_FlagUse(name, None))
         index += 1
@@ -950,12 +974,12 @@ def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
         if arg == "--":
             break
         if arg.startswith("--"):
-            name, has_value, _ = arg.partition("=")
+            name, has_value, attached = arg.partition("=")
             if has_value:
-                uses.append(_FlagUse(name, index))
+                uses.append(_FlagUse(name, index, attached))
             elif name in value_flags:
                 index += 1
-                uses.append(_FlagUse(name, index if index < len(args) else None))
+                uses.append(_separate_value_use(name, args, index))
             else:
                 uses.append(_FlagUse(name, None))
         elif arg.startswith("-") and len(arg) > 1:
@@ -965,17 +989,17 @@ def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
                     raise _UncheckedFlagError(arg)
                 name, takes_value = shorthands[cluster[0]]
                 if len(cluster) > 2 and cluster[1] == "=":
-                    uses.append(_FlagUse(name, index))
+                    uses.append(_FlagUse(name, index, cluster[2:]))
                     break
                 if not takes_value:
                     uses.append(_FlagUse(name, None))
                     cluster = cluster[1:]
                     continue
                 if len(cluster) > 1:
-                    uses.append(_FlagUse(name, index))
+                    uses.append(_FlagUse(name, index, cluster[1:]))
                 else:
                     index += 1
-                    uses.append(_FlagUse(name, index if index < len(args) else None))
+                    uses.append(_separate_value_use(name, args, index))
                 break
         index += 1
     return uses
@@ -993,11 +1017,29 @@ def _reads_a_file(arg: str) -> bool:
     return value.startswith("@") and not value.startswith("@@")
 
 
+def _names_a_bot_label(value: str) -> bool:
+    """Whether a comma-separated label list names a bot label.
+
+    Every whitespace, control, format and quote character is dropped before comparing, wherever it sits, so
+    whatever the CLI (``str.strip()`` per item), the quote handling or the platform trims cannot turn a refused
+    name into an accepted one.
+    """
+    for label in unicodedata.normalize("NFKC", value).split(","):
+        core = "".join(char for char in label if char.isprintable() and not char.isspace() and char not in "\"'")
+        if core.lower() in _BOT_LABELS:
+            return True
+    return False
+
+
+def _has_quick_action_line(value: str) -> bool:
+    return any(line.lstrip().startswith("/") for line in value.splitlines())
+
+
 def _cross_project_policy_refusal(
     resource: str, action: str, args: list[str], *, provider: GitPlatform, attached: str, project: str
 ) -> str | None:
-    """Refuse a destructive verb or flag, or an unmarkable body, outside the attached project, before a
-    credential is spent."""
+    """Refuse a destructive verb or flag, a bot label, a quick action or an unmarkable body, outside the attached
+    project, before a credential is spent."""
     if action in CROSS_PROJECT_DENIED_ACTIONS.get(provider, {}).get(resource, frozenset()):
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action}", attached=attached, project=project
@@ -1015,6 +1057,17 @@ def _cross_project_policy_refusal(
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action} {denied}", attached=attached, project=project
         )
+    if action in _FLAG_CHECKED_ACTIONS and any(
+        use.name in _LABEL_FLAGS[provider] and _names_a_bot_label(use.value or "") for use in uses
+    ):
+        return REFUSAL_BOT_LABEL_CROSS_PROJECT.format(attached=attached, project=project)
+    # GitLab runs these lines as the person, past every denied verb and flag above.
+    if (
+        provider == GitPlatform.GITLAB
+        and action in _PUBLISHING_ACTIONS
+        and any(use.name in _BODY_FLAGS[provider] and _has_quick_action_line(use.value or "") for use in uses)
+    ):
+        return REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=attached, project=project)
     if names & _UNMARKABLE_BODY_FLAGS[provider]:
         return REFUSAL_BODY_FILE_CROSS_PROJECT
     if provider == GitPlatform.GITLAB and any(_reads_a_file(arg) for arg in args):
