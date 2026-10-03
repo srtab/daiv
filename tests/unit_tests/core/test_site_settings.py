@@ -280,3 +280,18 @@ class TestSnapshot:
         assert asdict(snapshot) == resolved
         if source != "default":
             assert all(resolved[name] != default for name, default in ss.FIELD_DEFAULTS.items())
+
+    def test_a_malformed_env_var_fails_only_reads_of_its_field(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_FETCH_TIMEOUT_SECONDS", "15s")
+
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            snapshot = ss.snapshot()
+            with pytest.raises(ValueError, match="Cannot parse") as from_attribute_access:
+                ss.web_fetch_timeout_seconds  # noqa: B018
+
+        for _ in range(2):
+            with pytest.raises(ValueError, match="Cannot parse") as from_snapshot:
+                snapshot.web_fetch_timeout_seconds  # noqa: B018
+            assert type(from_snapshot.value) is type(from_attribute_access.value)
+        others = {name: getattr(snapshot, name) for name in ss.FIELD_DEFAULTS if name != "web_fetch_timeout_seconds"}
+        assert others == {name: value for name, value in ss.FIELD_DEFAULTS.items() if name in others}

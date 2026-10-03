@@ -1,8 +1,8 @@
 """The settings one agent run gets, resolved once from the site, the repository's ``.daiv.yml`` and the run.
 
 Precedence, row for row with the config-resolver plan's Today table. Inputs are listed highest first; for the model
-chain the first matching branch wins. "Repo" is a value ``.daiv.yml`` sets (in ``model_fields_set``; a null model or
-attempt cap counts as unset), else the site's.
+chain the first matching branch wins. "Repo" is a value ``.daiv.yml`` sets (in ``model_fields_set``; a null or empty
+model and a null attempt cap count as unset), else the site's.
 
  1. Agent model chain: exact chain (``model_names``) → run override: ``[override, repo model, repo fallback]`` →
     ``use_max``: ``[site max, repo model, repo fallback]`` → default: ``[repo model, repo fallback]``, raising
@@ -185,7 +185,7 @@ def _coerce_site_thinking_level(raw: str) -> ThinkingLevel | None:
 
 
 def _repo_value[T](section: BaseModel, field: str, site_value: T) -> T:
-    if field in section.model_fields_set and (value := getattr(section, field)) is not None:
+    if field in section.model_fields_set and (value := getattr(section, field)) not in (None, ""):
         return value
     return site_value
 

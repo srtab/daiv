@@ -138,11 +138,17 @@ def _get_field_defaults() -> dict[str, Any]:
     return _build_field_defaults()
 
 
+@dataclass(frozen=True)
+class _Unresolved:
+    error: ValueError
+
+
 @dataclass(frozen=True, kw_only=True)
 class SiteSnapshot:
     """Every field in ``FIELD_DEFAULTS``, resolved together by :meth:`SiteSettings.snapshot`.
 
-    Secrets stay out: code that needs one reads it from ``site_settings`` where it is used.
+    Secrets stay out: code that needs one reads it from ``site_settings`` where it is used. A field whose env var does
+    not parse raises its ``ValueError`` when read, as attribute access on ``site_settings`` does, and only then.
     """
 
     agent_model_name: str
@@ -193,6 +199,12 @@ class SiteSnapshot:
     rocketchat_user_id: str | None
     telegram_enabled: bool
     telegram_bot_username: str | None
+
+    def __getattribute__(self, name: str) -> Any:
+        value = super().__getattribute__(name)
+        if isinstance(value, _Unresolved):
+            raise value.error
+        return value
 
 
 class SiteSettings:
@@ -250,7 +262,13 @@ class SiteSettings:
         from core.models import SiteConfiguration
 
         config = SiteConfiguration.get_cached()
-        return SiteSnapshot(**{name: self._resolve(name, lambda: config) for name in _get_field_defaults()})
+        values: dict[str, Any] = {}
+        for name in _get_field_defaults():
+            try:
+                values[name] = self._resolve(name, lambda: config)
+            except ValueError as error:
+                values[name] = _Unresolved(error)
+        return SiteSnapshot(**values)
 
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""

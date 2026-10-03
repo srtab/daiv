@@ -115,6 +115,13 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking="medium",
     ),
     _case(
+        "override-treats-an-empty-repo-model-as-unset",
+        repo={"model": "", "fallback_model": ""},
+        run={"agent_model": RUN_MODEL},
+        chain=(RUN_MODEL, "site-model", "site-fallback"),
+        thinking="medium",
+    ),
+    _case(
         "override-beats-max",
         repo=REPO,
         run={"agent_model": RUN_MODEL, "use_max": True},
@@ -208,6 +215,20 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking="medium",
     ),
     _case(
+        "default-treats-an-empty-repo-model-as-unset",
+        repo={"model": "", "fallback_model": "repo-fallback"},
+        run={},
+        chain=("site-model", "repo-fallback"),
+        thinking="medium",
+    ),
+    _case(
+        "default-treats-an-empty-repo-fallback-as-unset",
+        repo={"model": "repo-model", "fallback_model": ""},
+        run={},
+        chain=("repo-model", "site-fallback"),
+        thinking="medium",
+    ),
+    _case(
         "default-repo-sets-only-thinking",
         repo={"thinking_level": "low"},
         run={},
@@ -287,6 +308,20 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         site={"agent_model_name": ""},
         repo={},
         run={"agent_thinking_level": "low"},
+        raises=True,
+    ),
+    _case(
+        "default-without-any-model-raises-when-the-repo-model-is-null",
+        site={"agent_model_name": ""},
+        repo={"model": None},
+        run={},
+        raises=True,
+    ),
+    _case(
+        "default-without-any-model-raises-when-the-repo-model-is-empty",
+        site={"agent_model_name": ""},
+        repo={"model": ""},
+        run={},
         raises=True,
     ),
     _case(

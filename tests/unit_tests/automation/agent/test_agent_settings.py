@@ -191,8 +191,14 @@ def test_a_web_toggle_follows_the_run_then_the_site(toggle, run_value, site_valu
         ("consolidator", {"model": "repo-model", "fallback_model": "repo-fallback"}, ("consolidator", "repo-fallback")),
         (None, {"model": "repo-model", "fallback_model": "repo-fallback"}, ("repo-model", "repo-fallback")),
         (None, {}, ("site-model", "site-fallback")),
+        (None, {"model": "", "fallback_model": ""}, ("site-model", "site-fallback")),
     ],
-    ids=["site-model-wins", "repo-agent-model-otherwise", "site-agent-model-when-the-repo-sets-none"],
+    ids=[
+        "site-model-wins",
+        "repo-agent-model-otherwise",
+        "site-agent-model-when-the-repo-sets-none",
+        "site-agent-model-when-the-repo-sets-blanks",
+    ],
 )
 def test_the_consolidation_chain(site_model, repo_agent, expected):
     site = site_snapshot(
@@ -252,8 +258,13 @@ def test_slash_commands_follow_the_repo_whatever_the_site_switches_say(repo_on):
 
 @pytest.mark.parametrize(
     ("daiv_yml", "expected"),
-    [({}, 3), ({"pipeline_watch": {"max_attempts": 2}}, 2), ({"pipeline_watch": {"max_attempts": 5}}, 3)],
-    ids=["site-when-the-repo-sets-none", "a-repo-lowers-it", "a-repo-cannot-raise-it"],
+    [
+        ({}, 3),
+        ({"pipeline_watch": {"max_attempts": 2}}, 2),
+        ({"pipeline_watch": {"max_attempts": 0}}, 0),
+        ({"pipeline_watch": {"max_attempts": 5}}, 3),
+    ],
+    ids=["site-when-the-repo-sets-none", "a-repo-lowers-it", "a-repo-zero-is-a-cap", "a-repo-cannot-raise-it"],
 )
 def test_the_watch_attempt_cap_is_the_lower_of_the_repos_and_the_sites(daiv_yml, expected):
     features = resolve_features(site=site_snapshot(pipeline_watch_max_attempts=3), repo=RepositoryConfig(**daiv_yml))
