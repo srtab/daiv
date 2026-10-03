@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import Error as DatabaseError
@@ -10,6 +11,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.context_processors import _resolve_active_section, nav, running_jobs_count
 from accounts.models import User
+from codebase.base import GitPlatform
 
 
 @pytest.fixture
@@ -168,3 +170,28 @@ class TestResolveActiveSection:
         request = RequestFactory().get("/")
         request.resolver_match = type("Match", (), {"view_name": view_name})()
         assert _resolve_active_section(request) == "artifacts"
+
+
+class TestSocialConsent:
+    @pytest.mark.parametrize(("capability_on", "expected"), [(True, {"socialaccount_platform": "Gitlab"}), (False, {})])
+    def test_the_disclosure_follows_the_grant(self, rf, capability_on, expected):
+        from accounts.context_processors import social_consent
+
+        with (
+            patch("codebase.conf.settings") as codebase_mock,
+            patch("core.site_settings.site_settings") as settings_mock,
+        ):
+            codebase_mock.CLIENT = GitPlatform.GITLAB
+            settings_mock.cross_project_access_enabled = capability_on
+            assert social_consent(rf.get("/accounts/login/")) == expected
+
+    def test_a_platform_without_oauth_says_nothing(self, rf):
+        from accounts.context_processors import social_consent
+
+        with (
+            patch("codebase.conf.settings") as codebase_mock,
+            patch("core.site_settings.site_settings") as settings_mock,
+        ):
+            codebase_mock.CLIENT = GitPlatform.SWE
+            settings_mock.cross_project_access_enabled = True
+            assert social_consent(rf.get("/accounts/login/")) == {}
