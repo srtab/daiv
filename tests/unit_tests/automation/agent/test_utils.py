@@ -13,6 +13,7 @@ from automation.agent.utils import (
     extract_text_content,
     final_assistant_text,
     images_to_content_blocks,
+    repo_relative_text,
     streamed_assistant_message,
 )
 from codebase.base import GitPlatform
@@ -528,3 +529,22 @@ async def test_streamed_assistant_message_survives_an_undeliverable_event(emit_c
     message = await streamed_assistant_message("stopped looping")
 
     assert message.content == "stopped looping"
+
+
+class TestRepoRelativeText:
+    def test_the_prefix_is_removed_wherever_a_path_starts(self):
+        text = "Fixed /workspace/repo/daiv/x.py:3, see `/workspace/repo/daiv/y.py` and (/workspace/repo/z.md)."
+        assert repo_relative_text(text) == "Fixed daiv/x.py:3, see `daiv/y.py` and (z.md)."
+
+    def test_a_markdown_link_target_becomes_relative(self):
+        assert repo_relative_text("[x](/workspace/repo/daiv/x.py#L3)") == "[x](daiv/x.py#L3)"
+
+    def test_a_url_containing_the_prefix_is_left_alone(self):
+        url = "https://gitlab.com/workspace/repo/-/blob/main/daiv/x.py"
+        assert repo_relative_text(f"See {url}") == f"See {url}"
+
+    def test_a_longer_path_ending_in_the_prefix_is_left_alone(self):
+        assert repo_relative_text("/home/u/workspace/repo/x.py") == "/home/u/workspace/repo/x.py"
+
+    def test_the_bare_root_is_left_alone(self):
+        assert repo_relative_text("Cloned into /workspace/repo.") == "Cloned into /workspace/repo."
