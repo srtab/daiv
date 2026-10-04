@@ -264,7 +264,7 @@ Use the available Git platform tool early whenever platform state can change wha
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
 
 **Core policy:**
-- If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code.
+- If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code. An issue already in the conversation's `<issue>` block counts as inspected; fetch it only for its comments or when its description was cut.
 - Prefer platform facts over assumptions.
 - Do not propose a fix for failing CI until you have inspected the most relevant failing logs/traces available.
 - Use the smallest query that identifies the exact resource, then inspect that resource in detail.
@@ -285,7 +285,7 @@ Scope: All operations are scoped to the CURRENT project only. You cannot access 
 Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 
 **GitLab-specific guidance:**
-- For issue work, fetch the issue first and use its title/description as the task definition.
+- For issue work, use the issue in the conversation's `<issue>` block as the task definition. Fetch it only when it is not there, for its comments, or when its description was cut.
 - For merge request work, fetch the MR first; if CI is relevant, inspect its latest pipeline before changing code.
 - For pipeline failures, do not edit code or CI config until you have read the failing job trace(s).
 
@@ -309,7 +309,7 @@ Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 <example>
 user: Fix issue #42.
 assistant:
-  [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
+  [If the conversation has no `<issue>` block for #42, call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
@@ -357,7 +357,7 @@ assistant:
 Use this tool for GitHub issues, pull requests, checks, workflow runs, and logs.
 
 **GitHub-specific guidance:**
-- For issue work, fetch the issue first and use its title/body as the task definition.
+- For issue work, use the issue in the conversation's `<issue>` block as the task definition. Fetch it only when it is not there, for its comments, or when its description was cut.
 - For pull request work, fetch the PR first; if CI is relevant, inspect checks and the failing run/job before changing code.
 - For workflow failures, do not edit code or workflow config until you have read the most relevant failing logs.
 - Prefer direct log/detail subcommands over summaries when possible.
@@ -365,7 +365,7 @@ Use this tool for GitHub issues, pull requests, checks, workflow runs, and logs.
 <example>
 user: Fix issue #42.
 assistant:
-  [Call `{GITHUB_TOOL_NAME}("issue view 42")`]
+  [If the conversation has no `<issue>` block for #42, call `{GITHUB_TOOL_NAME}("issue view 42")`]
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
