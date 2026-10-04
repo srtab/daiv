@@ -15,13 +15,14 @@ from langchain_core.messages import HumanMessage
 SYNTHETIC_KWARG = "daiv_synthetic"
 
 
-def synthetic_message(content: str, *, kind: str) -> HumanMessage:
+def synthetic_message(content: str, *, kind: str, message_id: str | None = None) -> HumanMessage:
     """A ``HumanMessage`` marked as DAIV's own.
 
     Its id is set here, not by the ``add_messages`` reducer, so the copy sent on a model call and the copy
-    saved into the thread are the same message.
+    saved into the thread are the same message. Pass ``message_id`` to make a re-sent message replace its
+    earlier copy instead of adding a second one.
     """
-    return HumanMessage(content=content, id=str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
+    return HumanMessage(content=content, id=message_id or str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
 
 
 def is_synthetic(message: Any) -> bool:

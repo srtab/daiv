@@ -34,3 +34,8 @@ def test_mark_survives_the_checkpoint_round_trip():
 
     assert is_synthetic(restored)
     assert restored.id == original.id
+
+
+def test_synthetic_message_keeps_a_given_id():
+    message = synthetic_message("x", kind="issue_context", message_id="issue-context-42-abc")
+    assert message.id == "issue-context-42-abc"
