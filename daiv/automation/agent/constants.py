@@ -35,6 +35,8 @@ AGENTS_SKILLS_PATH = ".agents/skills"
 # Paths where the skills are stored in repository.
 SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, AGENTS_SKILLS_PATH]
 
+SKILLS_TOOL_NAME = "skill"
+
 # Path where the custom subagents are stored in repository.
 AGENTS_SUBAGENTS_PATH = ".agents/subagents"
 

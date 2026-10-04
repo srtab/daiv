@@ -16,7 +16,7 @@ from langgraph.types import Command
 from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.synthetic import is_synthetic
 from automation.agent.utils import extract_body_from_frontmatter
@@ -42,7 +42,6 @@ class DAIVSkillsState(SkillsState):
     active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr]]
 
 
-SKILLS_TOOL_NAME = "skill"
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
 
 Usage notes:
