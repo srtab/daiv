@@ -9,7 +9,7 @@ which middlewares to compose.
 """
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from deepagents.backends.protocol import BackendProtocol
@@ -235,7 +235,7 @@ class TestGeneralPurposeMiddleware:
 
         assert build.return_value in detector
         assert build.return_value in general
-        assert build.call_args.args == (mock_model, mock_backend)
+        assert build.call_args_list == [call(mock_model, mock_backend), call(mock_model, mock_backend)]
 
     def test_subagents_loop_breaker_registered_before_prompt_caching(self):
         import inspect

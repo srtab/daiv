@@ -3,14 +3,32 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
+from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 
+from automation.agent.constants import AGENTS_MEMORY_PATH
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from deepagents.backends import BackendProtocol
+
 logger = logging.getLogger("daiv.agent")
+
+
+def build_agents_memory_middleware(
+    backend: BackendProtocol, repo_root: str, context_file_name: str | None, system_prompt: str
+) -> MemoryMiddleware:
+    """Load the repository's agent instruction files into the system prompt, wrapped in ``system_prompt``.
+
+    Sources are the configured context file (skipped when ``.daiv.yml`` sets it to ``null``) and
+    ``AGENTS_MEMORY_PATH``. The instance keeps deepagents' ``MemoryMiddleware`` name, so passing it to
+    ``create_deep_agent`` alongside ``memory=`` replaces the default one in place.
+    """
+    sources = [f"{repo_root}/{name}" for name in (context_file_name, AGENTS_MEMORY_PATH) if name]
+    return MemoryMiddleware(backend=backend, sources=sources, add_cache_control=True, system_prompt=system_prompt)
+
 
 MEMORY_SECTION_HEADER = (
     "# Learned repository memory (auto-generated from past runs; may be stale — verify before relying on it)"

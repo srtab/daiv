@@ -4,8 +4,11 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from deepagents.middleware.memory import MEMORY_SYSTEM_PROMPT, MemoryMiddleware
+from deepagents import create_deep_agent
+from deepagents.backends import StateBackend
+from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
@@ -13,7 +16,10 @@ from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynam
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, DAIVFilesystemMiddleware
+from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -36,6 +42,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "git_platform_middleware": ("GitPlatformMiddleware", {}),
         "prompt_caching_middleware": ("AnthropicPromptCachingMiddleware", {}),
         "tool_call_logging_middleware": ("ToolCallLoggingMiddleware", {}),
+        "summarization": ("build_summarization_middleware", {}),
     }
 
 
@@ -154,14 +161,38 @@ async def test_memory_files_load_with_daivs_guidelines_not_deepagents():
     system_prompt = memory.modify_request(request).system_message.text
     assert "Run tests with `make test`." in system_prompt
     assert "change them only when the user asks you to" in system_prompt
-    assert "edit_file" in MEMORY_SYSTEM_PROMPT
     assert "edit_file" not in system_prompt
 
 
-async def test_main_agent_brings_its_own_summarization():
-    built = await _build(_disk_workspace())
+async def test_main_agent_summarizes_through_daivs_builder():
+    workspace = _disk_workspace()
+    built = await _build(workspace)
 
-    assert [m.name for m in _middleware(built)].count("SummarizationMiddleware") == 1
+    assert built.summarization.return_value in _middleware(built)
+    built.summarization.assert_called_once_with(built.base_agent.get_model.return_value, workspace.backend)
+
+
+def _final_stack(**deep_agent_kwargs) -> list:
+    """The main agent's middleware as deepagents hands it to ``create_agent``, after merging DAIV's in."""
+    with patch("deepagents.graph.create_agent") as create_agent:
+        create_deep_agent(**deep_agent_kwargs)
+    return create_agent.call_args.kwargs["middleware"]
+
+
+def test_deepagents_puts_daivs_memory_and_summarization_in_its_default_slots():
+    """``create_daiv_agent`` relies on deepagents merging same-named middleware in place, with ``memory=`` still
+    passed so the memory slot exists. A deepagents change that appends instead brings its defaults back."""
+    model = ChatAnthropic(model="claude-sonnet-4-5-20250929", api_key="sk-ant-not-used")
+    backend = StateBackend()
+    memory = build_agents_memory_middleware(backend, "/repo", "AGENTS.md", AGENTS_MEMORY_SYSTEM_PROMPT)
+    summarization = build_summarization_middleware(model, backend)
+
+    default = _final_stack(model=model, backend=backend, memory=memory.sources)
+    merged = _final_stack(model=model, backend=backend, memory=memory.sources, middleware=[summarization, memory])
+
+    assert [type(m) for m in merged] == [type(m) for m in default]
+    assert merged.index(memory) == next(i for i, m in enumerate(default) if isinstance(m, MemoryMiddleware))
+    assert summarization in merged
 
 
 def test_ask_user_question_is_always_loaded():
