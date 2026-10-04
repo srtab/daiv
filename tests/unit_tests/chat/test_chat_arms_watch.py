@@ -46,7 +46,9 @@ async def _drive(stream_events: list, *, checkpoint: dict) -> list[dict]:
     )
 
     with (
-        agent_stack(graph, ctx=MagicMock(repo=SimpleNamespace(ref="daiv/chat-branch"))) as stack,
+        agent_stack(
+            graph, ctx=MagicMock(repo=SimpleNamespace(ref="daiv/chat-branch"), sandbox=None, sandbox_client=None)
+        ) as stack,
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", _FakeAguiAgent),
         patch("chat.api.streaming.SubagentEventFilter", _PassThroughFilter),
         patch("chat.api.streaming.start_chat_run", AsyncMock(return_value=SimpleNamespace(pk="run-pk"))),

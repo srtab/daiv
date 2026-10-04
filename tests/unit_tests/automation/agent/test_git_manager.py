@@ -210,7 +210,7 @@ async def test_push_head_to_integrates_remote_and_retries_on_non_fast_forward() 
     # tip and retries the push, which then succeeds — the agent's work is preserved.
     client = MagicMock()
     client.run_commands = AsyncMock(
-        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
+        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
@@ -218,9 +218,10 @@ async def test_push_head_to_integrates_remote_and_retries_on_non_fast_forward() 
 
     issued = _issued(client)
     assert issued[0].endswith("push origin HEAD:b")
-    assert "fetch origin b" in issued[1]
-    assert "rebase FETCH_HEAD" in issued[2]
-    assert issued[3].endswith("push origin HEAD:b")
+    assert "rev-list --merges origin/b..HEAD" in issued[1]
+    assert "fetch origin b" in issued[2]
+    assert "rebase FETCH_HEAD" in issued[3]
+    assert issued[4].endswith("push origin HEAD:b")
 
 
 async def test_push_head_to_raises_stale_on_rebase_conflict() -> None:
@@ -230,6 +231,7 @@ async def test_push_head_to_raises_stale_on_rebase_conflict() -> None:
     client.run_commands = AsyncMock(
         side_effect=[
             _resp((_NON_FF_REJECT, 1)),
+            _resp(("", 0)),
             _resp(("", 0)),
             _resp(("CONFLICT (content): merge", 1)),
             _resp(("", 0)),
@@ -251,7 +253,13 @@ async def test_push_head_to_raises_stale_when_retry_still_rejected() -> None:
     # We do not loop forever; surface a typed stale error.
     client = MagicMock()
     client.run_commands = AsyncMock(
-        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp((_NON_FF_REJECT, 1))]
+        side_effect=[
+            _resp((_NON_FF_REJECT, 1)),
+            _resp(("", 0)),
+            _resp(("", 0)),
+            _resp(("", 0)),
+            _resp((_NON_FF_REJECT, 1)),
+        ]
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
@@ -305,7 +313,7 @@ async def test_push_head_to_integrate_classifies_fetch_failure() -> None:
     # attempted and no retry push happens after a failed fetch.
     client = MagicMock()
     client.run_commands = AsyncMock(
-        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("The requested URL returned error: 403", 128))]
+        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("The requested URL returned error: 403", 128))]
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
@@ -313,7 +321,7 @@ async def test_push_head_to_integrate_classifies_fetch_failure() -> None:
         await gm.push_head_to("b", integrate_on_reject=True)
 
     issued = _issued(client)
-    assert "fetch origin b" in issued[1]
+    assert "fetch origin b" in issued[2]
     assert not any("rebase" in command for command in issued)
     assert sum(command.endswith("push origin HEAD:b") for command in issued) == 1
 
@@ -326,6 +334,7 @@ async def test_push_head_to_classifies_stale_when_abort_fails() -> None:
     client.run_commands = AsyncMock(
         side_effect=[
             _resp((_NON_FF_REJECT, 1)),
+            _resp(("", 0)),
             _resp(("", 0)),
             _resp(("CONFLICT (content): merge", 1)),
             _resp(("fatal: could not abort", 1)),
@@ -584,6 +593,129 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# pending_merge (a merge the agent left for the publisher to commit)
+# ---------------------------------------------------------------------------
+
+
+def _commit_file(repo: Repo, repo_dir: Path, filename: str, content: str) -> None:
+    (repo_dir / filename).write_text(content)
+    repo.git.add("-A")
+    repo.index.commit(f"change {filename}")
+
+
+def _push_fork_of_main(repo: Repo, repo_dir: Path, branch: str, filename: str, content: str) -> None:
+    """Push ``branch``, ``main`` plus one commit to ``filename``, and leave only ``origin/<branch>`` behind."""
+    repo.git.switch("-c", branch, "main")
+    _commit_file(repo, repo_dir, filename, content)
+    repo.git.push("origin", branch)
+    repo.git.switch("main")
+    repo.git.branch("-D", branch)
+
+
+def _start_merge(repo: Repo, ref: str) -> None:
+    repo.git.merge("--no-commit", "--no-ff", ref, with_exceptions=False)
+
+
+async def test_pending_merge_is_none_without_a_merge(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+
+    assert await GitManager(LocalGitRunner(repo)).pending_merge() is None
+
+
+async def test_pending_merge_lists_the_files_left_with_conflict_markers(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    _push_fork_of_main(repo, repo_dir, "other", "README.md", "theirs\n")
+    _commit_file(repo, repo_dir, "README.md", "ours\n")
+    _start_merge(repo, "origin/other")
+
+    pending = await GitManager(LocalGitRunner(repo)).pending_merge()
+
+    assert pending is not None
+    assert (pending.head, pending.name, pending.conflicted_paths) == (
+        repo.commit("origin/other").hexsha,
+        "origin/other",
+        ["README.md"],
+    )
+
+
+async def test_pending_merge_reports_no_conflicts_once_the_markers_are_gone(tmp_path: Path) -> None:
+    """The agent cannot stage, so a resolved file is still unmerged in the index; only its markers tell. A heading
+    underline of seven ``=`` is not one."""
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    _push_fork_of_main(repo, repo_dir, "other", "README.md", "theirs\n")
+    _commit_file(repo, repo_dir, "README.md", "ours\n")
+    _start_merge(repo, "origin/other")
+    (repo_dir / "README.md").write_text("Install\n=======\n\nours and theirs\n")
+
+    pending = await GitManager(LocalGitRunner(repo)).pending_merge()
+
+    assert pending is not None
+    assert pending.conflicted_paths == []
+
+
+async def test_status_snapshot_of_a_pending_merge_leaves_the_merged_branch_out_of_the_diff(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
+    _commit_file(repo, repo_dir, "mine.txt", "mine\n")
+    _start_merge(repo, "origin/target")
+    gm = GitManager(LocalGitRunner(repo))
+    pending = await gm.pending_merge()
+    assert pending is not None
+
+    snap = await gm.status_snapshot(base_branch="target", mr_source_branch=None, merge_head=pending.head)
+
+    assert "mine.txt" in snap.diff
+    assert "theirs.txt" not in snap.diff
+
+
+async def test_integrating_a_rejected_push_keeps_the_merged_branch_commits(tmp_path: Path) -> None:
+    """A rebase would re-create the merged branch's commits under new shas, so the MR would list them again."""
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
+    repo.git.push("origin", "main:feature")
+    repo.git.switch("-c", "feature", "--track", "origin/feature")
+    _start_merge(repo, "origin/target")
+    await GitManager(LocalGitRunner(repo)).commit_all("Merge branch 'origin/target' into feature")
+    merge_commit = repo.head.commit
+    other_dir = tmp_path / "other"
+    other = Repo.clone_from(origin_dir.as_posix(), other_dir, branch="feature")
+    _configure_repo_identity(other)
+    _commit_file(other, other_dir, "concurrent.txt", "pushed meanwhile\n")
+    other.git.push("origin", "feature")
+
+    await GitManager(LocalGitRunner(repo)).push_head_to("feature", integrate_on_reject=True)
+
+    tip = Repo(origin_dir).commit("feature")
+    assert [parent.hexsha for parent in tip.parents] == [merge_commit.hexsha, other.head.commit.hexsha]
+    assert merge_commit.parents[1].hexsha == repo.commit("origin/target").hexsha
+
+
+async def test_integrating_a_force_pushed_branch_rebases_when_only_the_old_history_had_a_merge(tmp_path: Path) -> None:
+    """Merging would bring the commits the force-push rewrote back in; only the run's own commits decide."""
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
+    repo.git.switch("-c", "feature")
+    repo.git.merge("--no-ff", "-m", "Merge target", "origin/target")
+    repo.git.push("origin", "feature")
+    _commit_file(repo, repo_dir, "mine.txt", "mine\n")
+    other = Repo.clone_from(origin_dir.as_posix(), tmp_path / "other")
+    _configure_repo_identity(other)
+    other.git.switch("-c", "rewritten", "origin/main")
+    other.git.cherry_pick("-x", other.commit("origin/target").hexsha)
+    other.git.push("--force", "origin", "rewritten:feature")
+
+    await GitManager(LocalGitRunner(repo)).push_head_to("feature", integrate_on_reject=True)
+
+    tip = Repo(origin_dir).commit("feature")
+    assert [parent.hexsha for parent in tip.parents] == [other.head.commit.hexsha]
+
+
+# ---------------------------------------------------------------------------
 # get_diff (working-tree patch vs a ref, incl. untracked — eval patch capture)
 # ---------------------------------------------------------------------------
 
@@ -727,7 +859,7 @@ async def test_push_head_to_skip_ci_survives_the_integrate_on_reject_retry() -> 
     # second attempt and silently defeats the heal.
     client = MagicMock()
     client.run_commands = AsyncMock(
-        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
+        side_effect=[_resp((_NON_FF_REJECT, 1)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0)), _resp(("", 0))]
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
 

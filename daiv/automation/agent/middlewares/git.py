@@ -16,8 +16,13 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.git_runners import SandboxGitProtocolError
-from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
-from automation.agent.utils import conversation_thread_id, final_assistant_text
+from automation.agent.publishers import (
+    GitChangePublisher,
+    UnresolvedMergeConflictsError,
+    checkpointed_merge_request,
+    effective_merge_request,
+)
+from automation.agent.utils import conversation_thread_id, final_assistant_text, streamed_assistant_message
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -57,10 +62,15 @@ GIT_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 - Default branch: {{default_branch}}
 - Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
 
-**Committing and pushing is automatic.** The harness commits and pushes any file changes you make when your turn ends. You do not need to — and must not try to — run `git add`, `git commit`, `git push`, `git reset`, `git rebase`, `git config`, or any other index- or history-mutating git command. These are hard-blocked by sandbox policy; attempting them or their synonyms (`git stage`, `git update-index`, `git read-tree -m`, `git commit-tree`, …) will fail and waste turns.
+**Committing and pushing is automatic.** The harness commits and pushes any file changes you make when your turn ends. You do not need to — and must not try to — run `git add`, `git commit`, `git push`, `git reset`, `git rebase`, `git config`, or any other index- or history-mutating git command. These are hard-blocked by sandbox policy; attempting them or their synonyms (`git stage`, `git update-index`, `git read-tree`, `git commit-tree`, `git pull`, `git cherry-pick`, `git revert`, …) will fail and waste turns. Switching branches (`git switch`, `git checkout`) is blocked too, because the harness pushes the branch you started on; restore files with `git restore <path>`.
 
 - If a task tells you to "commit and push," interpret it as "make the edits" — the harness ships them.
-- If a task asks you to "rebase" or "resolve merge conflicts with the target branch," tell the user this harness does not support rebase-style workflows and stop. Do not try to emulate rebase with `git show`/`git checkout -- <paths>`; it cannot complete without a staging primitive.
+- If a task asks you to merge a branch in (usually the target branch) or to resolve merge conflicts with it, merge it without committing and let the harness commit the merge:
+    1. Run `git fetch origin <branch>`, then `git merge --no-commit --no-ff origin/<branch>`. A merge without `--no-commit`, or with `-m`, is blocked; `git merge --abort` starts over. If the fetch fails, merge the `origin/<branch>` you already have.
+    2. List the conflicted files with `git diff --name-only --diff-filter=U`. Compare the sides with `git show :1:<path>` (common base), `git show :2:<path>` (this branch) and `git show :3:<path>` (the merged branch), and read why each side changed with `git log --merge -p -- <path>`. Some conflicts have no markers (a file deleted on one side, a binary file): decide each one explicitly.
+    3. Edit each conflicted file to the result that keeps both sides' intent, or take one side whole with `git restore --ours <path>` or `git restore --theirs <path>`. Delete a file the merge should not keep. Do not try to stage the result.
+    4. Before you finish, make sure no conflicted file still has a `<<<<<<<` or `>>>>>>>` line, then run the tests that cover the merged code. The harness does not publish a merge that still has conflict markers.
+- If a task asks you to "rebase," tell the user this harness cannot rebase and offer to merge the target branch in instead.
 - Read-only git commands (`git log`, `git diff`, `git status`, `git show`, `git branch`, `git ls-files`, …) are allowed and useful for understanding branch state.
 {{#issue_iid}}
 
@@ -382,11 +392,12 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         *decision* lives in :meth:`GitChangePublisher.publish`, which returns a
         :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
         all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
-        and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
+        and the private ``code_changes`` / ``protected_branch_fallback_source`` flags. A merge the agent left with
+        conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
-        straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so a sandbox run's
-        session is never acquired and the agent loop never ran — nothing was captured or changed. Its
+        straight to the after_agent chain) never acquire a sandbox session — the run executor skips it for
+        them — and the agent loop never ran, so nothing was captured or changed. Its
         workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
         bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
         reports a clean tree.
@@ -425,9 +436,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         publisher = GitChangePublisher(
             runtime.context, self._workspace, settings=self._settings, thread_id=conversation_thread_id()
         )
-        outcome = await publisher.publish(
-            merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
-        )
+        try:
+            outcome = await publisher.publish(
+                merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
+            )
+        except UnresolvedMergeConflictsError as exc:
+            logger.warning("Not publishing: %s", exc)
+            notice = (
+                f"I didn't publish the merge: {', '.join(f'`{path}`' for path in exc.paths)} still "
+                f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
+                "Ask me to finish resolving them."
+            )
+            return {**update, "messages": [await streamed_assistant_message(notice)]}
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

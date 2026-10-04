@@ -82,10 +82,11 @@ def acquired_session(
     egress: EgressConfigRequest | None = None,
     credential_source=None,
 ) -> SandboxSession:
-    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress``, for tests of
-    what runs on an already-acquired session."""
+    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress`` and recorded in the
+    checkpoint, for tests of what runs on an already-acquired session."""
     session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
     session._session_id, session._egress = session_id, egress
+    session.mark_checkpointed()
     return session
 
 

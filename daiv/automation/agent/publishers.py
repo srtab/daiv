@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.git_manager import PendingMerge
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -42,6 +43,17 @@ SESSION_TRAILER = "DAIV-Session"
 
 # A trailer line ("Token: value") or its folded continuation (leading whitespace).
 _TRAILER_LINE_RE = re.compile(r"[A-Za-z0-9-]+:\s|\s+\S")
+
+
+class UnresolvedMergeConflictsError(RuntimeError):
+    """The agent's merge still has conflict markers, so the publisher commits and pushes nothing."""
+
+    def __init__(self, paths: list[str]):
+        self.paths = paths
+        super().__init__(
+            f"The merge still has conflict markers in {', '.join(paths)}; nothing was committed or pushed. "
+            "The merge stays in progress in the run's workspace."
+        )
 
 
 def checkpointed_merge_request(state: Mapping[str, Any], *, strict: bool) -> MergeRequest | None:
@@ -180,6 +192,10 @@ class GitChangePublisher(ChangePublisher):
         ``GitMiddleware._is_unpublished`` gate): a clean tree whose work is already on its MR — or no
         changes at all — short-circuits without an LLM metadata call or a no-op push. Otherwise
         commits any uncommitted work (LLM-generated message), pushes, and opens/updates the MR.
+
+        A merge the agent left pending (``git merge --no-commit``) is committed as a merge commit with git's merge
+        subject; one whose files still hold conflict markers raises ``UnresolvedMergeConflictsError`` before anything
+        is committed.
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
@@ -193,18 +209,26 @@ class GitChangePublisher(ChangePublisher):
 
         git_manager = await self.workspace.authenticated_git()
 
+        pending_merge = await git_manager.pending_merge()
+        if pending_merge is not None and pending_merge.conflicted_paths:
+            raise UnresolvedMergeConflictsError(pending_merge.conflicted_paths)
+
         snapshot = await git_manager.status_snapshot(
-            base_branch=base_branch, mr_source_branch=merge_request.source_branch if merge_request is not None else None
+            base_branch=base_branch,
+            mr_source_branch=merge_request.source_branch if merge_request is not None else None,
+            merge_head=pending_merge.head if pending_merge is not None else None,
         )
+        # A merge that leaves the tree as it was still needs its commit, to record the merged parent.
+        dirty = snapshot.dirty or pending_merge is not None
 
         # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
         diff_stats = diff_line_stats(snapshot.diff)
 
-        if not snapshot.dirty and not snapshot.diff.strip():
+        if not dirty and not snapshot.diff.strip():
             logger.info("No changes to publish.")
             return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
-        if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+        if not dirty and merge_request is not None and not snapshot.has_unpushed:
             logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
             return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
@@ -224,12 +248,20 @@ class GitChangePublisher(ChangePublisher):
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
         )
-        changes_metadata = await self._diff_to_metadata(
-            pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
+        changes_metadata = (
+            {}
+            if pending_merge is not None and pr_metadata_diff is None
+            else await self._diff_to_metadata(
+                pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
+            )
         )
 
-        if snapshot.dirty:
-            commit_message = changes_metadata["commit_message"].commit_message
+        if dirty:
+            commit_message = (
+                self._merge_commit_message(pending_merge)
+                if pending_merge is not None
+                else changes_metadata["commit_message"].commit_message
+            )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
             await git_manager.commit_all(await self._with_trailers(commit_message))
@@ -330,6 +362,14 @@ class GitChangePublisher(ChangePublisher):
             protected_branch_fallback_source=protected_branch_fallback_source,
             diff_stats=diff_stats,
         )
+
+    def _merge_commit_message(self, merge: PendingMerge) -> str:
+        """The subject git gives a merge commit, naming the branch it lands on when the clone is on one."""
+        kind = "commit" if merge.name == merge.head else "branch"
+        subject = f"Merge {kind} '{merge.name}'"
+        if self.ctx.repo.head_detached:
+            return subject
+        return f"{subject} into {self.ctx.repo.current_ref}"
 
     @staticmethod
     def _live_target_branch(base_branch: str, remote_branches: list[str], default_branch: str) -> str:
@@ -474,7 +514,10 @@ class GitChangePublisher(ChangePublisher):
             )
 
         changes_metadata_graph = create_diff_to_metadata_graph(
-            model_names=self.settings.diff_to_metadata.names, ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff)
+            model_names=self.settings.diff_to_metadata.names,
+            ctx=self.ctx,
+            backend=self.workspace.backend,
+            include_pr_metadata=bool(pr_metadata_diff),
         )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]

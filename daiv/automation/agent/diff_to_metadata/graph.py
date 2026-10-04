@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
@@ -12,8 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from automation.agent import BaseAgent
-from automation.agent.constants import AGENTS_MEMORY_PATH
-from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+from automation.agent.constants import AGENTS_MEMORY_PATH, REPO_PATH
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
 
@@ -23,6 +21,7 @@ from .schemas import CommitMetadata, PullRequestMetadata
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from deepagents.backends.protocol import BackendProtocol
     from langchain.agents.middleware.types import ModelRequest
     from langchain_core.runnables import Runnable
 
@@ -44,6 +43,7 @@ def create_diff_to_metadata_graph(
     model_names: Sequence[ModelName | str],
     *,
     ctx: RuntimeCtx,
+    backend: BackendProtocol,
     include_pr_metadata: bool = True,
     include_commit_message: bool = True,
 ) -> Runnable:
@@ -53,6 +53,8 @@ def create_diff_to_metadata_graph(
     Args:
         model_names: The model chain: the model to use for the agent, then its fallbacks.
         ctx: The runtime context.
+        backend: The run's workspace backend, which serves the repository at ``REPO_PATH``. The repository's
+            context files are read through it, so a sandbox run's edits to them are what the metadata follows.
 
     Returns:
         The PR metadata graph.
@@ -61,17 +63,13 @@ def create_diff_to_metadata_graph(
         "At least one of include_pr_metadata or include_commit_message must be True"
     )
 
-    agent_path = Path(ctx.gitrepo.working_dir)
-
-    backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
-
     model = BaseAgent.get_model(model=model_names[0])
     fallback_models = [BaseAgent.get_model(model=model_name) for model_name in model_names[1:]]
 
     middleware = [
         MemoryMiddleware(
             backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+            sources=[f"{REPO_PATH}/{ctx.config.context_file_name}", f"{REPO_PATH}/{AGENTS_MEMORY_PATH}"],
             add_cache_control=True,
         ),
         AnthropicPromptCachingMiddleware(),

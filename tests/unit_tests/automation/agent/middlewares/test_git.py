@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from automation.agent.git_manager import GitPushPermissionError
 from automation.agent.git_runners import SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
-from automation.agent.publishers import PublishOutcome
+from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
@@ -66,6 +66,20 @@ class TestGitMiddleware:
             pytest.raises(GitPushPermissionError),
         ):
             await middleware.aafter_agent(state={"merge_request": None}, runtime=runtime)
+
+    async def test_a_merge_left_with_conflict_markers_ends_the_turn_with_a_reply_naming_the_files(self):
+        """Not a run failure: a failure would surface as a generic error and drop the agent's turn."""
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(side_effect=UnresolvedMergeConflictsError(["a.py", "b.py"]))
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        [reply] = result["messages"]
+        assert isinstance(reply, AIMessage)
+        assert "`a.py`, `b.py` still have conflict markers" in reply.content
+        assert "published" not in result
 
     async def test_aafter_agent_maps_published_outcome_to_state(self):
         """A published outcome maps onto the streamed ``merge_request`` field plus the private

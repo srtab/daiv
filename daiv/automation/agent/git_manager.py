@@ -19,6 +19,8 @@ logger = logging.getLogger("daiv.tools")
 
 
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+# Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
+_CONFLICT_MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,18 @@ class RepoStatus:
     diff: str
     remote_branches: list[str]
     has_unpushed: bool
+
+
+@dataclass(frozen=True)
+class PendingMerge:
+    """A merge the agent started with ``git merge --no-commit`` and left for the publisher to commit."""
+
+    head: str
+    """The merged commit (``MERGE_HEAD``)."""
+    name: str
+    """The merged commit as ``git name-rev`` names it (``origin/main``), or its sha when no ref reaches it."""
+    conflicted_paths: list[str]
+    """Unmerged files that still hold a ``<<<<<<<`` or ``>>>>>>>`` conflict marker line."""
 
 
 class GitManager:
@@ -134,7 +148,32 @@ class GitManager:
         self._require_ok(specs[1], untracked_res)
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
-    async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
+    async def pending_merge(self) -> PendingMerge | None:
+        """The merge in progress, or ``None``. One round-trip when there is none, up to three when there is."""
+        head_res = await self._git("rev-parse", "-q", "--verify", "MERGE_HEAD", check=False)
+        head = head_res.output.strip()
+        if head_res.exit_code != 0 or not head:
+            return None
+        specs: list[tuple[str, ...]] = [
+            ("name-rev", "--name-only", "--no-undefined", "MERGE_HEAD"),
+            ("ls-files", "-u", "-z"),
+        ]
+        name_res, unmerged_res = await self._git_batch(specs)
+        self._require_ok(specs[1], unmerged_res)
+        unmerged = sorted({entry.split("\t", 1)[1] for entry in unmerged_res.output.split("\0") if "\t" in entry})
+        conflicted: list[str] = []
+        if unmerged:
+            grep_args = ("--literal-pathspecs", "grep", "-l", "-z", "-E", _CONFLICT_MARKER_PATTERN, "--", *unmerged)
+            grep_res = await self._git(*grep_args, check=False)
+            if grep_res.exit_code not in (0, 1):
+                self._require_ok(grep_args, grep_res)
+            conflicted = sorted(path for path in grep_res.output.split("\0") if path.strip())
+        name = name_res.output.strip().removeprefix("remotes/") if name_res.exit_code == 0 else ""
+        return PendingMerge(head=head, name=name or head, conflicted_paths=conflicted)
+
+    async def status_snapshot(
+        self, *, base_branch: str, mr_source_branch: str | None, merge_head: str | None = None
+    ) -> RepoStatus:
         """Collect everything the publisher needs in exactly two sandbox round-trips.
 
         Batch A: working-tree status, merge-base of ``origin/<base_branch>`` and ``HEAD``, untracked
@@ -145,10 +184,13 @@ class GitManager:
         remote_branches sequence (~5+U round-trips) with exactly 2. Diffing the merge-base (rather
         than the branch tip) yields the branch's own delta only; tip diffing sweeps unrelated commits
         in when the branch is stacked off a moving target.
+
+        ``merge_head``: the commit a pending merge brings in. The merge-base is then taken against the
+        merge commit the publisher is about to make, so the merged branch's own changes stay out of the diff.
         """
         batch_a: list[tuple[str, ...]] = [
             ("status", "--porcelain"),
-            ("merge-base", f"origin/{base_branch}", "HEAD"),
+            ("merge-base", f"origin/{base_branch}", "HEAD", *([merge_head] if merge_head else [])),
             ("ls-files", "--others", "--exclude-standard"),
             ("ls-remote", "--heads", "origin"),
         ]
@@ -244,7 +286,8 @@ class GitManager:
         When ``integrate_on_reject`` is set and a *non-fast-forward* rejection comes back — the
         remote branch advanced under the run, e.g. a dependabot force-push of its rebased PR
         branch, or a concurrent human push to an MR's source branch — the manager fetches the
-        remote tip, rebases ``HEAD`` onto it, and retries the push once. This preserves the agent's
+        remote tip, rebases ``HEAD`` onto it (or merges it in, see :meth:`_integrate_remote`), and retries the push
+        once. This preserves the agent's
         work instead of discarding it. Pass it only when adding onto a branch is the intent (an
         existing MR's source branch); a fresh-branch push leaves it off so we never graft the run's
         commits onto unrelated history that happens to occupy a colliding ref.
@@ -273,7 +316,7 @@ class GitManager:
         # auth/network/other failure won't change after a fetch+rebase, so it falls straight through
         # to classification below. On a successful integrate, retry the push and return on success.
         if integrate_on_reject and not force and _is_push_stale_error_text(push.output):
-            await self._rebase_onto_remote(branch)  # raises GitPushStaleError on a rebase conflict
+            await self._integrate_remote(branch)  # raises GitPushStaleError on a conflict
             push = await self._git(*push_args, check=False)
             if push.exit_code == 0:
                 return branch
@@ -282,45 +325,55 @@ class GitManager:
         # (remote advanced again) — classify whichever failed push result we are holding.
         _raise_for_push_failure(push_args, push)
 
-    async def _rebase_onto_remote(self, branch: str) -> None:
-        """Fetch ``origin/<branch>`` and rebase ``HEAD`` onto it so a non-fast-forward push can retry.
+    async def _integrate_remote(self, branch: str) -> None:
+        """Fetch ``origin/<branch>`` and build ``HEAD`` on top of it so a non-fast-forward push can retry.
 
-        On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. A failed
+        On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. When the run's unpushed
+        commits include a merge, the remote tip is merged in instead: a rebase would re-create the merged branch's
+        commits under new shas, so the merge request would show that branch's changes as its own again. A failed
         fetch is classified by transport (auth → ``GitPushPermissionError``, unreachable host →
         ``GitPushNetworkError``, else ``GitCommandError``) — via the operation-neutral
         :func:`_raise_for_transport_failure` rather than the push classifier, so a fetch never raises
         a nonsensical non-fast-forward error — keeping the actionable typed error the direct push
-        would have produced instead of degrading to a raw ``GitCommandError``. On a rebase conflict
-        the rebase is aborted (restoring the pre-rebase ``HEAD`` rather than stranding the workspace
-        mid-rebase) and a typed :class:`GitPushStaleError` is raised. A *failed* abort cannot restore
+        would have produced instead of degrading to a raw ``GitCommandError``. On a conflict
+        the rebase or merge is aborted (restoring the earlier ``HEAD`` rather than stranding the workspace
+        mid-way) and a typed :class:`GitPushStaleError` is raised. A *failed* abort cannot restore
         ``HEAD``: it is logged at error level (never silently swallowed) and flagged in the raised
-        message, since the workspace is then left mid-rebase and must not be re-published.
+        message, since the workspace is then left mid-way and must not be re-published.
         """
+        # Before the fetch moves origin/<branch>: after a force-push, FETCH_HEAD..HEAD also holds rewritten commits.
+        merges = await self._git("rev-list", "--merges", f"origin/{branch}..HEAD", check=False)
+        operation = "merge" if merges.exit_code == 0 and merges.output.strip() else "rebase"
+
         fetch_args = ["fetch", "origin", branch]
         fetch = await self._git(*fetch_args, check=False)
         if fetch.exit_code != 0:
             _raise_for_transport_failure(fetch_args, fetch)
             raise GitCommandError(["git", *fetch_args], fetch.exit_code, fetch.output)
 
-        rebase = await self._git("rebase", "FETCH_HEAD", check=False)
-        if rebase.exit_code != 0:
-            abort = await self._git("rebase", "--abort", check=False)
+        integrate = await self._git(
+            *(("merge", "--no-edit", "FETCH_HEAD") if operation == "merge" else ("rebase", "FETCH_HEAD")), check=False
+        )
+        if integrate.exit_code != 0:
+            abort = await self._git(operation, "--abort", check=False)
             if abort.exit_code != 0:
                 logger.error(
-                    "git rebase --abort failed after a conflict on '%s' (exit %s); the workspace is left "
-                    "mid-rebase. Output: %s",
+                    "git %s --abort failed after a conflict on '%s' (exit %s); the workspace is left mid-%s. "
+                    "Output: %s",
+                    operation,
                     branch,
                     abort.exit_code,
+                    operation,
                     abort.output.strip(),
                 )
                 raise GitPushStaleError(
                     f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
-                    "with DAIV's. The conflicted rebase could not be aborted, so the workspace is in an "
+                    f"with DAIV's. The conflicted {operation} could not be aborted, so the workspace is in an "
                     "inconsistent state. Re-trigger DAIV to retry from a fresh clone."
                 )
             raise GitPushStaleError(
                 f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
-                "with DAIV's, so they could not be rebased automatically. Re-trigger DAIV to retry "
+                "with DAIV's, so they could not be integrated automatically. Re-trigger DAIV to retry "
                 "against the updated branch."
             )
 

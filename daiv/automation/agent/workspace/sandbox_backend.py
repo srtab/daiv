@@ -235,8 +235,8 @@ class SandboxFileBackend(BackendProtocol):
     local copy, so no rollback/desync machinery.
 
     The backend wraps the run's :class:`~automation.agent.workspace.session.SandboxSession` and reaches the container
-    it holds. Any file op before ``SandboxMiddleware.abefore_agent`` acquires the session raises ``RuntimeError`` (a
-    programming error — the middleware must acquire first).
+    it holds. Any file op before the run executor acquires the session raises ``RuntimeError`` (a programming error —
+    the session must be acquired first).
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call

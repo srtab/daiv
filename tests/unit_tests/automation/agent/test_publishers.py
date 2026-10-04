@@ -11,11 +11,12 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
-from automation.agent.git_manager import RepoStatus
+from automation.agent.git_manager import PendingMerge, RepoStatus
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
     PublishOutcome,
+    UnresolvedMergeConflictsError,
     append_trailer,
     checkpointed_merge_request,
     effective_merge_request,
@@ -49,15 +50,21 @@ _LOCAL_STATS = MergeRequestDiffStats()
 
 
 def _fake_git_manager(
-    *, dirty: bool = True, diff: str = "diff", remote_branches=("main",), has_unpushed: bool = True
+    *,
+    dirty: bool = True,
+    diff: str = "diff",
+    remote_branches=("main",),
+    has_unpushed: bool = True,
+    pending_merge: PendingMerge | None = None,
 ) -> Mock:
     """A stand-in for the GitManager the publisher's workspace hands it.
 
-    The publisher reads everything it needs from a single ``status_snapshot``; the mutation methods
-    (``commit_all``/``push_head_to``) stay separate AsyncMocks. ``remote_branches`` carries the
+    The publisher reads everything it needs from ``pending_merge`` and a single ``status_snapshot``; the mutation
+    methods (``commit_all``/``push_head_to``) stay separate AsyncMocks. ``remote_branches`` carries the
     default base branch so a publish does not trip the vanished-target degrade by default.
     """
     gm = Mock()
+    gm.pending_merge = AsyncMock(return_value=pending_merge)
     gm.status_snapshot = AsyncMock(
         return_value=RepoStatus(
             dirty=dirty, diff=diff, remote_branches=list(remote_branches), has_unpushed=has_unpushed
@@ -673,6 +680,62 @@ class TestPublishDiffBase:
         await publisher.publish(merge_request=_make_merge_request(target_branch="release/x"))
 
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
+
+
+def _pending_merge(*, conflicted_paths: tuple[str, ...] = (), name: str = "origin/main") -> PendingMerge:
+    return PendingMerge(head="b" * 40, name=name, conflicted_paths=list(conflicted_paths))
+
+
+class TestPublishPendingMerge:
+    """A merge the agent left pending is committed by the publisher as a merge commit."""
+
+    async def test_conflict_markers_stop_the_publish_before_anything_is_committed(self):
+        publisher = _make_publisher(base_ref="feature")
+        gm = _fake_git_manager(pending_merge=_pending_merge(conflicted_paths=("a.py", "b.py")))
+        _use_git_manager(publisher, gm)
+
+        with pytest.raises(UnresolvedMergeConflictsError, match=r"a\.py, b\.py"):
+            await publisher.publish(merge_request=_make_merge_request())
+
+        gm.commit_all.assert_not_awaited()
+        gm.push_head_to.assert_not_awaited()
+
+    async def test_a_resolved_merge_is_committed_with_git_merge_subject_and_no_metadata_call(self):
+        publisher = _make_publisher(base_ref="feature")
+        publisher._diff_to_metadata = AsyncMock(side_effect=AssertionError("no LLM call for a merge onto an MR"))
+        gm = _fake_git_manager(pending_merge=_pending_merge())
+        _use_git_manager(publisher, gm)
+
+        outcome = await publisher.publish(merge_request=_make_merge_request())
+
+        gm.commit_all.assert_awaited_once_with("Merge branch 'origin/main' into feature")
+        assert gm.status_snapshot.await_args.kwargs["merge_head"] == "b" * 40
+        assert outcome.published is True
+
+    async def test_a_merge_that_leaves_the_tree_unchanged_is_still_committed_and_pushed(self):
+        """Without the merge commit the MR would keep reporting conflicts with its target."""
+        publisher = _make_publisher(base_ref="feature")
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False, pending_merge=_pending_merge())
+        _use_git_manager(publisher, gm)
+
+        await publisher.publish(merge_request=_make_merge_request())
+
+        gm.commit_all.assert_awaited_once()
+        gm.push_head_to.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        ("name", "head_detached", "expected"),
+        [
+            pytest.param("origin/main", False, "Merge branch 'origin/main' into feature", id="branch"),
+            pytest.param("b" * 40, False, f"Merge commit '{'b' * 40}' into feature", id="unnamed-commit"),
+            pytest.param("origin/main", True, "Merge branch 'origin/main'", id="detached-head"),
+        ],
+    )
+    def test_merge_commit_subject(self, name, head_detached, expected):
+        publisher = _make_publisher(base_ref="feature")
+        publisher.ctx.repo.head_detached = head_detached
+
+        assert publisher._merge_commit_message(_pending_merge(name=name)) == expected
 
 
 class TestRunBaseBranch:
@@ -1527,8 +1590,9 @@ def _publisher_with_graph_capture(monkeypatch):
     publisher.ctx.config.omit_content_patterns = []
     captured = {}
 
-    def fake_create(model_names, ctx, include_pr_metadata):
+    def fake_create(model_names, ctx, backend, include_pr_metadata):
         graph = Mock()
+        captured["graph_backend"] = backend
 
         async def ainvoke(input_data, config=None):
             captured.update(input_data)
@@ -1542,13 +1606,21 @@ def _publisher_with_graph_capture(monkeypatch):
     return publisher, captured
 
 
-async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos(tmp_path):
+async def test_the_metadata_reads_context_files_from_the_run_workspace(monkeypatch):
+    publisher, captured = _publisher_with_graph_capture(monkeypatch)
+    publisher.ctx.scope = None
+
+    await publisher._diff_to_metadata(commit_message_diff="diff")
+
+    assert captured["graph_backend"] is publisher.workspace.backend
+
+
+async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos():
     site = {"diff_to_metadata_model_name": "site-model", "diff_to_metadata_fallback_model_name": "site-fallback"}
     repo_models = {"diff_to_metadata": {"model": "repo-model", "fallback_model": "repo-fallback"}}
     publisher = _make_publisher(settings=_settings(site=site, models=repo_models))
     publisher.ctx.config.omit_content_patterns = []
     publisher.ctx.scope = None
-    publisher.ctx.gitrepo.working_dir = str(tmp_path / "clone")
     trace_models = []
 
     def fake_agent(_input, config):

@@ -36,7 +36,7 @@ class Workspace(Protocol):
 
     @property
     def session(self) -> SandboxSession | None:
-        """The sandbox session ``SandboxMiddleware`` acquires and the run executor releases; ``None`` on disk."""
+        """The sandbox session the run executor acquires and releases; ``None`` on disk."""
         ...
 
     @property

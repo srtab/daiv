@@ -78,6 +78,7 @@ def addressor_run(
     context=None,
     resolve=None,
     site=None,
+    checkpointed=None,
 ):
     """Stub the executor around ``agent`` for one manager run; yield the ``agent_stack`` namespace plus ``recover``.
 
@@ -91,7 +92,7 @@ def addressor_run(
         else nullcontext()
     )
     with (
-        agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site) as stack,
+        agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site, checkpointed=checkpointed) as stack,
         nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         recovery as recover,
     ):

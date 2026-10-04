@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from git import Repo
 
-from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.middlewares.sandbox import SandboxMiddleware, acquire_sandbox
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import Scope as RepoScope
@@ -149,6 +149,7 @@ async def test_a_network_off_sandbox_session_reaches_the_git_host_only_for_a_pus
             client = ctx.sandbox_client
             session = SandboxSession(client, ctx.sandbox, credential_source=ctx.credential_source)
             middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))
+            await acquire_sandbox(session, ctx, {})
             await middleware.abefore_agent({}, MagicMock(context=ctx))
             await session.release(resumable=True)
 

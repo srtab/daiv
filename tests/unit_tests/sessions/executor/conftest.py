@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import tarfile
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
@@ -41,15 +43,26 @@ def make_spec(**overrides) -> RunSpec:
     return RunSpec(**(fields | overrides))
 
 
+def empty_archive() -> bytes:
+    buffer = io.BytesIO()
+    tarfile.open(fileobj=buffer, mode="w:gz").close()
+    return buffer.getvalue()
+
+
 @contextmanager
-def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None):
+def agent_stack(
+    agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
+):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
     ``ctx`` is the ``RuntimeCtx`` the stubbed clone yields (its ``repo.ref`` defaults to ``"main"``), ``context``
     replaces ``set_runtime_ctx`` itself, ``resolve`` replaces ``resolve_agent_settings`` (by default it resolves the
     agent to ``claude-4-7-opus`` at ``medium``), and ``site`` is the snapshot the run takes (the field defaults).
-    ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed to the clone.
+    ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
+    is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
+    to the clone.
     """
+    last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
         events=[],
         context_kwargs={},
@@ -58,7 +71,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapsh
         else MagicMock(
             repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), sandbox=None, sandbox_client=None
         ),
-        checkpointer=object(),
+        checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
@@ -103,6 +116,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapsh
         patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
+        patch("automation.agent.middlewares.sandbox._seed_archives", AsyncMock(return_value=(empty_archive(), None))),
     ):
         stack.build_spec = build_spec
         stack.snapshot = snapshot

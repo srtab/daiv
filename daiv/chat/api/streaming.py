@@ -357,6 +357,7 @@ class ChatRunStreamer:
             input_messages=(),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
+            prompt=self.prompt,
             ref=self.ref,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,

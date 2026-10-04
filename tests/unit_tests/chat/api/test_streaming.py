@@ -70,7 +70,7 @@ def _mock_ctx(*_args, **_kwargs):
     ``_streamer``'s ref so the ref-fallback branch stays dormant here.
     """
     ctx = MagicMock()
-    entered = MagicMock()
+    entered = MagicMock(sandbox=None, sandbox_client=None)
     entered.repo.ref = "main"
     entered.repo.head_detached = False
     ctx.__aenter__ = AsyncMock(return_value=entered)
@@ -884,7 +884,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
 
     def _fallback_ctx(*_args, **_kwargs):
         ctx = MagicMock()
-        entered = MagicMock()
+        entered = MagicMock(sandbox=None, sandbox_client=None)
         entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
         ctx.__aenter__ = AsyncMock(return_value=entered)
         ctx.__aexit__ = AsyncMock(return_value=None)

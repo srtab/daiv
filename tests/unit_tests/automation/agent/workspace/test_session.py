@@ -130,6 +130,7 @@ class TestAcquire:
         spec = sandbox_spec()
         first = _session(client, spec, credential=_credential("tok-1"))
         session_id, fingerprint = await first.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        first.mark_checkpointed()
         await first.release(resumable=True)
 
         fresh = _credential("tok-2")

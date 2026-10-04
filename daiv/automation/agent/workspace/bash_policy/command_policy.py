@@ -22,17 +22,32 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "push"),
     ("git", "reset"),
     ("git", "rebase"),
+    ("git", "merge"),
+    ("git", "merge", "--squash"),
+    ("git", "merge", "--commit"),
+    ("git", "merge", "--continue"),
+    ("git", "merge", "-m"),
+    ("git", "merge", "-F"),
+    ("git", "merge", "--file"),
+    ("git", "pull"),
+    ("git", "cherry-pick"),
+    ("git", "revert"),
+    ("git", "am"),
     ("git", "reflog", "delete"),
     ("git", "filter-branch"),
     ("git", "filter-repo"),
+    # Branch switching: the publisher pushes the branch the run's clone is on
+    ("git", "checkout"),
+    ("git", "switch"),
     # Git index / object manipulation
     ("git", "add"),
+    ("git", "stage"),
     ("git", "hash-object"),
     ("git", "update-index"),
+    ("git", "read-tree"),
     ("git", "commit-tree"),
     # Destructive working-tree operations
     ("git", "clean"),
-    ("git", "checkout", "."),
     ("git", "restore", "."),
     # Branch/tag deletion
     ("git", "branch", "-D"),
@@ -46,6 +61,14 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("gh",),
     ("python", "-m", "gitlab"),
 )
+
+#: Flags that lift a default rule: a ``--no-commit`` merge leaves its commit to the publisher, ``--abort`` undoes it.
+DEFAULT_DISALLOW_EXCEPTIONS: dict[tuple[str, ...], frozenset[str]] = {
+    ("git", "merge"): frozenset({"--no-commit", "--abort"})
+}
+
+#: git's global options that take the next word as their value (``git -C <path> commit``), lowercased.
+_GIT_OPTIONS_WITH_VALUE = frozenset({"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"})
 
 
 class DenialReason(StrEnum):
@@ -133,6 +156,9 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     subcommand, e.g. ``git -C /workspace/repo commit`` is matched by rule
     ``("git", "commit")`` even though ``-C /workspace/repo`` intervenes.
 
+    A ``git`` rule's second token must be the git subcommand itself, so ``git log --grep revert`` and
+    ``git grep checkout`` are not matched by ``("git", "revert")`` or ``("git", "checkout")``.
+
     Comparison is case-insensitive and performs short-flag normalization for
     bundled short options. Example: ``-rf`` and ``-fr`` are considered equal.
     """
@@ -142,15 +168,40 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     rule_normalized = _normalize_argv_for_match(rule)
     if argv_normalized[0] != rule_normalized[0]:
         return False
+    argv_idx, rule_idx = 1, 1
+    if rule_normalized[0] == "git" and len(rule_normalized) > 1:
+        subcommand_idx = _git_subcommand_index(argv_normalized)
+        if subcommand_idx is None or argv_normalized[subcommand_idx] != rule_normalized[1]:
+            return False
+        argv_idx, rule_idx = subcommand_idx + 1, 2
     # Remaining rule tokens are matched as an in-order subsequence of the
     # remaining argv tokens, so intervening flags are transparently skipped.
-    rule_idx = 1
-    for argv_token in argv_normalized[1:]:
+    for argv_token in argv_normalized[argv_idx:]:
         if rule_idx >= len(rule_normalized):
             break
         if argv_token == rule_normalized[rule_idx]:
             rule_idx += 1
     return rule_idx == len(rule_normalized)
+
+
+def _git_subcommand_index(argv: tuple[str, ...]) -> int | None:
+    """The index of the subcommand in a normalized ``git`` *argv*, past git's global options; ``None`` without one."""
+    idx = 1
+    while idx < len(argv):
+        token = argv[idx]
+        if token in _GIT_OPTIONS_WITH_VALUE:
+            idx += 2
+        elif token.startswith("-"):
+            idx += 1
+        else:
+            return idx
+    return None
+
+
+def _excepted(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
+    """Whether *argv* carries one of the flags :data:`DEFAULT_DISALLOW_EXCEPTIONS` lifts *rule* with."""
+    flags = DEFAULT_DISALLOW_EXCEPTIONS.get(rule)
+    return flags is not None and not flags.isdisjoint(_normalize_argv_for_match(argv))
 
 
 def _rule_repr(rule: tuple[str, ...]) -> str:
@@ -194,7 +245,7 @@ def _evaluate_segment(segment: object, policy: CommandPolicy) -> PolicyResult:
         return PolicyResult(allowed=True)
 
     for rule in DEFAULT_DISALLOW_RULES:
-        if _argv_matches_rule(argv, rule):
+        if _argv_matches_rule(argv, rule) and not _excepted(argv, rule):
             return PolicyResult(
                 allowed=False,
                 denial_reason=DenialReason.DEFAULT_DISALLOW,
