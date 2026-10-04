@@ -548,3 +548,14 @@ class TestRepoRelativeText:
 
     def test_the_bare_root_is_left_alone(self):
         assert repo_relative_text("Cloned into /workspace/repo.") == "Cloned into /workspace/repo."
+
+    def test_the_root_with_a_trailing_slash_is_left_alone(self):
+        assert repo_relative_text("Cloned into `/workspace/repo/`.") == "Cloned into `/workspace/repo/`."
+        assert repo_relative_text("Ran pytest in /workspace/repo/ and it passed") == (
+            "Ran pytest in /workspace/repo/ and it passed"
+        )
+        assert repo_relative_text("cd /workspace/repo/ && make test") == "cd /workspace/repo/ && make test"
+        assert repo_relative_text("Moved into /workspace/repo/.") == "Moved into /workspace/repo/."
+        assert repo_relative_text("The root is /workspace/repo/") == "The root is /workspace/repo/"
+        assert repo_relative_text("/workspace/repo//a.py") == "/workspace/repo//a.py"
+        assert repo_relative_text("/workspace/repo/.agents/x and /workspace/repo/./x") == ".agents/x and ./x"
