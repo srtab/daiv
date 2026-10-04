@@ -10,7 +10,7 @@ which middlewares to compose.
 
 import logging
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from deepagents.backends.protocol import BackendProtocol
@@ -238,6 +238,21 @@ class TestGeneralPurposeMiddleware:
         )
         fs = [m for m in middleware if isinstance(m, FilesystemMiddleware)]
         assert fs and all(isinstance(m, DAIVFilesystemMiddleware) for m in fs)
+
+    def test_stacks_summarize_through_daivs_builder(self, mock_model, mock_backend, mock_runtime_ctx):
+        with patch("automation.agent.subagents.build_summarization_middleware") as build:
+            detector = _build_detector_middleware(mock_model, mock_backend)
+            general = _build_general_purpose_middleware(
+                mock_model,
+                _workspace(mock_backend, sandbox=False),
+                mock_runtime_ctx,
+                web_search_enabled=False,
+                web_fetch_enabled=False,
+            )
+
+        assert build.return_value in detector
+        assert build.return_value in general
+        assert build.call_args_list == [call(mock_model, mock_backend), call(mock_model, mock_backend)]
 
     def test_subagents_loop_breaker_registered_before_prompt_caching(self):
         import inspect

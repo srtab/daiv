@@ -14,7 +14,7 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent
-from automation.agent.constants import AGENTS_MEMORY_PATH, REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
+from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -31,16 +31,22 @@ from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
-from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
+from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.prompts import (
+    AGENTS_MEMORY_SYSTEM_PROMPT,
+    DAIV_SYSTEM_PROMPT,
+    REPO_RELATIVE_SYSTEM_REMINDER,
+    WRITE_TODOS_SYSTEM_PROMPT,
+)
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -207,6 +213,9 @@ async def create_daiv_agent(
     # The run's absolute repo root, shared with subagents so their filesystem path directives name
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
     working_directory = f"{agent_root}/"
+    agents_memory = build_agents_memory_middleware(
+        backend, agent_root, ctx.config.context_file_name, AGENTS_MEMORY_SYSTEM_PROMPT
+    )
 
     # Fetched before subagents are built so the general-purpose and custom subagents inherit the
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
@@ -255,6 +264,9 @@ async def create_daiv_agent(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=workspace.fs_permissions,
         ),
+        # Like the filesystem middleware above, these two take the slots of deepagents' same-named defaults.
+        build_summarization_middleware(model, backend),
+        agents_memory,
         # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
@@ -304,7 +316,9 @@ async def create_daiv_agent(
         system_prompt=None,
         middleware=user_middleware,
         subagents=subagents,
-        memory=[f"{agent_root}/{ctx.config.context_file_name}", f"{agent_root}/{AGENTS_MEMORY_PATH}"],
+        # Still needed: it makes deepagents build the memory slot ``agents_memory`` replaces. Without it the
+        # instance would land ahead of the prompt-caching tail instead of after it.
+        memory=agents_memory.sources,
         backend=backend,
         permissions=workspace.fs_permissions,
         interrupt_on=interrupt_on,
