@@ -8,6 +8,7 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -16,6 +17,7 @@ from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware, _check_fs_permission
 from langchain.agents.middleware import ModelFallbackMiddleware
 
+from automation.agent.agent_settings import ModelChain
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import (
     READ_ONLY_PERMISSIONS,
@@ -36,7 +38,7 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_custom_subagents,
 )
-from tests.unit_tests.conftest import FakeWorkspace
+from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -84,16 +86,16 @@ class TestGeneralPurposeMiddleware:
         assert len(sandbox_middlewares) == 1
 
     @pytest.mark.parametrize("enabled", [True, False])
-    def test_the_platform_tools_follow_the_runs_cross_project_snapshot(
+    def test_the_platform_tools_follow_the_runs_cross_project_switch(
         self, mock_model, mock_backend, mock_runtime_ctx, enabled
     ):
-        mock_runtime_ctx.cross_project_enabled = enabled
         middleware = _build_general_purpose_middleware(
             mock_model,
             _workspace(mock_backend, sandbox=True),
             mock_runtime_ctx,
             web_search_enabled=True,
             web_fetch_enabled=True,
+            cross_project_enabled=enabled,
         )
         [git_platform] = [m for m in middleware if isinstance(m, GitPlatformMiddleware)]
         assert git_platform._cross_project_enabled is enabled
@@ -276,6 +278,19 @@ class TestGeneralPurposeSubagent:
         assert result["name"] == "general-purpose"
         assert result["description"]
         assert "runnable" in result
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_forwards_the_runs_cross_project_switch(self, mock_model, mock_backend, mock_runtime_ctx, enabled):
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            create_general_purpose_subagent(
+                mock_model,
+                _workspace(mock_backend, sandbox=True),
+                mock_runtime_ctx,
+                "/workspace/repo/",
+                cross_project_enabled=enabled,
+            )
+
+        assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
     def test_prompt_names_the_working_directory(self):
         """The whole point of threading working_directory: the subagent prompt must embed it (and
@@ -532,7 +547,9 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/")
+        result = create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True), "/workspace/repo/", models=agent_settings().explore
+        )
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
@@ -617,6 +634,27 @@ class TestCustomSubagents:
         assert len(result) == 1
         build_mw.assert_called_once()
         assert build_mw.call_args.args[1] is workspace
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    async def test_forwards_the_runs_cross_project_switch(self, tmp_path: Path, mock_model, mock_runtime_ctx, enabled):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        workspace = _workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True)
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            await load_custom_subagents(
+                model=mock_model,
+                workspace=workspace,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                cross_project_enabled=enabled,
+            )
+
+        assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
@@ -834,13 +872,39 @@ class TestCustomSubagents:
 def _explore_permissions(*, sandbox: bool) -> list:
     with (
         patch("automation.agent.subagents.BaseAgent"),
-        patch("automation.agent.subagents.site_settings", agent_explore_fallback_model_name=None),
         patch("automation.agent.subagents.create_agent") as create_agent,
     ):
-        create_explore_subagent(_workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/")
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=sandbox), "/workspace/repo/", models=ModelChain(("explore",))
+        )
 
     [fs] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, FilesystemMiddleware)]
     return fs._permissions
+
+
+def test_explore_skips_a_fallback_that_fails_to_build(caplog):
+    built = {"explore": Mock(), "working-fallback": Mock()}
+
+    def get_model(*, model, thinking_level=None):
+        if model == "broken-fallback":
+            raise RuntimeError("Provider 'x' has no API key configured.")
+        return built[model]
+
+    with (
+        patch("automation.agent.subagents.BaseAgent.get_model", side_effect=get_model),
+        patch("automation.agent.subagents.create_agent") as create_agent,
+        caplog.at_level(logging.ERROR, logger="daiv.agent"),
+    ):
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True),
+            "/workspace/repo/",
+            models=ModelChain(("explore", "broken-fallback", "working-fallback")),
+        )
+
+    [fallback] = [m for m in create_agent.call_args.kwargs["middleware"] if isinstance(m, ModelFallbackMiddleware)]
+    assert fallback.models == [built["working-fallback"]]
+    assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
+    assert "no API key configured" in caplog.text
 
 
 def test_explore_in_a_sandbox_is_only_read_only():

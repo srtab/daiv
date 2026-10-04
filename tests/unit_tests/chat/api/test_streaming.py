@@ -25,8 +25,9 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.run import CrossProjectSessionRefusedError
-from sessions.models import Run
+from sessions.models import Run, Session
 
+from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.questions import render_questions
@@ -36,7 +37,8 @@ from automation.agent.utils import streamed_assistant_message
 from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 from codebase.references import ExternalRef
-from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
+from core.site_settings import site_settings
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import agent_stack
 
@@ -977,11 +979,9 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
         captured.update(kwargs)
         return _mock_ctx()
 
-    resolve = MagicMock(return_value={"model_names": ["m-1"], "thinking_level": "low"})
     langsmith = MagicMock(return_value={})
     with (
         patch("codebase.context.set_runtime_ctx", _capture_ctx),
-        patch("automation.agent.utils.get_daiv_agent_kwargs", resolve),
         patch("automation.agent.utils.build_langsmith_config", langsmith),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
         patch("sessions.services.apersist_session_ref", new=AsyncMock()),
@@ -1013,14 +1013,56 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
-    assert (resolve.call_args.kwargs["agent_model"], resolve.call_args.kwargs["agent_thinking_level"]) == (
-        "openrouter:z-ai/glm-5.2",
-        "low",
-    )
+    run = _executor_stack.resolve.call_args.kwargs["run"]
+    assert (run.agent_model, run.agent_thinking_level) == ("openrouter:z-ai/glm-5.2", "low")
     assert (langsmith.call_args.kwargs["trigger"], langsmith.call_args.kwargs["extra_metadata"]) == (
         "chat",
         {"override_source": "explicit"},
     )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_fixes_the_recursion_limit_at_500_whatever_the_site_says(_executor_stack):
+    _executor_stack.resolve.side_effect = resolve_agent_settings
+    with (
+        patch.object(site_settings, "snapshot", return_value=site_snapshot(agent_recursion_limit=123)),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])) as agui,
+        patch("sessions.services.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert _executor_stack.create_agent.await_args.kwargs["settings"].recursion_limit == 123
+    assert agui.call_args.kwargs["config"]["recursion_limit"] == 500
+
+
+class TestResolvedModelRecord:
+    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be overridden here — the real
+    ``start_chat_run`` creates the row the executor's model record would have to land on."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: the real ``start_chat_run`` creates the row."""
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned(self):
+        await amake_job_session("t-stream")
+
+        with (
+            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            async for _ in _streamer().events():
+                pass
+
+        run = await Run.objects.aget(session_id="t-stream")
+        session = await Session.objects.aget(thread_id="t-stream")
+        assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+        assert (session.agent_model, session.agent_thinking_level) == ("", "")
 
 
 def _failing_ctx(*_args, **_kwargs):

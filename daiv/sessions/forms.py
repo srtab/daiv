@@ -126,11 +126,8 @@ class AgentRunFieldsMixin(forms.Form):
             cleaned["agent_model"], cleaned["agent_thinking_level"] = validate_agent_override(
                 cleaned.get("agent_model"), cleaned.get("agent_thinking_level")
             )
-            # Server-side backstop for the picker's HTML5 ``required`` — if the
-            # client-side gate is bypassed (curl, scripted submit, a stale page
-            # cached when a system default still existed), surface the same error
-            # as a form error instead of letting the run enqueue and explode at
-            # ``get_daiv_agent_kwargs`` time.
+            # Backstop for the picker's HTML5 ``required`` when it is bypassed (curl, scripted
+            # submits, a page cached while a system default still existed).
             ensure_agent_model_available(cleaned["agent_model"])
         except AgentOverrideError as err:
             self.add_error("agent_model", str(err))

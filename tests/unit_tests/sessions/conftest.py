@@ -1,6 +1,7 @@
 import inspect
 import uuid
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -13,6 +14,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin,
 from accounts.models import User
 from codebase.base import Job, Pipeline
 from core.site_settings import site_settings
+from tests.unit_tests.conftest import site_snapshot
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -190,16 +192,12 @@ def watch_recorder(armed: list[dict], *, error: Exception | None = None):
 
 
 @pytest.fixture
-def site_setting(monkeypatch):
-    """Override a site setting without leaving it behind on the singleton.
-
-    ``monkeypatch.setattr`` restores by ``setattr``, so a value that ``SiteSettings.__getattr__``
-    serves becomes a real instance attribute at teardown and no later read ever reaches
-    ``SiteConfiguration.get_cached`` again — which silently voids any test asserting on that call.
-    Patching ``__dict__`` as a mapping makes the undo a delete.
-    """
+def site_setting():
+    """Override a site setting as ``site_settings.snapshot()`` serves it, which is how the watch policy reads it."""
+    overrides: dict[str, object] = {}
 
     def _set(name: str, value: object) -> None:
-        monkeypatch.setitem(site_settings.__dict__, name, value)
+        overrides[name] = value
 
-    return _set
+    with patch.object(site_settings, "snapshot", side_effect=lambda: site_snapshot(**overrides)):
+        yield _set

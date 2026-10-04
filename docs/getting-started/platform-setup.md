@@ -173,6 +173,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
         - Contents: **Read & Write** (to create branches and commits)
         - Issues: **Read & Write** (to read and comment on issues)
         - Pull requests: **Read & Write** (to create and update pull requests)
+        - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](../features/pipeline-watch.md))
         - Metadata: **Read-only** (automatically selected)
     - **Subscribe to events:**
         - ✅ Push
@@ -294,7 +295,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
         - ✅ Issue comment
         - ✅ Pull request review
         - ✅ Pull request
-        - ✅ Workflow run
+        - ✅ Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
 
 3. **Test Webhook Delivery**:
     - Create a test issue in one of your repositories where the app is installed

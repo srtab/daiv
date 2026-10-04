@@ -13,8 +13,8 @@ from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.base import BaseManager
 from webhooks.managers.issue_addressor import ADDRESS_ISSUE_PROMPT, PLAN_ISSUE_PROMPT, IssueAddressorManager
 
+from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
-from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.repo_config import RepositoryConfig
@@ -114,9 +114,10 @@ class TestMaxLabelRoutesToMaxModel:
     @staticmethod
     async def _agent_kwargs(labels: list[str]) -> dict:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
-        with addressor_run(agent, ctx=_ctx(), resolve=get_daiv_agent_kwargs) as run:
+        with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings) as run:
             await _address(issue=_issue(labels=labels))
-        return run.create_agent.await_args.kwargs
+        chain = run.create_agent.await_args.kwargs["settings"].agent
+        return {"model_names": list(chain.names), "thinking_level": chain.thinking_level}
 
     async def test_max_label_resolves_to_max_model(self, stub_base_init):
         """``daiv-max`` label → primary model is ``site_settings.agent_max_model_name`` and thinking level is
@@ -127,7 +128,7 @@ class TestMaxLabelRoutesToMaxModel:
         model_names = captured["model_names"]
         assert model_names[0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
-        assert RepositoryConfig().models.agent.model in model_names[1:]
+        assert site_settings.agent_model_name in model_names[1:]
 
     async def test_max_label_case_insensitive(self, stub_base_init):
         """Label matching must be case-insensitive — GitHub UIs upper-case labels freely."""
@@ -136,14 +137,13 @@ class TestMaxLabelRoutesToMaxModel:
         assert captured["model_names"][0] == site_settings.agent_max_model_name
         assert captured["thinking_level"] == site_settings.agent_max_thinking_level
 
-    async def test_no_max_label_uses_repo_config_model(self, stub_base_init):
-        """Without ``daiv-max`` the resolved primary model comes from the repo's ``AgentModelConfig``, proving the
+    async def test_no_max_label_uses_the_site_default_model(self, stub_base_init):
+        """Without ``daiv-max`` the resolved primary model and thinking level are the site's defaults, proving the
         ``use_max`` branch is the only path to the max model."""
         captured = await self._agent_kwargs(["daiv"])
-        repo_agent_cfg = RepositoryConfig().models.agent
 
-        assert captured["model_names"][0] == repo_agent_cfg.model
-        assert captured["thinking_level"] == repo_agent_cfg.thinking_level
+        assert captured["model_names"][0] == site_settings.agent_model_name
+        assert captured["thinking_level"] == site_settings.agent_thinking_level
         assert site_settings.agent_max_model_name not in captured["model_names"]
 
 
@@ -247,6 +247,7 @@ class TestIssueAfterRunMatrix:
         assert run.recover.await_args.kwargs == {
             "thread_id": "t-issue",
             "workspace": run.create_agent.await_args.kwargs["workspace"],
+            "settings": run.resolve.return_value,
         }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]

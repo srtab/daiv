@@ -4,8 +4,10 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from langchain.agents.middleware import ModelRequest, ModelResponse
 
+from automation.agent.agent_settings import RunOverrides
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
@@ -17,7 +19,7 @@ from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
-from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, sandbox_spec
+from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, agent_settings, sandbox_spec, site_snapshot
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -28,7 +30,6 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "create_deep_agent": ("create_deep_agent", {}),
         "mcp_toolkit": ("MCPToolkit", {"get_tools": AsyncMock(return_value=[])}),
         "base_agent": ("BaseAgent", {}),
-        "site_settings": ("site_settings", {}),
         "skills_middleware": ("SkillsMiddleware", {}),
         "git_middleware": ("GitMiddleware", {}),
         "git_platform_middleware": ("GitPlatformMiddleware", {}),
@@ -37,7 +38,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, run: RunOverrides | None = None, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
     base image, so a disk workspace shows the mode is the workspace's, not the context's."""
     with ExitStack() as stack:
@@ -46,19 +47,23 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             for name, (target, kwargs) in _patches().items()
         }
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        mocks["site_settings"].configure_mock(
+        site = site_snapshot(
             agent_recursion_limit=50,
             agent_model_name="m",
             agent_fallback_model_name="m",
             agent_thinking_level=None,
             web_fetch_enabled=False,
             web_search_enabled=False,
+            cross_project_access_enabled=True,
         )
+        settings = agent_settings(site=site, run=run)
         ctx = MagicMock()
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
-        await create_daiv_agent(ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs)
-    return SimpleNamespace(**mocks, ctx=ctx)
+        await create_daiv_agent(
+            settings=settings, ctx=ctx, workspace=workspace, auto_commit_changes=False, **agent_kwargs
+        )
+    return SimpleNamespace(**mocks, settings=settings)
 
 
 def _disk_workspace() -> DiskWorkspace:
@@ -136,10 +141,14 @@ async def test_without_an_artifact_store_the_agent_has_no_publish_tool():
     assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
 
 
-async def test_the_platform_tools_follow_the_runs_cross_project_snapshot():
-    built = await _build(_disk_workspace())
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_the_agent_and_its_subagents_share_the_runs_cross_project_switch(allowed):
+    built = await _build(_disk_workspace(), run=RunOverrides(cross_project_allowed=allowed))
 
-    assert built.git_platform_middleware.call_args.kwargs["cross_project_enabled"] is built.ctx.cross_project_enabled
+    assert built.settings.cross_project_enabled is allowed
+    assert built.git_platform_middleware.call_args.kwargs["cross_project_enabled"] is allowed
+    assert built.create_general_purpose.call_args.kwargs["cross_project_enabled"] is allowed
+    assert built.load_custom.await_args.kwargs["cross_project_enabled"] is allowed
 
 
 def test_ask_user_question_is_always_loaded():

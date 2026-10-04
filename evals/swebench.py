@@ -126,12 +126,9 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         model_names=tuple(model_names),
         agent_thinking_level=ThinkingLevel.HIGH,
         context_options={"offline": True, "git_platform": GitPlatform.SWE, "repo_host": "github.com"},
-        agent_options={
-            "auto_commit_changes": False,
-            "capture_patch": True,
-            "web_search_enabled": False,
-            "web_fetch_enabled": False,
-        },
+        web_search_enabled=False,
+        web_fetch_enabled=False,
+        agent_options={"auto_commit_changes": False, "capture_patch": True},
         extra_metadata={"instance_id": item["instance_id"]},
     )
 

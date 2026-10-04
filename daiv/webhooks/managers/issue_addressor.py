@@ -63,6 +63,7 @@ class IssueAddressorManager(BaseManager):
         sandbox_env_id: str | None = None,
         acting_platform_uid: str | None = None,
         run_id: str | None = None,
+        use_max: bool | None = None,
     ) -> AgentResult | None:
         """
         Address the issue.
@@ -76,6 +77,7 @@ class IssueAddressorManager(BaseManager):
             sandbox_env_id: The sandbox environment the callback selected.
             acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
+            use_max: The max mode the callback decided; ``None`` reads the ``daiv-max`` label off ``issue``.
 
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
@@ -89,14 +91,16 @@ class IssueAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id)
+            return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
         except AgentConfigurationError:
             return None
         except Exception:
             manager._add_unable_to_address_issue_note()
             raise
 
-    async def _address_issue(self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None) -> AgentResult:
+    async def _address_issue(
+        self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool | None
+    ) -> AgentResult:
         message, triggered_by = self._input_message()
         outcome = await execute_run(
             RunSpec(
@@ -109,7 +113,7 @@ class IssueAddressorManager(BaseManager):
                 ref=ref,
                 issue=self.issue,
                 fallback_ref_on_missing=True,
-                use_max=self.issue.has_max_label(),
+                use_max=self.issue.has_max_label() if use_max is None else use_max,
                 sandbox_env_id=sandbox_env_id,
                 acting_platform_uid=self.acting_platform_uid,
                 run_id=run_id,

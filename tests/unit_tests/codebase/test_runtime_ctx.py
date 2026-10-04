@@ -69,7 +69,3 @@ def test_runtime_ctx_normalises_references_to_a_tuple():
     ctx = RuntimeCtx(bot_username="daiv", repos=(_make_handle(),), references=[ref])  # type: ignore[arg-type]
     assert isinstance(ctx.references, tuple)
     assert ctx.references == (ref,)
-
-
-def test_runtime_ctx_defaults_to_cross_project_off():
-    assert RuntimeCtx(bot_username="daiv", repos=(_make_handle(),)).cross_project_enabled is False

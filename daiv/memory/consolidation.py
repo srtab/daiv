@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from automation.agent.agent_settings import resolve_consolidation_chain
 from core.site_settings import site_settings
 from memory.llm import build_structured_llm
 from memory.models import EntryStatus, MemoryEntry, MemoryObservation, ObservationStatus, RepositoryMemory
@@ -295,16 +296,19 @@ async def run_consolidation_round(
     if model_names is None:
         if config is None:
             raise ValueError("run_consolidation_round needs config or model_names to resolve the model")
-        # Empty override → reuse the repo's agent model.
-        model_names = (
-            site_settings.memory_consolidation_model_name or config.models.agent.model,
-            config.models.agent.fallback_model,
+        model_names = resolve_consolidation_chain(site=site_settings.snapshot(), repo=config).names
+    if not model_names:
+        logger.error(
+            "consolidation: no consolidation model configured (check DAIV_MEMORY_CONSOLIDATION_MODEL_NAME / "
+            "DAIV_AGENT_MODEL_NAME), skipping repo %s",
+            repo_id,
         )
+        return None
     try:
         structured_llm = build_structured_llm(MemoryOperations, model_names)
     except RuntimeError, ValueError:
         # RuntimeError: provider disabled / no API key / unknown provider_type.
-        # ValueError: empty or unparseable model spec / no matching provider row.
+        # ValueError: unparseable model spec / no matching provider row.
         # Both are precondition failures, not crashes — skip with an error, like every other.
         logger.exception("consolidation: model unavailable/misconfigured for repo %s, skipping", repo_id)
         return None

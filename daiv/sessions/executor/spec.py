@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langgraph.types import StateSnapshot
 
+    from automation.agent.agent_settings import RunOverrides
     from automation.agent.results import AgentResult
     from codebase.base import Issue, MergeRequest, Scope
     from codebase.references import ExternalRef
@@ -30,6 +31,7 @@ class RunSpec:
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches and no
     cross-project access, since there is no session to restrict to whoever fetched.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
+    ``web_search_enabled`` / ``web_fetch_enabled`` override the site's toggles (``None``: the site's).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
@@ -62,6 +64,8 @@ class RunSpec:
     recover_draft: bool = False
     extra_metadata: dict[str, Any] = field(default_factory=dict)
     model_names: tuple[str, ...] = ()
+    web_search_enabled: bool | None = None
+    web_fetch_enabled: bool | None = None
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
     ask_user_enabled: bool = True
@@ -80,6 +84,20 @@ class RunSpec:
             or self.fallback_ref_on_missing
         ):
             raise ValueError("a one-shot run (thread_id=None) has no session to lock, record, sync, arm or recover")
+
+    def overrides(self) -> RunOverrides:
+        """What this run asks of the settings resolver."""
+        from automation.agent.agent_settings import RunOverrides
+
+        return RunOverrides(
+            agent_model=self.agent_model,
+            agent_thinking_level=self.agent_thinking_level,
+            use_max=self.use_max,
+            model_names=self.model_names,
+            web_search_enabled=self.web_search_enabled,
+            web_fetch_enabled=self.web_fetch_enabled,
+            cross_project_allowed=self.thread_id is not None,
+        )
 
 
 @dataclass(frozen=True, kw_only=True)

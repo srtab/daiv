@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from crontask import cron
 from django_tasks import task
 
+from automation.agent.agent_settings import resolve_features
 from codebase.repo_config import RepositoryConfig
 from core.site_settings import site_settings
 from core.utils import locked_task
@@ -37,12 +38,13 @@ async def consolidate_memory_task(repo_id: str) -> None:
     orphan each other's supersede links. A trigger that loses the lock leaves its observations
     pending for the holder or the next cron sweep.
     """
-    if not site_settings.memory_enabled:
+    site = site_settings.snapshot()
+    if not site.memory_enabled:
         logger.info("consolidate_memory_task: memory disabled site-wide, skipping repo %s", repo_id)
         return
 
     config = await asyncio.to_thread(RepositoryConfig.get_config, repo_id)
-    if not config.memory.enabled:
+    if not resolve_features(site=site, repo=config).memory:
         logger.info("consolidate_memory_task: memory disabled for repo %s, skipping", repo_id)
         return
 
@@ -123,7 +125,8 @@ async def extract_observations_task(run_id: str) -> None:
 
     from memory.extraction import extract_observations
 
-    if not site_settings.memory_enabled:
+    site = site_settings.snapshot()
+    if not site.memory_enabled:
         logger.info("extract_observations_task: memory disabled site-wide, skipping run %s", run_id)
         return
 
@@ -142,7 +145,7 @@ async def extract_observations_task(run_id: str) -> None:
         return
 
     config = await asyncio.to_thread(RepositoryConfig.get_config, run.repo_id)
-    if not config.memory.enabled:
+    if not resolve_features(site=site, repo=config).memory:
         logger.info("extract_observations_task: memory disabled for repo %s, skipping", run.repo_id)
         return
 

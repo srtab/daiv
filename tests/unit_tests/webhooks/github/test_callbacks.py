@@ -644,3 +644,50 @@ class TestCrossProjectMarker:
         callback = self._comment_callback("@daiv-bot help", pull_request=pull_request)
 
         assert callback.accept_callback() is True
+
+
+@pytest.mark.parametrize(("label", "use_max"), [(BOT_MAX_LABEL, True), (BOT_LABEL, False)])
+class TestProcessCallbackUseMax:
+    """The max mode a callback stamps on the Run is the one it hands the task, so the task does not decide again."""
+
+    @staticmethod
+    async def _process(callback) -> tuple[dict, dict]:
+        from unittest.mock import AsyncMock, patch
+
+        with (
+            patch("webhooks.github.callbacks.address_issue_task") as mock_task,
+            patch("webhooks.github.callbacks.acreate_run") as mock_run,
+            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
+            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            mock_run.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        return mock_task.aenqueue.call_args.kwargs, mock_run.call_args.kwargs
+
+    async def test_issue_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, label, use_max
+    ):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=label)])
+
+        task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max
+
+    async def test_issue_comment_callback_hands_the_task_the_max_mode_it_stamped(
+        self, monkeypatch_dependencies, label, use_max
+    ):
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[Label(id=1, name=label)]),
+            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
+        )
+
+        task_kwargs, run_kwargs = await self._process(callback)
+
+        assert task_kwargs["use_max"] is use_max
+        assert run_kwargs["use_max"] is use_max

@@ -39,6 +39,7 @@ async def address_issue_task(
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
     acting_platform_uid: str | None = None,
+    use_max: bool | None = None,
 ) -> AgentResult | None:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -53,6 +54,7 @@ async def address_issue_task(
             the manager computes the deterministic id from the repository and the issue iid.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
         acting_platform_uid (str | None): The platform user id that triggered the event.
+        use_max (bool | None): The max mode the callback decided; ``None`` reads the ``daiv-max`` label off the issue.
     """
     from webhooks.managers.issue_addressor import IssueAddressorManager
 
@@ -70,6 +72,7 @@ async def address_issue_task(
         sandbox_env_id=sandbox_environment_id,
         acting_platform_uid=acting_platform_uid,
         run_id=await aget_task_run_id(context.task_result.id),
+        use_max=use_max,
     )
 
 
