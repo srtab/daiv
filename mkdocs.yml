@@ -90,7 +90,7 @@ plugins:
         - features/subagents.md: Specialized subagents for exploration and execution
         - features/sandbox.md: Secure sandboxed code execution
         - features/sandbox-environments.md: Named, scoped sandbox environment configurations
-        - features/cross-project-access.md: Reading and commenting in other projects as the person a run acts for
+        - features/cross-project-access.md: Reading, commenting on and editing issues and merge requests in other projects as the person a run acts for
         Integrations:
         - integrations/rt/index.md: Request Tracker triage on ticket create via RT Scrip
         Customization:

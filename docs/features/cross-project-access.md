@@ -1,6 +1,6 @@
 # Cross-Project Access
 
-A DAIV run works on one repository. Sometimes the answer lives in another one: the API contract in a sibling service, the failing pipeline of an upstream library, the issue that explains why a change was made. Cross-project access lets the agent reach those projects **as the person the run acts for**, so the git platform's own permission check decides what comes back. It can read them, comment, file issues and edit the fields of existing issues and merge requests. Closing, locking, approving, driving CI and similar operations are refused.
+A DAIV run works on one repository. Sometimes the answer lives in another one: the API contract in a sibling service, the failing pipeline of an upstream library, the issue that explains why a change was made. Cross-project access lets the agent reach those projects **as the person the run acts for**, so the git platform's own permission check decides what comes back. It can read them, comment, file issues and edit the fields of existing issues and merge requests. Opening merge or pull requests, closing, locking, approving, driving CI and similar operations are refused. A conversation that fetched from another project then belongs to that person: only they and admins see it, and only they continue it, see [Conversations that reached another project](#conversations-that-reached-another-project).
 
 It is **off by default**, and upgrading never turns it on.
 
@@ -23,6 +23,9 @@ Everything else is unchanged: the same 30-second timeout, the same automatic sav
 
 The `project` value must be a project path on the platform DAIV is configured for: `group/name` on GitLab, `owner/name` on GitHub. A flag, a URL on another host, or anything that is not a single path is refused.
 
+!!! note "One `gh` check applies with the switch off too"
+    `gh` takes the repository from an issue or pull request URL rather than from `--repo`, so `gh issue view https://github.com/acme/other/issues/1` would reach `acme/other` under DAIV's own GitHub App token. On every call, whether or not this feature is on, `gh` refuses an issue or pull request URL, or an `owner/repo#N` reference, that names a repository other than the call's target. The agent is told to pass the number instead and, with the switch on, to set `project`. A URL that names the target itself on the configured host, compared without regard to case, still works. GitLab is unaffected: python-gitlab takes every value as a `--flag`, and none of its commands accepts a positional argument.
+
 ### Refusals, not silence
 
 A project the person cannot reach is **refused with a stated reason**. It is never returned as an empty result, and never retried under DAIV's own identity. Each cause gets its own message, so the reader learns which thing is wrong:
@@ -40,6 +43,7 @@ A project the person cannot reach is **refused with a stated reason**. It is nev
 | Unreadable | The stored authorisation can no longer be decrypted (see [Where the credential lives](#where-the-credential-lives)) and was cleared |
 | Not accessible | The project is not accessible to the person. This is deliberately ambiguous between "does not exist" and "you may not see it", so the tool cannot be used to probe for private projects |
 | Not permitted cross-project | The person holds the permission, but DAIV refuses the operation outside the attached project (see [below](#what-the-agent-can-and-cannot-do-in-another-project)) |
+| Result withheld | The call ran, but DAIV could not write its audit record, which is what keeps the result to the person it was fetched for. The result is not returned; a write may already have happened |
 
 The agent never sees the platform's own error text from another project. It can carry token fragments, and repository names the person is not entitled to see.
 
@@ -108,6 +112,8 @@ GitHub Apps **ignore the OAuth `scope` parameter** entirely. A user-to-server to
 
 Both "Expire user authorization tokens" settings work. Enabled gives 8-hour tokens plus refresh tokens; disabled gives non-expiring tokens and renewal is a no-op. Renewal posts to the host `CODEBASE_GITHUB_URL` names, so a GitHub Enterprise deployment renews against its own server rather than github.com.
 
+On GitHub Enterprise Server the calls go to that host too. `gh` reads `--repo owner/name` as github.com unless told otherwise, so each cross-project call sets `GH_HOST` to the `CODEBASE_GITHUB_URL` host and passes the person's token as `GH_ENTERPRISE_TOKEN`, the variable `gh` reads for any host other than github.com. On github.com it stays `GH_TOKEN`.
+
 ---
 
 ## Upgrading
@@ -135,9 +141,36 @@ A webhook run is matched by the platform's own account id, never by a username o
 
 ---
 
+## Conversations that reached another project
+
+What a cross-project call returns lands in the conversation's transcript, alongside everything else the agent saw. So the first call in a session that is **allowed** to fetch from another project marks the session with the DAIV user whose authorisation it spent. From then on:
+
+| | Who |
+|---|---|
+| Sees the session | Only the people on its mark, and admins. That covers the session page and transcript, its runs (including the Markdown download), its artifacts, the live chat stream, the Jobs API and MCP `get_job_status` / `list_jobs`, the sessions and artifacts lists and the dashboard counts. Everyone else loses it, including people who acted in it, people who can read the attached repository, and subscribers of the schedule that started it |
+| Is notified about its runs | The same people. A schedule's subscribers stop getting its runs' summaries; a batch rollup leaves out anyone who may not see every run in it |
+| Continues it | Only a person on its mark, signed in to DAIV (chat, the Jobs API, MCP, a dashboard job, a schedule). Any other run is refused before the agent starts, with the message below |
+| Mines it into repository memory | Nobody. Runs in a marked session are never extracted into memory |
+
+The refusal reads:
+
+> This conversation holds results fetched from other projects on another person's behalf, so DAIV won't continue it here. Start a new conversation or issue.
+
+Chat shows it as an error, an issue or merge request gets it as a reply to the mention, and a job ends **FAILED** with it as its `error`, still readable by whoever submitted it. It holds nothing from the other project.
+
+The mark covers runs that cannot prove a DAIV sign-in, so it also refuses:
+
+- **every webhook run** in the session, even one the same person triggers with a mention, because a webhook run carries a platform account, not a DAIV sign-in. An issue thread where a cross-project fetch happened stops answering `@daiv`; open a new issue to continue the work there;
+- **CI-fix runs** on a session that a webhook started;
+- **a different signed-in person**, admins included.
+
+People outside the mark cannot even open the session, so for them the Jobs API and MCP answer a `thread_id` continuation as an unknown thread. The mark is never removed. A fetch DAIV cannot attribute to a person should not happen; if it does, DAIV logs an error and leaves the session to admins alone.
+
+---
+
 ## Webhook-triggered runs
 
-Runs that start from an issue label or a mention are covered by a second switch, **allow for webhook-triggered runs** (`cross_project_webhook_runs_enabled`, or `DAIV_CROSS_PROJECT_WEBHOOK_RUNS_ENABLED`), in the same **Cross-project access** group. It is off by default and has no effect while the main switch is off. With it off, those runs are refused with a message saying so, and reach only the attached project.
+Runs that start from an issue label or a mention are covered by a second switch, **allow for webhook-triggered runs** (`cross_project_webhook_runs_enabled`, or `DAIV_CROSS_PROJECT_WEBHOOK_RUNS_ENABLED`), in the same **Cross-project access** group. It is off by default and has no effect while the main switch is off. With it off, those runs are refused with a message saying so, and reach only the attached project. With it on, a webhook run that fetches from another project [marks its session](#conversations-that-reached-another-project), after which further mentions on that issue or merge request are refused.
 
 !!! warning "Issue text can steer these runs"
     Anyone who can open or comment on an issue writes text the agent reads. With this switch on, that text can influence which other projects the agent reads and what it posts or edits there, using the permissions of the person whose label or mention started the run. Turn it on only where you trust everyone who can write to the projects DAIV watches.
@@ -146,7 +179,7 @@ Runs that start from an issue label or a mention are covered by a second switch,
 
 ## What the agent can and cannot do in another project
 
-Outside the attached project the agent can read through every subcommand the tools allow, and it can write in the ways listed under [What still crosses](#what-still-crosses). Everything else is refused by DAIV's policy even where the person's own permissions would allow it, because what the token is spent on can be chosen by issue or comment text somebody else wrote. The refused operations stay available on the attached project, under DAIV's own identity.
+Outside the attached project the agent can read through every subcommand the tools allow, and it can write in the ways listed under [What still crosses](#what-still-crosses). The agent's own tool description lists the same rules. Everything else is refused by DAIV's policy even where the person's own permissions would allow it, because what the token is spent on can be chosen by issue or comment text somebody else wrote. The refused operations stay available on the attached project, under DAIV's own identity.
 
 Every refusal is recorded in the [audit log](#audit-log) as **Denied — not permitted cross-project**, and reaches the agent with the reason, before any token is spent.
 
@@ -154,41 +187,45 @@ Every refusal is recorded in the [audit log](#audit-log) as **Denied — not per
 
 | | GitLab | GitHub |
 |---|---|---|
-| Creates | issues, notes, discussions and discussion notes (issues, merge requests, snippets), issue links, award emoji, merge request draft notes; merge requests, which currently fail (see [Known limitations](#known-limitations)) | issues, pull requests, comments |
-| Edits an issue or merge/pull request with `update` or `edit` | title, description, labels, milestone (`--milestone-id`) and, on merge requests, reviewers (`--reviewer-ids`); on issues also `--confidential` and `--due-date`; on merge requests also `--squash`, `--remove-source-branch` and `--allow-maintainer-to-push` | title, body, labels (`--add-label`, `--remove-label`) and projects (`--add-project`, `--remove-project`); on pull requests also reviewers (`--add-reviewer`, `--remove-reviewer`) |
-| Sets people when creating | reviewers on merge requests | `--assignee` and `--reviewer` on `issue create` and `pr create` |
-| Other writes | time tracking on issues and merge requests (`time-estimate`, `add-spent-time` and their resets), `project-issue reorder`, `project-merge-request-draft-note update` | none |
+| Creates | issues (a confidential one included), notes, discussions and discussion notes (issues, merge requests, snippets), issue links, award emoji, merge request draft notes | issues, comments |
+| Edits an issue or merge/pull request with `update` or `edit` | title, description, labels, milestone (`--milestone-id`) and, on merge requests, reviewers (`--reviewer-ids`); on issues also `--due-date`; on merge requests also `--squash`, `--remove-source-branch` and `--allow-maintainer-to-push` | title, body, labels (`--add-label`, `--remove-label`) and projects (`--add-project`, `--remove-project`); on pull requests also reviewers (`--add-reviewer`, `--remove-reviewer`) |
+| Sets people when creating | none | `--assignee` on `issue create` |
+| Other writes | `time-estimate` and `add-spent-time` on issues and merge requests, `project-issue reorder`, `project-merge-request-draft-note update` | none |
 
-!!! warning "Edits can rewrite what somebody else wrote, and can widen who sees it"
-    Nothing refuses an edit to the title or description of an issue or merge request, including one somebody else wrote. On GitLab, `--confidential false` turns a confidential issue into an ordinary one, visible to everyone who can see the project. The person's own permissions on the platform are the only check on these edits. Weigh that before you enable [webhook-triggered runs](#webhook-triggered-runs).
+!!! warning "Edits can rewrite what somebody else wrote"
+    Nothing refuses an edit to the title or description of an issue or merge request, including one somebody else wrote. The person's own permissions on the platform are the only check on these edits. Weigh that before you enable [webhook-triggered runs](#webhook-triggered-runs).
 
 ### Refused subcommands
 
 | Kind | GitLab | GitHub |
 |---|---|---|
 | Closes, reopens, locks or approves | none; GitLab closes and locks through flags, see below | `issue close/reopen/lock/unlock`, `pr close/reopen/lock/unlock`, `pr review` (an approval can release auto-merge) |
+| Opens a merge or pull request, which starts CI there | `project-merge-request create` | `pr create` |
 | Drives CI | `project trigger-pipeline`, `project-pipeline create/cancel/retry`, `project-merge-request-pipeline create`, `project-job retry/play` | `workflow run`, `run rerun`, `cache delete` |
 | Creates branches, tags or releases | `project-branch create`, `project-tag create`, `project-release create/update`, `project-release-link create/update` | `issue develop`, `release create/edit/upload` |
 | Changes project configuration | `project-label create/update`, `project-snippet create/update` | `label create/edit` |
 | Deletes or relocates data | `project delete-merged-branches`, `project-issue move`, and `delete` on award emoji, `project-issue-link` and `project-merge-request-draft-note` | none |
-| Edits text somebody else wrote | `update` on notes, discussions and discussion notes of issues, merge requests and snippets | none |
+| Edits text somebody else wrote | `update` on notes, discussions and discussion notes of issues, merge requests and snippets | none; see `--edit-last` below |
+| Resets time tracking | `reset-spent-time` and `reset-time-estimate` on issues and merge requests | none |
 
 ### Refused flags
 
-`update` and `edit` stay reachable, so the policy checks them flag by flag. On `create`, `update` and `edit`, these flags are refused outright (bot labels, quick actions and file bodies are refused separately, below):
+`update`, `edit` and `comment` stay reachable, so the policy checks them flag by flag. On `create`, `update`, `edit` and `comment`, these flags are refused outright (bot labels, quick actions and file bodies are refused separately, below):
 
 | Platform | Refused flags | What they would do |
 |---|---|---|
 | GitLab | `--state-event` | close or reopen |
 | GitLab | `--discussion-locked` | lock a discussion |
-| GitLab | `--target-branch` | repoint a merge request, and so also create one |
+| GitLab | `--target-branch` | repoint a merge request |
 | GitLab | `--assignee-id`, `--assignee-ids` | assign |
 | GitLab | `--to-project-id` | relocate an issue (only `project-issue move` takes it, and that is refused outright) |
+| GitLab | `--confidential`, on `update` only | turn a confidential issue into one everyone who can see the project can read. Creating a confidential issue still crosses |
 | GitHub | `--base` | repoint a pull request |
 | GitHub | `--milestone`, `--remove-milestone` | change the milestone |
 | GitHub | `--add-assignee`, `--remove-assignee` | change assignees |
+| GitHub | `--edit-last`, `--delete-last` | rewrite or delete the person's last comment (`issue comment`, `pr comment`). `gh` 2.45 has no `--delete-last`, so it is refused as an unknown flag too |
 
-Every other flag on those commands crosses, as listed above. The two platforms are not symmetric: GitHub refuses milestone changes where GitLab's `--milestone-id` crosses, and GitHub's `--assignee` crosses on `issue create` and `pr create` where GitLab refuses `--assignee-id(s)` on every command.
+Every other flag the policy recognises on those commands crosses, as listed above. The two platforms are not symmetric: GitHub refuses milestone changes where GitLab's `--milestone-id` crosses, and GitHub's `--assignee` crosses on `issue create` where GitLab refuses `--assignee-id(s)` on every write.
 
 ### Other refusals
 
@@ -197,9 +234,10 @@ Every other flag on those commands crosses, as listed above. The two platforms a
 | Adding `daiv`, `daiv-max` or `daiv-auto` as a label (GitLab `--labels`; GitHub `--label`, `--add-label`) on `create`, `update` or `edit` | The label would start a run in that project, if DAIV watches it, as the person who requested this one. The match ignores case, whitespace and quotes. Other labels are fine |
 | GitLab quick actions: a body line starting with `/` in `--body`, `--description` or `--note` | GitLab runs `/close`, `/merge`, `/assign`, `/label` and the rest as the person, past every refusal above. A line that merely begins with a slash, such as a file path, is refused too; the agent rewrites it |
 | GitLab values read from a file: any argument starting with `@` | python-gitlab replaces `@path` with that file's content. A body that has to start with a mention is written `@@name`, which posts as `@name` |
-| GitHub bodies taken from a file or a template: `--body-file` (`-F`), `--template` (`-T`), `--recover`, `--fill` (`-f`), `--fill-first`, `--fill-verbose` | The body has to be passed as `--body` text, because the [loop marker](#content-daiv-publishes-in-another-project) cannot be appended to a file the person named |
+| GitHub bodies taken from a file or a template: `--body-file` (`-F`), `--template` (`-T`), `--recover` | The body has to be passed as `--body` text, because the [loop marker](#content-daiv-publishes-in-another-project) cannot be appended to a file the person named |
 | Inline merge request diff comments (GitLab `project-merge-request-discussion create --position`) | The inline path goes through DAIV's own platform client, which holds the service token, the one identity a cross-project call may not use. A regular merge request note works |
-| A flag DAIV cannot identify: on GitLab an unknown or ambiguous option, on GitHub a shorthand letter outside `gh`'s documented set | DAIV does not guess what a value means. The agent spells the flag out in full |
+| A flag DAIV cannot identify: on GitLab an unknown or ambiguous option, on any cross-project call; on GitHub, on the writes that cross (`issue create`, `issue edit`, `issue comment`, `pr edit`, `pr comment`), any flag missing from the table DAIV keeps of `gh` 2.45's own `--help` | DAIV does not guess what a value means. `gh` is installed unpinned, so a newer release can add a flag that writes in a way nobody checked; until the table lists it, it is refused. The agent spells each flag as `--help` lists it |
+| A GitHub issue or pull request URL, or `owner/repo#N`, that names a repository other than `project` | `gh` would act on the repository the reference names. The same check runs on the attached project, see [above](#what-changes-when-it-is-on) |
 
 ---
 
@@ -227,7 +265,9 @@ A comment the person writes there themselves is handled normally.
 
 ## Known limitations
 
-- **Creating a GitLab merge request in another project currently fails.** The python-gitlab command `project-merge-request create` requires `--target-branch`, and DAIV refuses that flag on cross-project writes because it repoints a merge request. With `--target-branch` the call is refused and recorded as **Denied — not permitted cross-project**; without it the command rejects the missing argument itself. Until this changes, ask the agent to open an issue or leave a note in the other project instead. On GitHub the policy refuses `--base` the same way, but `gh pr create` does not require it, so a pull request without `--base` is not blocked by DAIV.
+- **No merge or pull requests in another project.** `project-merge-request create` and `gh pr create` are refused, because opening one starts CI in that project. Ask the agent to open an issue or leave a note there instead.
+- **`gh` flags newer than 2.45 are refused on cross-project writes** until DAIV's table of `gh` flags lists them.
+- **A shared conversation ends at the first cross-project fetch.** Once a session holds another project's results, only the person who fetched them can continue it, and only by a DAIV sign-in. See [Conversations that reached another project](#conversations-that-reached-another-project).
 - **Inline diff comments work only on the attached project.** See the table above; a regular note works everywhere.
 - **GitHub: the App must be installed on the target.** A user-to-server token cannot reach a repository the App is not installed on, even when the person can. Install the App on every organisation whose repositories the agent should be able to read.
 
@@ -235,7 +275,7 @@ A comment the person writes there themselves is handled normally.
 
 ## Audit log
 
-Every attempt to reach another project writes one record, allowed *and* refused. Admins find them at **Cross-project access** in the sidebar (`/codebase/cross-project-access/`), newest first, filterable by target project, thread and outcome.
+Every attempt to reach another project writes one record, allowed *and* refused. An **Allowed** record also [marks its session](#conversations-that-reached-another-project) with the person it names, so if DAIV cannot write it, the call's result is withheld from the agent. Admins find them at **Cross-project access** in the sidebar (`/codebase/cross-project-access/`), newest first, filterable by target project, thread and outcome.
 
 A record holds **who** acted, **which project** they reached, on **which thread**, **how it ended** and **when**. The person's name is snapshotted onto the row, so deleting their account does not erase the answer. An attempt DAIV cannot attribute to an account shows as "The requesting user".
 
@@ -296,9 +336,9 @@ Both platforms reach the same capability. The differences that remain are mechan
 
 Cross-project access is bounded by *whose* permissions are spent, not by *who chose to spend them*. DAIV reads the issue bodies, comments and repository files of the attached project, and any of those can be written by somebody other than the person the run acts for, including `.agents/AGENTS.md` on a contributor's merge-request branch. Text there can name a project and ask the agent to fetch it.
 
-The consequence is bounded but real. An attacker who can get content into a project DAIV watches, and can get a person with wider access to trigger a run on it, can have that person's token spend reads on a project the attacker cannot reach, and see the result wherever the run reports. The same text can steer the writes that still cross: new issues and comments, and edits to existing issues and merge requests, including their titles and descriptions and, on GitLab, milestone, reviewers, due date and confidentiality (`--confidential false` makes a confidential issue ordinary). See [What still crosses](#what-still-crosses).
+The consequence is bounded but real. An attacker who can get content into a project DAIV watches, and can get a person with wider access to trigger a run on it, can have that person's token spend reads on a project the attacker cannot reach, and see the result wherever the run reports. The same text can steer the writes that still cross: new issues and comments, and edits to existing issues and merge requests, including their titles and descriptions and, on GitLab, milestone, reviewers and due date. See [What still crosses](#what-still-crosses).
 
-The refusals above stop closing, locking, approving, repointing, assigning, driving CI, creating refs and releases, deleting, and editing other people's notes. They do not make cross-project access read-only. Every attempt appears in the audit log under that person's name, but the log records that a project was reached, not what was changed, so check the target project itself.
+The refusals above stop closing, locking, approving, repointing, assigning (except `gh issue create --assignee`), opening merge and pull requests, driving CI, creating refs and releases, deleting, resetting time tracking, making a confidential issue public, and editing other people's notes. They do not make cross-project access read-only. Every attempt appears in the audit log under that person's name, but the log records that a project was reached, not what was changed, so check the target project itself.
 
 Deployments that cannot accept this should leave the capability off, or narrow the grant to read-only (see [Platform differences](#platform-differences)). Where it is on, keep [webhook-triggered runs](#webhook-triggered-runs) off unless you trust everyone who can open issues, keep DAIV's webhooks on projects whose contributors you trust to open merge requests, and rely on the audit log rather than on the agent's own account of what it did.
 
