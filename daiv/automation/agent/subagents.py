@@ -555,6 +555,7 @@ def _compile_subagent(
 async def load_custom_subagents(
     model: BaseChatModel,
     workspace: Workspace,
+    definitions: BackendProtocol,
     runtime: RuntimeCtx,
     sources: list[str],
     working_directory: str,
@@ -571,7 +572,8 @@ async def load_custom_subagents(
 
     Args:
         model: The default model to use for custom subagents.
-        workspace: The run's workspace; its backend lists and reads the definitions, and each subagent works in it.
+        workspace: The run's workspace, which each subagent works in.
+        definitions: Lists and reads the definitions; readable before the run starts, unlike a sandbox workspace.
         runtime: The runtime context.
         sources: List of paths to scan for subagent definitions.
         working_directory: The run's absolute repo root (e.g. ``/workspace/repo/``), baked into the
@@ -589,9 +591,9 @@ async def load_custom_subagents(
 
     for source_path in sources:
         try:
-            result = await workspace.backend.als(source_path)
+            result = await definitions.als(source_path)
         except Exception:
-            logger.debug("Could not list %s, skipping custom subagents from this source", source_path)
+            logger.warning("Could not list %s, skipping custom subagents from this source", source_path, exc_info=True)
             continue
 
         md_files = [
@@ -600,7 +602,7 @@ async def load_custom_subagents(
         if not md_files:
             continue
 
-        responses = await workspace.backend.adownload_files(md_files)
+        responses = await definitions.adownload_files(md_files)
 
         for file_path, response in zip(md_files, responses, strict=True):
             if response.error:

@@ -456,6 +456,7 @@ class TestSubagentMcpTools:
             await load_custom_subagents(
                 model=mock_model,
                 workspace=_workspace(backend, sandbox=True),
+                definitions=backend,
                 runtime=mock_runtime_ctx,
                 sources=["/repo/.agents/subagents"],
                 working_directory="/workspace/repo/",
@@ -486,6 +487,7 @@ class TestSubagentMcpTools:
             await load_custom_subagents(
                 model=mock_model,
                 workspace=_workspace(backend, sandbox=True),
+                definitions=backend,
                 runtime=mock_runtime_ctx,
                 sources=["/repo/.agents/subagents"],
                 working_directory="/workspace/repo/",
@@ -574,6 +576,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -593,11 +596,13 @@ class TestCustomSubagents:
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
 
-        workspace = _workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        workspace = _workspace(backend, sandbox=True)
         with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
             result = await load_custom_subagents(
                 model=mock_model,
                 workspace=workspace,
+                definitions=backend,
                 runtime=mock_runtime_ctx,
                 sources=["/repo/.agents/subagents"],
                 working_directory="/workspace/repo/",
@@ -619,6 +624,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -639,6 +645,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -659,6 +666,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -678,6 +686,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -696,6 +705,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -714,6 +724,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -732,6 +743,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -739,19 +751,23 @@ class TestCustomSubagents:
 
         assert len(result) == 0
 
-    async def test_returns_empty_when_no_source_exists(self, mock_model, mock_runtime_ctx):
+    async def test_warns_and_skips_a_source_that_fails_to_list(self, mock_model, mock_runtime_ctx, caplog):
+        """An absent source comes back as an ``LsResult`` error, so a raise is a real failure and must be visible."""
         backend = Mock()
-        backend.als = AsyncMock(side_effect=FileNotFoundError("not found"))
+        backend.als = AsyncMock(side_effect=RuntimeError("SandboxFileBackend is not bound to a sandbox session"))
 
-        result = await load_custom_subagents(
-            model=mock_model,
-            workspace=_workspace(backend, sandbox=True),
-            runtime=mock_runtime_ctx,
-            sources=["/repo/.agents/subagents"],
-            working_directory="/workspace/repo/",
-        )
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
+            result = await load_custom_subagents(
+                model=mock_model,
+                workspace=_workspace(backend, sandbox=True),
+                definitions=backend,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+            )
 
         assert result == []
+        assert "Could not list /repo/.agents/subagents" in caplog.text
 
     async def test_returns_empty_when_source_reports_not_found(self, mock_model, mock_runtime_ctx):
         """An optional source the sandbox now reports as ``not_found`` arrives as a returned
@@ -765,6 +781,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -787,6 +804,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",
@@ -810,6 +828,7 @@ class TestCustomSubagents:
         result = await load_custom_subagents(
             model=mock_model,
             workspace=_workspace(backend, sandbox=True),
+            definitions=backend,
             runtime=mock_runtime_ctx,
             sources=["/repo/.agents/subagents"],
             working_directory="/workspace/repo/",

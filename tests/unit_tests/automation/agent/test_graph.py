@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
@@ -18,6 +19,9 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, agent_settings, sandbox_spec, site_snapshot
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -36,13 +40,17 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, clone: Path | None = None, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
-    base image, so a disk workspace shows the mode is the workspace's, not the context's."""
+    base image, so a disk workspace shows the mode is the workspace's, not the context's. A ``clone`` is the worker's
+    clone, read by the real custom-subagent loader instead of its stub."""
+    patches = _patches()
+    if clone is not None:
+        del patches["load_custom"]
     with ExitStack() as stack:
         mocks = {
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
-            for name, (target, kwargs) in _patches().items()
+            for name, (target, kwargs) in patches.items()
         }
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         site = site_snapshot(
@@ -54,6 +62,7 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             web_search_enabled=False,
         )
         ctx = MagicMock()
+        ctx.gitrepo.working_dir = str(clone or "/repo")
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
         await create_daiv_agent(
@@ -118,6 +127,22 @@ async def test_sandbox_mode_shares_one_workspace_across_the_run():
     assert built.skills_middleware.call_args.kwargs["copy_global_skills"] is False
     [artifacts] = [m for m in _middleware(built) if isinstance(m, ArtifactsMiddleware)]
     assert artifacts._workspace is workspace
+    assert client.calls == []
+
+
+async def test_sandbox_mode_loads_the_repos_custom_subagents_before_the_session_is_acquired(tmp_path):
+    """The agent is built before ``SandboxMiddleware`` acquires the session, so the definitions are read from the
+    clone that seeds the sandbox, and nothing reaches the sandbox while building."""
+    subagents_dir = tmp_path / ".agents" / "subagents"
+    subagents_dir.mkdir(parents=True)
+    (subagents_dir / "reviewer.md").write_text("---\nname: reviewer\ndescription: Reviews changes\n---\nYou review.\n")
+    workspace, client = _sandbox_workspace()
+
+    built = await _build(workspace, clone=tmp_path)
+
+    names = [subagent["name"] for subagent in built.create_deep_agent.call_args.kwargs["subagents"]]
+    assert "reviewer" in names
+    assert workspace.is_ready is False
     assert client.calls == []
 
 
