@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from langchain.agents.middleware.types import ModelResponse
-from langchain_core.messages import HumanMessage
 
 from automation.agent.synthetic import synthetic_message
 
@@ -19,11 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain.agents.middleware import ModelRequest
-
-
-def append_system_reminder(request: ModelRequest, text: str) -> ModelRequest:
-    """Return a new request with ``text`` appended as an unsaved reminder message."""
-    return request.override(messages=[*request.messages, HumanMessage(content=text)])
+    from langchain_core.messages import HumanMessage
 
 
 def persist_reminder(response: ModelResponse, reminder: HumanMessage) -> ModelResponse:

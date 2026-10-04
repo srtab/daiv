@@ -1,11 +1,14 @@
 import pytest
-from langchain.agents.middleware import ModelRequest
+from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware, ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware, repeated_tool_streak
+from automation.agent.synthetic import is_synthetic, synthetic_message
 
 
 def _ai(name: str, args: dict, call_id: str) -> AIMessage:
@@ -84,18 +87,19 @@ async def test_passes_through_below_threshold():
 
 
 @pytest.mark.parametrize("streak", [3, 4, 5])
-async def test_injects_ephemeral_reminder_at_threshold(streak: int):
+async def test_injects_and_saves_reminder_at_threshold(streak: int):
     seen: list = []
     mw = LoopBreakerMiddleware(terminal="error")
     request = _request(_loop(streak))
-    await mw.awrap_model_call(request, await _record_handler(seen))
-    reminder_content = seen[0].messages[-1].content
-    assert "system-reminder" in reminder_content
-    assert "grep" in reminder_content
+    response = await mw.awrap_model_call(request, await _record_handler(seen))
+    reminder = seen[0].messages[-1]
+    assert "system-reminder" in reminder.content
+    assert "grep" in reminder.content
     # countdown decreases as streak increases: at streak 3 → 3 left, streak 4 → 2 left, streak 5 → 1 left
     expected_remaining = mw._terminal_streak - streak
-    assert f"repeat it {expected_remaining} more time(s)" in reminder_content
-    # ephemeral: original request still ends with the tool result, no reminder persisted
+    assert f"repeat it {expected_remaining} more time(s)" in reminder.content
+    assert response.result[0] is reminder
+    assert is_synthetic(reminder)
     assert isinstance(request.messages[-1], ToolMessage)
 
 
@@ -161,6 +165,77 @@ def test_streak_stops_at_midconversation_human_message():
         ToolMessage(content="result", tool_call_id="c3", name="grep"),
     ]
     assert repeated_tool_streak(messages) == 2
+
+
+def _reminder() -> HumanMessage:
+    return synthetic_message("<system-reminder>stop</system-reminder>", kind="loop_breaker")
+
+
+def test_streak_counts_across_saved_reminders():
+    args = {"path": "/a", "pattern": "p"}
+    messages = [*_loop(3), _reminder(), _ai("grep", args, "c3"), ToolMessage(content="r", tool_call_id="c3")]
+    assert repeated_tool_streak(messages) == 4
+
+
+def test_streak_stops_at_a_real_human_message_after_a_reminder():
+    args = {"path": "/a", "pattern": "p"}
+    messages = [
+        *_loop(3),
+        _reminder(),
+        _ai("grep", args, "c3"),
+        ToolMessage(content="r", tool_call_id="c3"),
+        HumanMessage(content="continue"),
+        _ai("grep", args, "c4"),
+        ToolMessage(content="r", tool_call_id="c4"),
+    ]
+    assert repeated_tool_streak(messages) == 1
+
+
+class _ToolModel(GenericFakeChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
+class _RequestProbe(AgentMiddleware):
+    """Innermost middleware: records each request exactly as the model receives it."""
+
+    def __init__(self):
+        super().__init__()
+        self.requests: list[list] = []
+
+    async def awrap_model_call(self, request, handler):
+        self.requests.append(list(request.messages))
+        return await handler(request)
+
+
+@tool("grep")
+def _grep_tool(pattern: str) -> str:
+    """Search the repository."""
+    return "result"
+
+
+def _shape(messages: list) -> list[tuple[str, object]]:
+    return [(type(m).__name__, m.content) for m in messages]
+
+
+async def test_saved_reminders_keep_every_request_a_prefix_of_the_next():
+    calls = [_ai("grep", {"pattern": "p"}, f"c{i}") for i in range(6)]
+    probe = _RequestProbe()
+    agent = create_agent(
+        model=_ToolModel(messages=iter(calls)),
+        tools=[_grep_tool],
+        middleware=[LoopBreakerMiddleware(terminal="error"), probe],
+    )
+
+    result = await agent.ainvoke({"messages": [HumanMessage(content="find it")]})
+
+    for earlier, later in zip(probe.requests, probe.requests[1:], strict=False):
+        assert _shape(later)[: len(earlier)] == _shape(earlier)
+    messages = result["messages"]
+    reminders = [i for i, m in enumerate(messages) if is_synthetic(m)]
+    assert len(reminders) == 3
+    assert all(isinstance(messages[i + 1], AIMessage) for i in reminders)
+    assert messages[-1].content.startswith("ERROR:")
 
 
 def test_invalid_terminal_rejected():

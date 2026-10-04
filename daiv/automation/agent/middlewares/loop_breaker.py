@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Literal
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
-from automation.agent.middlewares.reminders import append_system_reminder
+from automation.agent.middlewares.reminders import call_with_reminder
+from automation.agent.synthetic import is_synthetic
 from automation.agent.utils import streamed_assistant_message
 
 if TYPE_CHECKING:
@@ -36,14 +37,14 @@ def _tool_signature(message: AIMessage) -> tuple[tuple[str, str], ...] | None:
 def repeated_tool_streak(messages: list[AnyMessage]) -> int:
     """Count consecutive trailing ``AIMessage``s whose tool-call signature is identical.
 
-    Scans from the end: ``ToolMessage``s (the results between calls) are skipped; an ``AIMessage``
-    with no tool calls or a different signature, or any other message type (a turn boundary), ends
-    the run. Returns 0 when the most recent ``AIMessage`` has no tool calls.
+    Scans from the end: ``ToolMessage``s (the results between calls) and DAIV's own synthetic messages (saved
+    reminders) are skipped; an ``AIMessage`` with no tool calls or a different signature, or any other message
+    type (a turn boundary), ends the run. Returns 0 when the most recent ``AIMessage`` has no tool calls.
     """
     signature: tuple[tuple[str, str], ...] | None = None
     streak = 0
     for message in reversed(messages):
-        if isinstance(message, ToolMessage):
+        if isinstance(message, ToolMessage) or is_synthetic(message):
             continue
         if isinstance(message, AIMessage):
             current = _tool_signature(message)
@@ -74,9 +75,9 @@ class LoopBreakerMiddleware(AgentMiddleware):
 
     Implemented entirely in ``awrap_model_call`` so it adds no graph node (a ``before_model`` hook
     would inflate the per-turn superstep cost). When the trailing run of identical tool calls
-    reaches ``repeat_threshold`` it appends an ephemeral ``<system-reminder>`` (never persisted)
-    asking the model to change approach or finalize; after ``max_reminders`` ignored reminders it
-    takes a terminal action:
+    reaches ``repeat_threshold`` it sends a ``<system-reminder>`` asking the model to change approach
+    or finalize, saved into the thread ahead of the reply (see ``reminders``); after ``max_reminders``
+    ignored reminders it takes a terminal action:
 
     - ``terminal="error"`` (subagents): return a tool-call-free ``AIMessage`` framed as a failure.
       It flows back as the task result text the parent reads. The stuck subagent ends cleanly (its
@@ -129,7 +130,8 @@ class LoopBreakerMiddleware(AgentMiddleware):
             label,
             remaining,
         )
-        return await handler(append_system_reminder(request, self._reminder(streak, label, remaining)))
+        reminder = self._reminder(streak, label, remaining)
+        return await call_with_reminder(request, handler, reminder, kind="loop_breaker")
 
     def _reminder(self, streak: int, label: str, remaining: int) -> str:
         return (
