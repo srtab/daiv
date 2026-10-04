@@ -82,6 +82,9 @@ def issue_context_message(issue: Issue) -> HumanMessage:
 class IssueAddressorManager(BaseManager):
     """
     Runs the agent on an issue and answers on it.
+
+    Every run sends the issue itself (``issue_context_message``) ahead of the turn's prompt: the prompt stays
+    last because slash-command parsing reads only the latest message.
     """
 
     def __init__(
@@ -136,13 +139,13 @@ class IssueAddressorManager(BaseManager):
     async def _address_issue(
         self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool | None
     ) -> AgentResult:
-        message, triggered_by = self._input_message()
+        prompt_message, triggered_by = self._input_message()
         outcome = await execute_run(
             RunSpec(
                 thread_id=self.thread_id,
                 repo_id=self.repo_id,
                 scope=Scope.ISSUE,
-                input_messages=(message,),
+                input_messages=(issue_context_message(self.issue), prompt_message),
                 trigger="mention" if self.mention_comment_id else "label",
                 lock=await self._lock_policy(),
                 ref=ref,

@@ -338,8 +338,23 @@ class TestIssueAfterRunMatrix:
         with addressor_run(agent):
             await _address(issue=_issue(labels=[label]))
 
-        [message] = agent.ainvoke.await_args.args[0]["messages"]
-        assert message.content == prompt.format(issue_iid=42)
+        issue_message, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
+        assert issue_message.id == issue_context_message(_issue(labels=[label])).id
+        assert prompt_message.content == prompt.format(issue_iid=42)
+
+    async def test_a_mention_run_sends_the_issue_before_the_comment(self, captured_client):
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="@daiv-bot please fix it")]
+        )
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(issue=_described_issue(), mention_comment_id="c-1")
+
+        issue_message, prompt_message = agent.ainvoke.await_args.args[0]["messages"]
+        assert is_synthetic(issue_message)
+        assert "<title>Crash on save</title>" in issue_message.content
+        assert prompt_message.content == "@daiv-bot please fix it"
 
 
 @pytest.mark.django_db(transaction=True)

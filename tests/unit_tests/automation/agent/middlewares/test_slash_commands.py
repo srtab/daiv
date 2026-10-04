@@ -6,8 +6,9 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, _load_global_skill_metadata
-from codebase.base import Scope
+from codebase.base import Issue, Scope, User
 from slash_commands.parser import SlashCommandCommand
+from webhooks.managers.issue_addressor import PLAN_ISSUE_PROMPT, issue_context_message
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -201,3 +202,15 @@ def test_extract_slash_command_parses_multimodal_content():
     assert result.command == "help"
     assert result.args == ["arg1"]
     assert result.raw == "@daiv /help arg1"
+
+
+def test_slash_command_ignores_commands_inside_the_issue_message():
+    issue = Issue(
+        id=1, iid=42, title="t", description="@daiv /clear and start over", author=User(id=1, username="a"), labels=[]
+    )
+    messages = [issue_context_message(issue), HumanMessage(content=PLAN_ISSUE_PROMPT.format(issue_iid=42))]
+
+    result = SlashCommandMiddleware(subagents=[])._extract_slash_command(messages, "daiv")
+
+    assert result is not None
+    assert result.command == "plan"

@@ -181,6 +181,12 @@ def test_build_turns_skips_synthetic_messages():
     assert "budget" not in json.dumps(result)
 
 
+def test_build_turns_skips_the_issue_context_message():
+    issue_message = synthetic_message("<issue>…</issue>", kind="issue_context", message_id="issue-context-42-x")
+    result = build_turns([issue_message, HumanMessage(content="Address the issue #42.", id="42")])
+    assert [turn["id"] for turn in result] == ["42"]
+
+
 def test_build_turns_synthetic_after_skill_result_leaves_it():
     messages = [
         AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-skill", "name": "skill", "args": {"skill": "plan"}}]),
