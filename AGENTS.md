@@ -52,7 +52,7 @@ make makemessages && make compilemessages
 ## Invariants / footguns
 
 - **Test imports** — `pythonpath = ["daiv", "."]`; in tests import `from automation.agent.graph import ...` (no `daiv.` prefix).
-- **App layering** — `.importlinter` (run by `make lint`) forbids upward imports along `core` < `codebase`/`sandbox_envs` < `automation` < `sessions` < trigger apps (`chat`, `jobs`, `mcp_api`, `webhooks`), and forbids the trigger apps from importing each other, directly or through a lower layer. A broken contract means moving the code, not adding an `ignore_imports` line; a new line is a design decision for review. Deleting an import that an exception covers fails the run until its line goes too.
+- **App layering** — `.importlinter` (run by `make lint`) forbids upward imports along `core` < `codebase`/`sandbox_envs` < `automation` < `sessions` < trigger apps (`chat`, `jobs`, `mcp_api`, `webhooks`), and forbids the trigger apps from importing each other, even indirectly. A broken contract means moving the code, not adding an `ignore_imports` line; a new line is a design decision for review. Deleting an import that an exception covers fails the run until its line goes too.
 - **Tools can't mutate `runtime.state`** — return a `Command(update={...}, messages=[ToolMessage(...)])`; in tests unpack `isinstance(result, Command)`.
 - **Auth** — email signup disabled (`AccountAdapter.is_open_for_signup` → `False`); `AdminRequiredMixin` needs `user.is_admin`; `APIKey.objects.create_key(...)` is **async**.
 - **Run terms** — **Session** = one conversation (agent thread); its PK `thread_id` is also the LangGraph checkpoint key. **Run** = one agent execution inside a Session. **Origin** (`SessionOrigin`, `Session.origin`) = what started the Session; each Run records its own trigger in `Run.trigger_type`, so a webhook-origin Session can hold chat Runs.
@@ -79,5 +79,5 @@ make makemessages && make compilemessages
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | MCP tool | `daiv/mcp_api/server.py` |
 | Webhook event handling | `daiv/webhooks/<platform>/callbacks.py` |
-| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`); every new top-level package under `daiv/`, app or not, also goes in `.importlinter`: in `root_packages` and the `core` contract's `forbidden_modules` (`test_import_hygiene.py` checks both), and in the `forbidden_modules` of every other layer below it |
+| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`); every new top-level package under `daiv/`, app or not, also goes in `.importlinter`: in `root_packages` and the `core` contract's `forbidden_modules` (`test_import_hygiene.py` checks both), and in the `forbidden_modules` of every other layer below it; a new trigger app also goes in the `triggers` contract's `modules` |
 | LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/core/constants.py` (`ModelName`) |
