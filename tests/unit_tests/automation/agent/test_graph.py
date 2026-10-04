@@ -4,7 +4,9 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from deepagents.middleware.memory import MEMORY_SYSTEM_PROMPT, MemoryMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse
+from langchain_core.messages import SystemMessage
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
@@ -134,6 +136,32 @@ async def test_without_an_artifact_store_the_agent_has_no_publish_tool():
     tools = [t.name for m in _middleware(built) for t in getattr(m, "tools", None) or []]
     assert not any(isinstance(m, ArtifactsMiddleware) for m in _middleware(built))
     assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
+
+
+async def test_memory_files_load_with_daivs_guidelines_not_deepagents():
+    built = await _build(_disk_workspace())
+
+    [memory] = [m for m in _middleware(built) if isinstance(m, MemoryMiddleware)]
+    assert memory.sources == built.create_deep_agent.call_args.kwargs["memory"]
+    request = ModelRequest(
+        model=MagicMock(),
+        messages=[],
+        system_message=SystemMessage("base"),
+        state={"memory_contents": {memory.sources[0]: "Run tests with `make test`."}},
+        runtime=MagicMock(),
+    )
+
+    system_prompt = memory.modify_request(request).system_message.text
+    assert "Run tests with `make test`." in system_prompt
+    assert "change them only when the user asks you to" in system_prompt
+    assert "edit_file" in MEMORY_SYSTEM_PROMPT
+    assert "edit_file" not in system_prompt
+
+
+async def test_main_agent_brings_its_own_summarization():
+    built = await _build(_disk_workspace())
+
+    assert [m.name for m in _middleware(built)].count("SummarizationMiddleware") == 1
 
 
 def test_ask_user_question_is_always_loaded():

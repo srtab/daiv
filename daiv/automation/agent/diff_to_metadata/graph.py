@@ -15,6 +15,7 @@ from automation.agent import BaseAgent
 from automation.agent.constants import AGENTS_MEMORY_PATH
 from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
+from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from codebase.context import RuntimeCtx
 from core.site_settings import site_settings
 
@@ -77,6 +78,7 @@ def create_diff_to_metadata_graph(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
             add_cache_control=True,
+            system_prompt=AGENTS_MEMORY_SYSTEM_PROMPT,
         ),
         AnthropicPromptCachingMiddleware(),
         dynamic_system_prompt,

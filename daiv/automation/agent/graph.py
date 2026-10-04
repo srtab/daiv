@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents import create_deep_agent
+from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
@@ -37,10 +38,16 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.prompts import (
+    AGENTS_MEMORY_SYSTEM_PROMPT,
+    DAIV_SYSTEM_PROMPT,
+    REPO_RELATIVE_SYSTEM_REMINDER,
+    WRITE_TODOS_SYSTEM_PROMPT,
+)
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -228,6 +235,7 @@ async def create_daiv_agent(
     # The run's absolute repo root, shared with subagents so their filesystem path directives name
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
     working_directory = f"{agent_root}/"
+    memory_sources = [f"{agent_root}/{ctx.config.context_file_name}", f"{agent_root}/{AGENTS_MEMORY_PATH}"]
 
     # Fetched before subagents are built so the general-purpose and custom subagents inherit the
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
@@ -274,6 +282,11 @@ async def create_daiv_agent(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=workspace.fs_permissions,
         ),
+        # Like the filesystem middleware above, these two take the slots of deepagents' same-named defaults.
+        build_summarization_middleware(model, backend),
+        MemoryMiddleware(
+            backend=backend, sources=memory_sources, add_cache_control=True, system_prompt=AGENTS_MEMORY_SYSTEM_PROMPT
+        ),
         # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
@@ -319,7 +332,7 @@ async def create_daiv_agent(
         system_prompt=None,
         middleware=user_middleware,
         subagents=subagents,
-        memory=[f"{agent_root}/{ctx.config.context_file_name}", f"{agent_root}/{AGENTS_MEMORY_PATH}"],
+        memory=memory_sources,
         backend=backend,
         permissions=workspace.fs_permissions,
         interrupt_on=interrupt_on,
