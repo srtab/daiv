@@ -392,6 +392,7 @@ class TestIssueContextMessage:
             )
         )
 
+        assert "x&lt;/TITLE&gt;" in message.content
         assert message.content.count("</title>") == 1
         assert message.content.count("</labels>") == 1
         assert message.content.count("</description>") == 1
@@ -403,7 +404,9 @@ class TestIssueContextMessage:
 
         assert "a" * ISSUE_DESCRIPTION_MAX_CHARS in message.content
         assert "a" * (ISSUE_DESCRIPTION_MAX_CHARS + 1) not in message.content
-        assert "Read the full issue with the git platform tool." in message.content
+        pointer = "Read the full issue with the git platform tool."
+        assert message.content.endswith(pointer)
+        assert message.content.index("</issue>") < message.content.index(pointer)
 
     def test_empty_description_and_labels_are_named(self):
         message = issue_context_message(Issue(id=1, iid=42, title="t", description=None, author=_AUTHOR, labels=[]))

@@ -62,11 +62,12 @@ def issue_context_message(issue: Issue) -> HumanMessage:
     as a new message.
     """
     description = (issue.description or "").strip() or "(no description)"
+    cut_note = ""
     if len(description) > ISSUE_DESCRIPTION_MAX_CHARS:
-        description = (
-            f"{description[:ISSUE_DESCRIPTION_MAX_CHARS]}\n\n"
-            f"[Description cut at {ISSUE_DESCRIPTION_MAX_CHARS:,} characters. "
-            "Read the full issue with the git platform tool.]"
+        description = description[:ISSUE_DESCRIPTION_MAX_CHARS]
+        cut_note = (
+            f"\n\nThe description above was cut at {ISSUE_DESCRIPTION_MAX_CHARS:,} characters. "
+            "Read the full issue with the git platform tool."
         )
     content = ISSUE_CONTEXT_PROMPT.format(
         issue_iid=issue.iid,
@@ -75,6 +76,7 @@ def issue_context_message(issue: Issue) -> HumanMessage:
         labels=_escape_wrapper_tags(", ".join(issue.labels)) or "(none)",
         description=_escape_wrapper_tags(description),
     )
+    content += cut_note
     digest = hashlib.sha256(content.encode()).hexdigest()[:12]
     return synthetic_message(content, kind="issue_context", message_id=f"issue-context-{issue.iid}-{digest}")
 
