@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sessions.turns import build_turns
 
 from automation.agent.questions import QUESTION_DELIVERED
+from automation.agent.synthetic import synthetic_message
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 
 
@@ -165,6 +166,31 @@ def test_build_turns_human_after_non_skill_tool_still_renders_as_user_turn():
     result = build_turns(msgs)
     assert [t["role"] for t in result] == ["assistant", "user"]
     assert result[1]["segments"][0]["content"] == "thanks"
+
+
+def test_build_turns_skips_synthetic_messages():
+    messages = [
+        HumanMessage(content="fix it", id="h-1"),
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-1", "name": "grep", "args": {"pattern": "x"}}]),
+        ToolMessage(content="hit", tool_call_id="tc-1", id="t-1"),
+        synthetic_message("<system-reminder>budget</system-reminder>", kind="step_budget"),
+        AIMessage(content="Done.", id="a-2"),
+    ]
+    result = build_turns(messages)
+    assert [turn["role"] for turn in result] == ["user", "assistant", "assistant"]
+    assert "budget" not in json.dumps(result)
+
+
+def test_build_turns_synthetic_after_skill_result_leaves_it():
+    messages = [
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-skill", "name": "skill", "args": {"skill": "plan"}}]),
+        ToolMessage(content="# Plan skill body", tool_call_id="tc-skill", id="t-1"),
+        synthetic_message("<system-reminder>budget</system-reminder>", kind="step_budget"),
+        AIMessage(content="Here is the plan.", id="a-2"),
+    ]
+    result = build_turns(messages)
+    assert result[0]["segments"][0]["result"] == "# Plan skill body"
+    assert [turn["role"] for turn in result] == ["assistant", "assistant"]
 
 
 def test_build_turns_ai_thinking_block_emits_thinking_segment():

@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from automation.agent.questions import is_question_close
+from automation.agent.synthetic import is_synthetic
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -48,6 +49,9 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     that body into the skill call's ``result`` instead of rendering it as a
     user turn — it's agent scaffolding, not something the human typed.
 
+    DAIV's own synthetic messages (saved reminders) are skipped: the model saw them, but
+    nobody typed them.
+
     The close message a question turn ends on is skipped: the chat renders the question from
     the ``ask_user_question`` call.
     """
@@ -59,6 +63,8 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     for index, m in enumerate(messages):
         mtype = message_role(m)
         if mtype in ("human", "user"):
+            if is_synthetic(m):
+                continue
             if pending_skill_tc_id is not None:
                 _fold_skill_body(m, turns, tool_index, pending_skill_tc_id)
                 pending_skill_tc_id = None
