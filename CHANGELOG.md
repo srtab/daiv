@@ -137,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `__version__` in `daiv/daiv/__init__.py` reporting `1.1.0` instead of the released version.
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
 - Fixed the agent's step-budget, repeated-tool-call and empty-reply reminders vanishing from the conversation after the call that carried them. The model's reply was saved without the reminder it answered, so the next request changed history already sent, which restarted the prompt cache and, on Claude models that bind thinking to the exact history, could invalidate later thinking blocks. Reminders are now saved just before the reply they produced, never shown as user messages in the session transcript, and the step-budget reminder is sent once when the run enters each band (warning, then finalize) instead of on every call.
-- Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts. Issue and merge-request replies, notes and inline discussions the agent writes through the GitLab and GitHub tools, and merge-request titles and descriptions now show repository paths relative to the repository root. Links whose URL happens to contain `/workspace/repo/` are left intact.
+- Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts. DAIV's replies on issues and merge requests, the notes and inline discussions the agent posts through the GitLab and GitHub tools, and merge-request titles and descriptions now show repository paths relative to the repository root. Links whose URL happens to contain `/workspace/repo/` are left intact.
 
 ### Removed
 
