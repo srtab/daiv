@@ -231,13 +231,13 @@ class CrossProjectAccessRecord(models.Model):
     # Snapshotted so deleting the user (SET_NULL) does not erase who acted.
     acting_user_label = models.CharField(_("acting user"), max_length=255, blank=True, default="")
     provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)
-    target_repo_id = models.CharField(_("target repository ID"), max_length=255, db_index=True)
+    target_repo_id = models.CharField(_("target repository ID"), max_length=255)
     outcome = models.CharField(_("outcome"), max_length=24, choices=OUTCOME_CHOICES)
 
     class Meta:
         verbose_name = _("Cross-Project Access Record")
         verbose_name_plural = _("Cross-Project Access Records")
-        indexes = [models.Index(fields=["occurred_at", "outcome"])]
+        indexes = [models.Index(fields=["outcome", "occurred_at"])]
         constraints = [
             # ``choices`` alone would let a blank outcome through.
             models.CheckConstraint(condition=~models.Q(outcome=""), name="cross_project_access_record_outcome_required")
