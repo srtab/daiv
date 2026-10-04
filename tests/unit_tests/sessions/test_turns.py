@@ -157,6 +157,32 @@ def test_build_turns_skill_injection_folds_human_body_into_tool_result():
     assert skill_seg["result"] == "# Plan skill body\n\ninstructions..."
 
 
+def test_build_turns_skill_body_as_tool_result_is_the_call_result():
+    messages = [
+        HumanMessage(content="plan it", id="h-1"),
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-skill", "name": "skill", "args": {"skill": "plan"}}]),
+        ToolMessage(content="# Plan skill body", tool_call_id="tc-skill", id="t-1"),
+        AIMessage(content="Here is the plan.", id="a-2"),
+        HumanMessage(content="go ahead", id="h-2"),
+    ]
+    result = build_turns(messages)
+    assert result[1]["segments"][0]["result"] == "# Plan skill body"
+    assert [turn["role"] for turn in result] == ["user", "assistant", "assistant", "user"]
+
+
+def test_build_turns_human_right_after_a_skill_body_result_is_a_user_turn():
+    messages = [
+        HumanMessage(content="plan it", id="h-1"),
+        AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-skill", "name": "skill", "args": {"skill": "plan"}}]),
+        ToolMessage(content="# Plan skill body", tool_call_id="tc-skill", id="t-1"),
+        HumanMessage(content="real follow-up", id="h-2"),
+    ]
+    result = build_turns(messages)
+    assert result[1]["segments"][0]["result"] == "# Plan skill body"
+    assert [turn["role"] for turn in result] == ["user", "assistant", "user"]
+    assert result[2]["segments"][0]["content"] == "real follow-up"
+
+
 def test_build_turns_human_after_non_skill_tool_still_renders_as_user_turn():
     msgs = [
         AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-1", "name": "read_file", "args": {"path": "a"}}]),

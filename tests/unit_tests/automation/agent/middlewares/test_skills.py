@@ -4,12 +4,15 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from langchain.agents import create_agent
 from langchain.agents.middleware.types import ToolCallRequest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
-from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMiddleware
+from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, DAIVSkillsState, SkillsMiddleware
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -439,11 +442,10 @@ class TestSkillsMiddleware:
             result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")
 
         assert isinstance(result, Command)
-        messages = result.update["messages"]
-        assert isinstance(messages[0], ToolMessage)
-        assert messages[0].content == "Launching skill 'demo'..."
-        assert isinstance(messages[1], HumanMessage)
-        assert messages[1].content.endswith("First alpha, second beta, all: alpha beta")
+        [message] = result.update["messages"]
+        assert isinstance(message, ToolMessage)
+        assert message.tool_call_id == "call_1"
+        assert message.content.endswith("First alpha, second beta, all: alpha beta")
 
     async def test_skill_tool_anchors_body_to_skill_root(self):
         backend = Mock()
@@ -460,7 +462,7 @@ class TestSkillsMiddleware:
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime)
 
-        content = result.update["messages"][1].content
+        content = result.update["messages"][0].content
         # Lock the load-bearing parts (the resolved root tag and that the body follows it)
         # without coupling to the exact wording of the guidance sentence.
         assert content.startswith("<skill_root>/skills/demo</skill_root>\n")
@@ -481,7 +483,7 @@ class TestSkillsMiddleware:
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime)
 
-        assert result.update["messages"][1].content.startswith("<skill_root>/myrepo/.agents/skills/demo</skill_root>\n")
+        assert result.update["messages"][0].content.startswith("<skill_root>/myrepo/.agents/skills/demo</skill_root>\n")
 
     async def test_skill_tool_appends_named_arguments_when_missing_placeholder(self):
         backend = Mock()
@@ -500,7 +502,28 @@ class TestSkillsMiddleware:
 
         assert isinstance(result, Command)
         messages = result.update["messages"]
-        assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
+        assert messages[0].content.endswith("\n\n$ARGUMENTS: --flag=1")
+
+    async def test_skill_tool_sets_the_skill_mode(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[Mock(error=None, content=b"---\nname: plan\ndescription: Plan\n---\nPlan it.")]
+        )
+        tool_ = SkillsMiddleware(backend=backend, sources=["/skills"])._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {
+            "skills_metadata": [
+                {"name": "plan", "path": "/skills/plan/SKILL.md", "metadata": {"mode": SKILL_MODE_READ_ONLY}}
+            ]
+        }
+        runtime.tool_call_id = "call_1"
+
+        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+            result = await tool_.coroutine(skill="plan", runtime=runtime)
+
+        assert result.update["active_skill_mode"] == SKILL_MODE_READ_ONLY
+        assert [type(m).__name__ for m in result.update["messages"]] == ["ToolMessage"]
 
     async def test_discovers_skills_from_multiple_sources(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -1087,3 +1110,52 @@ class TestSkillToolRecordsInvocation:
         assert kwargs["source"] == SkillInvocation.Source.BUILTIN
         assert kwargs["repo_slug"] == "org/repoX"
         assert kwargs["thread_id"] == thread_id
+
+
+class _ToolModel(GenericFakeChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
+@tool("read_file")
+def _read_file(file_path: str) -> str:
+    """Read a file."""
+    return "contents"
+
+
+async def test_skill_runs_beside_another_tool_in_one_turn():
+    backend = Mock()
+    backend.adownload_files = AsyncMock(
+        return_value=[Mock(error=None, content=b"---\nname: demo\ndescription: Demo\n---\nRun this.")]
+    )
+    skill_tool = SkillsMiddleware(backend=backend, sources=["/skills"])._skill_tool_generator()
+    turn = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "skill", "args": {"skill": "demo"}, "id": "call_skill"},
+            {"name": "read_file", "args": {"file_path": "/workspace/repo/a.py"}, "id": "call_read"},
+        ],
+    )
+    agent = create_agent(
+        model=_ToolModel(messages=iter([turn, AIMessage(content="done")])),
+        tools=[skill_tool, _read_file],
+        state_schema=DAIVSkillsState,
+    )
+
+    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        result = await agent.ainvoke({
+            "messages": [HumanMessage(content="go")],
+            "skills_metadata": [{"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"}],
+        })
+
+    messages = result["messages"]
+    assert [type(m).__name__ for m in messages] == [
+        "HumanMessage",
+        "AIMessage",
+        "ToolMessage",
+        "ToolMessage",
+        "AIMessage",
+    ]
+    assert {m.tool_call_id for m in messages[2:4]} == {"call_skill", "call_read"}
+    skill_result = next(m for m in messages[2:4] if m.tool_call_id == "call_skill")
+    assert skill_result.content.endswith("Run this.")
