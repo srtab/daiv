@@ -3,12 +3,18 @@ from __future__ import annotations
 import functools
 import json
 import logging
-from typing import Any, ClassVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from get_docker_secret import get_docker_secret
 from pydantic import SecretStr
 
 from core.constants import ModelName
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from core.models import SiteConfiguration
 
 logger = logging.getLogger("daiv.core")
 
@@ -132,6 +138,78 @@ def _get_field_defaults() -> dict[str, Any]:
     return _build_field_defaults()
 
 
+@dataclass(frozen=True)
+class _Unresolved:
+    error: ValueError
+
+
+@dataclass(frozen=True, kw_only=True)
+class SiteSnapshot:
+    """Every field in ``FIELD_DEFAULTS``, resolved together by :meth:`SiteSettings.snapshot`.
+
+    Secrets stay out: code that needs one reads it from ``site_settings`` where it is used. A field whose env var does
+    not parse raises its ``ValueError`` when read, as attribute access on ``site_settings`` does, and only then.
+    """
+
+    agent_model_name: str
+    agent_fallback_model_name: str
+    agent_thinking_level: str
+    agent_fallback_thinking_level: str
+    agent_max_model_name: str
+    agent_max_thinking_level: str
+    agent_explore_model_name: str
+    agent_explore_fallback_model_name: str
+    agent_recursion_limit: int
+    suggest_context_file_enabled: bool
+    session_link_enabled: bool
+    diff_to_metadata_model_name: str
+    diff_to_metadata_fallback_model_name: str
+    titling_model_name: str
+    titling_fallback_model_name: str
+    memory_enabled: bool
+    memory_extraction_model_name: str
+    memory_extraction_fallback_model_name: str
+    memory_consolidation_model_name: str | None
+    memory_consolidation_min_pending: int
+    memory_consolidation_max_pending_age_days: int
+    memory_consolidation_min_interval_hours: int
+    memory_max_lines: int
+    memory_max_bytes: int
+    run_classifier_model_name: str
+    run_classifier_fallback_model_name: str
+    web_search_enabled: bool
+    web_search_max_results: int
+    web_search_engine: str
+    web_fetch_enabled: bool
+    web_fetch_model_name: str
+    web_fetch_cache_ttl_seconds: int
+    web_fetch_timeout_seconds: int
+    web_fetch_max_content_chars: int
+    sandbox_timeout: float
+    jobs_throttle_rate: str
+    pipeline_watch_enabled: bool
+    pipeline_watch_max_attempts: int
+    auth_login_enabled: bool
+    auth_signup_open: bool
+    auth_client_id: str | None
+    auth_gitlab_url: str
+    auth_gitlab_server_url: str | None
+    rocketchat_enabled: bool
+    rocketchat_url: str | None
+    rocketchat_user_id: str | None
+    telegram_enabled: bool
+    telegram_bot_username: str | None
+
+    def __getattribute__(self, name: str) -> Any:
+        value = super().__getattribute__(name)
+        if isinstance(value, _Unresolved):
+            raise ValueError(*value.error.args) from value.error
+        return value
+
+    def __repr__(self) -> str:
+        return f"SiteSnapshot({', '.join(f'{name}={value!r}' for name, value in vars(self).items())})"
+
+
 class SiteSettings:
     """
     Unified accessor for site-wide configurable settings backed by
@@ -173,15 +251,34 @@ class SiteSettings:
     def __getattr__(self, name: str) -> Any:
         from core.models import SiteConfiguration
 
-        field_defaults = _get_field_defaults()
-
         # Only handle known configurable fields
-        if name not in field_defaults and name not in SiteConfiguration.ENCRYPTED_FIELDS:
+        if name not in _get_field_defaults() and name not in SiteConfiguration.ENCRYPTED_FIELDS:
             raise AttributeError(f"SiteSettings has no field '{name}'")
 
+        return self._resolve(name, SiteConfiguration.get_cached)
+
+    def snapshot(self) -> SiteSnapshot:
+        """Every field in ``FIELD_DEFAULTS``, resolved from one ``SiteConfiguration.get_cached()``.
+
+        Safe from async code for the same reason attribute access is: ``get_cached`` does the thread hop.
+        """
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.get_cached()
+        values: dict[str, Any] = {}
+        for name in _get_field_defaults():
+            try:
+                values[name] = self._resolve(name, lambda: config)
+            except ValueError as error:
+                values[name] = _Unresolved(error)
+        return SiteSnapshot(**values)
+
+    def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
+        """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
+        from core.models import SiteConfiguration
+
         # 1. Docker secret / environment variable wins
-        env_var = self.get_env_var_name(name)
-        env_value = _get_docker_secret_cached(env_var)
+        env_value = _get_docker_secret_cached(self.get_env_var_name(name))
         if env_value is not None:
             if name in SiteConfiguration.ENCRYPTED_FIELDS:
                 return SecretStr(env_value)
@@ -189,7 +286,7 @@ class SiteSettings:
             return self._parse_env_value(env_value, field)
 
         # 2. Database value (non-null and non-empty-string)
-        config = SiteConfiguration.get_cached()
+        config = get_config()
         if config is not None:
             db_value = getattr(config, name, None)
             if db_value is not None and db_value != "":
@@ -198,7 +295,7 @@ class SiteSettings:
                 return db_value
 
         # 3. Hardcoded default
-        return field_defaults.get(name)
+        return _get_field_defaults().get(name)
 
     def get_env_var_name(self, name: str) -> str:
         """Return the environment variable name for a configurable field."""

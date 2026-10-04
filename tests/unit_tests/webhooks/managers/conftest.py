@@ -15,7 +15,7 @@ from sessions.executor.lock import NoLock
 from webhooks.managers.base import BaseManager
 
 from codebase.base import GitPlatform
-from tests.unit_tests.sessions.executor.conftest import agent_stack
+from tests.unit_tests.sessions.executor.conftest import agent_stack, resolved_to
 
 
 def stub_client() -> MagicMock:
@@ -77,22 +77,21 @@ def addressor_run(
     ctx=None,
     context=None,
     resolve=None,
+    site=None,
 ):
     """Stub the executor around ``agent`` for one manager run; yield the ``agent_stack`` namespace plus ``recover``.
 
     ``stub_recovery=False`` keeps the real draft recovery (``recover`` is then ``None``). ``real_lock`` keeps the
     real session-row check and lock; otherwise the run is unlocked and needs no database.
     """
-    resolve = resolve or MagicMock(
-        return_value={"model_names": ["m"], "thinking_level": "medium"}, side_effect=kwargs_error
-    )
+    resolve = resolve or MagicMock(return_value=resolved_to("m", thinking_level="medium"), side_effect=kwargs_error)
     recovery = (
         patch("sessions.executor.run.recover_draft", AsyncMock(return_value=draft_published))
         if stub_recovery
         else nullcontext()
     )
     with (
-        agent_stack(agent, ctx=ctx, context=context, resolve=resolve) as stack,
+        agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site) as stack,
         nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         recovery as recover,
     ):

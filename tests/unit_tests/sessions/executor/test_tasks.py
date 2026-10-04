@@ -11,6 +11,7 @@ from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
+from tests.unit_tests.sessions.executor.conftest import resolved_to
 
 
 @pytest.mark.django_db
@@ -33,8 +34,8 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
-            "automation.agent.utils.get_daiv_agent_kwargs",
-            return_value={"model_names": ["claude-4-7-opus"], "thinking_level": "medium"},
+            "automation.agent.agent_settings.resolve_agent_settings",
+            return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {"thread_id": "t-123"}}),
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
@@ -82,9 +83,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch(
-            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
-        ),
+        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
@@ -98,7 +97,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
 
 @pytest.mark.django_db
 async def test_run_job_task_forwards_overrides():
-    """When called with explicit overrides, the override pair flows into get_daiv_agent_kwargs."""
+    """When called with explicit overrides, the override pair flows into resolve_agent_settings."""
     last_message = MagicMock()
     last_message.content = "ok"
     fake_result = {"messages": [last_message]}
@@ -114,13 +113,13 @@ async def test_run_job_task_forwards_overrides():
 
     def capture(**kwargs):
         captured_kwargs.update(kwargs)
-        return {"model_names": ["captured"], "thinking_level": kwargs.get("agent_thinking_level")}
+        return resolved_to("captured", thinking_level=kwargs["run"].agent_thinking_level)
 
     with (
         patch("core.checkpointer.open_checkpointer") as cp_ctx,
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
-        patch("automation.agent.utils.get_daiv_agent_kwargs", side_effect=capture),
+        patch("automation.agent.agent_settings.resolve_agent_settings", side_effect=capture),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
@@ -138,9 +137,9 @@ async def test_run_job_task_forwards_overrides():
             agent_thinking_level="low",
         )
 
-    assert captured_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
-    assert captured_kwargs["agent_thinking_level"] == "low"
-    assert "use_max" not in captured_kwargs
+    assert captured_kwargs["run"].agent_model == "openrouter:anthropic/claude-haiku-4.5"
+    assert captured_kwargs["run"].agent_thinking_level == "low"
+    assert captured_kwargs["run"].use_max is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -173,8 +172,8 @@ async def test_run_job_task_persists_resolved_model():
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
-            "automation.agent.utils.get_daiv_agent_kwargs",
-            return_value={"model_names": ["openrouter:z-ai/glm-5.2", "fallback"], "thinking_level": "xhigh"},
+            "automation.agent.agent_settings.resolve_agent_settings",
+            return_value=resolved_to("openrouter:z-ai/glm-5.2", "fallback", thinking_level="xhigh"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
@@ -219,9 +218,7 @@ async def test_run_job_task_reads_session_mcp_overrides():
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch(
-            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
-        ),
+        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
@@ -250,9 +247,7 @@ async def test_run_job_task_mcp_overrides_defaults_to_empty_when_no_session():
         patch("codebase.context.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer"),
         patch("automation.agent.graph.create_daiv_agent", AsyncMock()),
-        patch(
-            "automation.agent.utils.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}
-        ),
+        patch("automation.agent.agent_settings.resolve_agent_settings", return_value=resolved_to("m")),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("automation.agent.results.build_agent_result", AsyncMock(return_value="ok")),
@@ -286,8 +281,8 @@ async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolutio
         patch("core.checkpointer.open_checkpointer"),
         patch("codebase.context.set_runtime_ctx", _boom),
         patch(
-            "automation.agent.utils.get_daiv_agent_kwargs",
-            return_value={"model_names": ["m"], "thinking_level": "high"},
+            "automation.agent.agent_settings.resolve_agent_settings",
+            return_value=resolved_to("m", thinking_level="high"),
         ),
         pytest.raises(RuntimeError, match="git clone failed"),
     ):
@@ -324,8 +319,8 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
-            "automation.agent.utils.get_daiv_agent_kwargs",
-            return_value={"model_names": ["claude-4-7-opus"], "thinking_level": "medium"},
+            "automation.agent.agent_settings.resolve_agent_settings",
+            return_value=resolved_to("claude-4-7-opus", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
@@ -751,8 +746,8 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
         patch("codebase.context.set_runtime_ctx") as rc_ctx,
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)),
         patch(
-            "automation.agent.utils.get_daiv_agent_kwargs",
-            return_value={"model_names": ["m"], "thinking_level": "medium"},
+            "automation.agent.agent_settings.resolve_agent_settings",
+            return_value=resolved_to("m", thinking_level="medium"),
         ),
         patch("automation.agent.utils.build_langsmith_config", return_value={}),
         patch("automation.agent.results.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),

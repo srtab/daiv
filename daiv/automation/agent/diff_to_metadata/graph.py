@@ -15,7 +15,6 @@ from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
-from core.site_settings import site_settings
 
 from .prompts import human_commit_message, human_pr_metadata, memory_section, system
 from .schemas import CommitMetadata, PullRequestMetadata
@@ -41,7 +40,7 @@ def dynamic_system_prompt(request: ModelRequest) -> str:
 
 
 def create_diff_to_metadata_graph(
-    model_names: Sequence[ModelName | str] | None = None,
+    model_names: Sequence[ModelName | str],
     *,
     ctx: RuntimeCtx,
     include_pr_metadata: bool = True,
@@ -51,15 +50,12 @@ def create_diff_to_metadata_graph(
     Create a graph to describe changes to feed into a pull request and optionally a commit message.
 
     Args:
-        model: The model to use for the agent.
+        model_names: The model chain: the model to use for the agent, then its fallbacks.
         ctx: The runtime context.
 
     Returns:
         The PR metadata graph.
     """
-    if model_names is None:
-        model_names = (site_settings.diff_to_metadata_model_name, site_settings.diff_to_metadata_fallback_model_name)
-
     assert include_pr_metadata or include_commit_message, (
         "At least one of include_pr_metadata or include_commit_message must be True"
     )

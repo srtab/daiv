@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
+    from automation.agent.agent_settings import AgentSettings
     from automation.agent.workspace.base import Workspace
 
 
@@ -154,6 +155,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             the patch from the run's final state; keep ``False`` for normal runs so potentially
             large patches never stream through ``STATE_SNAPSHOT`` events.
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
+        settings: The run's resolved agent settings.
 
     Example:
         ```python
@@ -165,7 +167,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[GitMiddleware(workspace=workspace)],
+            middleware=[GitMiddleware(workspace=workspace, settings=settings)],
             store=store,
         )
         ```
@@ -177,6 +179,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self,
         *,
         workspace: Workspace,
+        settings: AgentSettings,
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
@@ -188,6 +191,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self.auto_commit_changes = auto_commit_changes
         self.capture_patch = capture_patch
         self._workspace = workspace
+        self._settings = settings
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -418,7 +422,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        publisher = GitChangePublisher(runtime.context, self._workspace, thread_id=conversation_thread_id())
+        publisher = GitChangePublisher(
+            runtime.context, self._workspace, settings=self._settings, thread_id=conversation_thread_id()
+        )
         outcome = await publisher.publish(
             merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
         )

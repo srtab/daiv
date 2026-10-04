@@ -13,7 +13,7 @@ from langchain.agents.middleware import (
     dynamic_prompt,
 )
 
-from automation.agent.base import BaseAgent, ThinkingLevel
+from automation.agent.base import BaseAgent
 from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
@@ -56,15 +56,13 @@ from automation.agent.subagents import (
 )
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
-from core.constants import BOT_NAME, ModelName
-from core.site_settings import site_settings
+from core.constants import BOT_NAME
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
+    from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
     from automation.agent.workspace.base import Workspace
 
@@ -91,10 +89,6 @@ ALWAYS_LOADED_TOOLS = frozenset({
     "task",
     ASK_USER_QUESTION_TOOL_NAME,
 })
-
-
-class _Unset:
-    """Sentinel to distinguish 'not provided' from ``None`` in function defaults."""
 
 
 def _output_invariants_system_prompt(working_directory: str) -> str:
@@ -167,9 +161,8 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
 
 
 async def create_daiv_agent(
-    model_names: Sequence[ModelName | str] | None = None,
-    thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
+    settings: AgentSettings,
     ctx: RuntimeCtx,
     workspace: Workspace,
     artifact_store: ArtifactStore | None = None,
@@ -180,17 +173,13 @@ async def create_daiv_agent(
     debug: bool = False,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     middleware: list[AgentMiddleware] | None = None,
-    # Flags to override the default settings
-    web_fetch_enabled: bool | None = None,
-    web_search_enabled: bool | None = None,
     ask_user_enabled: bool = True,
 ):
     """
     Create the DAIV agent.
 
     Args:
-        model_names: The model names to use for the agent.
-        thinking_level: The thinking level to use for the agent.
+        settings: The run's resolved agent settings: its model chains, recursion limit, web toggles and switches.
         ctx: The runtime context.
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         artifact_store: Where ``publish_artifact`` keeps files; ``None`` leaves the tool out (the run executor always
@@ -203,29 +192,19 @@ async def create_daiv_agent(
         debug: Whether to enable debug mode for the agent.
         interrupt_on: The interrupt on configuration for the agent.
         middleware: The middleware to use for the agent.
-        web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
-        web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
 
     Returns:
         The DAIV agent.
     """
-    if model_names is None:
-        model_names = (site_settings.agent_model_name, site_settings.agent_fallback_model_name)
-    if thinking_level is _Unset:
-        thinking_level = site_settings.agent_thinking_level
-
-    model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
-    # Read straight from settings — do not reuse ``thinking_level`` here, it may carry a per-turn
-    # override of the primary that must not leak into the fallback.
-    fallback_thinking_level = site_settings.agent_fallback_thinking_level
+    chain = settings.agent
+    model = BaseAgent.get_model(model=chain.names[0], thinking_level=chain.thinking_level)
     fallback_models = [
-        BaseAgent.get_model(model=model_name, thinking_level=fallback_thinking_level) for model_name in model_names[1:]
+        BaseAgent.get_model(model=model_name, thinking_level=chain.fallback_thinking_level)
+        for model_name in chain.names[1:]
     ]
 
     bash_tool_enabled = workspace.bash is not None
-    _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
-    _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
     agent_root = REPO_PATH
     global_skills_source = SKILLS_PATH
@@ -250,12 +229,12 @@ async def create_daiv_agent(
             workspace,
             ctx,
             working_directory,
-            web_search_enabled=_web_search_enabled,
-            web_fetch_enabled=_web_fetch_enabled,
+            web_search_enabled=settings.web_search_enabled,
+            web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
         ),
-        create_explore_subagent(workspace, working_directory),
+        create_explore_subagent(workspace, working_directory, models=settings.explore),
         *load_builtin_code_review_detectors(model, backend, working_directory, fallback_models=fallback_models),
     ]
 
@@ -265,8 +244,8 @@ async def create_daiv_agent(
         runtime=ctx,
         sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
         working_directory=working_directory,
-        web_search_enabled=_web_search_enabled,
-        web_fetch_enabled=_web_fetch_enabled,
+        web_search_enabled=settings.web_search_enabled,
+        web_fetch_enabled=settings.web_fetch_enabled,
         fallback_models=fallback_models,
         mcp_tools=mcp_tools,
     )
@@ -289,15 +268,15 @@ async def create_daiv_agent(
         # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
         # source of write_todos and the harness profile excludes nothing here.
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=bash_tool_enabled)),
-        *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
+        *([SlashCommandMiddleware(subagents=subagents)] if settings.features.slash_commands else []),
         *([SandboxMiddleware(agent_root=agent_root, workspace=workspace)] if bash_tool_enabled else []),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
         ),
-        *([WebSearchMiddleware()] if _web_search_enabled else []),
-        *([WebFetchMiddleware()] if _web_fetch_enabled else []),
+        *([WebSearchMiddleware()] if settings.web_search_enabled else []),
+        *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
@@ -316,10 +295,12 @@ async def create_daiv_agent(
         ensure_non_empty_response,
         # Must stay after SandboxMiddleware: before_agent hooks run in registration order, and GitMiddleware's pre-run
         # check runs git in the session SandboxMiddleware acquires.
-        GitMiddleware(workspace=workspace, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch),
+        GitMiddleware(
+            workspace=workspace, settings=settings, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch
+        ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
-        RepositoryMemoryMiddleware(),
+        RepositoryMemoryMiddleware(enabled=settings.features.memory),
         *(middleware or []),
     ]
 
@@ -348,4 +329,4 @@ async def create_daiv_agent(
     # costs 2 supersteps, so the default 500 ≈ 250 tool-call turns. Registering a
     # before_model/after_model hook adds a node to EVERY cycle and silently shrinks that
     # budget (3 steps/turn ≈ 165 turns) — keep per-turn hooks out of the stack.
-    return deep_agent.with_config({"recursion_limit": site_settings.agent_recursion_limit})
+    return deep_agent.with_config({"recursion_limit": settings.recursion_limit})

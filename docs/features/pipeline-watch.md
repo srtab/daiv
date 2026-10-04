@@ -160,8 +160,10 @@ Repositories onboarded after the upgrade get `pipeline_events` automatically.
 Subscribe the App instead — this covers every repository it is installed on at once:
 
 1. Open your GitHub App's settings page → **Permissions & events**.
-2. Under **Subscribe to events**, check **Workflow run**.
-3. Save. No re-installation or permission re-approval is needed for an event-only change.
+2. Under **Repository permissions**, set **Actions** to **Read-only**. This is required to subscribe to **Workflow run** and to read job logs.
+3. Under **Subscribe to events**, check **Workflow run**.
+4. Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's **Configure** page; until then, pipeline watch is inert on that installation.
+5. After the next workflow run, check **Advanced → Recent Deliveries** for a `workflow_run` delivery.
 
 See [Platform Setup](../getting-started/platform-setup.md) for the full event checklist.
 

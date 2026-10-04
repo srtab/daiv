@@ -151,4 +151,5 @@ class RepositoryConfigTest:
         config = RepositoryConfig.get_config(repo_id)
 
         assert config.models.agent.model == "openrouter:anthropic/claude-haiku-4.5"
-        assert config.models.agent.thinking_level is not None
+        assert config.models.agent.thinking_level is None
+        assert config.models.agent.model_fields_set == {"model"}

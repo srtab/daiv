@@ -8,7 +8,13 @@ from automation.agent.workspace.disk import DiskWorkspace
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
-from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls, require_provider_for_model
+from .utils import (
+    CODING_MODEL_NAMES,
+    INTERRUPT_ALL_TOOLS_CONFIG,
+    agent_settings_on,
+    extract_tool_calls,
+    require_provider_for_model,
+)
 
 TEST_SUITE = "DAIV: Skills"
 
@@ -38,8 +44,8 @@ async def test_skill_activated(model_name, user_message, skill):
         repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
     ) as ctx:
         agent = await create_daiv_agent(
+            settings=agent_settings_on(model_name, ctx),
             ctx=ctx,
-            model_names=[model_name],
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),
             interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,

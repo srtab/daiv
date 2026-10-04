@@ -10,15 +10,22 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunSpec
 
+from automation.agent.agent_settings import RunOverrides
 from automation.agent.results import parse_agent_result
 from codebase.base import Scope
-from tests.unit_tests.conftest import stub_sandbox_spec
+from core.site_settings import site_settings
+from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import watch_recorder
 
 if TYPE_CHECKING:
+    from automation.agent.agent_settings import AgentSettings
     from codebase.base import MergeRequest
+    from core.site_settings import SiteSnapshot
 
-AGENT_KWARGS = {"model_names": ["claude-4-7-opus", "fallback"], "thinking_level": "medium"}
+
+def resolved_to(*model_names: str, thinking_level: str | None = None) -> AgentSettings:
+    """Settings whose agent runs on ``model_names`` with ``thinking_level``, the rest at the defaults."""
+    return agent_settings(run=RunOverrides(model_names=model_names, agent_thinking_level=thinking_level))
 
 
 def make_spec(**overrides) -> RunSpec:
@@ -35,11 +42,12 @@ def make_spec(**overrides) -> RunSpec:
 
 
 @contextmanager
-def agent_stack(agent, *, ctx=None, context=None, resolve=None):
+def agent_stack(agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
     ``ctx`` is the ``RuntimeCtx`` the stubbed clone yields (its ``repo.ref`` defaults to ``"main"``), ``context``
-    replaces ``set_runtime_ctx`` itself, and ``resolve`` replaces ``get_daiv_agent_kwargs``.
+    replaces ``set_runtime_ctx`` itself, ``resolve`` replaces ``resolve_agent_settings`` (by default it resolves the
+    agent to ``claude-4-7-opus`` at ``medium``), and ``site`` is the snapshot the run takes (the field defaults).
     ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed to the clone.
     """
     stack = SimpleNamespace(
@@ -52,7 +60,8 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         ),
         checkpointer=object(),
         armed=[],
-        resolve=resolve or MagicMock(return_value=AGENT_KWARGS),
+        resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
+        site=site or site_snapshot(),
     )
 
     @asynccontextmanager
@@ -84,7 +93,8 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         stub_sandbox_spec() as build_spec,
         patch("codebase.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
-        patch("automation.agent.utils.get_daiv_agent_kwargs", stack.resolve),
+        patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
+        patch("automation.agent.agent_settings.resolve_agent_settings", stack.resolve),
         patch("automation.agent.graph.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent,
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
         patch("automation.agent.results.build_agent_result", new=AsyncMock(side_effect=_build_result)) as build_result,
@@ -95,6 +105,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         patch("sessions.executor.run.PipelineWatch", _Watch),
     ):
         stack.build_spec = build_spec
+        stack.snapshot = snapshot
         stack.create_agent = create_agent
         stack.langsmith = langsmith
         stack.build_result = build_result
@@ -107,7 +118,7 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
     """A ``GitChangePublisher`` stand-in that pushes through the shell of whatever workspace it is handed."""
 
     class _Publisher:
-        def __init__(self, ctx, workspace, *, thread_id):
+        def __init__(self, ctx, workspace, *, settings, thread_id):
             self.workspace = workspace
             created.append(self)
 
