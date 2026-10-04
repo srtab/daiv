@@ -41,12 +41,7 @@ from automation.agent.middlewares.summarization import build_summarization_middl
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
-from automation.agent.prompts import (
-    AGENTS_MEMORY_SYSTEM_PROMPT,
-    DAIV_SYSTEM_PROMPT,
-    REPO_RELATIVE_SYSTEM_REMINDER,
-    WRITE_TODOS_SYSTEM_PROMPT,
-)
+from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -97,13 +92,7 @@ def _output_invariants_system_prompt(working_directory: str) -> str:
     prefix = working_directory.rstrip("/") + "/"
     return f"""\
 <output_invariants>
-Applies to ALL user-visible text:
-
-- NEVER include "{prefix}" anywhere in user-visible output.
-- Any repository file path shown to the user MUST be repo-relative (no leading "/").
-  <example>{prefix}daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
-- Before emitting any user-visible text, check for "{prefix}" and rewrite to repo-relative form.
+- Show repository paths repo-relative in user-visible text (e.g. `daiv/core/utils.py:42`), never under "{prefix}"; link them with platform-native blob URLs on the branch.
 
 {filesystem_absolute_path_directive(working_directory)}
 </output_invariants>"""  # noqa: E501
@@ -149,8 +138,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         + cast("str", daiv_system_prompt.content).strip()
         + "\n\n"
         + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMINDER
-    )
+    ).rstrip()
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:

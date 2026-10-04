@@ -42,12 +42,7 @@ logger = logging.getLogger("daiv.tools")
 # Tool descriptions
 # ---------------------------------------------------------------------------
 
-REMINDER_ABSOLUTE_PATHS = """
-IMPORTANT:
-- Tool inputs/outputs use absolute paths (e.g. /workspace/repo/...).
-- DO NOT output these absolute paths to the user.
-- Convert to repo-relative paths in all user-visible text.
-"""
+REMINDER_ABSOLUTE_PATHS = "\nTool inputs and outputs use absolute paths (e.g. /workspace/repo/...)."
 
 # Steers the agent to edit_file for existing files, saving the wasted call it otherwise spends
 # discovering the rejection. Stated as a preference, not a mechanism: whether an overwrite is refused
