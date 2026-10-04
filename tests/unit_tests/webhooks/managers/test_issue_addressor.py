@@ -356,6 +356,15 @@ class TestIssueAfterRunMatrix:
         assert "<title>Crash on save</title>" in issue_message.content
         assert prompt_message.content == "@daiv-bot please fix it"
 
+    async def test_the_reply_is_posted_repo_relative(self, captured_client):
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="Fixed /workspace/repo/daiv/x.py:3.")]})
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address()
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2] == "Fixed daiv/x.py:3."
+
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(stub_base_init):

@@ -13,6 +13,7 @@ from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.synthetic import synthetic_message
+from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
 from codebase.utils import resolve_thread_id
@@ -234,4 +235,6 @@ class IssueAddressorManager(BaseManager):
             body: The body of the comment.
             reply_to_id: The ID of the comment to reply to. This is not supported for GitHub.
         """
-        return self.client.create_issue_comment(self.repo_id, self.issue.iid, body, reply_to_id=reply_to_id)
+        return self.client.create_issue_comment(
+            self.repo_id, self.issue.iid, repo_relative_text(body), reply_to_id=reply_to_id
+        )
