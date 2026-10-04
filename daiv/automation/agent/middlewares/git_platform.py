@@ -20,6 +20,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
+from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
@@ -535,6 +536,31 @@ def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     return None
 
 
+_PUBLISHED_TEXT_FLAGS = frozenset({"--body", "--title", "--description", "-b", "-t"})
+
+
+def _repo_relative_flag_values(args: list[str]) -> list[str]:
+    """``args`` with the values of the flags that carry published text made repo-relative.
+
+    Handles ``--flag value`` and ``--flag=value``. Every other argument, file and position flags included,
+    is passed through unchanged.
+    """
+    rewritten: list[str] = []
+    value_follows = False
+    for arg in args:
+        if value_follows:
+            rewritten.append(repo_relative_text(arg))
+            value_follows = False
+            continue
+        flag, sep, value = arg.partition("=")
+        if sep and flag in _PUBLISHED_TEXT_FLAGS:
+            rewritten.append(f"{flag}={repo_relative_text(value)}")
+        else:
+            rewritten.append(arg)
+            value_follows = arg in _PUBLISHED_TEXT_FLAGS
+    return rewritten
+
+
 async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Create an inline MR diff discussion via the python-gitlab Python API.
@@ -607,7 +633,7 @@ async def _run_gitlab_subcommand(
         return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
 
     try:
-        splitted_subcommand = shlex.split(subcommand.strip())
+        splitted_subcommand = _repo_relative_flag_values(shlex.split(subcommand.strip()))
     except ValueError as e:
         return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 
@@ -775,7 +801,7 @@ async def _run_github_subcommand(
         return "error: Subcommand cannot be empty. Format: '<object> <action> [arguments...]'"
 
     try:
-        splitted_subcommand = shlex.split(subcommand.strip())
+        splitted_subcommand = _repo_relative_flag_values(shlex.split(subcommand.strip()))
     except ValueError as e:
         return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 
