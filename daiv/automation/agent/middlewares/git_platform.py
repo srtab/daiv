@@ -536,7 +536,7 @@ def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     return None
 
 
-_PUBLISHED_TEXT_FLAGS = frozenset({"--body", "--title", "--description", "-b", "-t"})
+_PUBLISHED_TEXT_FLAGS = frozenset({"--body", "--title", "--description", "--notes", "-b", "-t"})
 
 
 def _repo_relative_flag_values(args: list[str]) -> list[str]:
