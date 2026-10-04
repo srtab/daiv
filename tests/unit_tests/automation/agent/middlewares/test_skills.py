@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
 from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMiddleware
+from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
@@ -694,6 +695,19 @@ class TestReadOnlyMode:
 
         handler.assert_awaited_once_with(request)
         assert result is expected
+
+
+class TestHasUserFollowup:
+    def test_looks_past_a_synthetic_message_between_the_plan_and_the_comment(self):
+        changed_issue = synthetic_message("<issue>v2</issue>", kind="issue_context", message_id="issue-context-1-abc")
+        messages = [
+            HumanMessage(content="plan issue 1"),
+            AIMessage(content="the plan"),
+            changed_issue,
+            HumanMessage(content="proceed"),
+        ]
+
+        assert SkillsMiddleware._has_user_followup(messages) is True
 
 
 class TestCustomGlobalSkills:
