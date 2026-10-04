@@ -249,6 +249,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             acting_user_id=spec.acting_user_id,
             acting_platform_uid=spec.acting_platform_uid,
             acting_user_authenticated=spec.acting_user_authenticated,
+            cross_project_allowed=spec.thread_id is not None,
             mcp_overrides=spec.mcp_overrides,
             references=spec.references,
             **spec.context_options,

@@ -77,6 +77,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "acting_user_id": 7,
         "acting_platform_uid": "4242",
         "acting_user_authenticated": True,
+        "cross_project_allowed": True,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
@@ -140,6 +141,13 @@ async def test_each_one_shot_run_checkpoints_in_memory_under_its_own_thread():
     assert all(isinstance(saver, InMemorySaver) for saver in savers)
     assert savers[0] is not savers[1]
     assert len({uuid.UUID(thread) for thread in threads}) == 2
+
+
+async def test_a_one_shot_run_has_no_session_to_restrict_so_it_gets_no_cross_project_access():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(thread_id=None))
+
+    assert stack.context_kwargs["cross_project_allowed"] is False
 
 
 @pytest.mark.django_db(transaction=True)

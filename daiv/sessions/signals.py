@@ -114,7 +114,9 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
 def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
     """Add the person whose grant fetched another project's content to the session's ``cross_project_user_ids``.
 
-    Errors propagate on purpose, so whoever writes the record learns the session could not be restricted.
+    Errors propagate on purpose, so whoever writes the record learns the session could not be restricted. A
+    thread with no session row raises too: a session created over it later would start unrestricted. One-shot
+    runs, the only sessionless threads, get no cross-project access (``sessions.executor.run._agent_run``).
     """
     from sessions.models import Session
 
@@ -131,8 +133,8 @@ def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, crea
             Session.objects.select_for_update().only("cross_project_user_ids").filter(pk=instance.thread_id).first()
         )
         if session is None:
-            logger.warning("Cross-project fetch in thread_id=%s has no session row to restrict.", instance.thread_id)
-            return
+            logger.error("Cross-project fetch in thread_id=%s has no session row to restrict.", instance.thread_id)
+            raise Session.DoesNotExist(f"No session row for thread_id={instance.thread_id}")
         if user_id in session.cross_project_user_ids:
             return
         session.cross_project_user_ids = [*session.cross_project_user_ids, user_id]

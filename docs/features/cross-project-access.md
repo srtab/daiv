@@ -43,7 +43,7 @@ A project the person cannot reach is **refused with a stated reason**. It is nev
 | Unreadable | The stored authorisation can no longer be decrypted (see [Where the credential lives](#where-the-credential-lives)) and was cleared |
 | Not accessible | The project is not accessible to the person. This is deliberately ambiguous between "does not exist" and "you may not see it", so the tool cannot be used to probe for private projects |
 | Not permitted cross-project | The person holds the permission, but DAIV refuses the operation outside the attached project (see [below](#what-the-agent-can-and-cannot-do-in-another-project)) |
-| Result withheld | The call ran, but DAIV could not write its audit record, which is what keeps the result to the person it was fetched for. The result is not returned; a write may already have happened |
+| Result withheld | The call ran, but DAIV could not write its audit record or [mark the session](#conversations-that-reached-another-project) with it, which is what keeps the result to the person it was fetched for. The result is not returned; a write may already have happened |
 
 The agent never sees the platform's own error text from another project. It can carry token fragments, and repository names the person is not entitled to see.
 
@@ -147,7 +147,7 @@ What a cross-project call returns lands in the conversation's transcript, alongs
 
 | | Who |
 |---|---|
-| Sees the session | Only the people on its mark, and admins. That covers the session page and transcript, its runs (including the Markdown download), its artifacts, the live chat stream, the Jobs API and MCP `get_job_status` / `list_jobs`, the sessions and artifacts lists and the dashboard counts. Everyone else loses it, including people who acted in it, people who can read the attached repository, and subscribers of the schedule that started it |
+| Sees the session | Only the people on its mark, and admins. That covers the session page and transcript, its runs (including the Markdown download), its artifacts, the live chat stream (one already open ends before it carries the fetched result), the Jobs API and MCP `get_job_status` / `list_jobs`, the sessions and artifacts lists and the dashboard counts. Everyone else loses it, including people who acted in it, people who can read the attached repository, and subscribers of the schedule that started it |
 | Is notified about its runs | The same people. A schedule's subscribers stop getting its runs' summaries; a batch rollup leaves out anyone who may not see every run in it |
 | Continues it | Only a person on its mark, signed in to DAIV (chat, the Jobs API, MCP, a dashboard job, a schedule). Any other run is refused before the agent starts, with the message below |
 | Mines it into repository memory | Nobody. Runs in a marked session are never extracted into memory |
@@ -245,7 +245,7 @@ Every other flag the policy recognises on those commands crosses, as listed abov
 
 A comment, issue or merge request that DAIV writes in another project carries the person's attribution, not the bot's. The usual "is this my own event?" check cannot recognise it, and a project DAIV also watches would feed the text straight back as a new run.
 
-To prevent that, DAIV appends a non-rendering marker to every body it publishes in another project (the `--body`, `--description` or `--note` of a new or edited issue, merge request, pull request or comment):
+To prevent that, DAIV appends a non-rendering marker to every body it publishes in another project (the `--body`, `--description` or `--note` of a new or edited issue or comment, or of an edited merge request or pull request):
 
 ```html
 <!-- daiv:cross-project -->
@@ -275,7 +275,7 @@ A comment the person writes there themselves is handled normally.
 
 ## Audit log
 
-Every attempt to reach another project writes one record, allowed *and* refused. An **Allowed** record also [marks its session](#conversations-that-reached-another-project) with the person it names, so if DAIV cannot write it, the call's result is withheld from the agent. Admins find them at **Cross-project access** in the sidebar (`/codebase/cross-project-access/`), newest first, filterable by target project, thread and outcome.
+Every attempt to reach another project writes one record, allowed *and* refused. An **Allowed** record also [marks its session](#conversations-that-reached-another-project) with the person it names, so if DAIV cannot write it, or the conversation has no session to mark, the call's result is withheld from the agent. Admins find them at **Cross-project access** in the sidebar (`/codebase/cross-project-access/`), newest first, filterable by target project, thread and outcome.
 
 A record holds **who** acted, **which project** they reached, on **which thread**, **how it ended** and **when**. The person's name is snapshotted onto the row, so deleting their account does not erase the answer. An attempt DAIV cannot attribute to an account shows as "The requesting user".
 

@@ -68,6 +68,13 @@ class SessionQuerySet(models.QuerySet["Session"]):
         readable = self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))
         return self.filter(readable & _cross_project_q(user)).distinct()
 
+    def cross_project_visible_to(self, user: User) -> models.QuerySet[Session]:
+        """The cross-project condition of :meth:`by_owner` and :meth:`visible_to` alone, to re-check an authorised
+        session after reading it: a fetch can restrict the session between the authorisation and the read."""
+        if user.is_admin:
+            return self.all()
+        return self.filter(_cross_project_q(user))
+
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
 

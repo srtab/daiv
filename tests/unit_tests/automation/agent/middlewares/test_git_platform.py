@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
+from sessions.models import Session, SessionOrigin
 
 from accounts.credentials import CredentialReason, ResolvedCredential, aresolve_access_token
 from automation.agent.middlewares.file_system import DAIVCompositeBackend
@@ -828,6 +829,12 @@ def _xproj_runtime(
         tool_call_id="c-xproj",
         store=None,
     )
+
+
+@pytest.fixture
+def xproj_session(transactional_db):
+    """The session of ``_xproj_runtime``'s thread: an allowed fetch restricts it, else its result is withheld."""
+    return Session.objects.create(thread_id="t-xproj", origin=SessionOrigin.CHAT, repo_id=ATTACHED)
 
 
 def _gitlab_settings():
@@ -2012,7 +2019,7 @@ class TestNoTargetContentSurvivesADenial:
 class TestThePersonsTokenNeverEntersState:
     """Agent state is checkpointed, so a person's token in it is a token at rest under a key nobody revokes."""
 
-    async def test_a_successful_cross_project_github_call_produces_no_command(self, member_user):
+    async def test_a_successful_cross_project_github_call_produces_no_command(self, member_user, xproj_session):
         runtime = _xproj_runtime(GitPlatform.GITHUB, acting_user_id=member_user.pk)
         proc = Mock()
         proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
@@ -2033,10 +2040,15 @@ class TestThePersonsTokenNeverEntersState:
         assert runtime.state == {}
         cached_mock.assert_not_called()
 
-    async def test_an_allowed_cross_project_call_is_recorded_without_the_token(self, member_user):
+    async def test_an_allowed_cross_project_call_is_recorded_without_the_token(self, member_user, xproj_session):
         runtime = _xproj_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
-        await _run_gl_audited(runtime, project="other/repo", resolved=ResolvedCredential(token="person-token"))  # noqa: S106
+        result, _, _ = await _run_gl_audited(
+            runtime,
+            project="other/repo",
+            resolved=ResolvedCredential(token="person-token"),  # noqa: S106
+        )
 
+        assert result == "ok"
         record = await CrossProjectAccessRecord.objects.aget(target_repo_id="other/repo")
         assert record.outcome == CrossProjectAccessRecord.Outcome.ALLOWED
         assert record.acting_user_id == member_user.pk
@@ -2561,6 +2573,20 @@ class TestAnUnrecordedFetchIsWithheld:
         with _patched_platform(stdout=TARGET_CONTENT.encode()) as mocks:
             mocks.record.return_value = False
             result = await run(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=OTHER)
+        assert TARGET_CONTENT not in result
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_fetch_in_a_thread_without_a_session_row_is_withheld(self, member_user):
+        runtime = _xproj_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
+
+        result, _, _ = await _run_gl_audited(
+            runtime,
+            project=OTHER,
+            resolved=ResolvedCredential(token="person-token"),  # noqa: S106
+            stdout=TARGET_CONTENT.encode(),
+        )
 
         assert result == REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=OTHER)
         assert TARGET_CONTENT not in result

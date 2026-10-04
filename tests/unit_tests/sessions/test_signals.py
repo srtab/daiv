@@ -657,9 +657,14 @@ class TestRestrictSessionToCrossProjectFetchers:
         assert session.cross_project_user_ids == [None]
         assert any(record.levelname == "ERROR" for record in caplog.records)
 
-    def test_a_record_without_a_session_row_changes_nothing(self, member_user):
-        self._record(thread_id=str(uuid.uuid4()), acting_user=member_user)
+    def test_a_fetch_in_a_thread_without_a_session_row_raises_and_logs_an_error(self, member_user, caplog):
+        thread_id = str(uuid.uuid4())
 
+        with pytest.raises(Session.DoesNotExist):
+            self._record(thread_id=thread_id, acting_user=member_user)
+
+        errors = [record for record in caplog.records if record.levelname == "ERROR"]
+        assert [record.args for record in errors] == [(thread_id,)]
         assert not Session.objects.exclude(cross_project_user_ids=[]).exists()
 
     def test_an_updated_record_is_not_counted_again(self, member_user, other_user):

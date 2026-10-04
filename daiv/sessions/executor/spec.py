@@ -27,7 +27,8 @@ class RunSpec:
     merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
     ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()``.
 
-    ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
+    ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches and no
+    cross-project access, since there is no session to restrict to whoever fetched.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.

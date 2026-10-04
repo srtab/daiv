@@ -893,6 +893,30 @@ def test_detail_shows_the_session_to_the_person_who_fetched_its_cross_project_re
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(("fetched_by_viewer", "status"), [(False, 404), (True, 200)])
+def test_detail_rechecks_a_cross_project_restriction_that_lands_while_the_transcript_is_read(
+    member_client, member_user, fetched_by_viewer, status
+):
+    from langchain_core.messages import AIMessage
+
+    session = _create_session(user=member_user)
+    fetcher_id = member_user.pk if fetched_by_viewer else member_user.pk + 1
+
+    async def hydrate_as_a_fetch_lands(thread_id):
+        await Session.objects.filter(pk=thread_id).aupdate(cross_project_user_ids=[fetcher_id])
+        return HydratedThread([AIMessage(content="their secrets", id="m-1")], False, None, None, None)
+
+    with (
+        patch("sessions.views.ahydrate_thread", hydrate_as_a_fetch_lands),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == status
+    assert ("their secrets" in resp.content.decode()) is fetched_by_viewer
+
+
+@pytest.mark.django_db
 def test_markdown_download_404s_for_a_run_of_a_session_holding_another_persons_cross_project_results(
     member_client, member_user
 ):

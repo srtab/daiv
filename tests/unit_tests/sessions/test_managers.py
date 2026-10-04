@@ -106,6 +106,15 @@ class TestSessionVisibility:
 
         assert shared_session not in Session.objects.visible_to(fetcher)
 
+    def test_the_cross_project_recheck_applies_the_mark_alone(self, shared_session, fetcher, other_user, admin_user):
+        assert shared_session in Session.objects.cross_project_visible_to(other_user)
+
+        Session.objects.filter(pk=shared_session.pk).update(cross_project_user_ids=[fetcher.pk])
+
+        assert shared_session in Session.objects.cross_project_visible_to(fetcher)
+        assert shared_session in Session.objects.cross_project_visible_to(admin_user)
+        assert shared_session not in Session.objects.cross_project_visible_to(other_user)
+
 
 class TestRunAndArtifactVisibility:
     def test_runs_and_artifacts_of_a_restricted_session_follow_it(self, shared_session, fetcher, other_user):

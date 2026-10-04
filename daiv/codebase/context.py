@@ -191,6 +191,7 @@ async def set_runtime_ctx(
     acting_user_id: int | None = None,
     acting_platform_uid: str | None = None,
     acting_user_authenticated: bool = False,
+    cross_project_allowed: bool = True,
     mcp_overrides: dict | None = None,
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
@@ -209,6 +210,7 @@ async def set_runtime_ctx(
         acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
         acting_platform_uid: Platform user id that triggered a webhook run.
         acting_user_authenticated: Whether ``acting_user_id`` is a DAIV sign-in.
+        cross_project_allowed: ``False`` keeps cross-project access off for this run whatever the site toggle says.
         mcp_overrides: Per-run MCP server selection deviations ({name: "on"|"off"}). ``None`` keeps the default set.
         references: Caller-declared external references, from ``Session.external_refs``.
         fallback_ref_on_missing: When True, a clone that fails because ``ref`` no longer exists on
@@ -264,7 +266,7 @@ async def set_runtime_ctx(
                 acting_user_id=acting_user_id,
                 acting_platform_uid=acting_platform_uid,
                 acting_user_authenticated=acting_user_authenticated,
-                cross_project_enabled=bool(site_settings.cross_project_access_enabled),
+                cross_project_enabled=cross_project_allowed and bool(site_settings.cross_project_access_enabled),
                 mcp_overrides=mcp_overrides or {},
             )
             token = runtime_ctx.set(ctx)
