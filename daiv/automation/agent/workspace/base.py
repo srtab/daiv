@@ -25,6 +25,13 @@ class Workspace(Protocol):
         ...
 
     @property
+    def seed_backend(self) -> BackendProtocol:
+        """The ``/workspace`` namespace as the run starts, readable while the agent is built: ``backend`` on disk; on a
+        sandbox, the worker's clone that seeds the container, since the session is acquired only once the run starts.
+        A reused warm container can still hold edits a previous turn failed to publish, which the clone lacks."""
+        ...
+
+    @property
     def git(self) -> GitManager:
         """Git in the repository the agent changes, for commands that need no platform credential."""
         ...

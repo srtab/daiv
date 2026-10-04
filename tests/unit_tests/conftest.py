@@ -258,16 +258,21 @@ class FakeSandboxClient:
 @dataclass
 class FakeWorkspace:
     """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
-    ready. ``authenticated_git`` hands back ``git``, and ``download_file`` reads through ``backend`` as a disk read
-    does."""
+    ready. ``seed_backend`` defaults to ``backend``, as on disk. ``authenticated_git`` hands back ``git``, and
+    ``download_file`` reads through ``backend`` as a disk read does."""
 
     backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
+    seed_backend: Any = None
     git: Any = field(default_factory=AsyncMock)
     bash: Any = None
     session: Any = None
     fs_permissions: Any = None
     provisions_skills: bool = False
     is_ready: bool = True
+
+    def __post_init__(self) -> None:
+        if self.seed_backend is None:
+            self.seed_backend = self.backend
 
     async def authenticated_git(self) -> Any:
         return self.git

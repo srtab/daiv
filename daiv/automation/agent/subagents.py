@@ -555,7 +555,6 @@ def _compile_subagent(
 async def load_custom_subagents(
     model: BaseChatModel,
     workspace: Workspace,
-    definitions: BackendProtocol,
     runtime: RuntimeCtx,
     sources: list[str],
     working_directory: str,
@@ -572,8 +571,8 @@ async def load_custom_subagents(
 
     Args:
         model: The default model to use for custom subagents.
-        workspace: The run's workspace, which each subagent works in.
-        definitions: Lists and reads the definitions; readable before the run starts, unlike a sandbox workspace.
+        workspace: The run's workspace: its ``seed_backend`` lists and reads the definitions, and each subagent works
+            in it.
         runtime: The runtime context.
         sources: List of paths to scan for subagent definitions.
         working_directory: The run's absolute repo root (e.g. ``/workspace/repo/``), baked into the
@@ -589,11 +588,16 @@ async def load_custom_subagents(
     """
     subagents: list[CompiledSubAgent] = []
 
+    definitions = workspace.seed_backend
     for source_path in sources:
         try:
             result = await definitions.als(source_path)
-        except Exception:
-            logger.warning("Could not list %s, skipping custom subagents from this source", source_path, exc_info=True)
+        except Exception as exc:
+            # Repository content can trigger this (a symlink out of the clone), so no traceback: it would repeat on
+            # every run and carry the worker's paths.
+            logger.warning(
+                "Could not list %s (%s), skipping custom subagents from this source", source_path, type(exc).__name__
+            )
             continue
 
         md_files = [
@@ -606,6 +610,7 @@ async def load_custom_subagents(
 
         for file_path, response in zip(md_files, responses, strict=True):
             if response.error:
+                logger.warning("Could not read %s (%s), skipping this custom subagent", file_path, response.error)
                 continue
             if response.content is None:
                 continue

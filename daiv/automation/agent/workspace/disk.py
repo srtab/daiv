@@ -34,6 +34,7 @@ class DiskWorkspace:
     def __init__(self, ctx: RuntimeCtx) -> None:
         self._ctx = ctx
         self.backend = build_disk_workspace_backend(Path(ctx.gitrepo.working_dir))
+        self.seed_backend = self.backend
         self.git = GitManager(LocalGitRunner(ctx.gitrepo))
 
     async def authenticated_git(self) -> GitManager:

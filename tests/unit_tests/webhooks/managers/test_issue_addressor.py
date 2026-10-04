@@ -44,10 +44,10 @@ def _ctx() -> SimpleNamespace:
 
 
 def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
-    """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds the session from."""
+    """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds the session and its seed
+    from."""
     sandbox = {
         "merge_request": None,
-        "gitrepo": None,
         "repo": SimpleNamespace(ref="main", current_ref="daiv/issue-42"),
         "sandbox": sandbox_spec(),
         "sandbox_client": client,

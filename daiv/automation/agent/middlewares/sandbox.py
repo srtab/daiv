@@ -393,7 +393,9 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session))],
+            middleware=[
+                SandboxMiddleware(agent_root="/workspace/repo", workspace=SandboxWorkspace(session, clone=clone_dir))
+            ],
         )
         ```
     """

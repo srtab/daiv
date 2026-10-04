@@ -6,6 +6,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
@@ -317,7 +318,10 @@ def _build_workspace(ctx: RuntimeCtx) -> Workspace:
         raise ValueError("The run's sandbox spec and its sandbox client disagree: both or neither must be set")
     if ctx.sandbox is None or ctx.sandbox_client is None:
         return DiskWorkspace(ctx)
-    return SandboxWorkspace(SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source))
+    return SandboxWorkspace(
+        SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source),
+        clone=Path(ctx.gitrepo.working_dir),
+    )
 
 
 async def _handed_over(run: AgentRun) -> bool:

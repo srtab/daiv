@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING
 from automation.agent.constants import WORKSPACE_PATH
 from automation.agent.git_manager import GitManager
 from automation.agent.git_runners import SandboxGitRunner
-from automation.agent.middlewares.file_system import DAIVCompositeBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend, build_disk_workspace_backend
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from deepagents.backends.protocol import FileDownloadResponse
 
     from automation.agent.workspace.session import SandboxSession
@@ -21,18 +23,20 @@ class SandboxWorkspace:
     """A sandbox run's workspace: the file tools, the ``bash`` tool and git all reach the container ``session`` holds,
     through one ``SandboxFileBackend``.
 
-    The seed provisions the global skills. The file tools are unfenced, since bash reaches the whole container anyway.
+    The seed, from the worker's ``clone``, provisions the global skills. The file tools are unfenced, since bash reaches
+    the whole container anyway.
     """
 
     fs_permissions = None
     provisions_skills = True
 
-    def __init__(self, session: SandboxSession) -> None:
+    def __init__(self, session: SandboxSession, *, clone: Path) -> None:
         self.session = session
         self.bash = SandboxFileBackend(session)
         # A composite only so the offloading middlewares get an ``artifacts_root`` under /workspace: a bare backend
         # defaults to "/", and the sandbox rejects evictions written there.
         self.backend = DAIVCompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
+        self.seed_backend = build_disk_workspace_backend(clone)
         self.git = GitManager(SandboxGitRunner(self.bash))
 
     @property

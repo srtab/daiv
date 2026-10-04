@@ -33,6 +33,12 @@ async def test_its_files_are_the_clone_under_workspace_repo(tmp_path):
     assert response.content == b"hello\n"
 
 
+def test_it_starts_from_its_own_backend(tmp_path):
+    workspace = DiskWorkspace(_ctx(tmp_path))
+
+    assert workspace.seed_backend is workspace.backend
+
+
 def test_its_git_runs_over_the_clone_without_a_credential(tmp_path):
     ctx = _ctx(tmp_path)
 

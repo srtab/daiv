@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
@@ -19,9 +19,6 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
 from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, agent_settings, sandbox_spec, site_snapshot
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -40,12 +37,12 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, *, clone: Path | None = None, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, load_custom_subagents: bool = False, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
-    base image, so a disk workspace shows the mode is the workspace's, not the context's. A ``clone`` is the worker's
-    clone, read by the real custom-subagent loader instead of its stub."""
+    base image, so a disk workspace shows the mode is the workspace's, not the context's. ``load_custom_subagents``
+    runs the real custom-subagent loader instead of its stub."""
     patches = _patches()
-    if clone is not None:
+    if load_custom_subagents:
         del patches["load_custom"]
     with ExitStack() as stack:
         mocks = {
@@ -62,7 +59,6 @@ async def _build(workspace, *, clone: Path | None = None, **agent_kwargs) -> Sim
             web_search_enabled=False,
         )
         ctx = MagicMock()
-        ctx.gitrepo.working_dir = str(clone or "/repo")
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
         await create_daiv_agent(
@@ -77,9 +73,9 @@ def _disk_workspace() -> DiskWorkspace:
     return DiskWorkspace(ctx)
 
 
-def _sandbox_workspace() -> tuple[SandboxWorkspace, FakeSandboxClient]:
+def _sandbox_workspace(clone: Path = Path("/repo")) -> tuple[SandboxWorkspace, FakeSandboxClient]:
     client = FakeSandboxClient.opened()
-    return SandboxWorkspace(SandboxSession(client, sandbox_spec())), client
+    return SandboxWorkspace(SandboxSession(client, sandbox_spec()), clone=clone), client
 
 
 def _middleware(built: SimpleNamespace) -> list:
@@ -136,9 +132,9 @@ async def test_sandbox_mode_loads_the_repos_custom_subagents_before_the_session_
     subagents_dir = tmp_path / ".agents" / "subagents"
     subagents_dir.mkdir(parents=True)
     (subagents_dir / "reviewer.md").write_text("---\nname: reviewer\ndescription: Reviews changes\n---\nYou review.\n")
-    workspace, client = _sandbox_workspace()
+    workspace, client = _sandbox_workspace(clone=tmp_path)
 
-    built = await _build(workspace, clone=tmp_path)
+    built = await _build(workspace, load_custom_subagents=True)
 
     names = [subagent["name"] for subagent in built.create_deep_agent.call_args.kwargs["subagents"]]
     assert "reviewer" in names

@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
@@ -26,7 +25,6 @@ from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_FS_TOOLS,
     DAIVFilesystemMiddleware,
-    build_disk_workspace_backend,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git import GitMiddleware
@@ -234,8 +232,6 @@ async def create_daiv_agent(
     custom_subagents = await load_custom_subagents(
         model=model,
         workspace=workspace,
-        # The worker's clone, which seeds the sandbox: its session is acquired only once the run starts.
-        definitions=build_disk_workspace_backend(Path(ctx.gitrepo.working_dir)),
         runtime=ctx,
         sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
         working_directory=working_directory,

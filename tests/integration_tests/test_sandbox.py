@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
@@ -93,7 +95,7 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx, sand
     agent = await create_daiv_agent(
         settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
-        workspace=SandboxWorkspace(sandbox_session),
+        workspace=SandboxWorkspace(sandbox_session, clone=Path(runtime_ctx.gitrepo.working_dir)),
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),
@@ -158,7 +160,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(
     agent = await create_daiv_agent(
         settings=agent_settings_on(model_name, runtime_ctx),
         ctx=runtime_ctx,
-        workspace=SandboxWorkspace(sandbox_session),
+        workspace=SandboxWorkspace(sandbox_session, clone=Path(runtime_ctx.gitrepo.working_dir)),
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
         checkpointer=InMemorySaver(),

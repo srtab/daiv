@@ -1,6 +1,7 @@
 import io
 import json
 import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -29,8 +30,6 @@ from tests.unit_tests.conftest import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sandbox_envs.spec import SandboxSpec
 
 
@@ -60,13 +59,14 @@ def _make_bash_runtime(repo: Repo) -> Mock:
 def _make_middleware() -> SandboxMiddleware:
     """A SandboxMiddleware over a session nothing acquired, for tests of the bash policy and the system prompt."""
     return SandboxMiddleware(
-        agent_root="/dummy", workspace=SandboxWorkspace(SandboxSession(FakeSandboxClient(), sandbox_spec()))
+        agent_root="/dummy",
+        workspace=SandboxWorkspace(SandboxSession(FakeSandboxClient(), sandbox_spec()), clone=Path("/repo")),
     )
 
 
 def _bash_tool_with_fake_client(client: Mock):
     """The bash tool of a SandboxMiddleware over an acquired session on ``client``."""
-    workspace = SandboxWorkspace(acquired_session(client, "sess_1"))
+    workspace = SandboxWorkspace(acquired_session(client, "sess_1"), clone=Path("/repo"))
     return SandboxMiddleware(agent_root="/dummy", workspace=workspace).tools[0]
 
 
@@ -525,7 +525,7 @@ async def _turn(
     """Run one agent turn: the sandbox hook, a command through the backend, then the executor's release. Return the
     state the checkpoint would hold after it."""
     session = _run_session(client, runtime, token)
-    workspace = SandboxWorkspace(session)
+    workspace = SandboxWorkspace(session, clone=Path("/repo"))
     middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
     state = {**state, **(await middleware.abefore_agent(state, runtime) or {})}
     await workspace.bash.run_commands(list(_PROBE), fail_fast=True)
@@ -737,7 +737,7 @@ class TestPinnedSessionLifecycle:
         """B6: a subagent's sandbox hook never opens, refreshes or closes a session."""
         client = FakeSandboxClient.opened()
         runtime = _make_agent_runtime(repo_dir)
-        workspace = SandboxWorkspace(_run_session(client, runtime, "tok-1"))
+        workspace = SandboxWorkspace(_run_session(client, runtime, "tok-1"), clone=Path("/repo"))
         parent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
         state = await parent.abefore_agent({}, runtime)
         calls_before = list(client.calls)

@@ -5,6 +5,7 @@ most: the turn-end publish has already failed, and this is the last attempt. It 
 ``GitMiddleware`` does — see ``automation.agent.publishers.effective_merge_request``.
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
@@ -135,7 +136,7 @@ class TestSandboxMode:
                 agent,
                 {},
                 thread_id="t-1",
-                workspace=SandboxWorkspace(session),
+                workspace=SandboxWorkspace(session, clone=Path("/repo")),
                 settings=SETTINGS,
             )
         return published, agent
@@ -182,7 +183,7 @@ class TestSandboxMode:
                 agent,
                 {},
                 thread_id="t-1",
-                workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec())),
+                workspace=SandboxWorkspace(SandboxSession(client, sandbox_spec()), clone=Path("/repo")),
                 settings=SETTINGS,
             )
 
