@@ -22,6 +22,8 @@ from automation.agent.middlewares.git_platform import (
     REFUSAL_DISABLED,
     REFUSAL_EXPIRED,
     REFUSAL_FILE_ARGUMENT_CROSS_PROJECT,
+    REFUSAL_FOREIGN_REFERENCE,
+    REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE,
     REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT,
     REFUSAL_INSUFFICIENT_SCOPE,
     REFUSAL_NO_ACTING_USER,
@@ -33,6 +35,7 @@ from automation.agent.middlewares.git_platform import (
     REFUSAL_QUICK_ACTION_CROSS_PROJECT,
     REFUSAL_REVOKED,
     REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT,
+    REFUSAL_UNRECORDED_CROSS_PROJECT,
     REFUSAL_WRONG_HOST,
     GitPlatformMiddleware,
     _decide_target,
@@ -40,6 +43,7 @@ from automation.agent.middlewares.git_platform import (
     _is_allowed_cli_command,
     _large_tool_results_prefix,
     _names_a_bot_label,
+    _record_cross_project_access,
     _run_github_subcommand,
     _run_gitlab_subcommand,
     _TargetDecision,
@@ -849,7 +853,7 @@ def _patched_platform(*, resolved=None, returncode=0, stdout=b"ok\n", stderr=b""
     ):
         create_proc.return_value = proc
         resolve_mock.return_value = resolved if resolved is not None else ResolvedCredential(token="person-token")  # noqa: S106
-        record_mock.return_value = None
+        record_mock.return_value = True
         invalidate_mock.return_value = None
         yield SimpleNamespace(
             create_proc=create_proc, resolve=resolve_mock, record=record_mock, invalidate=invalidate_mock
@@ -1498,10 +1502,11 @@ class TestGitHubFlagSpellings:
             ("issue edit 1 -mv1", "--milestone"),
             ("issue edit 1 -m=v1", "--milestone"),
             ("issue edit 1 --milestone=v1", "--milestone"),
-            ("issue edit 1 --remove-milestone", "--remove-milestone"),
             ("pr edit 2 -B other", "--base"),
             ("pr edit 2 --base=other", "--base"),
-            ("pr create -t T -b x -dm v1", "--milestone"),
+            ("issue create -t T -b x -wm v1", "--milestone"),
+            ("issue comment 1 --edit-last", "--edit-last"),
+            ("pr comment 2 --edit-last -b x", "--edit-last"),
         ],
     )
     async def test_a_short_or_attached_denied_flag_is_refused(self, subcommand, flag):
@@ -1522,10 +1527,8 @@ class TestGitHubFlagSpellings:
             "issue comment 1 -Fnote.md",
             "issue comment 1 -F=note.md",
             "issue comment 1 -F note.md",
-            "pr create -t T -T template.md",
-            "pr create -t T -f",
-            "pr create -t T -df",
-            "pr create -t T --fill-verbose",
+            "issue create -t T -T template.md",
+            "issue create -t T -wTtemplate.md",
             "issue create -t T --recover state.json",
         ],
     )
@@ -1545,7 +1548,7 @@ class TestGitHubFlagSpellings:
             "issue comment 1 -b=hello",
             "issue comment 1 --body=hello",
             "issue comment 1 -b hello",
-            "pr create -t T -db hello",
+            "issue create -t T -wb hello",
             "issue edit 1 -b first --body hello",
         ],
     )
@@ -1599,8 +1602,8 @@ class TestBotLabelsAreNotAddedCrossProject:
         "issue create -t T -b x -l=daiv",
         "issue create -t T -b x --label bug,daiv-max",
         "issue create -t T -b x --label bug --label daiv",
-        "pr create -t T -b x -l DAIV-Auto",
-        "pr create -t T -b x -dl daiv",
+        "issue create -t T -b x -l DAIV-Auto",
+        "issue create -t T -b x -wl daiv",
         "issue edit 1 --add-label daiv",
         "issue edit 1 --add-label=DAIV",
         "pr edit 2 --add-label bug,daiv-auto",
@@ -1733,7 +1736,7 @@ class TestBotLabelsAreNotAddedCrossProject:
         [
             "issue create -t T -b x --label bug,daiv-docs",
             "issue create -t T -b x -l triage",
-            "pr create -t T -b x -dl bug",
+            "issue create -t T -b x -wl bug",
             "issue edit 1 --add-label bug",
             "issue edit 1 --remove-label daiv",
             "pr edit 2 --remove-label daiv-max",
@@ -2270,3 +2273,309 @@ class TestWebhookRunAttribution:
         assert record.acting_user_id is None
         assert record.acting_user_label == "The requesting user"
         assert record.outcome == CrossProjectAccessRecord.Outcome.DENIED_NO_CREDENTIAL
+
+
+def _installation_runtime() -> ToolRuntime:
+    runtime = _xproj_runtime(GitPlatform.GITHUB)
+    runtime.state["github_token"] = "install-token"  # noqa: S105
+    runtime.state["github_token_expires_at"] = 9999999999.0
+    return runtime
+
+
+class TestGitHubEnterpriseHost:
+    """gh reads ``--repo owner/name`` as github.com unless ``GH_HOST`` names another host, and sends ``GH_TOKEN`` only
+    to github.com: an enterprise grant has to travel as ``GH_ENTERPRISE_TOKEN`` to its own host."""
+
+    @staticmethod
+    async def _cross_project_env(host: str) -> dict[str, str]:
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks, patch(f"{_GP}.platform_host", return_value=host):
+            await _run_gh("issue list", runtime, project=OTHER, cross_project_enabled=True)
+        return mocks.create_proc.call_args.kwargs["env"]
+
+    async def test_github_com_keeps_gh_token_and_names_the_host(self):
+        env = await self._cross_project_env("github.com")
+
+        token_sent = env.get("GH_TOKEN") == "person-token"  # noqa: S105
+        assert token_sent
+        assert env["GH_HOST"] == "github.com"
+        assert "GH_ENTERPRISE_TOKEN" not in env
+
+    async def test_an_enterprise_host_gets_the_enterprise_token_and_no_gh_token(self):
+        env = await self._cross_project_env("ghe.example.com")
+
+        token_sent = env.get("GH_ENTERPRISE_TOKEN") == "person-token"  # noqa: S105
+        assert token_sent
+        assert env["GH_HOST"] == "ghe.example.com"
+        assert "GH_TOKEN" not in env
+
+    async def test_the_attached_path_env_is_unchanged(self):
+        with _patched_platform() as mocks, patch(f"{_GP}.platform_host", return_value="ghe.example.com"):
+            await _run_gh("issue list", _installation_runtime(), project="", cross_project_enabled=True)
+
+        env = mocks.create_proc.call_args.kwargs["env"]
+        assert set(env) == {"PATH", "HOME", "GIT_TERMINAL_PROMPT", "NO_COLOR", "GH_TOKEN", "GH_PAGER"}
+
+
+class TestGitLabConfidentialityStaysPut:
+    """Turning ``--confidential`` off on someone else's issue is a disclosure, not an edit."""
+
+    @pytest.mark.parametrize(
+        "flag", ["--confidential false", "--confidential=false", "--confid false", "--c=false", "--confidential true"]
+    )
+    async def test_an_update_naming_it_in_any_spelling_is_refused(self, flag):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                f"project-issue update --iid 1 {flag}", runtime, project=OTHER, cross_project_enabled=True
+            )
+
+        assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action="project-issue update --confidential", attached=ATTACHED, project=OTHER
+        )
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+        assert mocks.record.await_args.kwargs["outcome"] == CrossProjectOutcome.DENIED_POLICY
+
+    async def test_creating_a_confidential_issue_still_crosses(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                "project-issue create --title t --description d --confidential true",
+                runtime,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        assert result == "ok"
+        assert "--confidential" in mocks.create_proc.call_args.args
+
+    async def test_the_attached_project_keeps_it(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(
+                "project-issue update --iid 1 --confidential false", runtime, project="", cross_project_enabled=True
+            )
+
+        assert result == "ok"
+        mocks.resolve.assert_not_called()
+
+
+class TestGitHubWritesTakeOnlyKnownFlags:
+    """gh is installed unpinned, so a flag the gh 2.45 table does not list may write in ways nobody checked."""
+
+    @pytest.mark.parametrize(
+        ("subcommand", "flag"),
+        [
+            ("issue comment 1 --delete-last --yes", "--delete-last"),
+            ("pr comment 2 --delete-last", "--delete-last"),
+            ("issue edit 1 --remove-milestone", "--remove-milestone"),
+            ("issue edit 1 --set-something x", "--set-something"),
+            ("issue edit 1 --set-something=x", "--set-something"),
+            ("issue create -t T -b x --type bug", "--type"),
+            ("pr edit 2 --title T --auto-merge", "--auto-merge"),
+        ],
+    )
+    async def test_an_unknown_long_flag_is_refused_before_any_credential(self, subcommand, flag):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_UNCHECKED_FLAG_CROSS_PROJECT.format(
+            flag=flag, command=" ".join(subcommand.split()[:2])
+        )
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+        assert mocks.record.await_args.kwargs["outcome"] == CrossProjectOutcome.DENIED_POLICY
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "issue comment 1 --body hello",
+            "issue comment 1 --body=hello --web",
+            "issue edit 1 --title T --add-label bug --add-project Roadmap --body hello",
+            "issue create --title T --body hello --assignee me --project Roadmap",
+            "pr edit 2 --add-reviewer bob --remove-label wip --body hello",
+            "pr comment 2 -b hello --help",
+        ],
+    )
+    async def test_known_flags_still_cross(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == "ok"
+        assert _marked(mocks.create_proc.call_args.args, "hello")
+
+    async def test_the_attached_project_keeps_unknown_flags(self):
+        with _patched_platform() as mocks:
+            result = await _run_gh(
+                "issue comment 1 --edit-last --body x", _installation_runtime(), project="", cross_project_enabled=True
+            )
+
+        assert result == "ok"
+        assert "--edit-last" in mocks.create_proc.call_args.args
+
+
+class TestCrossProjectCreationAndTimeResets:
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "project-issue reset-spent-time --iid 1",
+            "project-issue reset-time-estimate --iid 1",
+            "project-merge-request reset-spent-time --iid 1",
+            "project-merge-request reset-time-estimate --iid 1",
+            "project-merge-request create --source-branch f --target-branch main --title t",
+        ],
+    )
+    async def test_gitlab_refuses_them(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform() as mocks:
+            result = await _run_gl(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        resource, action = subcommand.split()[:2]
+        assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
+            action=f"{resource} {action}", attached=ATTACHED, project=OTHER
+        )
+        mocks.resolve.assert_not_called()
+
+    @pytest.mark.parametrize("subcommand", ["pr create -t T -b x", "pr create --fill", "pr create -df"])
+    async def test_github_refuses_a_pull_request(self, subcommand):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(action="pr create", attached=ATTACHED, project=OTHER)
+        mocks.resolve.assert_not_called()
+
+    async def test_the_attached_project_keeps_them(self):
+        runtime = _xproj_runtime(GitPlatform.GITLAB)
+        with _patched_platform():
+            result = await _run_gl(
+                "project-issue reset-spent-time --iid 1", runtime, project="", cross_project_enabled=True
+            )
+
+        assert result == "ok"
+
+
+class TestAReferenceToAnotherRepository:
+    """gh reads the repository from an issue or pull request URL rather than from ``--repo``."""
+
+    FOREIGN = [
+        "issue view https://github.com/acme/secret/issues/1",
+        "issue view HTTPS://GITHUB.COM/acme/secret/issues/1",
+        "pr review https://github.com/acme/secret/pull/1 --approve",
+        "pr view https://github.com/acme/secret/pull/1/files",
+        "pr diff --color never https://github.com/acme/secret/pull/1",
+        "issue comment https://github.com/acme/secret/issues/1 --body x",
+        "issue view -c https://github.com/acme/secret/issues/1",
+        "issue view -- https://github.com/acme/secret/issues/1",
+        "issue view acme/secret#1",
+        "issue view https://ghe.example.com/group/repo/issues/1",
+    ]
+
+    @pytest.mark.parametrize("subcommand", FOREIGN)
+    async def test_the_attached_path_refuses_it_and_points_at_project(self, subcommand):
+        reference = next(arg for arg in subcommand.split() if "/" in arg)
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, _installation_runtime(), project="", cross_project_enabled=True)
+
+        assert result == REFUSAL_FOREIGN_REFERENCE.format(reference=reference, target=ATTACHED)
+        assert "`project`" in result
+        mocks.create_proc.assert_not_called()
+        mocks.resolve.assert_not_called()
+
+    async def test_with_the_capability_off_it_says_other_repositories_are_unavailable(self):
+        subcommand = "issue view https://github.com/acme/secret/issues/1"
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, _installation_runtime(), project="", cross_project_enabled=False)
+
+        assert result == REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE.format(
+            reference="https://github.com/acme/secret/issues/1", target=ATTACHED
+        )
+        assert "`project`" not in result
+        mocks.create_proc.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "subcommand",
+        [
+            "issue view https://github.com/Group/Repo/issues/1",
+            "pr view https://github.com/group/repo/pull/2",
+            "issue view group/repo#1",
+            "issue view 1",
+            "issue comment 1 --body https://github.com/acme/secret/issues/1",
+            "issue view 1 --json url --jq .url",
+            "issue view 1 -t https://github.com/acme/secret/issues/1",
+            "search issues https://github.com/acme/secret/issues/1",
+        ],
+    )
+    async def test_the_attached_path_still_runs_its_own_references_and_flag_values(self, subcommand):
+        with _patched_platform() as mocks:
+            result = await _run_gh(subcommand, _installation_runtime(), project="", cross_project_enabled=True)
+
+        assert result == "ok"
+        mocks.create_proc.assert_called_once()
+
+    async def test_the_cross_project_path_refuses_a_third_repository_before_any_credential(self):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(
+                "issue view https://github.com/acme/secret/issues/1", runtime, project=OTHER, cross_project_enabled=True
+            )
+
+        assert result == REFUSAL_FOREIGN_REFERENCE.format(
+            reference="https://github.com/acme/secret/issues/1", target=OTHER
+        )
+        mocks.resolve.assert_not_called()
+        mocks.create_proc.assert_not_called()
+        assert mocks.record.await_args.kwargs == {
+            "provider": GitPlatform.GITHUB,
+            "target_repo_id": OTHER,
+            "outcome": CrossProjectOutcome.DENIED_POLICY,
+            "acting_user_id": 7,
+        }
+
+    async def test_the_cross_project_path_runs_a_reference_to_its_own_target(self):
+        runtime = _xproj_runtime(GitPlatform.GITHUB)
+        with _patched_platform() as mocks:
+            result = await _run_gh(
+                f"issue view https://github.com/{OTHER.upper()}/issues/1",
+                runtime,
+                project=OTHER,
+                cross_project_enabled=True,
+            )
+
+        assert result == "ok"
+        mocks.resolve.assert_awaited_once()
+
+
+class TestAnUnrecordedFetchIsWithheld:
+    """The ALLOWED row is what keeps a result to the person who fetched it, so a result without one is not returned."""
+
+    @pytest.mark.parametrize(
+        ("platform", "run", "subcommand"),
+        [(GitPlatform.GITLAB, _run_gl, "project-issue list"), (GitPlatform.GITHUB, _run_gh, "issue list")],
+    )
+    async def test_the_result_is_withheld(self, platform, run, subcommand):
+        runtime = _xproj_runtime(platform)
+        with _patched_platform(stdout=TARGET_CONTENT.encode()) as mocks:
+            mocks.record.return_value = False
+            result = await run(subcommand, runtime, project=OTHER, cross_project_enabled=True)
+
+        assert result == REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=OTHER)
+        assert TARGET_CONTENT not in result
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_failed_record_write_reports_false(self, member_user):
+        runtime = _xproj_runtime(GitPlatform.GITLAB, acting_user_id=member_user.pk)
+        with patch.object(CrossProjectAccessRecord.objects, "acreate", AsyncMock(side_effect=RuntimeError("db down"))):
+            recorded = await _record_cross_project_access(
+                runtime,
+                provider=GitPlatform.GITLAB,
+                target_repo_id=OTHER,
+                outcome=CrossProjectOutcome.ALLOWED,
+                acting_user_id=member_user.pk,
+                person="Ada",
+            )
+
+        assert recorded is False

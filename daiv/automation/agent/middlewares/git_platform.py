@@ -271,8 +271,9 @@ CROSS_PROJECT_TOOL_DESCRIPTION = """
 - Leave `project` empty — the default — to target the current project. That is the right choice for almost every call, and it behaves exactly as described above.
 - Set `project` to a project path (for example `group/name`) to query a different project. The call is then made **as the person who requested this run**, so it returns only what that person can see.
 - A project that person cannot access is refused with a stated reason. It is never silently empty, and it is never retried under DAIV's own identity — so an empty-looking answer is a real empty result, not a hidden permission failure.
-- Pass a project path, not a flag and not a URL with a different host.
-- Not every allowed subcommand crosses. Reads, and creating an issue, merge request or note, do. Refused outside the current project: anything that deletes, relocates or reassigns existing data, edits a note somebody else wrote, changes project configuration (labels, snippets), drives CI (pipelines, jobs, workflow runs), creates branches, tags or releases, closes/reopens/locks an issue or PR, approves a pull request, adds one of DAIV's own trigger labels, or (on GitLab) has a body line starting with `/`, which is a quick action. Inline merge request diff comments are also current-project only — use a regular note there.
+- Pass a project path, not a flag and not a URL with a different host. On GitHub, name an issue or pull request by its number: an issue or pull request URL, or `owner/repo#N`, naming another repository is refused.
+- Reads cross, and so do these writes: creating an issue; adding a note, comment, discussion, reply, emoji reaction, issue link or draft note; editing a draft note; logging time spent or an estimate; reordering an issue; and editing an issue's or merge/pull request's title, description, labels and the other fields not refused below.
+- Refused outside the current project: deleting anything; creating a merge request or pull request; moving an issue; editing an existing note, discussion or comment; resetting time spent or an estimate; creating or editing labels, snippets, branches, tags or releases; running, retrying, cancelling or playing pipelines, jobs or workflows; closing, reopening, locking or unlocking an issue or PR, `issue develop`, and reviewing a PR; changing state, assignees (though `issue create --assignee` crosses on GitHub), the target or base branch, or the discussion lock; on GitHub, setting a milestone; on a GitLab update, `--confidential`; adding `daiv`, `daiv-auto` or `daiv-max` as a label; a value read from a file (a GitLab value starting with `@`, GitHub `--body-file`, `--template`, `--recover`); a GitLab body line starting with `/`, which is a quick action; an inline merge request diff comment (use a regular note); and a flag the tool cannot recognise (on GitLab an unknown or ambiguous `--option`, on GitHub any unknown flag on a write).
 - The timeout and the automatic saving of oversized results are unchanged."""  # noqa: E501
 
 GIT_PLATFORM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
@@ -285,7 +286,7 @@ Use the available Git platform tool early whenever platform state can change wha
 Scope: All operations are scoped to the CURRENT project only. You cannot access files, pipelines, or metadata from other projects. If you need cross-project information, ask the user to provide it.
 {{{{/cross_project}}}}
 {{{{#cross_project}}}}
-Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, only if that person has access, and only for the subcommands the tool description lists as crossing. Never treat a cross-project refusal as a reason to retry the same call against the current project under DAIV's identity.
+Scope: By default every operation targets the CURRENT project, under DAIV's own identity. You may also set the tool's `project` argument to read or act on another project — that call is made as the person who requested this run and sees only what they can see. Files, pipelines and metadata of the current project are always reachable; another project is reachable only through that argument, only if that person has access, and not for the subcommands the tool description lists as refused there. Never treat a cross-project refusal as a reason to retry the same call against the current project under DAIV's identity.
 {{{{/cross_project}}}}
 
 **Core policy:**
@@ -484,12 +485,13 @@ GITLAB_CLI_ALLOW_COMMANDS: dict[str, set[str] | Literal["*"]] = {
 }
 
 # Refused outside the attached project although the person's token carries them, because issue or comment
-# text somebody else wrote can choose what they are spent on. Reads and creating an issue, MR or note still cross.
+# text somebody else wrote can choose what they are spent on. Reads and creating an issue or note still cross.
 GITLAB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
     "project": frozenset({"delete-merged-branches", "trigger-pipeline"}),
     # ``move`` relocates an issue out of the target project; the note ``update`` verbs overwrite
     # text somebody else wrote, which a maintainer-level token is entitled to do.
-    "project-issue": frozenset({"move"}),
+    "project-issue": frozenset({"move", "reset-spent-time", "reset-time-estimate"}),
+    "project-merge-request": frozenset({"create", "reset-spent-time", "reset-time-estimate"}),
     "project-issue-note": frozenset({"update"}),
     "project-issue-discussion-note": frozenset({"update"}),
     "project-merge-request-note": frozenset({"update"}),
@@ -519,7 +521,7 @@ GITLAB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
 GITHUB_CROSS_PROJECT_DENIED_ACTIONS: dict[str, frozenset[str]] = {
     "issue": frozenset({"close", "reopen", "lock", "unlock", "develop"}),
     # ``review`` includes --approve, which can satisfy a required review and release auto-merge.
-    "pr": frozenset({"close", "reopen", "lock", "unlock", "review"}),
+    "pr": frozenset({"create", "close", "reopen", "lock", "unlock", "review"}),
     "workflow": frozenset({"run"}),
     "run": frozenset({"rerun"}),
     "release": frozenset({"create", "edit", "upload"}),
@@ -689,6 +691,19 @@ REFUSAL_QUICK_ACTION_CROSS_PROJECT = (
     "start with '/'."
 )
 
+REFUSAL_FOREIGN_REFERENCE = (
+    "error: '{reference}' names a repository other than {target}, and gh would act on that repository instead. "
+    "Pass the issue or pull request number, and set the `project` argument to reach the repository it belongs to."
+)
+REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE = (
+    "error: '{reference}' names a repository other than {target}, and other repositories cannot be reached from this "
+    "run. Pass the number of an issue or pull request in {target}."
+)
+REFUSAL_UNRECORDED_CROSS_PROJECT = (
+    "error: The call against {project} ran, but its result is withheld because DAIV could not record the access, and "
+    "that record is what keeps the result to the person it was fetched for. Do not repeat a write; retry a read later."
+)
+
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -779,11 +794,17 @@ CROSS_PROJECT_DENIED_FLAGS: dict[GitPlatform, frozenset[str]] = {
         "--milestone",
         "--remove-milestone",
         "--base",
+        "--edit-last",
+        "--delete-last",
     }),
 }
+# Turning confidentiality off on an existing issue discloses it; creating a confidential one does not.
+CROSS_PROJECT_DENIED_UPDATE_FLAGS: dict[GitPlatform, frozenset[str]] = {
+    GitPlatform.GITLAB: frozenset({"--confidential"}),
+    GitPlatform.GITHUB: frozenset(),
+}
 # Read filters share these names (``project-merge-request list --target-branch``), so only writes are checked.
-_FLAG_CHECKED_ACTIONS = frozenset({"create", "update", "edit"})
-_PUBLISHING_ACTIONS = _FLAG_CHECKED_ACTIONS | {"comment"}
+_FLAG_CHECKED_ACTIONS = frozenset({"create", "update", "edit", "comment"})
 
 # A label event, unlike a body, carries no marker the webhook could read, so these writes may not name a bot label.
 _LABEL_FLAGS: dict[GitPlatform, frozenset[str]] = {
@@ -799,91 +820,106 @@ _BODY_FLAGS: dict[GitPlatform, frozenset[str]] = {
 # Bodies the loop marker cannot reach without rewriting what the person named, so they are refused instead.
 _UNMARKABLE_BODY_FLAGS: dict[GitPlatform, frozenset[str]] = {
     GitPlatform.GITLAB: frozenset(),
-    GitPlatform.GITHUB: frozenset({
-        "--body-file",
-        "--template",
-        "--recover",
-        "--fill",
-        "--fill-first",
-        "--fill-verbose",
-    }),
+    GitPlatform.GITHUB: frozenset({"--body-file", "--template", "--recover"}),
 }
 
-# From ``gh <cmd> --help`` (gh 2.45) for the gh writes that may cross: ``{shorthand: (flag, takes a value)}``,
-# and the long-only flags that take a value.
-_GITHUB_WRITE_FLAGS: dict[tuple[str, str], tuple[dict[str, tuple[str, bool]], frozenset[str]]] = {
+_GH_VIEW_FLAGS = (
+    {"--comments": False, "--jq": True, "--json": True, "--template": True, "--web": False},
+    {"c": "--comments", "q": "--jq", "t": "--template", "w": "--web"},
+)
+_GH_COMMENT_FLAGS = (
+    {"--body": True, "--body-file": True, "--edit-last": False, "--editor": False, "--web": False},
+    {"b": "--body", "F": "--body-file", "e": "--editor", "w": "--web"},
+)
+# From ``gh <cmd> --help`` (gh 2.45), for every allowed gh command that names an issue or pull request or creates one:
+# ``({long flag: takes a value}, {shorthand: long flag})``.
+_GITHUB_FLAGS: dict[tuple[str, str], tuple[dict[str, bool], dict[str, str]]] = {
     ("issue", "create"): (
         {
-            "a": ("--assignee", True),
-            "b": ("--body", True),
-            "F": ("--body-file", True),
-            "l": ("--label", True),
-            "m": ("--milestone", True),
-            "p": ("--project", True),
-            "T": ("--template", True),
-            "t": ("--title", True),
-            "w": ("--web", False),
+            "--assignee": True,
+            "--body": True,
+            "--body-file": True,
+            "--label": True,
+            "--milestone": True,
+            "--project": True,
+            "--recover": True,
+            "--template": True,
+            "--title": True,
+            "--web": False,
         },
-        frozenset({"--recover"}),
+        {
+            "a": "--assignee",
+            "b": "--body",
+            "F": "--body-file",
+            "l": "--label",
+            "m": "--milestone",
+            "p": "--project",
+            "T": "--template",
+            "t": "--title",
+            "w": "--web",
+        },
     ),
     ("issue", "edit"): (
-        {"b": ("--body", True), "F": ("--body-file", True), "m": ("--milestone", True), "t": ("--title", True)},
-        frozenset({
-            "--add-assignee",
-            "--add-label",
-            "--add-project",
-            "--remove-assignee",
-            "--remove-label",
-            "--remove-project",
-        }),
-    ),
-    ("issue", "comment"): (
-        {"b": ("--body", True), "F": ("--body-file", True), "e": ("--editor", False), "w": ("--web", False)},
-        frozenset(),
-    ),
-    ("pr", "create"): (
         {
-            "a": ("--assignee", True),
-            "B": ("--base", True),
-            "b": ("--body", True),
-            "F": ("--body-file", True),
-            "d": ("--draft", False),
-            "f": ("--fill", False),
-            "H": ("--head", True),
-            "l": ("--label", True),
-            "m": ("--milestone", True),
-            "p": ("--project", True),
-            "r": ("--reviewer", True),
-            "T": ("--template", True),
-            "t": ("--title", True),
-            "w": ("--web", False),
+            "--add-assignee": True,
+            "--add-label": True,
+            "--add-project": True,
+            "--body": True,
+            "--body-file": True,
+            "--milestone": True,
+            "--remove-assignee": True,
+            "--remove-label": True,
+            "--remove-project": True,
+            "--title": True,
         },
-        frozenset({"--recover"}),
+        {"b": "--body", "F": "--body-file", "m": "--milestone", "t": "--title"},
+    ),
+    ("issue", "comment"): _GH_COMMENT_FLAGS,
+    ("issue", "view"): _GH_VIEW_FLAGS,
+    ("issue", "close"): ({"--comment": True, "--reason": True}, {"c": "--comment", "r": "--reason"}),
+    ("issue", "reopen"): ({"--comment": True}, {"c": "--comment"}),
+    ("issue", "lock"): ({"--reason": True}, {"r": "--reason"}),
+    ("issue", "unlock"): ({}, {}),
+    ("issue", "develop"): (
+        {"--base": True, "--branch-repo": True, "--checkout": False, "--list": False, "--name": True},
+        {"b": "--base", "c": "--checkout", "l": "--list", "n": "--name"},
     ),
     ("pr", "edit"): (
         {
-            "B": ("--base", True),
-            "b": ("--body", True),
-            "F": ("--body-file", True),
-            "m": ("--milestone", True),
-            "t": ("--title", True),
+            "--add-assignee": True,
+            "--add-label": True,
+            "--add-project": True,
+            "--add-reviewer": True,
+            "--base": True,
+            "--body": True,
+            "--body-file": True,
+            "--milestone": True,
+            "--remove-assignee": True,
+            "--remove-label": True,
+            "--remove-project": True,
+            "--remove-reviewer": True,
+            "--title": True,
         },
-        frozenset({
-            "--add-assignee",
-            "--add-label",
-            "--add-project",
-            "--add-reviewer",
-            "--remove-assignee",
-            "--remove-label",
-            "--remove-project",
-            "--remove-reviewer",
-        }),
+        {"B": "--base", "b": "--body", "F": "--body-file", "m": "--milestone", "t": "--title"},
     ),
-    ("pr", "comment"): (
-        {"b": ("--body", True), "F": ("--body-file", True), "e": ("--editor", False), "w": ("--web", False)},
-        frozenset(),
+    ("pr", "comment"): _GH_COMMENT_FLAGS,
+    ("pr", "view"): _GH_VIEW_FLAGS,
+    ("pr", "review"): (
+        {"--approve": False, "--body": True, "--body-file": True, "--comment": False, "--request-changes": False},
+        {"a": "--approve", "b": "--body", "F": "--body-file", "c": "--comment", "r": "--request-changes"},
     ),
+    ("pr", "checks"): (
+        {"--fail-fast": False, "--interval": True, "--required": False, "--watch": False, "--web": False},
+        {"i": "--interval", "w": "--web"},
+    ),
+    ("pr", "diff"): ({"--color": True, "--name-only": False, "--patch": False, "--web": False}, {"w": "--web"}),
+    ("pr", "close"): ({"--comment": True, "--delete-branch": False}, {"c": "--comment", "d": "--delete-branch"}),
+    ("pr", "reopen"): ({"--comment": True}, {"c": "--comment"}),
+    ("pr", "lock"): ({"--reason": True}, {"r": "--reason"}),
+    ("pr", "unlock"): ({}, {}),
 }
+_GH_INHERITED_FLAGS = {"--help": False}
+_GITHUB_ISSUE_REFERENCE = re.compile(r"(?P<repo>[^\s/#]+/[^\s/#]+)#\d+")
 
 _GITHUB_REPOSITORY = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
 _GITLAB_PROJECT_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
@@ -959,25 +995,30 @@ def _gitlab_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
     return uses
 
 
-def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_FlagUse]:
-    """Read ``args`` the way gh's flag parser does: ``--flag[=value]``, ``-f value``, ``-fvalue``, ``-f=value``
-    and clusters such as ``-wb value``. Raises ``_UncheckedFlagError`` on a shorthand the table lacks."""
-    spec = _GITHUB_WRITE_FLAGS.get((resource, action))
-    if spec is None:
-        return []
-    shorthands, long_value_flags = spec
-    value_flags = long_value_flags | {name for name, takes_value in shorthands.values() if takes_value}
+def _github_args(resource: str, action: str, args: list[str], *, strict: bool) -> tuple[list[_FlagUse], list[str]]:
+    """``(flags, positional arguments)`` read the way gh's flag parser does: ``--flag[=value]``, ``-f value``,
+    ``-fvalue``, ``-f=value`` and clusters such as ``-wb value``.
+
+    ``strict`` raises ``_UncheckedFlagError`` on a flag the command's ``_GITHUB_FLAGS`` entry lacks. Otherwise such a
+    flag is read as taking no value, so the argument after it is still treated as positional.
+    """
+    long_flags, shorthands = _GITHUB_FLAGS.get((resource, action), ({}, {}))
+    long_flags = long_flags | _GH_INHERITED_FLAGS
     uses: list[_FlagUse] = []
+    positionals: list[str] = []
     index = 0
     while index < len(args):
         arg = args[index]
         if arg == "--":
+            positionals += args[index + 1 :]
             break
         if arg.startswith("--"):
             name, has_value, attached = arg.partition("=")
+            if strict and name not in long_flags:
+                raise _UncheckedFlagError(name)
             if has_value:
                 uses.append(_FlagUse(name, index, attached))
-            elif name in value_flags:
+            elif long_flags.get(name, False):
                 index += 1
                 uses.append(_separate_value_use(name, args, index))
             else:
@@ -985,13 +1026,16 @@ def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
         elif arg.startswith("-") and len(arg) > 1:
             cluster = arg[1:]
             while cluster:
-                if cluster[0] not in shorthands:
-                    raise _UncheckedFlagError(arg)
-                name, takes_value = shorthands[cluster[0]]
+                name = shorthands.get(cluster[0])
+                if name is None:
+                    if strict:
+                        raise _UncheckedFlagError(arg)
+                    cluster = cluster[1:]
+                    continue
                 if len(cluster) > 2 and cluster[1] == "=":
                     uses.append(_FlagUse(name, index, cluster[2:]))
                     break
-                if not takes_value:
+                if not long_flags[name]:
                     uses.append(_FlagUse(name, None))
                     cluster = cluster[1:]
                     continue
@@ -1001,8 +1045,36 @@ def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_Flag
                     index += 1
                     uses.append(_separate_value_use(name, args, index))
                 break
+        else:
+            positionals.append(arg)
         index += 1
-    return uses
+    return uses, positionals
+
+
+def _github_flag_uses(resource: str, action: str, args: list[str]) -> list[_FlagUse]:
+    """A cross-project gh write's flags, every one of them known to ``_GITHUB_FLAGS``; reads are not checked."""
+    if action not in _FLAG_CHECKED_ACTIONS:
+        return []
+    return _github_args(resource, action, args, strict=True)[0]
+
+
+def _foreign_github_reference(resource: str, action: str, args: list[str], *, target: str) -> str | None:
+    """The first positional issue or pull request URL, or ``owner/repo#N``, naming a repository other than ``target``.
+
+    gh takes the repository from such an argument rather than from ``--repo``.
+    """
+    if (resource, action) not in _GITHUB_FLAGS:
+        return None
+    host = platform_host(GitPlatform.GITHUB).lower()
+    for arg in _github_args(resource, action, args, strict=False)[1]:
+        if "://" in arg:
+            parsed = urlparse(arg)
+            repository = "/".join(parsed.path.strip("/").split("/")[:2])
+            if (parsed.hostname or "").lower() != host or repository.lower() != target.lower():
+                return arg
+        elif (reference := _GITHUB_ISSUE_REFERENCE.fullmatch(arg)) and reference["repo"].lower() != target.lower():
+            return arg
+    return None
 
 
 def _flag_uses(provider: GitPlatform, resource: str, action: str, args: list[str]) -> list[_FlagUse]:
@@ -1038,12 +1110,16 @@ def _has_quick_action_line(value: str) -> bool:
 def _cross_project_policy_refusal(
     resource: str, action: str, args: list[str], *, provider: GitPlatform, attached: str, project: str
 ) -> str | None:
-    """Refuse a destructive verb or flag, a bot label, a quick action or an unmarkable body, outside the attached
-    project, before a credential is spent."""
+    """Refuse a destructive verb or flag, a reference to a third repository, an unknown flag, a bot label, a quick
+    action or an unmarkable body, outside the attached project, before a credential is spent."""
     if action in CROSS_PROJECT_DENIED_ACTIONS.get(provider, {}).get(resource, frozenset()):
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action}", attached=attached, project=project
         )
+    if provider == GitPlatform.GITHUB and (
+        reference := _foreign_github_reference(resource, action, args, target=project)
+    ):
+        return REFUSAL_FOREIGN_REFERENCE.format(reference=reference, target=project)
     try:
         uses = _flag_uses(provider, resource, action, args)
     except _UncheckedFlagError as exc:
@@ -1052,7 +1128,10 @@ def _cross_project_policy_refusal(
     if resource == "project-merge-request-discussion" and action == "create" and "--position" in names:
         # The inline path goes through RepoClient, which holds the service token.
         return REFUSAL_INLINE_DISCUSSION_CROSS_PROJECT.format(attached=attached, project=project)
-    denied = next((use.name for use in uses if use.name in CROSS_PROJECT_DENIED_FLAGS[provider]), None)
+    denied_flags = CROSS_PROJECT_DENIED_FLAGS[provider]
+    if action == "update":
+        denied_flags |= CROSS_PROJECT_DENIED_UPDATE_FLAGS[provider]
+    denied = next((use.name for use in uses if use.name in denied_flags), None)
     if denied is not None and action in _FLAG_CHECKED_ACTIONS:
         return REFUSAL_DESTRUCTIVE_CROSS_PROJECT.format(
             action=f"{resource} {action} {denied}", attached=attached, project=project
@@ -1064,7 +1143,7 @@ def _cross_project_policy_refusal(
     # GitLab runs these lines as the person, past every denied verb and flag above.
     if (
         provider == GitPlatform.GITLAB
-        and action in _PUBLISHING_ACTIONS
+        and action in _FLAG_CHECKED_ACTIONS
         and any(use.name in _BODY_FLAGS[provider] and _has_quick_action_line(use.value or "") for use in uses)
     ):
         return REFUSAL_QUICK_ACTION_CROSS_PROJECT.format(attached=attached, project=project)
@@ -1115,7 +1194,7 @@ def _mark_cross_project_body(args: list[str], *, provider: GitPlatform) -> list[
     """
     resource, action, rest = args[0], args[1], args[2:]
     marked = list(args)
-    if action not in _PUBLISHING_ACTIONS:
+    if action not in _FLAG_CHECKED_ACTIONS:
         return marked
     body_indexes = {
         use.value_index + 2
@@ -1157,11 +1236,12 @@ async def _record_cross_project_access(
     outcome: str,
     acting_user_id: int | None,
     person: str | None = None,
-) -> None:
-    """One row per cross-project attempt, allowed or refused.
+) -> bool:
+    """One row per cross-project attempt, allowed or refused; ``False`` when it could not be written.
 
     A refused call must still be recorded — a pattern of refusals is what an auditor is looking
-    for — but losing the row must never cost the run its answer.
+    for — but losing the row must never cost the run its answer. An allowed call's row is different:
+    writing it is what keeps the result to the person it was fetched for (``Session.cross_project_user_ids``).
     """
     from codebase.models import CrossProjectAccessRecord
 
@@ -1176,6 +1256,8 @@ async def _record_cross_project_access(
         )
     except Exception:
         logger.exception("[git-platform] Failed to record cross-project access to %s", target_repo_id)
+        return False
+    return True
 
 
 class _CredentialOwner(TypedDict, total=False):
@@ -1622,8 +1704,8 @@ async def _run_gitlab_subcommand(
             )
         return f"error: GitLab command failed (exit code {process.returncode}). Details: {stderr_text}"
 
-    if decision.is_cross_project:
-        await record(outcome=_Outcome.ALLOWED)
+    if decision.is_cross_project and not await record(outcome=_Outcome.ALLOWED):
+        return REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=target_slug)
 
     output = stdout.decode("utf-8").strip()
     if not output:
@@ -1764,6 +1846,11 @@ async def _run_github_subcommand(
         return decision.refusal
 
     target_slug = decision.target or runtime.context.repository.slug
+    if not decision.is_cross_project and (
+        reference := _foreign_github_reference(resource, action, splitted_subcommand[2:], target=target_slug)
+    ):
+        refusal = REFUSAL_FOREIGN_REFERENCE if cross_project_enabled else REFUSAL_FOREIGN_REFERENCE_UNAVAILABLE
+        return refusal.format(reference=reference, target=target_slug)
     record = partial(
         _record_cross_project_access,
         runtime,
@@ -1789,6 +1876,11 @@ async def _run_github_subcommand(
         "GH_TOKEN": token,
         "GH_PAGER": "cat",
     }
+    if decision.is_cross_project:
+        # Without GH_HOST, ``--repo owner/name`` means github.com; any other host reads GH_ENTERPRISE_TOKEN only.
+        envs["GH_HOST"] = platform_host(GitPlatform.GITHUB)
+        if envs["GH_HOST"].lower() != "github.com":
+            envs["GH_ENTERPRISE_TOKEN"] = envs.pop("GH_TOKEN")
 
     args = ["gh"]
     args += (
@@ -1841,8 +1933,8 @@ async def _run_github_subcommand(
             )
         return f"error: GitHub command failed (exit code {process.returncode}). Details: {stderr_text}"
 
-    if decision.is_cross_project:
-        await record(outcome=_Outcome.ALLOWED)
+    if decision.is_cross_project and not await record(outcome=_Outcome.ALLOWED):
+        return REFUSAL_UNRECORDED_CROSS_PROJECT.format(project=target_slug)
 
     output = stdout.decode("utf-8").strip()
     if not output:
