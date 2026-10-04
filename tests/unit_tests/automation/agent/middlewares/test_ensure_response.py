@@ -55,7 +55,6 @@ class TestEnsureNonEmptyResponse:
         retry_messages = seen[1].messages
         assert retry_messages[-1].content == EMPTY_RESPONSE_NUDGE
         assert len(retry_messages) == len(seen[0].messages) + 1
-        # The nudge the reply answered is saved ahead of it; the discarded empty reply is not.
         assert response.result[0] is retry_messages[-1]
         assert is_synthetic(response.result[0])
         assert len(response.result) == 2
@@ -79,6 +78,8 @@ class TestEnsureNonEmptyResponse:
         # The empty response is returned as-is so the agent loop ends instead of spinning.
         assert not response.result[-1].text()
         assert not response.result[-1].tool_calls
+        assert is_synthetic(response.result[0])
+        assert len(response.result) == 2
 
     async def test_does_not_mutate_original_request_messages(self):
         original_messages = [HumanMessage(content="hi")]

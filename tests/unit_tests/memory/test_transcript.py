@@ -1,6 +1,8 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from memory.transcript import serialize_transcript
 
+from automation.agent.synthetic import synthetic_message
+
 
 def test_serializes_roles_text_and_tool_calls():
     messages = [
@@ -40,3 +42,14 @@ def test_empty_message_list_serializes_to_empty_string():
 def test_message_without_text_or_tool_calls_contributes_nothing():
     # An AI message with empty content and no tool calls yields no transcript lines.
     assert serialize_transcript([AIMessage(content="")]) == ""
+
+
+def test_skips_synthetic_messages_but_keeps_the_real_human_message_after_them():
+    messages = [
+        AIMessage(content="Working on it."),
+        synthetic_message("Your previous response was empty. Please continue.", kind="empty_response"),
+        HumanMessage(content="No, use the other helper instead."),
+    ]
+    transcript = serialize_transcript(messages)
+    assert "previous response was empty" not in transcript
+    assert "[human] No, use the other helper instead." in transcript

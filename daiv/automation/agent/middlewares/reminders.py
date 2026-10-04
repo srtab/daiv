@@ -1,16 +1,15 @@
 """Reminders the harness adds to a model call, saved into the thread just before the reply they produced.
 
 A reminder sent on one call but missing from the next changes history the model already answered: the prompt
-cache restarts there, and Claude models that bind thinking blocks to the exact history reject the request.
+cache restarts there, and the change breaks the thinking-block binding of Claude models.
 Saving it through ``ModelResponse.result`` keeps it ahead of the reply; a ``Command`` returned in an
 ``ExtendedModelResponse`` would be applied after the reply instead.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
-
-from langchain.agents.middleware.types import ModelResponse
 
 from automation.agent.synthetic import synthetic_message
 
@@ -18,12 +17,13 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain.agents.middleware import ModelRequest
+    from langchain.agents.middleware.types import ModelResponse
     from langchain_core.messages import HumanMessage
 
 
 def persist_reminder(response: ModelResponse, reminder: HumanMessage) -> ModelResponse:
     """``response`` with ``reminder`` saved ahead of the reply it produced."""
-    return ModelResponse(result=[reminder, *response.result], structured_response=response.structured_response)
+    return replace(response, result=[reminder, *response.result])
 
 
 async def call_with_reminder(
