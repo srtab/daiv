@@ -3,10 +3,8 @@ import re
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
-from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 from langchain_core.messages import AIMessage
@@ -32,6 +30,7 @@ from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 
@@ -101,16 +100,8 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
     for the general-purpose and custom builders, a deferred-tools middleware exposing the
     parent's MCP toolset).
     """
-    summarization_defaults = compute_summarization_defaults(model)
     return [
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=summarization_defaults["trigger"],
-            keep=summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=summarization_defaults["truncate_args_settings"],
-        ),
+        build_summarization_middleware(model, backend),
         LoopBreakerMiddleware(terminal="error"),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),

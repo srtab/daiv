@@ -4,6 +4,8 @@ from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessageProm
 
 AGENT_REPORT_TAG = "agent_report"
 
+memory_section = "<agent_memory>\n{agent_memory}\n</agent_memory>"
+
 _CLOSING_TAG = re.compile(rf"</\s*{AGENT_REPORT_TAG}\s*>", re.IGNORECASE)
 # A fence run opens a code block that runs until its match, swallowing the field rules below the
 # report. Backslash-escaped it is no longer a fence and still reads as the tildes the agent wrote.

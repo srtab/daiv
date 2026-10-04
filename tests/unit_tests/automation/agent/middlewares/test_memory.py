@@ -1,9 +1,15 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from deepagents.backends import StateBackend
 from memory.models import RepositoryMemory
 
-from automation.agent.middlewares.memory import MEMORY_SECTION_HEADER, RepositoryMemoryMiddleware
+from automation.agent.constants import AGENTS_MEMORY_PATH
+from automation.agent.middlewares.memory import (
+    MEMORY_SECTION_HEADER,
+    RepositoryMemoryMiddleware,
+    build_agents_memory_middleware,
+)
 from codebase.repo_config import RepositoryConfig
 from core.models import SiteConfiguration
 from tests.unit_tests.conftest import agent_settings, site_snapshot
@@ -124,3 +130,16 @@ async def test_never_raises_on_lookup_failure():
     assert result == "response"
     request.override.assert_not_called()
     handler.assert_awaited_once_with(request)
+
+
+def test_agents_memory_loads_the_context_file_and_the_agents_directory_file():
+    memory = build_agents_memory_middleware(StateBackend(), "/repo", "CONTEXT.md", "<m>{agent_memory}</m>")
+
+    assert memory.sources == ["/repo/CONTEXT.md", f"/repo/{AGENTS_MEMORY_PATH}"]
+    assert memory.system_prompt == "<m>{agent_memory}</m>"
+
+
+def test_agents_memory_skips_a_context_file_disabled_in_the_repo_config():
+    memory = build_agents_memory_middleware(StateBackend(), "/repo", None, "<m>{agent_memory}</m>")
+
+    assert memory.sources == [f"/repo/{AGENTS_MEMORY_PATH}"]

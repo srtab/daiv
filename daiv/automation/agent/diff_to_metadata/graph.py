@@ -6,18 +6,17 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents.graph import create_agent
-from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware, dynamic_prompt
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from automation.agent import BaseAgent
-from automation.agent.constants import AGENTS_MEMORY_PATH
 from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
 
-from .prompts import human_commit_message, human_pr_metadata, system
+from .prompts import human_commit_message, human_pr_metadata, memory_section, system
 from .schemas import CommitMetadata, PullRequestMetadata
 
 if TYPE_CHECKING:
@@ -69,11 +68,7 @@ def create_diff_to_metadata_graph(
     fallback_models = [BaseAgent.get_model(model=model_name) for model_name in model_names[1:]]
 
     middleware = [
-        MemoryMiddleware(
-            backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
-            add_cache_control=True,
-        ),
+        build_agents_memory_middleware(backend, f"/{agent_path.name}", ctx.config.context_file_name, memory_section),
         AnthropicPromptCachingMiddleware(),
         dynamic_system_prompt,
     ]
