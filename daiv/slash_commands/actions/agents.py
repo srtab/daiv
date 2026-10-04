@@ -20,6 +20,7 @@ class AgentsSlashCommand(SlashCommand):
     """
 
     description: str = "Shows the list of available sub-agents with their names and descriptions."
+    reads_repository = True
 
     async def execute_for_agent(
         self, *, args: str, available_subagents: Sequence[SubAgent | CompiledSubAgent], **kwargs

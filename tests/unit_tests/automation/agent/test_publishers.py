@@ -682,8 +682,13 @@ class TestPublishDiffBase:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
 
 
-def _pending_merge(*, conflicted_paths: tuple[str, ...] = (), name: str = "origin/main") -> PendingMerge:
-    return PendingMerge(head="b" * 40, name=name, conflicted_paths=list(conflicted_paths))
+def _pending_merge(*, unmerged_paths: tuple[str, ...] = (), conflicted_paths: tuple[str, ...] = ()) -> PendingMerge:
+    return PendingMerge(
+        head="b" * 40,
+        branch="remotes/origin/main",
+        unmerged_paths=unmerged_paths or conflicted_paths,
+        conflicted_paths=conflicted_paths,
+    )
 
 
 class TestPublishPendingMerge:
@@ -700,17 +705,49 @@ class TestPublishPendingMerge:
         gm.commit_all.assert_not_awaited()
         gm.push_head_to.assert_not_awaited()
 
-    async def test_a_resolved_merge_is_committed_with_git_merge_subject_and_no_metadata_call(self):
+    @pytest.mark.parametrize(
+        ("unmerged_paths", "head_detached", "expected"),
+        [
+            pytest.param((), False, "Merge remote-tracking branch 'origin/main' into feature", id="resolved"),
+            pytest.param(
+                ("a.png", "b.py"),
+                False,
+                "Merge remote-tracking branch 'origin/main' into feature\n\nConflicts:\n\ta.png\n\tb.py",
+                id="conflicted",
+            ),
+            pytest.param((), True, "Merge remote-tracking branch 'origin/main'", id="detached-clone"),
+        ],
+    )
+    async def test_a_merge_is_committed_with_git_merge_message_and_no_metadata_call(
+        self, unmerged_paths, head_detached, expected
+    ):
+        """The message lists every file the merge left conflicted, including a binary file or one deleted on one
+        side, whose resolution the marker check cannot see."""
         publisher = _make_publisher(base_ref="feature")
+        publisher.ctx.repo.head_detached = head_detached
         publisher._diff_to_metadata = AsyncMock(side_effect=AssertionError("no LLM call for a merge onto an MR"))
-        gm = _fake_git_manager(pending_merge=_pending_merge())
+        gm = _fake_git_manager(pending_merge=_pending_merge(unmerged_paths=unmerged_paths))
         _use_git_manager(publisher, gm)
 
         outcome = await publisher.publish(merge_request=_make_merge_request())
 
-        gm.commit_all.assert_awaited_once_with("Merge branch 'origin/main' into feature")
+        gm.commit_all.assert_awaited_once_with(expected)
         assert gm.status_snapshot.await_args.kwargs["merge_head"] == "b" * 40
         assert outcome.published is True
+
+    async def test_a_merge_with_nothing_to_open_a_merge_request_with_publishes_nothing(self):
+        """No MR to record the merge on, and an empty diff gives a new MR no title or branch."""
+        publisher = _make_publisher(base_ref="main")
+        publisher._diff_to_metadata = AsyncMock(side_effect=AssertionError("nothing to describe"))
+        gm = _fake_git_manager(dirty=False, diff="", pending_merge=_pending_merge())
+        _use_git_manager(publisher, gm)
+
+        outcome = await publisher.publish(merge_request=None)
+
+        assert outcome.published is False
+        assert outcome.merge_request is None
+        gm.commit_all.assert_not_awaited()
+        gm.push_head_to.assert_not_awaited()
 
     async def test_a_merge_that_leaves_the_tree_unchanged_is_still_committed_and_pushed(self):
         """Without the merge commit the MR would keep reporting conflicts with its target."""
@@ -722,20 +759,6 @@ class TestPublishPendingMerge:
 
         gm.commit_all.assert_awaited_once()
         gm.push_head_to.assert_awaited_once()
-
-    @pytest.mark.parametrize(
-        ("name", "head_detached", "expected"),
-        [
-            pytest.param("origin/main", False, "Merge branch 'origin/main' into feature", id="branch"),
-            pytest.param("b" * 40, False, f"Merge commit '{'b' * 40}' into feature", id="unnamed-commit"),
-            pytest.param("origin/main", True, "Merge branch 'origin/main'", id="detached-head"),
-        ],
-    )
-    def test_merge_commit_subject(self, name, head_detached, expected):
-        publisher = _make_publisher(base_ref="feature")
-        publisher.ctx.repo.head_detached = head_detached
-
-        assert publisher._merge_commit_message(_pending_merge(name=name)) == expected
 
 
 class TestRunBaseBranch:
@@ -1590,7 +1613,7 @@ def _publisher_with_graph_capture(monkeypatch):
     publisher.ctx.config.omit_content_patterns = []
     captured = {}
 
-    def fake_create(model_names, ctx, backend, include_pr_metadata):
+    def fake_create(model_names, ctx, backend, include_pr_metadata, include_commit_message):
         graph = Mock()
         captured["graph_backend"] = backend
 

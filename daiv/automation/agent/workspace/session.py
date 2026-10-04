@@ -1,9 +1,10 @@
 """A run's hold on its sandbox container, from the start or warm reuse to the stop or removal.
 
-The run executor builds one ``SandboxSession`` per sandbox-enabled run, acquires it before it builds the agent, and
-releases it once the agent is done, however it ended. ``SandboxMiddleware.abefore_agent`` records it in the thread's
-checkpoint, and everything that reaches the container goes through it: the ``/workspace`` file backend, the ``bash``
-tool, git, the publisher and draft recovery. Subagents share their parent's session.
+The run executor builds one ``SandboxSession`` per sandbox-enabled run, acquires it before it builds the agent (unless
+the turn skips the sandbox, see ``skips_sandbox``), and releases it once the agent is done, however it ended.
+``SandboxMiddleware.abefore_agent`` records it in the thread's checkpoint, and everything that reaches the container
+goes through it: the ``/workspace`` file backend, the ``bash`` tool, git, the publisher and draft recovery. Subagents
+share their parent's session.
 """
 
 from __future__ import annotations
@@ -126,8 +127,8 @@ class SandboxSession:
         prior_id: str | None,
         prior_fingerprint: str | None,
         seed: Callable[[], Awaitable[tuple[bytes, bytes | None]]],
-    ) -> tuple[str, str]:
-        """Hold a container for this run; return its id and this run's spec fingerprint, for the checkpoint.
+    ) -> None:
+        """Hold a container for this run.
 
         ``prior_id`` and ``prior_fingerprint`` are what the thread's checkpoint recorded. ``seed`` builds the repository
         and global-skills archives, and runs only for a freshly started container. Raises
@@ -139,7 +140,6 @@ class SandboxSession:
         if self._session_id is not None:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
         self._checkpointed = False
-        fingerprint = self._spec.fingerprint
         egress = await self._provision_egress()
         acquisition = SandboxAcquisition.NEW
         if prior_id is not None:
@@ -152,11 +152,10 @@ class SandboxSession:
             if acquisition is SandboxAcquisition.WARM:
                 self._session_id, self._egress, self._acquisition = prior_id, egress, acquisition
                 self._checkpointed = True
-                return prior_id, fingerprint
+                return
         session_id = await self._start(egress)
         await self._seed(session_id, seed)
         self._session_id, self._egress, self._acquisition = session_id, egress, acquisition
-        return session_id, fingerprint
 
     async def refresh_credential(self) -> bool:
         """Re-mint the git-platform token and push it onto the held container; return whether a new one was pushed.

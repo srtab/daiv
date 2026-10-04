@@ -30,6 +30,11 @@ def resolved_to(*model_names: str, thinking_level: str | None = None) -> AgentSe
     return agent_settings(run=RunOverrides(model_names=model_names, agent_thinking_level=thinking_level))
 
 
+def disk_ctx(**attrs) -> MagicMock:
+    """A ``RuntimeCtx`` stub with no sandbox, so the executor builds a disk workspace for it."""
+    return MagicMock(sandbox=None, sandbox_client=None, **attrs)
+
+
 def make_spec(**overrides) -> RunSpec:
     fields = {
         "thread_id": str(uuid.uuid4()),
@@ -68,9 +73,7 @@ def agent_stack(
         context_kwargs={},
         ctx=ctx
         if ctx is not None
-        else MagicMock(
-            repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), sandbox=None, sandbox_client=None
-        ),
+        else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),

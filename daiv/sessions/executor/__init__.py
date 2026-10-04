@@ -22,10 +22,10 @@ step sits where it does:
    on the ``Run`` alone for one only ``on_context_ready`` started (chat reads the session's model as a pinned override).
 4. A sandbox run acquires its container (``automation.agent.middlewares.sandbox.acquire_sandbox``), reusing the warm one
    the thread's last checkpoint names when it can, so building the agent can read the repository's subagents from it;
-   a turn that is a builtin slash command acquires none, as it never reaches the agent loop. The agent is then built
-   over the run's workspace (that sandbox session, or else the worker's clone) with a
-   ``sessions.artifacts.RunArtifactStore``,
-   so ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
+   a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
+   (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace
+   (that sandbox session, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``, so
+   ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
    factory, whose events are yielded as they come. Between its events, at most every
    ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale takeover
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
@@ -39,9 +39,8 @@ step sits where it does:
    arm is logged; none of them fails a run the agent already finished.
 6. The sandbox session, if the run has one, is released — stopped for a session run, whose next turn can reuse it,
    and removed for a one-shot run or a new container the checkpoint never came to name — even when the agent or its
-   stream raised, was stopped or lost its reader. A stream
-   that lost its slot leaves the container running while the checkpoint still names it, since the holder that took
-   over reuses it.
+   stream raised, was stopped or lost its reader. A stream that lost its slot leaves the container running while the
+   checkpoint still names it, since the holder that took over reuses it.
    A run with a ``Run`` row (``spec.run_id``, or the one ``on_context_ready`` created) then records on it how long its
    clone took and how its container was acquired (``clone_seconds``, ``sandbox_acquisition``), even when a repeated stop
    cancelled the release; a failed write, or a missing row, is logged. Then the context and the checkpointer close.

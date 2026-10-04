@@ -34,7 +34,7 @@ from tests.unit_tests.conftest import (
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import agent_stack, make_spec
+from tests.unit_tests.sessions.executor.conftest import agent_stack, disk_ctx, make_spec
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
@@ -223,7 +223,7 @@ async def test_a_failing_context_exit_still_frees_the_slot():
 
     @asynccontextmanager
     async def _context(**_kwargs):
-        yield MagicMock(sandbox=None, sandbox_client=None)
+        yield disk_ctx()
         raise OSError("clone cleanup failed")
 
     with agent_stack(_agent(), context=_context), pytest.raises(OSError, match="clone cleanup failed"):
@@ -880,36 +880,24 @@ async def test_the_container_is_acquired_before_the_agent_is_built():
     assert acquired_at_build == [True]
 
 
-async def test_a_builtin_slash_command_turn_acquires_no_container():
-    """``SlashCommandMiddleware`` answers it without the agent loop, so a container would be paid for nothing."""
+@pytest.mark.parametrize(
+    ("content", "repo", "starts"),
+    [
+        pytest.param("/help", None, 0, id="builtin"),
+        pytest.param("/agents", None, 1, id="reads-the-repository"),
+        pytest.param("/help", RepositoryConfig(slash_commands={"enabled": False}), 1, id="slash-commands-off"),
+    ],
+)
+async def test_a_slash_command_turn_acquires_a_container_only_when_the_agent_needs_one(content, repo, starts):
+    """``SlashCommandMiddleware`` answers a builtin command without the agent loop, so a container would be paid for
+    nothing; ``/agents`` lists the subagents building the agent read from the repository."""
     client = FakeSandboxClient.opened()
+    resolve = None if repo is None else MagicMock(return_value=agent_settings(repo=repo))
 
-    with agent_stack(_agent(), ctx=_sandbox_ctx(client)) as stack:
-        await execute_run(make_spec(input_messages=(HumanMessage(content="/help"),)))
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client), resolve=resolve):
+        await execute_run(make_spec(input_messages=(HumanMessage(content=content),)))
 
-    assert stack.create_agent.await_args.kwargs["workspace"].session.acquisition == "not_acquired"
-    assert client.calls_to("start_session") == []
-
-
-async def test_a_chat_turn_names_its_slash_command_in_the_prompt():
-    """A streaming trigger leaves ``input_messages`` empty; its stream sends the prompt."""
-    client = FakeSandboxClient.opened()
-
-    with agent_stack(_agent(), ctx=_sandbox_ctx(client)):
-        await execute_run(make_spec(input_messages=(), prompt="/help"))
-
-    assert client.calls_to("start_session") == []
-
-
-async def test_a_slash_command_still_gets_a_container_when_the_repository_turns_slash_commands_off():
-    """No middleware answers it then, so the agent loop runs and needs the sandbox."""
-    client = FakeSandboxClient.opened()
-    settings = agent_settings(repo=RepositoryConfig(slash_commands={"enabled": False}))
-
-    with agent_stack(_agent(), ctx=_sandbox_ctx(client), resolve=MagicMock(return_value=settings)):
-        await execute_run(make_spec(input_messages=(HumanMessage(content="/help"),)))
-
-    assert len(client.calls_to("start_session")) == 1
+    assert len(client.calls_to("start_session")) == starts
 
 
 @pytest.mark.parametrize("recorded", [True, False], ids=["recorded", "never-recorded"])
@@ -1094,7 +1082,7 @@ def _stream(*events, error: Exception | None = None):
 @asynccontextmanager
 async def _context_failing_on_close(**_kwargs):
     try:
-        yield MagicMock(repo=SimpleNamespace(ref="main"), sandbox=None, sandbox_client=None)
+        yield disk_ctx(repo=SimpleNamespace(ref="main"))
     finally:
         raise OSError("clone cleanup failed")
 

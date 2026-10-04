@@ -54,7 +54,7 @@ class Workspace(Protocol):
     @property
     def is_ready(self) -> bool:
         """Whether the files and git can be reached yet: always on disk; on a sandbox, once its session is acquired,
-        which a slash-command short-circuit or an early agent failure skips."""
+        which a turn that skips the sandbox (``skips_sandbox``) or a failed acquisition never gets to."""
         ...
 
     async def authenticated_git(self) -> GitManager:

@@ -627,6 +627,21 @@ class TestCustomSubagents:
         names = {s["name"] for s in result}
         assert names == {"agent-a", "agent-b"}
 
+    async def test_loads_none_through_a_workspace_that_is_not_ready(self, mock_model, mock_runtime_ctx):
+        backend = Mock(spec=BackendProtocol)
+        workspace = FakeWorkspace(backend=backend, bash=Mock(), session=Mock(), is_ready=False)
+
+        result = await load_custom_subagents(
+            model=mock_model,
+            workspace=workspace,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
+        )
+
+        assert result == []
+        backend.als.assert_not_called()
+
     async def test_skips_non_md_files(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 

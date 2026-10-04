@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langchain_core.runnables import RunnableConfig
 
+    from automation.agent.agent_settings import AgentSettings
     from slash_commands.base import SlashCommand
 
 logger = logging.getLogger("daiv.tools")
@@ -68,13 +69,13 @@ def _load_global_skill_metadata() -> list[SkillMetadata]:
 
 
 class SlashCommandMiddleware(AgentMiddleware):
-    """Intercept builtin slash commands before the sandbox session starts.
+    """Intercept builtin slash commands before the agent loop.
 
-    Runs ahead of ``SandboxMiddleware`` so commands that reset/inspect the thread
-    (``/clear``, ``/help``, ``/agents``, ...) short-circuit the run without paying for a
-    sandbox session. Builtin commands need only static context (the configured subagents)
-    plus, for ``/help``, the builtin + custom *global* skill list — all read from disk, so
-    this hook never touches the sandbox backend.
+    Commands that reset/inspect the thread (``/clear``, ``/help``, ``/agents``, ...) short-circuit
+    the run. The run executor starts no sandbox for one that does not read the repository
+    (:func:`skips_sandbox`), and ``/agents`` gets the subagents the agent was built with. Builtin
+    commands need only that static context plus, for ``/help``, the builtin + custom *global*
+    skill list — all read from disk, so this hook never touches the sandbox backend.
     """
 
     # Declares the skills state channels so this middleware may reset ``active_skill_mode`` when a
@@ -143,13 +144,17 @@ class SlashCommandMiddleware(AgentMiddleware):
         return parse_slash_command(text_content, bot_username)
 
 
-def is_builtin_slash_command(messages: Sequence[BaseMessage], context: RuntimeCtx) -> bool:
-    """Whether the latest of ``messages`` invokes a builtin slash command, which ``SlashCommandMiddleware`` answers
-    without the agent loop. The run executor asks it so such a turn never acquires a sandbox."""
-    if not messages:
+def skips_sandbox(messages: Sequence[BaseMessage], context: RuntimeCtx, settings: AgentSettings) -> bool:
+    """Whether the latest of ``messages`` invokes a builtin slash command that needs no sandbox:
+    ``SlashCommandMiddleware``, which ``settings`` enables, answers it without the agent loop, and it does not read the
+    repository (``SlashCommand.reads_repository``). The run executor then acquires none."""
+    if not settings.features.slash_commands or not messages:
         return False
     slash_command = SlashCommandMiddleware._extract_slash_command(messages, context.bot_username)
-    return slash_command is not None and _builtin_command_class(slash_command, context) is not None
+    if slash_command is None:
+        return False
+    command_class = _builtin_command_class(slash_command, context)
+    return command_class is not None and not command_class.reads_repository
 
 
 def _builtin_command_class(slash_command: SlashCommandCommand, context: RuntimeCtx) -> type[SlashCommand] | None:

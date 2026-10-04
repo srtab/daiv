@@ -39,10 +39,23 @@ class PendingMerge:
 
     head: str
     """The merged commit (``MERGE_HEAD``)."""
-    name: str
-    """The merged commit as ``git name-rev`` names it (``origin/main``), or its sha when no ref reaches it."""
-    conflicted_paths: list[str]
-    """Unmerged files that still hold a ``<<<<<<<`` or ``>>>>>>>`` conflict marker line."""
+    branch: str | None
+    """The branch ``head`` is the tip of, as ``git name-rev`` names it (``remotes/origin/main``, ``main``); ``None``
+    when it is no branch's tip."""
+    unmerged_paths: tuple[str, ...]
+    """Files the merge left unmerged. The agent cannot stage, so the ones it resolved are still listed."""
+    conflicted_paths: tuple[str, ...]
+    """The ``unmerged_paths`` that still hold a ``<<<<<<<`` or ``>>>>>>>`` conflict marker line."""
+
+    def commit_subject(self, into: str | None) -> str:
+        """The subject git gives this merge's commit, naming the branch it lands on (``into``) when there is one."""
+        if self.branch is None:
+            subject = f"Merge commit '{self.head}'"
+        elif self.branch.startswith("remotes/"):
+            subject = f"Merge remote-tracking branch '{self.branch.removeprefix('remotes/')}'"
+        else:
+            subject = f"Merge branch '{self.branch}'"
+        return subject if into is None else f"{subject} into {into}"
 
 
 class GitManager:
@@ -149,27 +162,35 @@ class GitManager:
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
     async def pending_merge(self) -> PendingMerge | None:
-        """The merge in progress, or ``None``. One round-trip when there is none, up to three when there is."""
-        head_res = await self._git("rev-parse", "-q", "--verify", "MERGE_HEAD", check=False)
-        head = head_res.output.strip()
-        if head_res.exit_code != 0 or not head:
-            return None
+        """The merge in progress, or ``None``. One round-trip, and a second when the merge left unmerged files.
+
+        Only ``rev-parse``'s "no such ref" exit means no merge; any other failure raises, since reading it as "no merge"
+        would commit the merge as a plain commit without checking it for conflict markers.
+        """
         specs: list[tuple[str, ...]] = [
-            ("name-rev", "--name-only", "--no-undefined", "MERGE_HEAD"),
+            ("rev-parse", "-q", "--verify", "MERGE_HEAD"),
+            ("name-rev", "--name-only", "--no-undefined", "--exclude=*/HEAD", "--exclude=refs/tags/*", "MERGE_HEAD"),
             ("ls-files", "-u", "-z"),
         ]
-        name_res, unmerged_res = await self._git_batch(specs)
-        self._require_ok(specs[1], unmerged_res)
-        unmerged = sorted({entry.split("\t", 1)[1] for entry in unmerged_res.output.split("\0") if "\t" in entry})
-        conflicted: list[str] = []
+        head_res, name_res, unmerged_res = await self._git_batch(specs)
+        if head_res.exit_code == 1:
+            return None
+        head = self._sha_from(specs[0], self._require_ok(specs[0], head_res))
+        self._require_ok(specs[2], unmerged_res)
+        entries = unmerged_res.output.split("\0")
+        unmerged = tuple(sorted({entry.split("\t", 1)[1] for entry in entries if "\t" in entry}))
+        conflicted: tuple[str, ...] = ()
         if unmerged:
             grep_args = ("--literal-pathspecs", "grep", "-l", "-z", "-E", _CONFLICT_MARKER_PATTERN, "--", *unmerged)
             grep_res = await self._git(*grep_args, check=False)
             if grep_res.exit_code not in (0, 1):
                 self._require_ok(grep_args, grep_res)
-            conflicted = sorted(path for path in grep_res.output.split("\0") if path.strip())
-        name = name_res.output.strip().removeprefix("remotes/") if name_res.exit_code == 0 else ""
-        return PendingMerge(head=head, name=name or head, conflicted_paths=conflicted)
+            # The output interleaves stderr, so a warning can lead the first path's chunk.
+            hits = {chunk.rsplit("\n", 1)[-1] for chunk in grep_res.output.split("\0")}
+            conflicted = tuple(path for path in unmerged if path in hits)
+        names = self._nonempty_lines(name_res.output) if name_res.exit_code == 0 else []
+        branch = names[-1] if names and not any(char in names[-1] for char in "~^") else None
+        return PendingMerge(head=head, branch=branch, unmerged_paths=unmerged, conflicted_paths=conflicted)
 
     async def status_snapshot(
         self, *, base_branch: str, mr_source_branch: str | None, merge_head: str | None = None
@@ -268,14 +289,18 @@ class GitManager:
         """The full sha of the current ``HEAD``.
 
         ``GitResult.output`` is stdout *and* stderr, so a benign git warning (an unreadable
-        ``.gitconfig``, a gc hint) would otherwise be returned as part of the sha; take the last
-        line and refuse anything that is not a full sha rather than hand a caller a poisoned one.
+        ``.gitconfig``, a gc hint) would otherwise be returned as part of the sha; see :meth:`_sha_from`.
         """
-        result = await self._git("rev-parse", "HEAD")
-        lines = self._nonempty_lines(result.output)
+        return self._sha_from(("rev-parse", "HEAD"), await self._git("rev-parse", "HEAD"))
+
+    @classmethod
+    def _sha_from(cls, args: tuple[str, ...], result: GitResult) -> str:
+        """The full sha a ``rev-parse`` printed: its last line, refusing anything that is not a full sha rather than
+        hand a caller one a git warning poisoned."""
+        lines = cls._nonempty_lines(result.output)
         sha = lines[-1] if lines else ""
         if not _FULL_SHA_RE.fullmatch(sha):
-            raise GitCommandError(["git", "rev-parse", "HEAD"], result.exit_code, stderr=result.output)
+            raise GitCommandError(["git", *args], result.exit_code, stderr=result.output)
         return sha
 
     async def push_head_to(
@@ -286,14 +311,14 @@ class GitManager:
         When ``integrate_on_reject`` is set and a *non-fast-forward* rejection comes back — the
         remote branch advanced under the run, e.g. a dependabot force-push of its rebased PR
         branch, or a concurrent human push to an MR's source branch — the manager fetches the
-        remote tip, rebases ``HEAD`` onto it (or merges it in, see :meth:`_integrate_remote`), and retries the push
-        once. This preserves the agent's
-        work instead of discarding it. Pass it only when adding onto a branch is the intent (an
-        existing MR's source branch); a fresh-branch push leaves it off so we never graft the run's
-        commits onto unrelated history that happens to occupy a colliding ref.
+        remote tip, rebases ``HEAD`` onto it or merges it in (see :meth:`_integrate_remote`), and
+        retries the push once. This preserves the agent's work instead of discarding it. Pass it only
+        when adding onto a branch is the intent (an existing MR's source branch); a fresh-branch push
+        leaves it off so we never graft the run's commits onto unrelated history that happens to
+        occupy a colliding ref.
 
         Raises ``GitPushStaleError`` on a non-fast-forward rejection that cannot be (or was asked not
-        to be) integrated — including a rebase conflict or a remote that advanced again before the
+        to be) integrated — including a rebase or merge conflict or a remote that advanced again before the
         retry. Raises ``GitPushPermissionError`` on an auth/permission failure, ``GitPushNetworkError``
         when the remote host is unreachable (e.g. a network-disabled sandbox), and ``GitCommandError``
         on any other push failure. Returns ``branch``.
@@ -313,7 +338,7 @@ class GitManager:
             return branch
 
         # A non-fast-forward rejection is the only failure that integrating remote work can fix; an
-        # auth/network/other failure won't change after a fetch+rebase, so it falls straight through
+        # auth/network/other failure won't change after a fetch and integration, so it falls straight through
         # to classification below. On a successful integrate, retry the push and return on success.
         if integrate_on_reject and not force and _is_push_stale_error_text(push.output):
             await self._integrate_remote(branch)  # raises GitPushStaleError on a conflict
@@ -328,22 +353,22 @@ class GitManager:
     async def _integrate_remote(self, branch: str) -> None:
         """Fetch ``origin/<branch>`` and build ``HEAD`` on top of it so a non-fast-forward push can retry.
 
-        On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. When the run's unpushed
-        commits include a merge, the remote tip is merged in instead: a rebase would re-create the merged branch's
-        commits under new shas, so the merge request would show that branch's changes as its own again. A failed
-        fetch is classified by transport (auth → ``GitPushPermissionError``, unreachable host →
+        On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. When the run's own commits,
+        the ones on no ``origin`` ref, include a merge, the remote tip is merged in instead: a rebase would re-create
+        the merged branch's commits under new shas, so the merge request would show that branch's changes as its own
+        again. A failed fetch is classified by transport (auth → ``GitPushPermissionError``, unreachable host →
         ``GitPushNetworkError``, else ``GitCommandError``) — via the operation-neutral
-        :func:`_raise_for_transport_failure` rather than the push classifier, so a fetch never raises
-        a nonsensical non-fast-forward error — keeping the actionable typed error the direct push
-        would have produced instead of degrading to a raw ``GitCommandError``. On a conflict
-        the rebase or merge is aborted (restoring the earlier ``HEAD`` rather than stranding the workspace
-        mid-way) and a typed :class:`GitPushStaleError` is raised. A *failed* abort cannot restore
-        ``HEAD``: it is logged at error level (never silently swallowed) and flagged in the raised
-        message, since the workspace is then left mid-way and must not be re-published.
+        :func:`_raise_for_transport_failure` rather than the push classifier, so a fetch never raises a nonsensical
+        non-fast-forward error — keeping the actionable typed error the direct push would have produced instead of
+        degrading to a raw ``GitCommandError``. On a conflict the rebase or merge is aborted (restoring the earlier
+        ``HEAD`` rather than stranding the workspace mid-way) and a typed :class:`GitPushStaleError` is raised. A
+        *failed* abort cannot restore ``HEAD``: it is logged at error level (never silently swallowed) and flagged in
+        the raised message, since the workspace is then left mid-way and must not be re-published.
         """
-        # Before the fetch moves origin/<branch>: after a force-push, FETCH_HEAD..HEAD also holds rewritten commits.
-        merges = await self._git("rev-list", "--merges", f"origin/{branch}..HEAD", check=False)
-        operation = "merge" if merges.exit_code == 0 and merges.output.strip() else "rebase"
+        # Before the fetch moves origin/<branch>: after a force-push, the fetched tip no longer holds the old history.
+        merges = await self._git("rev-list", "--merges", "HEAD", "--not", "--remotes=origin")
+        integrate_args = ("merge", "--no-edit", "FETCH_HEAD") if merges.output.strip() else ("rebase", "FETCH_HEAD")
+        operation = integrate_args[0]
 
         fetch_args = ["fetch", "origin", branch]
         fetch = await self._git(*fetch_args, check=False)
@@ -351,10 +376,15 @@ class GitManager:
             _raise_for_transport_failure(fetch_args, fetch)
             raise GitCommandError(["git", *fetch_args], fetch.exit_code, fetch.output)
 
-        integrate = await self._git(
-            *(("merge", "--no-edit", "FETCH_HEAD") if operation == "merge" else ("rebase", "FETCH_HEAD")), check=False
-        )
+        integrate = await self._git(*integrate_args, check=False)
         if integrate.exit_code != 0:
+            logger.warning(
+                "git %s FETCH_HEAD failed on '%s' (exit %s): %s",
+                operation,
+                branch,
+                integrate.exit_code,
+                integrate.output.strip(),
+            )
             abort = await self._git(operation, "--abort", check=False)
             if abort.exit_code != 0:
                 logger.error(
@@ -469,7 +499,7 @@ def _is_push_stale_error_text(output: str) -> bool:
     stale rejection that also mentions a URL or host is never misclassified there, and a genuine
     auth/network failure never reads as stale. The early gate in :meth:`GitManager.push_head_to` also
     calls this before any auth/network check, which is safe because it only gates a recoverable
-    fetch+rebase and real auth/network output does not contain these non-fast-forward markers.
+    fetch and integration, and real auth/network output does not contain these non-fast-forward markers.
     """
     text = output.lower()
     return any(
@@ -487,7 +517,7 @@ def _raise_for_transport_failure(args: list[str], result: GitResult) -> None:
     """Raise a typed error for an auth/permission or unreachable-host git failure; return otherwise.
 
     Operation-neutral on purpose: a credential or host-reachability problem (and its remedy) is the
-    same whether the failing command was a ``push`` or the ``fetch`` of a push-recovery rebase, so
+    same whether the failing command was a ``push`` or the ``fetch`` of a push-recovery integration, so
     both share this classification. Returns (does not raise) when the output matches neither marker,
     leaving the caller to layer operation-specific classification (e.g. push's non-fast-forward
     branch) on top. Auth is checked before network so an auth failure that also names a host wins.

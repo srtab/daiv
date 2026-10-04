@@ -11,7 +11,7 @@ from sessions.models import Session, SessionOrigin
 
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
-from tests.unit_tests.sessions.executor.conftest import resolved_to
+from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
 
 
 @pytest.mark.django_db
@@ -22,7 +22,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     last_message.content = "ok"
     fake_result = {"messages": [last_message]}
 
-    runtime_ctx = MagicMock(sandbox=None, sandbox_client=None)
+    runtime_ctx = disk_ctx()
     runtime_ctx.config.models.agent = MagicMock()
 
     agent = AsyncMock()
@@ -73,7 +73,7 @@ async def test_run_job_task_builds_the_sandbox_spec_from_its_env_id():
     async def _fake_set_runtime_ctx(*args, **kwargs):
         captured.update(kwargs)
         # Yield a stub RuntimeCtx-ish object enough to navigate the rest of the task.
-        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())), sandbox=None, sandbox_client=None)
+        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
 
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
@@ -102,7 +102,7 @@ async def test_run_job_task_forwards_overrides():
     last_message.content = "ok"
     fake_result = {"messages": [last_message]}
 
-    runtime_ctx = MagicMock(sandbox=None, sandbox_client=None)
+    runtime_ctx = disk_ctx()
     runtime_ctx.config.models.agent = MagicMock()
 
     agent = AsyncMock()
@@ -162,7 +162,7 @@ async def test_run_job_task_persists_resolved_model():
     agent = AsyncMock()
     agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
     agent.aget_state = AsyncMock(return_value=MagicMock(values={}))
-    runtime_ctx = MagicMock(sandbox=None, sandbox_client=None)
+    runtime_ctx = disk_ctx()
     runtime_ctx.config.models.agent = MagicMock()
     runtime_ctx.repo.clone_seconds = 0.0
 
@@ -211,7 +211,7 @@ async def test_run_job_task_reads_session_mcp_overrides():
     @asynccontextmanager
     async def _fake_set_runtime_ctx(*args, **kwargs):
         captured.update(kwargs)
-        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())), sandbox=None, sandbox_client=None)
+        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
 
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
@@ -240,7 +240,7 @@ async def test_run_job_task_mcp_overrides_defaults_to_empty_when_no_session():
     @asynccontextmanager
     async def _fake_set_runtime_ctx(*args, **kwargs):
         captured.update(kwargs)
-        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())), sandbox=None, sandbox_client=None)
+        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
 
     with (
         patch("sessions.executor.lock._acquire_session_lock", new=AsyncMock(return_value=None)),
@@ -328,11 +328,8 @@ def _job_scaffolding(agent, *, real_lock: bool = False, armed: list[dict] | None
         patch("automation.agent.usage_tracking.track_usage_metadata"),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
-        rc_ctx.return_value.__aenter__.return_value = MagicMock(
-            config=MagicMock(models=MagicMock(agent=object())),
-            repo=SimpleNamespace(ref="main", head_detached=False),
-            sandbox=None,
-            sandbox_client=None,
+        rc_ctx.return_value.__aenter__.return_value = disk_ctx(
+            config=MagicMock(models=MagicMock(agent=object())), repo=SimpleNamespace(ref="main", head_detached=False)
         )
         yield rc_ctx
 
@@ -390,7 +387,7 @@ async def _runtime_ctx_kwargs(thread_id: str, **job_kwargs) -> dict:
     @asynccontextmanager
     async def _fake_set_runtime_ctx(*args, **kwargs):
         captured.update(kwargs)
-        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())), sandbox=None, sandbox_client=None)
+        yield disk_ctx(config=MagicMock(models=MagicMock(agent=object())))
 
     with (
         _job_scaffolding(AsyncMock()),
@@ -740,7 +737,7 @@ async def _drive(state_values: dict, *, run_id: str | None = None, user_id: int 
     agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
     agent.aget_state = AsyncMock(return_value=SimpleNamespace(values=state_values))
 
-    runtime_ctx = MagicMock(sandbox=None, sandbox_client=None)
+    runtime_ctx = disk_ctx()
     runtime_ctx.config.models.agent = MagicMock()
 
     with (

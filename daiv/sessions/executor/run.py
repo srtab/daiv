@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
-    from langchain_core.messages import BaseMessage
     from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.types import StateSnapshot
@@ -219,7 +218,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.sandbox import acquire_sandbox
-    from automation.agent.middlewares.slash_commands import is_builtin_slash_command
+    from automation.agent.middlewares.slash_commands import skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config
     from codebase.context import set_runtime_ctx
@@ -268,9 +267,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
             await _persist_resolved_agent(
                 spec, run_id=run_id, model=model, thinking_level=settings.agent.thinking_level or ""
             )
-            if workspace.session is not None and not (
-                settings.features.slash_commands and is_builtin_slash_command(_turn_messages(spec), ctx)
-            ):
+            if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
             agent = await create_daiv_agent(
                 settings=settings,
@@ -326,15 +323,6 @@ def _build_workspace(ctx: RuntimeCtx) -> Workspace:
     if ctx.sandbox is None or ctx.sandbox_client is None:
         return DiskWorkspace(ctx)
     return SandboxWorkspace(SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source))
-
-
-def _turn_messages(spec: RunSpec) -> tuple[BaseMessage, ...]:
-    """The turn's input: ``input_messages``, or a streaming trigger's ``prompt``, which its stream factory sends."""
-    from langchain_core.messages import HumanMessage
-
-    if spec.input_messages or spec.prompt is None:
-        return spec.input_messages
-    return (HumanMessage(content=spec.prompt),)
 
 
 async def _checkpointed_values(checkpointer: BaseCheckpointSaver, thread_id: str) -> dict[str, Any]:

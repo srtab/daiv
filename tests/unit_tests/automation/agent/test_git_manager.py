@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -13,6 +14,7 @@ from automation.agent.git_manager import (
     GitPushNetworkError,
     GitPushPermissionError,
     GitPushStaleError,
+    PendingMerge,
     _is_push_stale_error_text,
 )
 from automation.agent.git_runners import GitResult, LocalGitRunner, SandboxGitRunner
@@ -20,8 +22,6 @@ from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeSandboxClient, sandbox_backend_on
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 # ---------------------------------------------------------------------------
@@ -218,20 +218,29 @@ async def test_push_head_to_integrates_remote_and_retries_on_non_fast_forward() 
 
     issued = _issued(client)
     assert issued[0].endswith("push origin HEAD:b")
-    assert "rev-list --merges origin/b..HEAD" in issued[1]
+    assert "rev-list --merges HEAD --not --remotes=origin" in issued[1]
     assert "fetch origin b" in issued[2]
     assert "rebase FETCH_HEAD" in issued[3]
     assert issued[4].endswith("push origin HEAD:b")
 
 
-async def test_push_head_to_raises_stale_on_rebase_conflict() -> None:
-    # The remote moved and its changes conflict with the agent's; the rebase fails, the manager
-    # aborts it (restoring HEAD) and raises a typed stale error instead of leaving a half-rebase.
+@pytest.mark.parametrize(
+    ("merges", "integrate", "abort"),
+    [
+        pytest.param("", "rebase FETCH_HEAD", "rebase --abort", id="rebase"),
+        pytest.param("d" * 40 + "\n", "merge --no-edit FETCH_HEAD", "merge --abort", id="run-with-a-merge"),
+    ],
+)
+async def test_push_head_to_aborts_a_conflicted_integration_and_raises_stale(
+    merges: str, integrate: str, abort: str
+) -> None:
+    # The remote moved and its changes conflict with the agent's; the manager aborts the rebase or merge (restoring
+    # HEAD) and raises a typed stale error instead of leaving it half-done.
     client = MagicMock()
     client.run_commands = AsyncMock(
         side_effect=[
             _resp((_NON_FF_REJECT, 1)),
-            _resp(("", 0)),
+            _resp((merges, 0)),
             _resp(("", 0)),
             _resp(("CONFLICT (content): merge", 1)),
             _resp(("", 0)),
@@ -239,12 +248,12 @@ async def test_push_head_to_raises_stale_on_rebase_conflict() -> None:
     )
     gm = GitManager(SandboxGitRunner(_backend_for(client)))
 
-    with pytest.raises(GitPushStaleError):
+    with pytest.raises(GitPushStaleError, match="could not be integrated"):
         await gm.push_head_to("b", integrate_on_reject=True)
 
     issued = _issued(client)
-    assert any("rebase --abort" in command for command in issued)
-    # No retry push is attempted once the rebase is aborted.
+    assert integrate in issued[3]
+    assert abort in issued[4]
     assert sum(command.endswith("push origin HEAD:b") for command in issued) == 1
 
 
@@ -597,16 +606,17 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _commit_file(repo: Repo, repo_dir: Path, filename: str, content: str) -> None:
-    (repo_dir / filename).write_text(content)
+def _commit_file(repo: Repo, filename: str, content: str) -> None:
+    (Path(repo.working_tree_dir) / filename).write_text(content)
     repo.git.add("-A")
     repo.index.commit(f"change {filename}")
 
 
-def _push_fork_of_main(repo: Repo, repo_dir: Path, branch: str, filename: str, content: str) -> None:
-    """Push ``branch``, ``main`` plus one commit to ``filename``, and leave only ``origin/<branch>`` behind."""
+def _push_fork_of_main(repo: Repo, branch: str, files: dict[str, str]) -> None:
+    """Push ``branch``, ``main`` plus one commit per file in ``files``, and leave only ``origin/<branch>`` behind."""
     repo.git.switch("-c", branch, "main")
-    _commit_file(repo, repo_dir, filename, content)
+    for filename, content in files.items():
+        _commit_file(repo, filename, content)
     repo.git.push("origin", branch)
     repo.git.switch("main")
     repo.git.branch("-D", branch)
@@ -624,19 +634,98 @@ async def test_pending_merge_is_none_without_a_merge(tmp_path: Path) -> None:
 
 async def test_pending_merge_lists_the_files_left_with_conflict_markers(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
-    repo_dir = tmp_path / "work"
-    _push_fork_of_main(repo, repo_dir, "other", "README.md", "theirs\n")
-    _commit_file(repo, repo_dir, "README.md", "ours\n")
+    _push_fork_of_main(repo, "other", {"README.md": "theirs\n"})
+    _commit_file(repo, "README.md", "ours\n")
     _start_merge(repo, "origin/other")
 
     pending = await GitManager(LocalGitRunner(repo)).pending_merge()
 
-    assert pending is not None
-    assert (pending.head, pending.name, pending.conflicted_paths) == (
-        repo.commit("origin/other").hexsha,
-        "origin/other",
-        ["README.md"],
+    assert pending == PendingMerge(
+        head=repo.commit("origin/other").hexsha,
+        branch="remotes/origin/other",
+        unmerged_paths=("README.md",),
+        conflicted_paths=("README.md",),
     )
+
+
+async def test_pending_merge_names_the_merged_branch_rather_than_origin_head_or_a_tag(tmp_path: Path) -> None:
+    """A clone's ``origin/HEAD``, and a release tag, point at the default branch's tip too."""
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    repo.git.push("origin", "main:feature")
+    _commit_file(repo, "theirs.txt", "theirs\n")
+    repo.git.tag("v1")
+    repo.git.push("origin", "main", "v1")
+    Repo(origin_dir).git.symbolic_ref("HEAD", "refs/heads/main")
+    clone = Repo.clone_from(origin_dir.as_posix(), tmp_path / "clone", branch="feature")
+    _configure_repo_identity(clone)
+    clone.git.rev_parse("--verify", "refs/remotes/origin/HEAD")
+    _commit_file(clone, "mine.txt", "mine\n")
+    _start_merge(clone, "origin/main")
+
+    pending = await GitManager(LocalGitRunner(clone)).pending_merge()
+
+    assert pending is not None
+    assert pending.branch == "remotes/origin/main"
+
+
+async def test_pending_merge_of_a_commit_no_branch_ends_at_names_no_branch(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    _push_fork_of_main(repo, "other", {"a.txt": "a\n", "b.txt": "b\n"})
+    _commit_file(repo, "mine.txt", "mine\n")
+    _start_merge(repo, "origin/other~1")
+
+    pending = await GitManager(LocalGitRunner(repo)).pending_merge()
+
+    assert pending is not None
+    assert pending.branch is None
+
+
+@pytest.mark.parametrize(
+    ("branch", "into", "expected"),
+    [
+        pytest.param("remotes/origin/main", "feature", "Merge remote-tracking branch 'origin/main' into feature"),
+        pytest.param("main", "feature", "Merge branch 'main' into feature"),
+        pytest.param(None, "feature", f"Merge commit '{'b' * 40}' into feature"),
+        pytest.param("remotes/origin/main", None, "Merge remote-tracking branch 'origin/main'"),
+    ],
+)
+def test_pending_merge_commit_subject_matches_git(branch: str | None, into: str | None, expected: str) -> None:
+    merge = PendingMerge(head="b" * 40, branch=branch, unmerged_paths=(), conflicted_paths=())
+
+    assert merge.commit_subject(into) == expected
+
+
+async def test_pending_merge_raises_when_merge_head_cannot_be_read() -> None:
+    """Only "no such ref" means no merge: anything else would commit the merge unchecked, as a plain commit."""
+    gm, _ = _sandbox_manager({"rev-parse -q --verify MERGE_HEAD": (128, "fatal: not a git repository")})
+
+    with pytest.raises(GitCommandError):
+        await gm.pending_merge()
+
+
+async def test_pending_merge_reads_through_git_warnings() -> None:
+    sha = "c" * 40
+    gm, _ = _sandbox_manager({
+        "rev-parse -q --verify MERGE_HEAD": (0, f"warning: unable to access '/root/.gitconfig'\n{sha}\n"),
+        "ls-files -u -z": (0, "100644 aaa 2\ta.py\x00100644 bbb 3\ta.py\x00100644 ccc 2\tb.py\x00"),
+        "grep -l -z": (0, "warning: unable to access '/root/.gitconfig'\na.py\x00"),
+    })
+
+    pending = await gm.pending_merge()
+
+    assert pending is not None
+    assert (pending.head, pending.unmerged_paths, pending.conflicted_paths) == (sha, ("a.py", "b.py"), ("a.py",))
+
+
+async def test_pending_merge_raises_when_the_marker_check_fails() -> None:
+    gm, _ = _sandbox_manager({
+        "rev-parse -q --verify MERGE_HEAD": (0, "c" * 40),
+        "ls-files -u -z": (0, "100644 aaa 2\ta.py\x00"),
+        "grep -l -z": (2, "fatal: cannot read a.py"),
+    })
+
+    with pytest.raises(GitCommandError):
+        await gm.pending_merge()
 
 
 async def test_pending_merge_reports_no_conflicts_once_the_markers_are_gone(tmp_path: Path) -> None:
@@ -644,22 +733,21 @@ async def test_pending_merge_reports_no_conflicts_once_the_markers_are_gone(tmp_
     underline of seven ``=`` is not one."""
     repo, _ = _init_repo_with_origin(tmp_path)
     repo_dir = tmp_path / "work"
-    _push_fork_of_main(repo, repo_dir, "other", "README.md", "theirs\n")
-    _commit_file(repo, repo_dir, "README.md", "ours\n")
+    _push_fork_of_main(repo, "other", {"README.md": "theirs\n"})
+    _commit_file(repo, "README.md", "ours\n")
     _start_merge(repo, "origin/other")
     (repo_dir / "README.md").write_text("Install\n=======\n\nours and theirs\n")
 
     pending = await GitManager(LocalGitRunner(repo)).pending_merge()
 
     assert pending is not None
-    assert pending.conflicted_paths == []
+    assert (pending.unmerged_paths, pending.conflicted_paths) == (("README.md",), ())
 
 
 async def test_status_snapshot_of_a_pending_merge_leaves_the_merged_branch_out_of_the_diff(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
-    repo_dir = tmp_path / "work"
-    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
-    _commit_file(repo, repo_dir, "mine.txt", "mine\n")
+    _push_fork_of_main(repo, "target", {"theirs.txt": "theirs\n"})
+    _commit_file(repo, "mine.txt", "mine\n")
     _start_merge(repo, "origin/target")
     gm = GitManager(LocalGitRunner(repo))
     pending = await gm.pending_merge()
@@ -674,17 +762,15 @@ async def test_status_snapshot_of_a_pending_merge_leaves_the_merged_branch_out_o
 async def test_integrating_a_rejected_push_keeps_the_merged_branch_commits(tmp_path: Path) -> None:
     """A rebase would re-create the merged branch's commits under new shas, so the MR would list them again."""
     repo, origin_dir = _init_repo_with_origin(tmp_path)
-    repo_dir = tmp_path / "work"
-    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
+    _push_fork_of_main(repo, "target", {"theirs.txt": "theirs\n"})
     repo.git.push("origin", "main:feature")
     repo.git.switch("-c", "feature", "--track", "origin/feature")
     _start_merge(repo, "origin/target")
     await GitManager(LocalGitRunner(repo)).commit_all("Merge branch 'origin/target' into feature")
     merge_commit = repo.head.commit
-    other_dir = tmp_path / "other"
-    other = Repo.clone_from(origin_dir.as_posix(), other_dir, branch="feature")
+    other = Repo.clone_from(origin_dir.as_posix(), tmp_path / "other", branch="feature")
     _configure_repo_identity(other)
-    _commit_file(other, other_dir, "concurrent.txt", "pushed meanwhile\n")
+    _commit_file(other, "concurrent.txt", "pushed meanwhile\n")
     other.git.push("origin", "feature")
 
     await GitManager(LocalGitRunner(repo)).push_head_to("feature", integrate_on_reject=True)
@@ -697,12 +783,11 @@ async def test_integrating_a_rejected_push_keeps_the_merged_branch_commits(tmp_p
 async def test_integrating_a_force_pushed_branch_rebases_when_only_the_old_history_had_a_merge(tmp_path: Path) -> None:
     """Merging would bring the commits the force-push rewrote back in; only the run's own commits decide."""
     repo, origin_dir = _init_repo_with_origin(tmp_path)
-    repo_dir = tmp_path / "work"
-    _push_fork_of_main(repo, repo_dir, "target", "theirs.txt", "theirs\n")
+    _push_fork_of_main(repo, "target", {"theirs.txt": "theirs\n"})
     repo.git.switch("-c", "feature")
     repo.git.merge("--no-ff", "-m", "Merge target", "origin/target")
     repo.git.push("origin", "feature")
-    _commit_file(repo, repo_dir, "mine.txt", "mine\n")
+    _commit_file(repo, "mine.txt", "mine\n")
     other = Repo.clone_from(origin_dir.as_posix(), tmp_path / "other")
     _configure_repo_identity(other)
     other.git.switch("-c", "rewritten", "origin/main")

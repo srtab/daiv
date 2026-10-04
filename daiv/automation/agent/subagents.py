@@ -130,7 +130,7 @@ def _build_general_purpose_middleware(
     """
     Build the middleware stack for a general-purpose subagent.
 
-    The subagent's ``SandboxMiddleware`` shares the parent's workspace, whose session the parent already acquired.
+    The subagent's ``SandboxMiddleware`` shares the parent's workspace, whose session the run executor acquired.
 
     ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
     subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
@@ -583,9 +583,12 @@ async def load_custom_subagents(
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
 
     Returns:
-        List of CompiledSubAgent dicts for the loaded custom subagents.
+        List of CompiledSubAgent dicts for the loaded custom subagents; none from a workspace that is not ready (a turn
+        that skips the sandbox).
     """
     subagents: list[CompiledSubAgent] = []
+    if not workspace.is_ready:
+        return subagents
 
     for source_path in sources:
         try:

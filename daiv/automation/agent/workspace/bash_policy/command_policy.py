@@ -23,12 +23,6 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "reset"),
     ("git", "rebase"),
     ("git", "merge"),
-    ("git", "merge", "--squash"),
-    ("git", "merge", "--commit"),
-    ("git", "merge", "--continue"),
-    ("git", "merge", "-m"),
-    ("git", "merge", "-F"),
-    ("git", "merge", "--file"),
     ("git", "pull"),
     ("git", "cherry-pick"),
     ("git", "revert"),
@@ -36,7 +30,7 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("git", "reflog", "delete"),
     ("git", "filter-branch"),
     ("git", "filter-repo"),
-    # Branch switching: the publisher pushes the branch the run's clone is on
+    # Branch switching: the publisher pushes HEAD to the branch the run started on
     ("git", "checkout"),
     ("git", "switch"),
     # Git index / object manipulation
@@ -62,13 +56,72 @@ DEFAULT_DISALLOW_RULES: tuple[tuple[str, ...], ...] = (
     ("python", "-m", "gitlab"),
 )
 
-#: Flags that lift a default rule: a ``--no-commit`` merge leaves its commit to the publisher, ``--abort`` undoes it.
-DEFAULT_DISALLOW_EXCEPTIONS: dict[tuple[str, ...], frozenset[str]] = {
-    ("git", "merge"): frozenset({"--no-commit", "--abort"})
-}
-
 #: git's global options that take the next word as their value (``git -C <path> commit``), lowercased.
-_GIT_OPTIONS_WITH_VALUE = frozenset({"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"})
+_GIT_OPTIONS_WITH_VALUE = frozenset({
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--super-prefix",
+    "--config-env",
+    "--attr-source",
+})
+
+#: git's global options that take no value, lowercased. Any other option hides where the subcommand starts.
+_GIT_FLAGS = frozenset({
+    "-p",
+    "--paginate",
+    "--no-pager",
+    "--bare",
+    "--no-replace-objects",
+    "--no-lazy-fetch",
+    "--no-optional-locks",
+    "--no-advice",
+    "--literal-pathspecs",
+    "--glob-pathspecs",
+    "--noglob-pathspecs",
+    "--icase-pathspecs",
+    "--exec-path",
+    "--html-path",
+    "--man-path",
+    "--info-path",
+    "-v",
+    "--version",
+    "-h",
+    "--help",
+})
+
+#: ``git merge`` flags that neither commit nor fast-forward, lowercased.
+_UNCOMMITTED_MERGE_FLAGS = frozenset({
+    "--no-commit",
+    "--no-ff",
+    "--no-edit",
+    "--no-squash",
+    "--no-verify",
+    "--no-gpg-sign",
+    "--stat",
+    "--no-stat",
+    "-n",
+    "--compact-summary",
+    "--log",
+    "--no-log",
+    "-q",
+    "--quiet",
+    "-v",
+    "--verbose",
+    "--progress",
+    "--no-progress",
+    "--allow-unrelated-histories",
+    "--autostash",
+    "--no-autostash",
+    "--rerere-autoupdate",
+    "--no-rerere-autoupdate",
+    "--overwrite-ignore",
+    "--no-overwrite-ignore",
+})
+
+#: ``git merge`` options that take the next word as their value, lowercased.
+_MERGE_OPTIONS_WITH_VALUE = frozenset({"-s", "--strategy", "-x", "--strategy-option"})
 
 
 class DenialReason(StrEnum):
@@ -157,7 +210,8 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     ``("git", "commit")`` even though ``-C /workspace/repo`` intervenes.
 
     A ``git`` rule's second token must be the git subcommand itself, so ``git log --grep revert`` and
-    ``git grep checkout`` are not matched by ``("git", "revert")`` or ``("git", "checkout")``.
+    ``git grep checkout`` are not matched by ``("git", "revert")`` or ``("git", "checkout")``. When a global
+    option the policy does not know hides where the subcommand starts, the rule matches anywhere, as above.
 
     Comparison is case-insensitive and performs short-flag normalization for
     bundled short options. Example: ``-rf`` and ``-fr`` are considered equal.
@@ -171,9 +225,10 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     argv_idx, rule_idx = 1, 1
     if rule_normalized[0] == "git" and len(rule_normalized) > 1:
         subcommand_idx = _git_subcommand_index(argv_normalized)
-        if subcommand_idx is None or argv_normalized[subcommand_idx] != rule_normalized[1]:
-            return False
-        argv_idx, rule_idx = subcommand_idx + 1, 2
+        if subcommand_idx is not None:
+            if argv_normalized[subcommand_idx] != rule_normalized[1]:
+                return False
+            argv_idx, rule_idx = subcommand_idx + 1, 2
     # Remaining rule tokens are matched as an in-order subsequence of the
     # remaining argv tokens, so intervening flags are transparently skipped.
     for argv_token in argv_normalized[argv_idx:]:
@@ -185,23 +240,50 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
 
 
 def _git_subcommand_index(argv: tuple[str, ...]) -> int | None:
-    """The index of the subcommand in a normalized ``git`` *argv*, past git's global options; ``None`` without one."""
+    """The index of the subcommand in a normalized ``git`` *argv*, past git's global options; ``None`` when there is
+    none, or when an option outside :data:`_GIT_OPTIONS_WITH_VALUE` and :data:`_GIT_FLAGS` hides where it starts."""
     idx = 1
     while idx < len(argv):
         token = argv[idx]
         if token in _GIT_OPTIONS_WITH_VALUE:
             idx += 2
-        elif token.startswith("-"):
+        elif token in _GIT_FLAGS or (token.startswith("--") and "=" in token):
             idx += 1
+        elif token.startswith("-"):
+            return None
         else:
             return idx
     return None
 
 
-def _excepted(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
-    """Whether *argv* carries one of the flags :data:`DEFAULT_DISALLOW_EXCEPTIONS` lifts *rule* with."""
-    flags = DEFAULT_DISALLOW_EXCEPTIONS.get(rule)
-    return flags is not None and not flags.isdisjoint(_normalize_argv_for_match(argv))
+def _is_uncommitted_merge(argv: tuple[str, ...]) -> bool:
+    """Whether *argv* is a merge the publisher commits, ``git merge --no-commit --no-ff <ref>``, or ``git merge
+    --abort``: the two forms that lift the ``git merge`` rule. A flag outside :data:`_UNCOMMITTED_MERGE_FLAGS` keeps
+    it, abbreviations included, so neither a commit nor a fast-forward gets past the publisher."""
+    subcommand_idx = _git_subcommand_index(_normalize_argv_for_match(argv))
+    if subcommand_idx is None:
+        return False
+    args = tuple(token.lower() for token in argv[subcommand_idx + 1 :])
+    if args == ("--abort",):
+        return True
+    if "--" in args:
+        args = args[: args.index("--")]
+    flags: set[str] = set()
+    idx = 0
+    while idx < len(args):
+        token = args[idx]
+        if token in _MERGE_OPTIONS_WITH_VALUE:
+            idx += 2
+            continue
+        if token.startswith(("--strategy=", "--strategy-option=")) or token[:2] in ("-s", "-x"):
+            idx += 1
+            continue
+        if token.startswith("-"):
+            if token not in _UNCOMMITTED_MERGE_FLAGS:
+                return False
+            flags.add(token)
+        idx += 1
+    return {"--no-commit", "--no-ff"} <= flags
 
 
 def _rule_repr(rule: tuple[str, ...]) -> str:
@@ -245,7 +327,7 @@ def _evaluate_segment(segment: object, policy: CommandPolicy) -> PolicyResult:
         return PolicyResult(allowed=True)
 
     for rule in DEFAULT_DISALLOW_RULES:
-        if _argv_matches_rule(argv, rule) and not _excepted(argv, rule):
+        if _argv_matches_rule(argv, rule) and not (rule == ("git", "merge") and _is_uncommitted_merge(argv)):
             return PolicyResult(
                 allowed=False,
                 denial_reason=DenialReason.DEFAULT_DISALLOW,

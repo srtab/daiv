@@ -25,10 +25,9 @@ class RunSpec:
     resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
     degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
-    merge request from the checkpoint when the agent raises. ``input_messages`` is the agent's input for
-    ``execute_run``; ``stream_run`` leaves the input to its stream factory, so a streaming trigger passes ``()`` and
-    names the turn's text in ``prompt`` instead, which the executor reads to skip the sandbox for a builtin slash
-    command.
+    merge request from the checkpoint when the agent raises. ``input_messages`` is the turn's input: ``execute_run``
+    sends it to the agent, while ``stream_run`` leaves sending to its stream factory and reads it only to skip the
+    sandbox for a builtin slash command that does not need one.
 
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
@@ -44,7 +43,6 @@ class RunSpec:
     input_messages: tuple[BaseMessage, ...]
     trigger: str
     lock: LockPolicy
-    prompt: str | None = None
     ref: str | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None

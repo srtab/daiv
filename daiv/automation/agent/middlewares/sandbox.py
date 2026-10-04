@@ -101,7 +101,7 @@ Safety boundaries:
 
 Git safety protocol:
 - NEVER update git config (no `git config --global/--local/--system` changes).
-- Git is for inspection only (e.g., status/diff/log/show) unless explicitly instructed otherwise. The one exception is merging a branch in when asked, with `git merge --no-commit --no-ff` (see the Git context section in the system prompt).
+- Git is for inspection only (e.g., status/diff/log/show) unless explicitly instructed otherwise. Merging a branch in when asked is also allowed, with `git merge --no-commit --no-ff` (see the Git context section in the system prompt).
 - VERY IMPORTANT: Never commit or push (or rewrite git history), even if the user asks.
 - NEVER switch branches (`git switch`, `git checkout`); restore files with `git restore <path>` instead.
 - NEVER run destructive git commands, even if the user asks:
@@ -170,8 +170,9 @@ _BRANCH_SWITCH_HINT = (
 )
 _RULE_HINTS = {
     "git merge": (
-        " Start the merge with `git merge --no-commit --no-ff <ref>`, or undo one with `git merge --abort`; "
-        "the Git middleware commits it at turn-end (see the Git context section in the system prompt)."
+        " Start the merge with exactly `git merge --no-commit --no-ff <ref>`, or undo one with `git merge --abort`. "
+        "Do not commit it yourself (`--continue` included): the Git middleware commits it at turn-end "
+        "(see the Git context section in the system prompt)."
     ),
     "git checkout": _BRANCH_SWITCH_HINT,
     "git switch": _BRANCH_SWITCH_HINT,
@@ -241,17 +242,14 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
 
     reason_label = result.denial_reason.value if result.denial_reason else "policy"
     matched = result.matched_rule or "unknown"
-    rule_hint = next((h for rule, h in _RULE_HINTS.items() if matched == rule or matched.startswith(f"{rule} ")), None)
-    if rule_hint is not None:
-        hint = rule_hint
-    elif matched.startswith("git "):
-        hint = (
-            " This capability is intentionally unavailable — do not rephrase or try synonyms. "
-            "The Git middleware commits and pushes file changes automatically at turn-end "
-            "(see the Git context section in the system prompt)."
-        )
-    else:
+    hint = _RULE_HINTS.get(matched)
+    if hint is None:
         hint = " This capability is intentionally unavailable — do not rephrase or try synonyms."
+        if matched.startswith("git "):
+            hint += (
+                " The Git middleware commits and pushes file changes automatically at turn-end "
+                "(see the Git context section in the system prompt)."
+            )
     return (
         f"error: Command blocked by policy ({reason_label}): "
         f"the command or one of its sub-commands matches the rule '{matched}'.{hint}"
@@ -409,8 +407,9 @@ class SandboxMiddleware(AgentMiddleware):
     ``/workspace`` :class:`SandboxFileBackend`; it is the one true store, with no local mirror to keep in sync.
 
     The session is the run executor's: it acquires it (:func:`acquire_sandbox`) before building the agent, so the build
-    can read the repository's subagents from the container, and releases it afterwards, whatever the agent did. A run
-    that is a builtin slash command acquires none. Subagents share the parent's session and record the same values.
+    can read the repository's subagents from the container, and releases it afterwards, whatever the agent did. A turn
+    that skips the sandbox (``skips_sandbox``) acquires none. Subagents share the parent's session and record the same
+    values.
 
     Args:
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo

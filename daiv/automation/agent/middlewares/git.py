@@ -66,7 +66,7 @@ GIT_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 
 - If a task tells you to "commit and push," interpret it as "make the edits" — the harness ships them.
 - If a task asks you to merge a branch in (usually the target branch) or to resolve merge conflicts with it, merge it without committing and let the harness commit the merge:
-    1. Run `git fetch origin <branch>`, then `git merge --no-commit --no-ff origin/<branch>`. A merge without `--no-commit`, or with `-m`, is blocked; `git merge --abort` starts over. If the fetch fails, merge the `origin/<branch>` you already have.
+    1. Run `git fetch origin <branch>`, then `git merge --no-commit --no-ff origin/<branch>`. Only that form and `git merge --abort` (to start over) are allowed: a merge without `--no-commit --no-ff`, or with `-m`, `--squash` or `--continue`, is blocked. If the fetch fails, merge the `origin/<branch>` you already have.
     2. List the conflicted files with `git diff --name-only --diff-filter=U`. Compare the sides with `git show :1:<path>` (common base), `git show :2:<path>` (this branch) and `git show :3:<path>` (the merged branch), and read why each side changed with `git log --merge -p -- <path>`. Some conflicts have no markers (a file deleted on one side, a binary file): decide each one explicitly.
     3. Edit each conflicted file to the result that keeps both sides' intent, or take one side whole with `git restore --ours <path>` or `git restore --theirs <path>`. Delete a file the merge should not keep. Do not try to stage the result.
     4. Before you finish, make sure no conflicted file still has a `<<<<<<<` or `>>>>>>>` line, then run the tests that cover the merged code. The harness does not publish a merge that still has conflict markers.
@@ -396,8 +396,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
-        straight to the after_agent chain) never acquire a sandbox session — the run executor skips it for
-        them — and the agent loop never ran, so nothing was captured or changed. Its
+        straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
+        the command reads the repository, the run executor acquires no sandbox session for it either: its
         workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
         bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
         reports a clean tree.
