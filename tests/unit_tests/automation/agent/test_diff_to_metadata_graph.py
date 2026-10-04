@@ -1,10 +1,14 @@
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from deepagents.middleware.memory import MemoryMiddleware
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.runnables import RunnableLambda
 
+from automation.agent.constants import REPO_PATH
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
+from automation.agent.diff_to_metadata.prompts import memory_section
 from automation.agent.middlewares.file_system import build_disk_workspace_backend
+from automation.agent.middlewares.memory import build_agents_memory_middleware
 
 
 async def test_context_files_are_read_through_the_workspace_backend(tmp_path):
@@ -37,3 +41,21 @@ async def test_context_files_are_read_through_the_workspace_backend(tmp_path):
         "/workspace/repo/AGENTS.md": "Use conventional commits.",
         "/workspace/repo/.agents/AGENTS.md": "Scope is the app name.",
     }
+
+
+def test_memory_files_load_without_the_main_agents_guidelines():
+    """This agent has no tools and its own rules for using memory, so the files come in a bare section."""
+    ctx = MagicMock()
+    ctx.config.context_file_name = "AGENTS.md"
+
+    with (
+        patch("automation.agent.diff_to_metadata.graph.BaseAgent") as base_agent,
+        patch(
+            "automation.agent.diff_to_metadata.graph.build_agents_memory_middleware",
+            wraps=build_agents_memory_middleware,
+        ) as build_memory,
+    ):
+        base_agent.get_model.return_value = FakeListChatModel(responses=["ok"])
+        create_diff_to_metadata_graph(model_names=["m"], ctx=ctx, backend=MagicMock())
+
+    assert build_memory.call_args.args[1:] == (REPO_PATH, "AGENTS.md", memory_section)
