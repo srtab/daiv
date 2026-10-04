@@ -13,7 +13,12 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_USER_MESSAGE,
+    CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from sessions.artifacts import published_tool_result, serialize_artifact
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
@@ -48,7 +53,8 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     else:
-        message = RUN_FAILED_MESSAGE
+        refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        message = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else RUN_FAILED_MESSAGE
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
     return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}

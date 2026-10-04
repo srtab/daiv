@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.fields.json import DataContains
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -191,6 +192,8 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    # The DAIV users whose grant fetched another project's content into this thread; ``None`` is an unattributed fetch.
+    cross_project_user_ids = models.JSONField(_("cross-project users"), default=list, blank=True, editable=False)
 
     # Unified execution lock. NULL means "free slot"; any non-NULL value is the
     # holder id (AG-UI run_id for chat turns, str(Run.pk) for background runs).
@@ -267,6 +270,20 @@ class Session(models.Model):
         reader reaches the raw JSON and skips the skip-the-malformed-entry parsing.
         """
         return refs_from_stored(self.external_refs)
+
+
+class _JSONListContains(DataContains):
+    """``contains`` on a JSON list, spelled with ``json_each`` on SQLite, which has no JSON containment operator."""
+
+    def as_sqlite(self, compiler, connection):
+        lhs, lhs_params = self.process_lhs(compiler, connection)
+        rhs, rhs_params = self.process_rhs(compiler, connection)
+        held = f"SELECT 1 FROM json_each({lhs}) AS held WHERE held.value = wanted.value"  # noqa: S608
+        sql = f"NOT EXISTS (SELECT 1 FROM json_each({rhs}) AS wanted WHERE NOT EXISTS ({held}))"  # noqa: S608
+        return sql, (*rhs_params, *lhs_params)
+
+
+Session._meta.get_field("cross_project_user_ids").register_lookup(_JSONListContains)
 
 
 def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:

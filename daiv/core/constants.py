@@ -32,6 +32,11 @@ class CrossProjectOutcome(StrEnum):
 CANCELLED_BY_USER_MESSAGE = "Stopped by user."
 INTERRUPTED_MESSAGE = "Run was interrupted before completing."
 RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
+# Every trigger shows it verbatim: the chat stream, the job APIs, the transcript and the webhook reply.
+CROSS_PROJECT_SESSION_REFUSED_MESSAGE = (
+    "This conversation holds results fetched from other projects on another person's behalf, so DAIV won't "
+    "continue it here. Start a new conversation or issue."
+)
 
 # A worker runs one task to completion before claiming the next, so short user-visible work
 # needs its own queue — priority alone cannot get it past an agent run already running.

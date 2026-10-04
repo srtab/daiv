@@ -13,6 +13,7 @@ from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
 
 from core import ui_events
+from core.constants import CrossProjectOutcome
 from sessions.executor.tasks import run_job_task
 from sessions.tasks import classify_run_task
 
@@ -105,6 +106,37 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     if update_fields is not None and "status" not in update_fields:
         return
     transaction.on_commit(ui_events.publisher.runs_changed)
+
+
+@receiver(
+    post_save, sender="codebase.CrossProjectAccessRecord", dispatch_uid="sessions.restrict_session_to_cross_project"
+)
+def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Add the person whose grant fetched another project's content to the session's ``cross_project_user_ids``.
+
+    Errors propagate on purpose, so whoever writes the record learns the session could not be restricted.
+    """
+    from sessions.models import Session
+
+    if not created or instance.outcome != CrossProjectOutcome.ALLOWED or not instance.thread_id:
+        return
+    user_id = instance.acting_user_id
+    if user_id is None:
+        logger.error(
+            "Cross-project fetch in thread_id=%s names no acting user; only admins will see the session.",
+            instance.thread_id,
+        )
+    with transaction.atomic():
+        session = (
+            Session.objects.select_for_update().only("cross_project_user_ids").filter(pk=instance.thread_id).first()
+        )
+        if session is None:
+            logger.warning("Cross-project fetch in thread_id=%s has no session row to restrict.", instance.thread_id)
+            return
+        if user_id in session.cross_project_user_ids:
+            return
+        session.cross_project_user_ids = [*session.cross_project_user_ids, user_id]
+        session.save(update_fields=["cross_project_user_ids"])
 
 
 def emit_run_finished_if_terminal(run: Any, previous_status: str | None, *, skip_dispatch: bool = False) -> None:

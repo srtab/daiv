@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,12 +35,13 @@ def make_spec(**overrides) -> RunSpec:
 
 
 @contextmanager
-def agent_stack(agent, *, ctx=None, context=None, resolve=None):
+def agent_stack(agent, *, ctx=None, context=None, resolve=None, session_guard=False):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
     ``ctx`` is the ``RuntimeCtx`` the stubbed clone yields (its ``repo.ref`` defaults to ``"main"``), ``context``
     replaces ``set_runtime_ctx`` itself, and ``resolve`` replaces ``get_daiv_agent_kwargs``.
     ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed to the clone.
+    ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     """
     stack = SimpleNamespace(
         events=[],
@@ -93,6 +94,9 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
+        nullcontext()
+        if session_guard
+        else patch("sessions.executor.run._refuse_cross_project_session", new=AsyncMock()) as guard,
     ):
         stack.build_spec = build_spec
         stack.create_agent = create_agent
@@ -100,6 +104,7 @@ def agent_stack(agent, *, ctx=None, context=None, resolve=None):
         stack.build_result = build_result
         stack.persist = persist
         stack.reset = reset
+        stack.guard = guard
         yield stack
 
 

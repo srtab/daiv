@@ -4,9 +4,17 @@ from typing import TYPE_CHECKING
 
 from django.db import models
 
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+
 if TYPE_CHECKING:
     from accounts.models import User
     from sessions.models import Run, RunArtifact, RunEnvelope, Session
+
+
+def _cross_project_q(user: User, path: str = "") -> models.Q:
+    """Sessions holding no other project's results, or only results ``user``'s own grant fetched."""
+    field = f"{path}cross_project_user_ids"
+    return models.Q(**{field: []}) | models.Q(**{f"{field}__contains": [user.pk]})
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -40,7 +48,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user)).distinct()
+        return self.filter(self._owner_q(user) & _cross_project_q(user)).distinct()
 
     def visible_to(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user may view: ownership OR a repository they can currently read.
@@ -48,6 +56,8 @@ class SessionQuerySet(models.QuerySet["Session"]):
         Adds sessions that ran on a repo with a fresh ``RepositoryAccess`` row to the
         ownership set. SYNC ONLY — resolving the caller's platform identity does a DB read
         at query-build time, so wrap in ``sync_to_async`` when used from an async view.
+        Both this and :meth:`by_owner` leave out a session holding another project's results
+        that ``user``'s own grant did not fetch.
         """
         if user.is_admin:
             return self.all()
@@ -55,7 +65,8 @@ class SessionQuerySet(models.QuerySet["Session"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        readable = self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))
+        return self.filter(readable & _cross_project_q(user)).distinct()
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
@@ -108,7 +119,7 @@ class RunManager(models.Manager["Run"]):
         """Runs the user owns (ownership only). Async-safe; see :meth:`SessionQuerySet.by_owner`."""
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user)).distinct()
+        return self.filter(self._owner_q(user) & _cross_project_q(user, "session__")).distinct()
 
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
@@ -122,7 +133,18 @@ class RunManager(models.Manager["Run"]):
         # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        readable = self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))
+        return self.filter(readable & _cross_project_q(user, "session__")).distinct()
+
+    def results_visible_q(self, user: User) -> models.Q:
+        """Narrows ``user``'s own runs to those the job APIs may hand back to them.
+
+        A session holding another person's cross-project results keeps its runs from everyone but admins and those
+        people, except a run refused at start, which holds nothing but the refusal.
+        """
+        if user.is_admin:
+            return models.Q()
+        return _cross_project_q(user, "session__") | models.Q(error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

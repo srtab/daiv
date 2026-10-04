@@ -961,6 +961,27 @@ async def test_stream_rejects_thread_not_owned(client: TestAsyncClient, authed, 
     await other.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_stream_rejects_a_thread_holding_another_persons_cross_project_results(
+    client: TestAsyncClient, authed, fake_redis
+):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-s6",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        cross_project_user_ids=[user.pk + 1],
+    )
+    await _seed_run_events(fake_redis, "t-s6", "r-1", ['{"type":"TOOL_CALL_RESULT","content":"their secrets"}'])
+
+    response = await client.get("/chat/stream?thread_id=t-s6&run_id=r-1", headers=_auth_headers(raw))
+
+    assert response.status_code == 404
+    await user.adelete()
+
+
 class _ScriptedRedis:
     """Minimal stream client that honors Last-Event-ID and reveals appended
     entries across successive ``xread`` calls, so a test can drive the live-tail

@@ -24,6 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.models import Run
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
@@ -1144,6 +1145,19 @@ class TestChatAfterRunMatrix:
             events = [event async for event in _streamer().events()]
 
         assert [(event.type, event.code) for event in events] == [(EventType.RUN_ERROR, "run_failed")]
+        assert calls == [_RELEASE]
+
+    async def test_a_refused_shared_session_tells_the_person_and_only_releases_the_slot(self, _executor_stack):
+        from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+
+        _executor_stack.guard.side_effect = CrossProjectSessionRefusedError(CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+
+        with _recorded_turn(_mock_agent([])) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert [(event.type, event.code, event.message) for event in events] == [
+            (EventType.RUN_ERROR, "cross_project_session", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+        ]
         assert calls == [_RELEASE]
 
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):

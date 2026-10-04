@@ -484,7 +484,8 @@ async def alist_user_runs(
     limit: int = 20,
     before: tuple[datetime, uuid.UUID] | None = None,
 ) -> list[Run]:
-    """Return ``user``'s runs, newest first, optionally filtered by repo/status.
+    """Return ``user``'s runs, newest first, optionally filtered by repo/status, without those
+    ``RunManager.results_visible_q`` keeps from them.
 
     Capped at ``limit`` rows. Callers needing truncation/pagination should pass
     ``limit + 1`` and trim. ``before`` is a keyset cursor ``(created_at, id)`` of the
@@ -493,7 +494,7 @@ async def alist_user_runs(
     tie-break is required because a batch submit stamps several rows with the same
     ``created_at``. Backed by ``run_user_created_idx`` (user, -created_at).
     """
-    qs = Run.objects.filter(user=user)
+    qs = Run.objects.filter(Run.objects.results_visible_q(user), user=user)
     if repo_id:
         qs = qs.filter(repo_id=repo_id)
     if status:

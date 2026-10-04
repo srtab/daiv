@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import NoLock, SessionLockTimeoutError
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.base import BaseManager
@@ -17,7 +18,7 @@ from automation.agent.utils import get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.repo_config import RepositoryConfig
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
@@ -327,6 +328,28 @@ class TestIssueAfterRunMatrix:
         [note] = captured_client.create_issue_comment.call_args_list
         assert _UNABLE in note.args[2]
         assert await active_holder(thread_id) == "chat-run"
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_session_holding_another_persons_cross_project_results_is_refused_on_the_issue(
+        self, captured_client
+    ):
+        thread_id = await _issue_session(cross_project_user_ids=[7])
+        captured_client.get_issue_comment.return_value = SimpleNamespace(
+            notes=[SimpleNamespace(author=SimpleNamespace(username="bob"), id="n1", body="please")]
+        )
+
+        with (
+            addressor_run(addressor_agent(), real_lock=True, session_guard=True) as run,
+            pytest.raises(CrossProjectSessionRefusedError),
+        ):
+            await _address(thread_id=thread_id, mention_comment_id="c-1", acting_platform_uid="42")
+
+        run.create_agent.assert_not_awaited()
+        run.recover.assert_not_awaited()
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert note.args[2] == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert note.kwargs["reply_to_id"] == "c-1"
+        assert await active_holder(thread_id) is None
 
     @pytest.mark.parametrize(
         ("label", "prompt"), [(BOT_AUTO_LABEL, ADDRESS_ISSUE_PROMPT), (BOT_LABEL, PLAN_ISSUE_PROMPT)]

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
@@ -307,6 +307,10 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
+            return
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            if self._claim_unable_note():
+                self._leave_comment(str(exc), reply_to_id=self.reply_to_id)
             return
         if isinstance(exc, AgentConfigurationError):
             logger.warning("review_addressor: %s", exc)

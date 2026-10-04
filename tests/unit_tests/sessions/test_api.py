@@ -246,3 +246,24 @@ async def test_session_turns_404_for_other_users_session(client, authed):
 
     assert resp.status_code == 404
     hydrate.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_404_for_a_participant_when_the_session_holds_another_persons_cross_project_results(
+    client, authed
+):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        user=user,
+        cross_project_user_ids=[user.pk + 1],
+    )
+
+    hydrate = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    with patch("sessions.api.views.ahydrate_thread", hydrate):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+    hydrate.assert_not_called()

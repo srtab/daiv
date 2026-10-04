@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import NoLock, SessionLockTimeoutError
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from webhooks.managers.base import BaseManager
@@ -16,6 +17,7 @@ from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
@@ -250,6 +252,25 @@ class TestReviewAfterRunMatrix:
             await _address()
 
         mention.create_merge_request_comment.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_session_holding_another_persons_cross_project_results_is_refused_on_the_merge_request(
+        self, mention
+    ):
+        thread_id = str(uuid.uuid4())
+        await _review_session(thread_id, cross_project_user_ids=[7])
+
+        with (
+            addressor_run(addressor_agent(), ctx=_ctx(), real_lock=True, session_guard=True) as run,
+            pytest.raises(CrossProjectSessionRefusedError),
+        ):
+            await _address(thread_id=thread_id, acting_platform_uid="42")
+
+        run.create_agent.assert_not_awaited()
+        [note] = mention.create_merge_request_comment.call_args_list
+        assert note.args[2] == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert note.kwargs["reply_to_id"] == "c-1"
+        assert await active_holder(thread_id) is None
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_session_slot_that_never_frees_says_so_on_the_merge_request(self, mention):

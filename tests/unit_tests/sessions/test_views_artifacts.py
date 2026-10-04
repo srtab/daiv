@@ -238,6 +238,15 @@ def test_raw_visible_to_admin(admin_client, member_user):
     assert admin_client.get(artifact.get_raw_url()).status_code == 200
 
 
+def test_raw_and_detail_404_when_the_session_holds_another_persons_cross_project_results(member_client, member_user):
+    artifact = _own_artifact(member_user)
+    Session.objects.filter(pk=artifact.run.session_id).update(cross_project_user_ids=[member_user.pk + 1])
+
+    assert member_client.get(artifact.get_raw_url()).status_code == 404
+    assert member_client.get(artifact.get_absolute_url()).status_code == 404
+    assert artifact not in member_client.get(reverse("artifact_list")).context["artifacts"]
+
+
 def test_detail_breadcrumbs_link_to_artifact_list(member_client, member_user):
     artifact = _own_artifact(member_user, filename="findings.md", title="Findings")
 

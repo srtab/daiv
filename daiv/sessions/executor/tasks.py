@@ -5,7 +5,7 @@ from django_tasks import task
 
 from codebase.base import Scope
 from sessions.executor.lock import LOCK_WAIT_TIMEOUT_S, NoLock, Wait
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import Session
 
@@ -72,6 +72,9 @@ async def run_job_task(
         mcp_overrides, references = session_row.mcp_overrides, session_row.external_references()
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            logger.warning("Job refused for thread_id=%s: %s", thread_id, exc)
+            return
         logger.error(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )
