@@ -36,10 +36,14 @@ SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
 
 
+def _last_write(_old: str | None, new: str | None) -> str | None:
+    return new
+
+
 class DAIVSkillsState(SkillsState):
     """Extended skills state that tracks the active skill mode."""
 
-    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr]]
+    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write]]
 
 
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
@@ -277,9 +281,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         skill activation and skill exit. Filtering at request-time invalidates the
         Anthropic prompt cache and forces a full prefix re-create on the next call.
         """
-        if (
-            request.tool_call["name"] in WRITE_TOOL_NAMES
-            and request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+        if request.tool_call["name"] in WRITE_TOOL_NAMES and (
+            request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+            or self._calls_read_only_skill_this_turn(request.state)
         ):
             return ToolMessage(
                 content=(
@@ -292,8 +296,29 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return await handler(request)
 
     @staticmethod
+    def _calls_read_only_skill_this_turn(state: dict) -> bool:
+        """Whether the turn being executed also calls a read-only skill.
+
+        The skill tool's mode update lands only after every call of the turn has run, so a write
+        called beside it still sees the previous ``active_skill_mode``.
+        """
+        last_ai = next((m for m in reversed(state.get("messages", [])) if isinstance(m, AIMessage)), None)
+        if last_ai is None:
+            return False
+
+        read_only_skills = {
+            skill["name"]
+            for skill in state.get("skills_metadata", [])
+            if skill.get("metadata", {}).get("mode") == SKILL_MODE_READ_ONLY
+        }
+        return any(
+            call["name"] == SKILLS_TOOL_NAME and call["args"].get("skill") in read_only_skills
+            for call in last_ai.tool_calls
+        )
+
+    @staticmethod
     def _has_user_followup(messages: list[AnyMessage]) -> bool:
-        """Check if the user has sent a follow-up message after the agent responded to a skill injection.
+        """Check if the user has sent a follow-up message after the agent replied while a skill was active.
 
         The pattern we look for (walking backwards from the end):
         1. The latest message is a HumanMessage (user follow-up)

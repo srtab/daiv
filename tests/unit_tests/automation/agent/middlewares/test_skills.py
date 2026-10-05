@@ -9,6 +9,7 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
@@ -1159,3 +1160,144 @@ async def test_skill_runs_beside_another_tool_in_one_turn():
     assert {m.tool_call_id for m in messages[2:4]} == {"call_skill", "call_read"}
     skill_result = next(m for m in messages[2:4] if m.tool_call_id == "call_skill")
     assert skill_result.content.endswith("Run this.")
+
+
+WRITES: list[str] = []
+
+
+@tool("write_file")
+def _write_file(file_path: str, content: str) -> str:
+    """Write a file."""
+    WRITES.append(file_path)
+    return f"Updated file {file_path}"
+
+
+_SKILL_BODIES = {
+    "/skills/plan/SKILL.md": b"---\nname: plan\ndescription: Plan\n---\nPlan it.",
+    "/skills/audit/SKILL.md": b"---\nname: audit\ndescription: Audit\n---\nAudit it.",
+    "/skills/demo/SKILL.md": b"---\nname: demo\ndescription: Demo\n---\nRun this.",
+}
+_SKILLS_METADATA = [
+    {
+        "name": "plan",
+        "description": "Plan",
+        "path": "/skills/plan/SKILL.md",
+        "metadata": {"mode": SKILL_MODE_READ_ONLY},
+    },
+    {
+        "name": "audit",
+        "description": "Audit",
+        "path": "/skills/audit/SKILL.md",
+        "metadata": {"mode": SKILL_MODE_READ_ONLY},
+    },
+    {"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"},
+]
+
+
+def _skills_agent(replies: list[AIMessage], tools: list, **agent_kwargs):
+    backend = Mock()
+
+    async def download(paths):
+        return [Mock(error=None, content=_SKILL_BODIES[path]) for path in paths]
+
+    backend.adownload_files = AsyncMock(side_effect=download)
+    middleware = SkillsMiddleware(backend=backend, sources=["/skills"], copy_global_skills=False)
+    return create_agent(model=_ToolModel(messages=iter(replies)), tools=tools, middleware=[middleware], **agent_kwargs)
+
+
+async def _run_turns_with_skills_middleware(turns: list[list[dict]], tools: list) -> dict:
+    replies = [*(AIMessage(content="", tool_calls=tool_calls) for tool_calls in turns), AIMessage(content="done")]
+    agent = _skills_agent(replies, tools)
+    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
+
+
+class TestSkillBesideWriteInOneTurn:
+    WRITE_CALL = {
+        "name": "write_file",
+        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
+        "id": "call_write",
+    }
+
+    @pytest.fixture(autouse=True)
+    def _clear_writes(self):
+        WRITES.clear()
+
+    async def test_write_is_refused_beside_a_read_only_skill(self):
+        result = await _run_turns_with_skills_middleware(
+            [[{"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}, self.WRITE_CALL]], [_write_file]
+        )
+
+        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        assert write_result.status == "error"
+        assert "read-only skill is active" in write_result.content
+        assert WRITES == []
+
+    async def test_write_is_refused_when_the_read_only_skill_is_called_after_the_write(self):
+        result = await _run_turns_with_skills_middleware(
+            [[self.WRITE_CALL, {"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}]], [_write_file]
+        )
+
+        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        assert write_result.status == "error"
+        assert WRITES == []
+
+    @pytest.mark.parametrize("skill", ["demo", "missing"])
+    async def test_write_runs_beside_a_skill_that_sets_no_mode(self, skill: str):
+        result = await _run_turns_with_skills_middleware(
+            [[{"name": "skill", "args": {"skill": skill}, "id": "call_skill"}, self.WRITE_CALL]], [_write_file]
+        )
+
+        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        assert write_result.status != "error"
+        assert WRITES == ["/workspace/repo/a.py"]
+
+
+async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
+    WRITES.clear()
+    write_call = {
+        "name": "write_file",
+        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
+        "id": "call_write",
+    }
+
+    result = await _run_turns_with_skills_middleware(
+        [
+            [
+                {"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"},
+                {"name": "skill", "args": {"skill": "audit"}, "id": "call_audit"},
+            ],
+            [write_call],
+        ],
+        [_write_file],
+    )
+
+    tool_results = {m.tool_call_id: m for m in result["messages"] if isinstance(m, ToolMessage)}
+    assert tool_results["call_plan"].status == tool_results["call_audit"].status == "success"
+    assert tool_results["call_write"].status == "error"
+    assert WRITES == []
+
+
+async def test_user_follow_up_clears_the_mode_set_by_a_skill():
+    WRITES.clear()
+    write_call = {
+        "name": "write_file",
+        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
+        "id": "call_write",
+    }
+    replies = [
+        AIMessage(content="", tool_calls=[{"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"}]),
+        AIMessage(content="the plan"),
+        AIMessage(content="", tool_calls=[write_call]),
+        AIMessage(content="done"),
+    ]
+    agent = _skills_agent(replies, [_write_file], checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "thread-1"}}
+
+    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+        await agent.ainvoke({"messages": [HumanMessage(content="/plan")], "skills_metadata": _SKILLS_METADATA}, config)
+        result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
+
+    write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+    assert write_result.status == "success"
+    assert WRITES == ["/workspace/repo/a.py"]
