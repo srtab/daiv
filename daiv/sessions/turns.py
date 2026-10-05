@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any
 
+from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.questions import is_question_close
 from automation.agent.synthetic import is_synthetic
 
@@ -21,7 +22,6 @@ logger = logging.getLogger("daiv.sessions")
 # langchain-openai) ``function_call``.
 _TOOL_CALL_BLOCK_TYPES = frozenset({"tool_use", "tool_call", "function_call"})
 _THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning"})
-_SKILL_TOOL_NAME = "skill"
 _SKILL_PLACEHOLDER_PREFIX = "Launching skill '"
 _ASSISTANT_ROLES = ("ai", "assistant")
 
@@ -81,7 +81,7 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
             for seg_idx, seg in enumerate(turn["segments"]):
                 if seg["type"] == "tool_call" and seg["id"]:
                     tool_index[seg["id"]] = (turn_idx, seg_idx)
-                    if seg["name"] == _SKILL_TOOL_NAME:
+                    if seg["name"] == SKILLS_TOOL_NAME:
                         skill_tool_ids.add(seg["id"])
             turns.append(turn)
             pending_skill_tc_id = None
