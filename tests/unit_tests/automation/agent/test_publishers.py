@@ -292,6 +292,18 @@ class TestCreateMergeRequestDescription:
 
         assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "master"
 
+    async def test_title_and_description_are_repo_relative(self):
+        publisher = _publisher_no_issue()
+
+        await publisher._create_merge_request(
+            "feature", "Fix /workspace/repo/a.py", "Touches `/workspace/repo/daiv/b.py`.", target_branch="main"
+        )
+
+        kwargs = publisher.client.update_or_create_merge_request.call_args.kwargs
+        assert kwargs["title"] == "Fix a.py"
+        assert "Touches `daiv/b.py`." in kwargs["description"]
+        assert "/workspace/repo/" not in kwargs["description"]
+
 
 def _session_link_settings(where: str | None) -> AgentSettings:
     """Settings with the session link off site-wide or per-repository; ``None`` leaves it on."""

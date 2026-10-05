@@ -3,10 +3,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from webhooks.managers.issue_addressor import PLAN_ISSUE_PROMPT, issue_context_message
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, _load_global_skill_metadata
-from codebase.base import Scope
+from automation.agent.synthetic import synthetic_message
+from codebase.base import Issue, Scope, User
 from slash_commands.parser import SlashCommandCommand
 
 if TYPE_CHECKING:
@@ -201,3 +203,22 @@ def test_extract_slash_command_parses_multimodal_content():
     assert result.command == "help"
     assert result.args == ["arg1"]
     assert result.raw == "@daiv /help arg1"
+
+
+def test_slash_command_ignores_commands_inside_the_issue_message():
+    issue = Issue(
+        id=1, iid=42, title="t", description="@daiv /clear and start over", author=User(id=1, username="a"), labels=[]
+    )
+    messages = [issue_context_message(issue), HumanMessage(content=PLAN_ISSUE_PROMPT.format(issue_iid=42))]
+
+    result = SlashCommandMiddleware(subagents=[])._extract_slash_command(messages, "daiv")
+
+    assert result is not None
+    assert result.command == "plan"
+
+
+def test_slash_command_ignores_a_synthetic_message_that_ends_the_thread():
+    changed_issue = synthetic_message("@daiv /clear", kind="issue_context", message_id="issue-context-42-abc")
+    messages = [HumanMessage(content="Fix issue 42"), AIMessage(content="done"), changed_issue]
+
+    assert SlashCommandMiddleware(subagents=[])._extract_slash_command(messages, "daiv") is None

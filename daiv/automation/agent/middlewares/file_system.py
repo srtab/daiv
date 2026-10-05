@@ -27,7 +27,14 @@ from deepagents.middleware.filesystem import (
 )
 from langchain_core.messages import ToolMessage
 
-from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
+from automation.agent.constants import (
+    REPO_PATH,
+    SKILLS_CACHE_PATH,
+    SKILLS_PATH,
+    SKILLS_TOOL_NAME,
+    TMP_PATH,
+    WORKSPACE_PATH,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -42,12 +49,7 @@ logger = logging.getLogger("daiv.tools")
 # Tool descriptions
 # ---------------------------------------------------------------------------
 
-REMINDER_ABSOLUTE_PATHS = """
-IMPORTANT:
-- Tool inputs/outputs use absolute paths (e.g. /workspace/repo/...).
-- DO NOT output these absolute paths to the user.
-- Convert to repo-relative paths in all user-visible text.
-"""
+REMINDER_ABSOLUTE_PATHS = "\nTool inputs and outputs use absolute paths (e.g. /workspace/repo/...)."
 
 # Steers the agent to edit_file for existing files, saving the wasted call it otherwise spends
 # discovering the rejection. Stated as a preference, not a mechanism: whether an overwrite is refused
@@ -201,9 +203,11 @@ class DAIVFilesystemMiddleware(FilesystemMiddleware):
     async def awrap_tool_call(
         self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
     ) -> ToolMessage | Command:
-        # super(), not handler(): this same hook is the agent-wide large-result eviction for every
-        # tool outside TOOLS_EXCLUDED_FROM_EVICTION (bash, task, MCP). Bypassing it turns that off.
-        # Labelling after it keeps the label out of an evicted body, where the model would never see it.
+        # A skill body is instructions the model must read whole, so it skips eviction. Every other tool goes
+        # through super(): this hook is the agent-wide large-result eviction (bash, task, MCP).
+        if request.tool_call["name"] == SKILLS_TOOL_NAME:
+            return await handler(request)
+        # Labelling after super() keeps the label out of an evicted body, where the model would never see it.
         result = await super().awrap_tool_call(request, handler)
         if request.tool_call["name"] != "grep":
             return result

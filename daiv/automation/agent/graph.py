@@ -14,7 +14,7 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent
-from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
+from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -34,19 +34,14 @@ from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
+from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
-from automation.agent.prompts import (
-    AGENTS_MEMORY_SYSTEM_PROMPT,
-    DAIV_SYSTEM_PROMPT,
-    REPO_RELATIVE_SYSTEM_REMINDER,
-    WRITE_TODOS_SYSTEM_PROMPT,
-)
+from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -97,13 +92,7 @@ def _output_invariants_system_prompt(working_directory: str) -> str:
     prefix = working_directory.rstrip("/") + "/"
     return f"""\
 <output_invariants>
-Applies to ALL user-visible text:
-
-- NEVER include "{prefix}" anywhere in user-visible output.
-- Any repository file path shown to the user MUST be repo-relative (no leading "/").
-  <example>{prefix}daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
-- Before emitting any user-visible text, check for "{prefix}" and rewrite to repo-relative form.
+- Show repository paths repo-relative in user-visible text (e.g. `daiv/core/utils.py:42`), never under "{prefix}"; link them with platform-native blob URLs on the branch.
 
 {filesystem_absolute_path_directive(working_directory)}
 </output_invariants>"""  # noqa: E501
@@ -149,8 +138,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         + cast("str", daiv_system_prompt.content).strip()
         + "\n\n"
         + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMINDER
-    )
+    ).rstrip()
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
