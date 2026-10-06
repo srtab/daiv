@@ -160,6 +160,10 @@ def _warnings(label: str, rows: list[dict]) -> list[str]:
         warnings.append(
             f"{label} mixes rows from {len(shas)} commits ({', '.join(shas)}); use a fresh OUT file per run."
         )
+    pairs = [(row["nodeid"], row["run"]) for row in rows]
+    repeated = len(pairs) - len(set(pairs))
+    if repeated > 0:
+        warnings.append(f"{label} has {repeated} repeated (case, run) rows; use a fresh OUT file per run.")
     return warnings
 
 
@@ -177,6 +181,9 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         for nodeid in sorted(before_votes.keys() & after_votes.keys())
     ]
     missing = sorted(before_votes.keys() ^ after_votes.keys())
+    shared_nodeids = before_votes.keys() & after_votes.keys()
+    before_rows_shared = [row for row in before_rows if row["nodeid"] in shared_nodeids]
+    after_rows_shared = [row for row in after_rows if row["nodeid"] in shared_nodeids]
 
     warnings = _warnings("BEFORE", before_rows) + _warnings("AFTER", after_rows)
     before_models = {row.get("model") for row in before_rows}
@@ -184,7 +191,7 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     if before_models != after_models:
         warnings.append(f"BEFORE ran {sorted(map(str, before_models))} but AFTER ran {sorted(map(str, after_models))}.")
 
-    before_medians, after_medians = suite_medians(before_rows), suite_medians(after_rows)
+    before_medians, after_medians = suite_medians(before_rows_shared), suite_medians(after_rows_shared)
     if any(delta.regressed for delta in deltas):
         verdict: Verdict = "regressed"
     elif any(delta.stable_gain for delta in deltas) or token_gain(before_medians, after_medians):
@@ -198,8 +205,8 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         one_sided_suites=sorted(before_suites ^ after_suites),
         before_medians=before_medians,
         after_medians=after_medians,
-        before_recall=recall_summary(before_rows),
-        after_recall=recall_summary(after_rows),
+        before_recall=recall_summary(before_rows_shared),
+        after_recall=recall_summary(after_rows_shared),
         warnings=warnings,
         verdict=verdict,
     )

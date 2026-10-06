@@ -127,6 +127,23 @@ class TestOneSidedRows:
 
         assert any("BEFORE ran" in warning for warning in compare(rows("t::a", [True] * 3), after).warnings)
 
+    def test_an_expensive_case_missing_on_after_does_not_create_a_token_gain(self):
+        before = rows("t::a", [True] * 3, input_tokens=1000) + rows("t::b", [True] * 3, input_tokens=5000)
+        after = rows("t::a", [True] * 3, input_tokens=1000)
+
+        comparison = compare(before, after)
+
+        assert comparison.missing == ["t::b"]
+        assert comparison.verdict == "neutral"
+
+    def test_repeated_runs_on_one_side_are_flagged(self):
+        before = rows("t::a", [True] * 3)
+        before[0]["run"] = 1
+        before[1]["run"] = 1
+        before[2]["run"] = 2
+
+        assert any("repeated (case, run)" in warning for warning in compare(before, rows("t::a", [True] * 3)).warnings)
+
 
 class TestRecallSummary:
     def test_counts_majority_hits_clean_passes_and_noise_per_run(self):
