@@ -201,6 +201,16 @@ class TestParseReport:
     def test_no_findings(self):
         assert parse_report("## Code Review\n\nNo findings — no reported issues met the review threshold.") == []
 
+    def test_a_severity_heading_closes_an_unclosed_details_block(self):
+        report = (
+            "## Code Review\n\n### Suggestions\n**1. Rename** — `a.py:1`\n<details>\nbody\n\n"
+            "### Important Issues\n**1. Leak** — `a.py:2`\n"
+        )
+
+        findings = parse_report(report)
+
+        assert [(f.severity, f.title) for f in findings] == [("Suggestion", "Rename"), ("Important", "Leak")]
+
 
 class TestLocatedIn:
     @pytest.mark.parametrize(
@@ -264,6 +274,19 @@ class TestCleanCase:
         assert is_review_report(report)
         assert clean_case_violation(report, []) is None
 
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "_No findings — no reported issues met the review threshold._",
+            "**No findings** — no reported issues met the review threshold.",
+            "> No findings — no reported issues met the review threshold.",
+        ],
+    )
+    def test_a_formatted_no_findings_line_passes(self, line):
+        report = f"## Code Review\n\n{line}"
+
+        assert clean_case_violation(report, parse_report(report)) is None
+
     def test_a_heading_less_no_findings_line_passes(self):
         report = "No findings — no reported issues met the review threshold."
 
@@ -296,6 +319,24 @@ class TestCleanCase:
 
         assert parse_report(report) == []
         assert "no parsed finding" in clean_case_violation(report, [])
+
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            pytest.param("### Critical Issues\n- **Leak** — `a.py:1`\n", id="bulleted"),
+            pytest.param("### Important Issues\n\n#### Leak\n`a.py:1` keeps the handle open.\n", id="h4-entries"),
+        ],
+    )
+    def test_an_unreadable_blocking_section_fails_next_to_a_no_findings_line(self, entries):
+        report = f"## Code Review\n\n{entries}\n### Suggestions\nNo findings.\n"
+
+        assert parse_report(report) == []
+        assert "could not read" in clean_case_violation(report, [])
+
+    def test_a_blocking_section_holding_only_no_findings_passes(self):
+        report = "## Code Review\n\n### Critical Issues\nNo findings.\n\n### Suggestions\n**1. Rename** — `a.py:1`\n"
+
+        assert clean_case_violation(report, parse_report(report)) is None
 
     def test_a_complete_review_is_not_degraded(self):
         assert not is_degraded(REPORT)

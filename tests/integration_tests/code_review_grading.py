@@ -30,9 +30,9 @@ SEVERITIES = ("Critical", "Important", "Suggestion", "Question")
 BLOCKING = frozenset({"Critical", "Important"})
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_HEADING = re.compile(r"^#{1,4}\s+(.+?)\s*$")
+_HEADING = re.compile(r"^(#{1,4})\s+(.+?)\s*$")
 _REVIEW_HEADING = re.compile(r"^#{1,3}\s*Code Review\b", re.MULTILINE)
-_NO_FINDINGS = re.compile(r"^\W*No findings\b", re.MULTILINE)
+_NO_FINDINGS = re.compile(r"^[\W_]*No findings\b", re.MULTILINE)
 _DEGRADED = re.compile(r"^.*Review unavailable for.*$", re.MULTILINE)
 _SEVERITY_WORD = re.compile(rf"\b({'|'.join(SEVERITIES)})s?\b", re.IGNORECASE)
 _ENTRY = re.compile(r"^\s*(?:\*\*)?\s*\d+[.)]\s*(.+?)\s*$")
@@ -162,14 +162,17 @@ def parse_report(report: str) -> list[Finding]:
         findings.append(Finding(severity=severity, title=entry[0], location=location, details=body))
 
     for line in report.splitlines():
+        heading = _HEADING.match(line)
+        if in_details and heading and _severity(heading.group(2)):
+            in_details = False
         if in_details or "<details>" in line:
             in_details = "</details>" not in line
             if entry is not None:
                 details.append(line)
-        elif heading := _HEADING.match(line):
+        elif heading:
             flush()
             entry, details = None, []
-            severity = _severity(heading.group(1))
+            severity = _severity(heading.group(2))
         elif severity is not None and (match := _ENTRY.match(line)):
             flush()
             entry, details = _split_entry(match.group(1)), []
@@ -177,6 +180,18 @@ def parse_report(report: str) -> list[Finding]:
             details.append(line)
     flush()
     return findings
+
+
+def _has_unread_blocking_section(report: str) -> bool:
+    """Whether a Critical or Important section holds anything but a ``No findings`` line; an h4 is part of it."""
+    section: str | None = None
+    for line in report.splitlines():
+        heading = _HEADING.match(line)
+        if heading and (len(heading.group(1)) < 4 or _severity(heading.group(2))):
+            section = _severity(heading.group(2))
+        elif section in BLOCKING and line.strip() and not _NO_FINDINGS.match(line):
+            return True
+    return False
 
 
 def is_review_report(report: str) -> bool:
@@ -201,7 +216,7 @@ def clean_case_violation(report: str, findings: Sequence[Finding]) -> str | None
     """Why a clean twin's run fails, or ``None``; it fails closed, passing only a complete, readable review.
 
     The run must end on a review report, with at least one parsed finding or a ``No findings`` line, no detector
-    reported unavailable, and no Critical or Important finding.
+    reported unavailable, and no Critical or Important finding, parsed or not.
     """
     if not is_review_report(report):
         return f"the run did not end on a code-review report: {report[-400:]!r}"
@@ -211,6 +226,8 @@ def clean_case_violation(report: str, findings: Sequence[Finding]) -> str | None
         return f"the review is degraded: {degraded.group(0).strip()!r}"
     if found := blocking(findings):
         return f"the clean change got {len(found)} Critical/Important finding(s): {[f.title for f in found]}"
+    if _has_unread_blocking_section(report):
+        return f"the report has a Critical/Important section the parser could not read: {report[-400:]!r}"
     return None
 
 
