@@ -3,6 +3,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from tests.integration_tests.coverage_grading import (
     absolute_paths,
     calls_outside,
+    one_step_violation,
     search_backend_failed,
     todo_planning_violation,
     trailing_source_links,
@@ -28,6 +29,20 @@ class TestTodoPlanning:
 
     def test_never_planning_fails(self):
         assert "never called" in todo_planning_violation(calls("read_file", "write_file"))
+
+
+class TestOneStep:
+    def test_editing_without_planning_passes(self):
+        assert one_step_violation(calls("read_file", "edit_file")) is None
+
+    def test_a_shell_edit_without_planning_passes(self):
+        assert one_step_violation(calls("bash")) is None
+
+    def test_planning_fails(self):
+        assert "write_todos was called" in one_step_violation(calls("write_todos", "edit_file"))
+
+    def test_never_trying_the_edit_fails(self):
+        assert "never tried the edit" in one_step_violation(calls("read_file"))
 
 
 class TestSearchBackendFailed:
