@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from automation.agent.synthetic import is_synthetic
+from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_kind
 from automation.agent.utils import extract_text_content
 
 MAX_TOOL_OUTPUT_CHARS = 1_000
 MAX_TOOL_ARG_CHARS = 200
+MAX_ISSUE_CHARS = 2_000
 MAX_TRANSCRIPT_CHARS = 60_000
 
 
@@ -19,14 +20,18 @@ def _truncate(text: str, limit: int) -> str:
 def serialize_transcript(messages: list[Any], *, max_chars: int = MAX_TRANSCRIPT_CHARS) -> str:
     """Serialize a LangGraph message list into a compact plain-text transcript.
 
-    Keeps roles, text content, tool names and truncated args/outputs; DAIV's own synthetic
-    messages are left out. When the result exceeds ``max_chars``, the middle is elided: the
-    head holds the task definition and the tail holds outcomes/corrections — where
-    extraction signal lives.
+    Keeps roles, text content, tool names and truncated args/outputs. Of DAIV's synthetic messages
+    only the issue a run started from is kept, truncated; the harness's reminders are left out. When the
+    result exceeds ``max_chars``, the middle is elided: the head holds the task definition and the tail
+    holds outcomes/corrections — where extraction signal lives.
     """
     lines: list[str] = []
     for message in messages:
-        if is_synthetic(message):
+        kind = synthetic_kind(message)
+        if kind == ISSUE_CONTEXT_KIND:
+            lines.append(f"[issue] {_truncate(extract_text_content(message.content), MAX_ISSUE_CHARS)}")
+            continue
+        if kind is not None:
             continue
         msg_type = getattr(message, "type", "unknown")
         if msg_type == "tool":

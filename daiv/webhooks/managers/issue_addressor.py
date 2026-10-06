@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
-from automation.agent.synthetic import synthetic_message
+from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
@@ -79,7 +79,7 @@ def issue_context_message(issue: Issue) -> HumanMessage:
     )
     content += cut_note
     digest = hashlib.sha256(content.encode()).hexdigest()[:12]
-    return synthetic_message(content, kind="issue_context", message_id=f"issue-context-{issue.iid}-{digest}")
+    return synthetic_message(content, kind=ISSUE_CONTEXT_KIND, message_id=f"issue-context-{issue.iid}-{digest}")
 
 
 class IssueAddressorManager(BaseManager):
