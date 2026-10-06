@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from evals.compare_runs import Votes, compare, main, recall_summary, render_markdown, suite_medians
 
 SUITE = "DAIV: Skills"
@@ -194,14 +196,18 @@ class TestOneSidedRows:
 
 
 class TestIncompleteCases:
-    def test_a_case_that_lost_a_vote_on_after_is_inconclusive(self):
-        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True, None, None]))
+    @pytest.mark.parametrize(
+        "before,after",
+        [
+            pytest.param([True] * 3, [True, None, None], id="after"),
+            pytest.param([False, None, False], [True] * 3, id="before"),
+        ],
+    )
+    def test_a_case_that_lost_a_vote_on_either_side_is_inconclusive(self, before, after):
+        comparison = compare(rows("t::a", before), rows("t::a", after))
 
         assert list(comparison.incomplete) == ["t::a"]
         assert comparison.verdict == "inconclusive"
-
-    def test_a_case_that_lost_a_vote_on_before_is_inconclusive(self):
-        assert compare(rows("t::a", [False, None, False]), rows("t::a", [True] * 3)).verdict == "inconclusive"
 
     def test_a_case_with_no_vote_on_after_is_inconclusive_not_ignored(self):
         before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
@@ -260,9 +266,9 @@ class TestMeasuredNothingWarnings:
     def test_cases_on_one_side_only_are_counted_in_a_warning(self):
         before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
 
-        assert ("1 case(s) ran on one side only (see Not compared); was a case added, renamed or removed?") in compare(
-            before, rows("t::a", [True] * 3)
-        ).warnings
+        warnings = compare(before, rows("t::a", [True] * 3)).warnings
+
+        assert "1 case(s) ran on one side only (see Not compared); was a case added, renamed or removed?" in warnings
 
     def test_no_one_sided_warning_when_every_case_ran_on_both_sides(self):
         comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True] * 3))

@@ -280,7 +280,7 @@ def write_eval_metrics_row(item: pytest.Item, report: pytest.TestReport) -> None
         report.when == "call"
         and not report.skipped
         and metrics is not None
-        and (report.passed or bool(metrics.usage.get("input_tokens")))
+        and (report.passed or metrics.usage.get("input_tokens"))
     )
     row = eval_metrics_row(
         item, passed=report.passed if voted else None, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()

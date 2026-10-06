@@ -93,8 +93,10 @@ def _item(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**(fields | overrides))
 
 
-def _call_report(*, passed: bool) -> SimpleNamespace:
-    return SimpleNamespace(when="call", skipped=False, passed=passed, failed=not passed)
+def _report(outcome: str, *, when: str = "call") -> SimpleNamespace:
+    return SimpleNamespace(
+        when=when, passed=outcome == "passed", failed=outcome == "failed", skipped=outcome == "skipped"
+    )
 
 
 def _llm_end(handler, message: AIMessage) -> None:
@@ -174,88 +176,67 @@ class TestWriteEvalMetricsRow:
     def _fixed_sha(self, monkeypatch):
         monkeypatch.setattr(integration_utils, "_git_sha", lambda: "abc")
 
+    @pytest.fixture
+    def out(self, monkeypatch, tmp_path):
+        path = tmp_path / "metrics.jsonl"
+        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(path))
+        return path
+
+    @staticmethod
+    def rows(out) -> list[dict]:
+        return [json.loads(line) for line in out.read_text().splitlines()]
+
     def test_writes_nothing_without_the_variable(self, monkeypatch, tmp_path):
         monkeypatch.delenv("DAIV_EVAL_METRICS_OUT", raising=False)
         monkeypatch.chdir(tmp_path)
 
-        write_eval_metrics_row(_item(eval_metrics=RunMetrics(usage={"input_tokens": 5})), _call_report(passed=True))
+        write_eval_metrics_row(_item(eval_metrics=RunMetrics(usage={"input_tokens": 5})), _report("passed"))
 
         assert list(tmp_path.iterdir()) == []
 
-    def test_appends_one_row_per_call_phase(self, monkeypatch, tmp_path):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+    def test_appends_one_row_per_call_phase(self, monkeypatch, out):
         monkeypatch.setenv("DAIV_EVAL_RUN", "3")
-
         ran = _item(eval_metrics=RunMetrics(usage={"input_tokens": 5}))
 
-        write_eval_metrics_row(ran, SimpleNamespace(when="setup", skipped=False, passed=True))
-        write_eval_metrics_row(ran, _call_report(passed=False))
-        write_eval_metrics_row(ran, SimpleNamespace(when="teardown", skipped=False, passed=True))
+        write_eval_metrics_row(ran, _report("passed", when="setup"))
+        write_eval_metrics_row(ran, _report("failed"))
+        write_eval_metrics_row(ran, _report("passed", when="teardown"))
 
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        [row] = self.rows(out)
         assert (row["run"], row["passed"]) == (3, False)
 
-    @pytest.mark.parametrize("when", ["setup", "call"])
-    def test_a_skipped_case_writes_a_row_without_a_vote(self, monkeypatch, tmp_path, when):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+    @pytest.mark.parametrize(
+        "item,report",
+        [
+            pytest.param(
+                _item(eval_metrics=RunMetrics(usage={"input_tokens": 5})),
+                _report("skipped", when="setup"),
+                id="skipped-setup",
+            ),
+            pytest.param(_item(eval_metrics=RunMetrics(usage={"input_tokens": 5})), _report("skipped"), id="skipped"),
+            pytest.param(_item(), _report("failed", when="setup"), id="failed-setup"),
+            pytest.param(_item(), _report("passed"), id="never-measured"),
+            pytest.param(_item(), _report("failed"), id="failed-unmeasured"),
+            pytest.param(
+                _item(eval_metrics=RunMetrics(usage={"input_tokens": 0})), _report("failed"), id="failed-before-tokens"
+            ),
+        ],
+    )
+    def test_a_pass_that_cast_no_vote_writes_a_null_row(self, out, item, report):
+        write_eval_metrics_row(item, report)
 
-        ran = _item(eval_metrics=RunMetrics(usage={"input_tokens": 5}))
-
-        write_eval_metrics_row(ran, SimpleNamespace(when=when, skipped=True, passed=False, failed=False))
-
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        [row] = self.rows(out)
         assert row["passed"] is None
 
-    def test_a_case_whose_setup_failed_writes_a_row_without_a_vote(self, monkeypatch, tmp_path):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
-
-        write_eval_metrics_row(_item(), SimpleNamespace(when="setup", skipped=False, passed=False, failed=True))
-
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
-        assert row["passed"] is None
-
-    def test_a_test_that_is_not_an_eval_case_writes_nothing(self, monkeypatch, tmp_path):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
-
-        write_eval_metrics_row(_item(fixturenames=["model_name"]), _call_report(passed=False))
+    def test_a_test_that_is_not_an_eval_case_writes_nothing(self, out):
+        write_eval_metrics_row(_item(fixturenames=["model_name"]), _report("failed"))
 
         assert not out.exists()
 
-    def test_a_case_that_measured_no_agent_call_casts_no_vote(self, monkeypatch, tmp_path):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
-
-        write_eval_metrics_row(_item(), _call_report(passed=True))
-
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
-        assert row["passed"] is None
-
-    @pytest.mark.parametrize(
-        "item",
-        [
-            pytest.param(_item(), id="no-metrics"),
-            pytest.param(_item(eval_metrics=RunMetrics(usage={"input_tokens": 0})), id="zero-tokens"),
-        ],
-    )
-    def test_a_failure_before_any_model_call_casts_no_vote(self, monkeypatch, tmp_path, item):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
-
-        write_eval_metrics_row(item, _call_report(passed=False))
-
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
-        assert row["passed"] is None
-
-    def test_a_failure_after_the_agent_ran_is_a_vote(self, monkeypatch, tmp_path):
-        out = tmp_path / "metrics.jsonl"
-        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+    def test_a_failure_after_the_agent_ran_is_a_vote(self, out):
         item = _item(eval_metrics=RunMetrics(usage={"input_tokens": 120, "output_tokens": 8}))
 
-        write_eval_metrics_row(item, _call_report(passed=False))
+        write_eval_metrics_row(item, _report("failed"))
 
-        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        [row] = self.rows(out)
         assert (row["passed"], row["input_tokens"]) == (False, 120)

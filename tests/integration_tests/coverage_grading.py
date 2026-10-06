@@ -37,7 +37,7 @@ def one_step_violation(tool_calls: Sequence[Mapping]) -> str | None:
     names = [call["name"] for call in tool_calls]
     if "write_todos" in names:
         return f"write_todos was called for a one-step edit; tool calls: {names}"
-    if not EDIT_TOOLS & set(names) and "bash" not in names:
+    if not {*EDIT_TOOLS, "bash"} & set(names):
         return f"the agent never tried the edit; tool calls: {names}"
     return None
 

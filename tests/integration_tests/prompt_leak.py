@@ -10,6 +10,7 @@ over their case texts at collection, with two rules:
 from __future__ import annotations
 
 import importlib
+import pkgutil
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,29 +22,6 @@ if TYPE_CHECKING:
 
 _MIN_WHOLE_CASE_WORDS = 3
 
-_PROMPT_MODULES = (
-    "automation.agent.prompts",
-    "automation.agent.graph",
-    "automation.agent.questions",
-    "automation.agent.middlewares.artifacts",
-    "automation.agent.middlewares.ask_user_question",
-    "automation.agent.middlewares.ensure_response",
-    "automation.agent.middlewares.file_system",
-    "automation.agent.middlewares.git",
-    "automation.agent.middlewares.git_platform",
-    "automation.agent.middlewares.memory",
-    "automation.agent.middlewares.sandbox",
-    "automation.agent.middlewares.skills",
-    "automation.agent.middlewares.step_budget",
-    "automation.agent.middlewares.web_fetch",
-    "automation.agent.middlewares.web_search",
-    "automation.agent.subagents",
-    "automation.agent.deferred.prompt",
-    "automation.agent.deferred.search_tool",
-    "automation.agent.workspace.sandbox_backend",
-    "langchain.agents.middleware.todo",
-)
-
 
 def _template_text(value: object) -> str | None:
     template = getattr(getattr(value, "prompt", value), "template", None)
@@ -54,7 +32,7 @@ def _template_text(value: object) -> str | None:
 def agent_prompt_texts() -> dict[str, str]:
     """Every prompt text the agent can be sent, by name.
 
-    Upper-case string and prompt-template constants of all agent prompt modules (core, middlewares, deferred),
+    Upper-case string and prompt-template constants of every ``automation.agent`` module and of the todo middleware,
     function-computed system prompts (explore, general-purpose, output-invariants), the harness profile's
     tool-description overrides, and every built-in skill and detector charter markdown file.
     """
@@ -64,8 +42,9 @@ def agent_prompt_texts() -> dict[str, str]:
     from automation.agent.profile import DAIV_HARNESS_PROFILE
     from automation.agent.subagents import _explore_system_prompt, _general_purpose_system_prompt
 
+    modules = [info.name for info in pkgutil.walk_packages(automation.agent.__path__, "automation.agent.")]
     texts: dict[str, str] = {}
-    for module_name in _PROMPT_MODULES:
+    for module_name in [*modules, "langchain.agents.middleware.todo"]:
         for attr, value in vars(importlib.import_module(module_name)).items():
             if attr.isupper() and (text := value if isinstance(value, str) else _template_text(value)):
                 texts[f"{module_name}.{attr}"] = text
