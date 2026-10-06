@@ -19,11 +19,22 @@ if TYPE_CHECKING:
 
 _PROMPT_MODULES = (
     "automation.agent.prompts",
+    "automation.agent.graph",
+    "automation.agent.middlewares.artifacts",
+    "automation.agent.middlewares.ensure_response",
     "automation.agent.middlewares.file_system",
+    "automation.agent.middlewares.git",
+    "automation.agent.middlewares.git_platform",
+    "automation.agent.middlewares.memory",
     "automation.agent.middlewares.sandbox",
     "automation.agent.middlewares.skills",
+    "automation.agent.middlewares.step_budget",
+    "automation.agent.middlewares.web_fetch",
     "automation.agent.middlewares.web_search",
     "automation.agent.subagents",
+    "automation.agent.deferred.prompt",
+    "automation.agent.deferred.search_tool",
+    "automation.agent.workspace.sandbox_backend",
     "langchain.agents.middleware.todo",
 )
 
@@ -37,11 +48,13 @@ def _template_text(value: object) -> str | None:
 def agent_prompt_texts() -> dict[str, str]:
     """Every prompt text the agent can be sent, by name.
 
-    Upper-case string and prompt-template constants of the prompt modules, the explore and general-purpose subagent
-    prompts, the harness profile's tool-description overrides, and every built-in skill and detector charter file.
+    Upper-case string and prompt-template constants of all agent prompt modules (core, middlewares, deferred),
+    function-computed system prompts (explore, general-purpose, output-invariants), the harness profile's
+    tool-description overrides, and every built-in skill and detector charter markdown file.
     """
     import automation.agent
     from automation.agent.constants import REPO_PATH
+    from automation.agent.graph import _output_invariants_system_prompt
     from automation.agent.profile import DAIV_HARNESS_PROFILE
     from automation.agent.subagents import _explore_system_prompt, _general_purpose_system_prompt
 
@@ -52,6 +65,7 @@ def agent_prompt_texts() -> dict[str, str]:
                 texts[f"{module_name}.{attr}"] = text
     texts["explore_system_prompt"] = _explore_system_prompt(f"{REPO_PATH}/")
     texts["general_purpose_system_prompt"] = _general_purpose_system_prompt(f"{REPO_PATH}/")
+    texts["output_invariants_system_prompt"] = _output_invariants_system_prompt(f"{REPO_PATH}/")
     for tool_name, description in DAIV_HARNESS_PROFILE.tool_description_overrides.items():
         texts[f"tool_description_overrides.{tool_name}"] = description
     skills_root = Path(automation.agent.__file__).parent / "skills"

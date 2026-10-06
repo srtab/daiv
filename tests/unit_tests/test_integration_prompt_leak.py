@@ -34,6 +34,8 @@ def test_covers_the_prompts_the_changes_touch():
         "automation.agent.middlewares.skills.SKILLS_SYSTEM_PROMPT",
         "automation.agent.middlewares.web_search.WEB_SEARCH_SYSTEM_PROMPT",
         "explore_system_prompt",
+        "output_invariants_system_prompt",
+        "automation.agent.middlewares.git_platform.GIT_PLATFORM_SYSTEM_PROMPT",
         "tool_description_overrides.read_file",
         "skills/code-review/SKILL.md",
         "skills/code-review/agents/cr-correctness.md",
