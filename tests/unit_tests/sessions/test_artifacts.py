@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import PurePosixPath
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.sites.models import Site
@@ -18,6 +19,8 @@ from sessions.artifacts import (
     KNOWN_KIND_CONTENT_TYPES,
     ArtifactKind,
     RunArtifactStore,
+    aread_artifact,
+    areplace_artifact,
     aresolve_active_run,
     artifact_kind,
     aserialize_run_artifacts,
@@ -31,7 +34,7 @@ from sessions.artifacts import (
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
-from automation.agent.artifacts import ArtifactError
+from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace
 from tests.unit_tests.sessions.conftest import make_artifact
@@ -362,8 +365,8 @@ async def test_the_publish_tool_stores_through_the_run_artifact_store():
     path = "/workspace/tmp/report.md"
     workspace = FakeWorkspace()
     workspace.download_file = AsyncMock(return_value=FileDownloadResponse(path=path, content=b"# Report", error=None))
-    (tool,) = ArtifactsMiddleware(workspace=workspace, store=RunArtifactStore()).tools
-    (default_tool,) = ArtifactsMiddleware(workspace=FakeWorkspace(), store=FakeArtifactStore()).tools
+    tool, _ = ArtifactsMiddleware(workspace=workspace, store=RunArtifactStore()).tools
+    default_tool, _ = ArtifactsMiddleware(workspace=FakeWorkspace(), store=FakeArtifactStore()).tools
 
     with bind_active_run(run.pk):
         result = await tool.coroutine(path=path, runtime=_runtime(run.session_id), title="Report")
@@ -372,3 +375,199 @@ async def test_the_publish_tool_stores_through_the_run_artifact_store():
     assert json.loads(result)["status"] == "published"
     assert json.loads(result)["id"] == str(artifact.pk)
     assert tool.description == default_tool.description
+
+
+async def _astored_bytes(name: str) -> bytes:
+    def read() -> bytes:
+        with default_storage.open(name, "rb") as fh:
+            return fh.read()
+
+    return await sync_to_async(read)()
+
+
+async def test_areplace_artifact_swaps_the_file_and_keeps_the_id():
+    run = await _amk_run()
+    original = await astore_artifact(run, filename="audit.md", content=b"# v1", title="Audit")
+    original_name = original.file.name
+
+    revised = await areplace_artifact(run.session_id, str(original.pk), filename="audit.html", content=b"<h1>v2</h1>")
+
+    stored = await RunArtifact.objects.aget(pk=original.pk)
+    assert revised.pk == original.pk
+    assert (stored.run_id, stored.title, stored.filename, stored.content_type, stored.size) == (
+        run.pk,
+        "Audit",
+        "audit.html",
+        "text/html",
+        len(b"<h1>v2</h1>"),
+    )
+    assert stored.updated_at is not None
+    assert await _astored_bytes(stored.file.name) == b"<h1>v2</h1>"
+    assert not await sync_to_async(default_storage.exists)(original_name)
+
+
+async def test_areplace_artifact_takes_a_new_title():
+    run = await _amk_run()
+    original = await astore_artifact(run, filename="audit.md", content=b"# v1", title="Audit")
+
+    await areplace_artifact(run.session_id, str(original.pk), filename="audit.md", content=b"# v2", title=" Audit v2 ")
+
+    assert (await RunArtifact.objects.aget(pk=original.pk)).title == "Audit v2"
+
+
+async def test_areplace_artifact_from_a_later_run_keeps_the_first_run():
+    first = await _amk_run(status=RunStatus.SUCCESSFUL)
+    original = await astore_artifact(first, filename="audit.md", content=b"# v1")
+    session = await Session.objects.aget(pk=first.session_id)
+    await sync_to_async(_mk_run)(session, status=RunStatus.RUNNING)
+
+    await areplace_artifact(session.thread_id, str(original.pk), filename="audit.md", content=b"# v2")
+
+    assert (await RunArtifact.objects.aget(pk=original.pk)).run_id == first.pk
+
+
+async def test_areplace_artifact_twice_keeps_only_the_latest_file():
+    run = await _amk_run()
+    original = await astore_artifact(run, filename="audit.md", content=b"# v1")
+
+    await areplace_artifact(run.session_id, str(original.pk), filename="audit.md", content=b"# v2")
+    await areplace_artifact(run.session_id, str(original.pk), filename="audit.md", content=b"# v3")
+
+    stored = await RunArtifact.objects.aget(pk=original.pk)
+    stored_names = await sync_to_async(default_storage.listdir)(f"artifacts/{run.pk}")
+    assert stored_names == ([], [PurePosixPath(stored.file.name).name])
+    assert await _astored_bytes(stored.file.name) == b"# v3"
+
+
+@pytest.mark.parametrize("artifact_id", ["not-a-uuid", "3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70"])
+async def test_areplace_artifact_rejects_an_artifact_the_session_lacks(artifact_id):
+    run = await _amk_run()
+
+    with pytest.raises(ArtifactError, match=artifact_id):
+        await areplace_artifact(run.session_id, artifact_id, filename="audit.md", content=b"# v2")
+
+
+async def test_areplace_artifact_cannot_reach_another_sessions_artifact():
+    owner = await _amk_run()
+    other = await _amk_run()
+    artifact = await astore_artifact(owner, filename="audit.md", content=b"# v1")
+
+    with pytest.raises(ArtifactError, match="this session has no artifact"):
+        await areplace_artifact(other.session_id, str(artifact.pk), filename="audit.md", content=b"# hijack")
+
+    assert await _astored_bytes((await RunArtifact.objects.aget(pk=artifact.pk)).file.name) == b"# v1"
+
+
+async def test_areplace_artifact_rejects_empty_content_and_keeps_the_file():
+    run = await _amk_run()
+    artifact = await astore_artifact(run, filename="audit.md", content=b"# v1")
+
+    with pytest.raises(ArtifactError, match="empty"):
+        await areplace_artifact(run.session_id, str(artifact.pk), filename="audit.md", content=b"")
+
+    assert await _astored_bytes(artifact.file.name) == b"# v1"
+
+
+@pytest.mark.parametrize("failing", ["row", "commit"])
+async def test_areplace_artifact_keeps_the_old_file_when_persisting_fails(failing):
+    run = await _amk_run()
+    artifact = await astore_artifact(run, filename="audit.md", content=b"# v1")
+    if failing == "row":
+        patcher = patch.object(RunArtifact, "save", side_effect=RuntimeError("db down"))
+    else:
+        patcher = patch.object(BaseDatabaseWrapper, "commit", side_effect=DatabaseError("db down"))
+
+    with patcher, pytest.raises((RuntimeError, DatabaseError), match="db down"):
+        await areplace_artifact(run.session_id, str(artifact.pk), filename="audit.md", content=b"# v2")
+
+    stored = await RunArtifact.objects.aget(pk=artifact.pk)
+    assert stored.file.name == artifact.file.name
+    assert await sync_to_async(default_storage.listdir)(f"artifacts/{run.pk}") == ([], [f"{artifact.pk}.md"])
+
+
+async def test_aread_artifact_returns_the_current_file():
+    run = await _amk_run()
+    artifact = await astore_artifact(run, filename="audit.md", content=b"# v1")
+    await areplace_artifact(run.session_id, str(artifact.pk), filename="audit.html", content=b"<h1>v2</h1>")
+
+    assert await aread_artifact(run.session_id, str(artifact.pk)) == ("audit.html", b"<h1>v2</h1>")
+
+
+async def test_aread_artifact_cannot_reach_another_sessions_artifact():
+    owner = await _amk_run()
+    other = await _amk_run()
+    artifact = await astore_artifact(owner, filename="audit.md", content=b"# v1")
+
+    with pytest.raises(ArtifactError, match="this session has no artifact"):
+        await aread_artifact(other.session_id, str(artifact.pk))
+
+
+async def test_aread_artifact_with_a_missing_file_is_an_artifact_error(caplog):
+    run = await _amk_run()
+    artifact = await astore_artifact(run, filename="audit.md", content=b"# v1")
+    await sync_to_async(default_storage.delete)(artifact.file.name)
+
+    with pytest.raises(ArtifactError, match="is missing"):
+        await aread_artifact(run.session_id, str(artifact.pk))
+    assert "is missing" in caplog.text
+
+
+async def test_run_artifact_store_revises_an_artifact_and_returns_the_updated_result():
+    await Site.objects.aupdate_or_create(pk=1, defaults={"domain": "daiv.example.com", "name": "DAIV"})
+    run = await _amk_run()
+    store = RunArtifactStore()
+
+    with bind_active_run(run.pk):
+        published = json.loads(await store.astore(thread_id=run.session_id, filename="audit.md", content=b"# v1"))
+        updated = json.loads(
+            await store.astore(
+                thread_id=run.session_id, filename="audit.md", content=b"# v2", artifact_id=published["id"]
+            )
+        )
+
+    assert updated == {**published, "status": "updated", "size": 4}
+    assert await RunArtifact.objects.filter(run=run).acount() == 1
+
+
+async def test_run_artifact_store_revisions_do_not_spend_the_run_budget(monkeypatch):
+    monkeypatch.setattr(sessions_settings, "ARTIFACTS_PER_RUN_MAX", 1)
+    run = await _amk_run()
+    store = RunArtifactStore()
+
+    with bind_active_run(run.pk):
+        published = json.loads(await store.astore(thread_id=run.session_id, filename="one.md", content=b"1"))
+        for content in (b"2", b"3"):
+            await store.astore(
+                thread_id=run.session_id, filename="one.md", content=content, artifact_id=published["id"]
+            )
+
+    assert await RunArtifact.objects.filter(run=run).acount() == 1
+
+
+async def test_the_fetch_and_publish_tools_revise_an_earlier_runs_artifact():
+    """The middleware's tests use a fake store; this one runs a revision through both tools and the real store."""
+    first = await _amk_run(status=RunStatus.SUCCESSFUL)
+    artifact = await astore_artifact(first, filename="audit.md", content=b"# v1", title="Audit")
+    session = await Session.objects.aget(pk=first.session_id)
+    second = await sync_to_async(_mk_run)(session, status=RunStatus.RUNNING)
+    files: dict[str, bytes] = {}
+    workspace = FakeWorkspace()
+    workspace.backend.aupload_files = AsyncMock(side_effect=lambda batch: files.update(batch) or [Mock(error=None)])
+    workspace.download_file = AsyncMock(
+        side_effect=lambda path, **_: FileDownloadResponse(path=path, content=files[path] + b"\n## v2", error=None)
+    )
+    tools = {t.name: t for t in ArtifactsMiddleware(workspace=workspace, store=RunArtifactStore()).tools}
+
+    with bind_active_run(second.pk):
+        fetched = await tools[FETCH_ARTIFACT_TOOL_NAME].coroutine(
+            artifact_id=str(artifact.pk), runtime=_runtime(session.thread_id)
+        )
+        result = await tools[PUBLISH_ARTIFACT_TOOL_NAME].coroutine(
+            path="/workspace/tmp/audit.md", runtime=_runtime(session.thread_id), artifact_id=str(artifact.pk)
+        )
+
+    assert fetched.startswith(f"Fetched artifact '{artifact.pk}' (audit.md, 4 bytes) to /workspace/tmp/audit.md.")
+    assert json.loads(result)["status"] == "updated"
+    stored = await RunArtifact.objects.aget(pk=artifact.pk)
+    assert (stored.run_id, stored.title) == (first.pk, "Audit")
+    assert await _astored_bytes(stored.file.name) == b"# v1\n## v2"

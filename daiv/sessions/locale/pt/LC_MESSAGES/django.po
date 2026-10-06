@@ -514,6 +514,10 @@ msgstr "Ver execução"
 msgid "Published %(when)s"
 msgstr "Publicado %(when)s"
 
+#, python-format
+msgid "Updated %(when)s"
+msgstr "Atualizado %(when)s"
+
 msgid "Open raw"
 msgstr "Abrir original"
 

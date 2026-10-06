@@ -6,7 +6,8 @@ that, and the raw endpoint serves every artifact under a ``sandbox`` CSP so agen
 never runs in DAIV's origin.
 
 ``RunArtifactStore`` is the agent's ``automation.agent.artifacts.ArtifactStore`` for executor runs: a file goes to the
-``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits.
+``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits. A revision replaces an artifact's file
+in place: the row, and so its URL, stays, and it stays on the run that first published it.
 """
 
 from __future__ import annotations
@@ -14,23 +15,25 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from django.core.files.base import ContentFile
 from django.db import models, transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
-from automation.agent.artifacts import ArtifactError
+from automation.agent.artifacts import ArtifactError, ArtifactFile
 from sessions.conf import settings
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import Generator
 
     from django.core.files.storage import Storage
@@ -156,8 +159,7 @@ async def aresolve_active_run(thread_id: str) -> Run | None:
     return run
 
 
-async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str = "") -> RunArtifact:
-    """Persist ``content`` as an artifact of ``run``; raises :class:`ArtifactError` on a rejected file."""
+def _checked_name(filename: str, content: bytes) -> str:
     safe_name = PurePosixPath(filename).name
     if safe_name in ("", ".."):
         raise ArtifactError(f"'{filename}' is not a file name.")
@@ -167,6 +169,12 @@ async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str
         raise ArtifactError(
             f"'{safe_name}' is {len(content)} bytes; artifacts are capped at {settings.ARTIFACT_MAX_BYTES} bytes."
         )
+    return safe_name
+
+
+async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str = "") -> RunArtifact:
+    """Persist ``content`` as an artifact of ``run``; raises :class:`ArtifactError` on a rejected file."""
+    safe_name = _checked_name(filename, content)
     return await sync_to_async(_store_artifact)(run, safe_name, content, title)
 
 
@@ -197,6 +205,74 @@ def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> Run
     return artifact
 
 
+async def areplace_artifact(
+    thread_id: str, artifact_id: str, *, filename: str, content: bytes, title: str = ""
+) -> RunArtifact:
+    """Replace the file of artifact ``artifact_id`` of the session ``thread_id``, keeping its id and URL.
+
+    ``filename`` renames it and sets its content type; a blank ``title`` keeps the current one. Raises
+    :class:`ArtifactError` on a rejected file or an artifact the session does not have.
+    """
+    safe_name = _checked_name(filename, content)
+    return await sync_to_async(_replace_artifact)(thread_id, artifact_id, safe_name, content, title)
+
+
+def _replace_artifact(thread_id: str, artifact_id: str, safe_name: str, content: bytes, title: str) -> RunArtifact:
+    from sessions.models import RunArtifact
+
+    artifact = _session_artifact(thread_id, artifact_id)
+    storage = artifact.file.storage
+    artifact.file.save(safe_name, ContentFile(content), save=False)
+    try:
+        with transaction.atomic():
+            # Concurrent revisions serialise on the row, so each one deletes the file the one before it left.
+            if (replaced := RunArtifact.objects.select_for_update().filter(pk=artifact.pk).first()) is None:
+                raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+            artifact.title = (title.strip() or replaced.title)[:200]
+            artifact.filename = safe_name[:255]
+            artifact.content_type = guess_content_type(safe_name)
+            artifact.size = len(content)
+            artifact.updated_at = timezone.now()
+            artifact.save(update_fields=["title", "filename", "content_type", "size", "file", "updated_at"])
+            transaction.on_commit(partial(delete_stored_file, storage, replaced.file.name))
+    except BaseException:
+        delete_stored_file(storage, artifact.file.name)
+        raise
+    return artifact
+
+
+async def aread_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
+    """The current file of artifact ``artifact_id`` of the session ``thread_id``; raises :class:`ArtifactError`."""
+    return await sync_to_async(_read_artifact)(thread_id, artifact_id)
+
+
+def _read_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
+    artifact = _session_artifact(thread_id, artifact_id)
+    try:
+        with artifact.file.open("rb") as fh:
+            return ArtifactFile(filename=artifact.filename, content=fh.read())
+    except FileNotFoundError:
+        logger.error("Artifact %s: stored file %s is missing", artifact.pk, artifact.file.name)
+        raise ArtifactError(
+            f"the stored file of artifact '{artifact_id}' is missing; publish the file again as a new artifact."
+        ) from None
+
+
+def _session_artifact(thread_id: str, artifact_id: str) -> RunArtifact:
+    from sessions.models import RunArtifact
+
+    try:
+        pk = uuid.UUID(artifact_id)
+    except ValueError:
+        raise ArtifactError(
+            f"'{artifact_id}' is not an artifact id; pass the `id` from the artifact's publish result."
+        ) from None
+    artifacts = RunArtifact.objects.filter(run__session_id=thread_id, pk=pk).select_related("run")
+    if (artifact := artifacts.first()) is None:
+        raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+    return artifact
+
+
 def delete_stored_file(storage: Storage, name: str) -> None:
     try:
         storage.delete(name)
@@ -220,9 +296,12 @@ def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
     )
 
 
-def published_tool_result(payload: ArtifactPayload) -> str:
+type PublishStatus = Literal["published", "updated"]
+
+
+def published_tool_result(payload: ArtifactPayload, status: PublishStatus = "published") -> str:
     """The ``publish_artifact`` success result, which the transcript's artifact card parses."""
-    return json.dumps({"status": "published", **payload.model_dump()})
+    return json.dumps({"status": status, **payload.model_dump()})
 
 
 class RunArtifactStore:
@@ -239,32 +318,45 @@ class RunArtifactStore:
     async def aaccepts(self, thread_id: str) -> bool:
         return await aresolve_active_run(thread_id) is not None
 
-    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+    async def astore(
+        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str | None = None
+    ) -> str:
         if (run := await aresolve_active_run(thread_id)) is None:
             raise ArtifactError("this run has no session to attach artifacts to.")
-        artifact = await astore_artifact(run, filename=filename, content=content, title=title)
+        status: PublishStatus
+        if artifact_id:
+            artifact = await areplace_artifact(thread_id, artifact_id, filename=filename, content=content, title=title)
+            status = "updated"
+        else:
+            artifact = await astore_artifact(run, filename=filename, content=content, title=title)
+            status = "published"
         logger.info(
-            "publish_artifact: run=%s stored %s (%s, %d bytes)",
+            "publish_artifact: run=%s %s artifact %s as %s (%s, %d bytes)",
             run.pk,
+            status,
+            artifact.pk,
             artifact.filename,
             artifact.content_type,
             artifact.size,
         )
-        return await _apublished_result(artifact)
+        return await _apublished_result(artifact, status)
+
+    async def aread(self, *, thread_id: str, artifact_id: str) -> ArtifactFile:
+        return await aread_artifact(thread_id, artifact_id)
 
 
-async def _apublished_result(artifact: RunArtifact) -> str:
+async def _apublished_result(artifact: RunArtifact, status: PublishStatus) -> str:
     try:
         payload = await sync_to_async(serialize_artifact)(artifact)
     except Exception:
         logger.exception("publish_artifact: stored artifact %s but could not build its absolute URLs", artifact.pk)
         return json.dumps({
-            "status": "published",
+            "status": status,
             "id": str(artifact.pk),
             "url": artifact.get_absolute_url(),
             "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
         })
-    return published_tool_result(payload)
+    return published_tool_result(payload, status)
 
 
 async def aserialize_run_artifacts(run: Run) -> list[ArtifactPayload]:

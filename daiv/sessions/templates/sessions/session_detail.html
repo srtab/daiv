@@ -328,7 +328,8 @@
                                     <div class="contents">
                                       <span class="chat-tool__spinner text-amber-400" aria-hidden="true"></span>
                                       <span class="artifact-card__title" x-text="item.title"></span>
-                                      <span class="artifact-card__meta">{% translate "Publishing…" %}</span>
+                                      <span class="artifact-card__meta" x-show="!item.updating">{% translate "Publishing…" %}</span>
+                                      <span class="artifact-card__meta" x-show="item.updating">{% translate "Updating…" %}</span>
                                     </div>
                                   </template>
                                   <template x-if="item.state === 'error'">
@@ -343,6 +344,7 @@
                                       <a class="artifact-card__title" :href="item.url" :title="item.filename"
                                          x-text="item.title" target="_blank" rel="noopener noreferrer"></a>
                                       <span class="meta-pill" x-show="item.kindLabel" x-text="item.kindLabel"></span>
+                                      <span class="artifact-card__meta" x-show="item.updated">{% translate "Updated" %}</span>
                                       <span class="artifact-card__meta" x-show="item.sizeLabel" x-text="item.sizeLabel"></span>
                                       <a class="artifact-download" x-show="item.download_url" :href="item.download_url"
                                          title="{% translate 'Download' %}">

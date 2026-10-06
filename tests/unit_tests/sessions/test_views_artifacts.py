@@ -249,6 +249,17 @@ def test_detail_breadcrumbs_link_to_artifact_list(member_client, member_user):
     ]
 
 
+@pytest.mark.parametrize("updated", [False, True])
+def test_detail_says_when_a_revised_artifact_was_updated(member_client, member_user, updated):
+    artifact = _own_artifact(member_user)
+    RunArtifact.objects.filter(pk=artifact.pk).update(updated_at=timezone.now() if updated else None)
+
+    html = member_client.get(artifact.get_absolute_url()).content.decode()
+
+    assert "Published" in html
+    assert ("Updated" in html) is updated
+
+
 def test_detail_links_back_to_its_session_and_repo(member_client, member_user):
     session = _create_session(user=member_user, title="Nightly audit", repo_id="acme/api")
     artifact = make_artifact(_create_run(session), filename="audit.md")

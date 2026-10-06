@@ -417,7 +417,13 @@
     };
   };
 
-  // publish_artifact returns JSON ({"status":"published","url":...}) on success and an
+  const sigFetchArtifact = (args, result, argsStr) => {
+    const target = pickKeyOrPartial(args, ["path"], argsStr) || pickKeyOrPartial(args, ["artifact_id"], argsStr) || "";
+    const failed = ERROR_PREFIX_RE.test(String(result ?? "").trim());
+    return { label: "fetch_artifact", path: target, badges: failed ? [badge("error", "danger")] : [] };
+  };
+
+  // publish_artifact returns JSON ({"status":"published"|"updated","url":...}) on success and an
   // "Error publishing artifact..." string otherwise.
   const parseArtifactResult = (result) => {
     const parsed = parseArgs(result);
@@ -446,6 +452,7 @@
     web_search: sigWebSearch,
     gitlab: sigGitlab,
     gh: sigGh,
+    fetch_artifact: sigFetchArtifact,
   };
 
   const basename = (p) => {
@@ -464,13 +471,18 @@
     const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
 
     if (seg.status === "running" || (seg.result == null && seg.status !== "error")) {
-      return { state: "running", title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg };
+      return {
+        state: "running",
+        title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg,
+        updating: Boolean(pickKeyOrPartial(args, ["artifact_id"], argsStr)),
+      };
     }
 
     const parsed = parseArtifactResult(seg.result);
     if (parsed) {
       return {
         state: "published",
+        updated: parsed.status === "updated",
         title: parsed.title || basename(pathArg),
         filename: parsed.filename || "",
         kindLabel: ARTIFACT_KIND_LABELS[parsed.kind] || "",

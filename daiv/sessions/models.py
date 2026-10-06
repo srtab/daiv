@@ -630,7 +630,8 @@ class RunArtifact(models.Model):
 
     The bytes live in the default file storage (``MEDIA_ROOT``); the row carries what the viewer,
     the Jobs API and MCP expose. Deleting the run cascades to the row, and
-    ``sessions.signals.delete_artifact_file`` removes the stored bytes.
+    ``sessions.signals.delete_artifact_file`` removes the stored bytes. A later run of the session
+    may revise the file in place (``updated_at``); ``run`` stays the run that first published it.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -641,6 +642,7 @@ class RunArtifact(models.Model):
     size = models.PositiveBigIntegerField(_("size"))
     file = models.FileField(_("file"), upload_to=artifact_upload_to, max_length=500)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), null=True, blank=True, editable=False)
 
     objects = RunArtifactManager()
 

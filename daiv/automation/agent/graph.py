@@ -172,8 +172,8 @@ async def create_daiv_agent(
         settings: The run's resolved agent settings: its model chains, recursion limit, web toggles and switches.
         ctx: The runtime context.
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
-        artifact_store: Where ``publish_artifact`` keeps files; ``None`` leaves the tool out (the run executor always
-            passes one).
+        artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
+            tools out (the run executor always passes one).
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.
