@@ -36,14 +36,15 @@ SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
 
 
-def _last_write(_old: str | None, new: str | None) -> str | None:
-    return new
+def _keep_read_only(old: str | None, new: str | None) -> str | None:
+    """Read-only mode lasts until cleared (``None``): another skill's mode, even one set in the same turn, keeps it."""
+    return old if old == SKILL_MODE_READ_ONLY and new is not None else new
 
 
 class DAIVSkillsState(SkillsState):
     """Extended skills state that tracks the active skill mode."""
 
-    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write]]
+    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _keep_read_only]]
 
 
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
@@ -322,7 +323,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         The pattern we look for (walking backwards from the end):
         1. The latest message is a HumanMessage (user follow-up)
-        2. Before it, there's an AIMessage (agent's plan/response)
+        2. Before it, past any synthetic messages, there's an AIMessage (agent's plan/response) rather than
+           another message a person wrote
         """
         if len(messages) < 2:
             return False

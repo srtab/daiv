@@ -733,6 +733,16 @@ class TestHasUserFollowup:
 
         assert SkillsMiddleware._has_user_followup(messages) is True
 
+    def test_a_person_message_before_any_reply_is_not_a_followup(self):
+        messages = [
+            AIMessage(content="an earlier reply"),
+            HumanMessage(content="plan issue 1"),
+            synthetic_message("<issue>v1</issue>", kind="issue_context"),
+            HumanMessage(content="also this"),
+        ]
+
+        assert SkillsMiddleware._has_user_followup(messages) is False
+
 
 class TestCustomGlobalSkills:
     """Tests for custom global skills support."""
@@ -1165,6 +1175,11 @@ async def test_skill_runs_beside_another_tool_in_one_turn():
 WRITES: list[str] = []
 
 
+@pytest.fixture(autouse=True)
+def _clear_writes():
+    WRITES.clear()
+
+
 @tool("write_file")
 def _write_file(file_path: str, content: str) -> str:
     """Write a file."""
@@ -1176,6 +1191,7 @@ _SKILL_BODIES = {
     "/skills/plan/SKILL.md": b"---\nname: plan\ndescription: Plan\n---\nPlan it.",
     "/skills/audit/SKILL.md": b"---\nname: audit\ndescription: Audit\n---\nAudit it.",
     "/skills/demo/SKILL.md": b"---\nname: demo\ndescription: Demo\n---\nRun this.",
+    "/skills/review/SKILL.md": b"---\nname: review\ndescription: Review\n---\nReview it.",
 }
 _SKILLS_METADATA = [
     {
@@ -1191,6 +1207,7 @@ _SKILLS_METADATA = [
         "metadata": {"mode": SKILL_MODE_READ_ONLY},
     },
     {"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"},
+    {"name": "review", "description": "Review", "path": "/skills/review/SKILL.md", "metadata": {"mode": "interactive"}},
 ]
 
 
@@ -1218,10 +1235,6 @@ class TestSkillBesideWriteInOneTurn:
         "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
         "id": "call_write",
     }
-
-    @pytest.fixture(autouse=True)
-    def _clear_writes(self):
-        WRITES.clear()
 
     async def test_write_is_refused_beside_a_read_only_skill(self):
         result = await _run_turns_with_skills_middleware(
@@ -1254,7 +1267,6 @@ class TestSkillBesideWriteInOneTurn:
 
 
 async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
-    WRITES.clear()
     write_call = {
         "name": "write_file",
         "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
@@ -1278,8 +1290,30 @@ async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
     assert WRITES == []
 
 
+async def test_another_mode_called_after_a_read_only_skill_keeps_read_only():
+    write_call = {
+        "name": "write_file",
+        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
+        "id": "call_write",
+    }
+
+    result = await _run_turns_with_skills_middleware(
+        [
+            [
+                {"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"},
+                {"name": "skill", "args": {"skill": "review"}, "id": "call_review"},
+            ],
+            [write_call],
+        ],
+        [_write_file],
+    )
+
+    tool_results = {m.tool_call_id: m for m in result["messages"] if isinstance(m, ToolMessage)}
+    assert tool_results["call_write"].status == "error"
+    assert WRITES == []
+
+
 async def test_user_follow_up_clears_the_mode_set_by_a_skill():
-    WRITES.clear()
     write_call = {
         "name": "write_file",
         "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
