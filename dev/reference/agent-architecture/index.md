@@ -63,7 +63,7 @@ The agent's tools are injected via middlewares. Each middleware provides one or 
 
 Tools are deferred by default
 
-Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
+Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, `fetch_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -105,9 +105,10 @@ Commands are evaluated against a [command policy](https://srtab.github.io/daiv/d
 
 ### Artifacts
 
-| Tool               | Description                                                                                                                                                                            |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) and return its viewer URL |
+| Tool               | Description                                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) and return its viewer URL; with `artifact_id`, replace the file of an artifact the session already published, keeping its URL |
+| `fetch_artifact`   | Copy an artifact the session already published back into `/workspace/tmp`, so it can be revised                                                                                                                                                                                            |
 
 ### MCP
 
@@ -127,24 +128,24 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ### Always enabled
 
-| Middleware                         | Purpose                                                                                                            |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)                                                                    |
-| `GitMiddleware`                    | Branch management, auto-commit, MR creation                                                                        |
-| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)                                                                     |
-| `SkillsMiddleware`                 | Skill loading and slash command execution                                                                          |
-| `ArtifactsMiddleware`              | The `publish_artifact` tool and its system-prompt section — stores a workspace file as a run artifact              |
-| `SubAgentMiddleware`               | Delegates tasks to subagents                                                                                       |
-| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context                                                                           |
-| `TodoListMiddleware`               | Task tracking within conversations                                                                                 |
-| `SummarizationMiddleware`          | Compresses conversation history when it grows too long                                                             |
-| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                                                                                |
-| `ToolCallLoggingMiddleware`        | Logs all tool calls                                                                                                |
-| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                                                                            |
-| `DeferredToolsMiddleware`          | Defers non-core tools behind a `tool_search` capability, loaded on demand                                          |
-| `LoopBreakerMiddleware`            | Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute |
-| `StepBudgetMiddleware`             | Warns the model as the run approaches its per-run step budget                                                      |
-| `EnsureResponseMiddleware`         | Guarantees a non-empty final response by retrying empty LLM responses                                              |
+| Middleware                         | Purpose                                                                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)                                                                                               |
+| `GitMiddleware`                    | Branch management, auto-commit, MR creation                                                                                                   |
+| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)                                                                                                |
+| `SkillsMiddleware`                 | Skill loading and slash command execution                                                                                                     |
+| `ArtifactsMiddleware`              | The `publish_artifact` and `fetch_artifact` tools and their system-prompt section — stores a workspace file as a run artifact, or revises one |
+| `SubAgentMiddleware`               | Delegates tasks to subagents                                                                                                                  |
+| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context                                                                                                      |
+| `TodoListMiddleware`               | Task tracking within conversations                                                                                                            |
+| `SummarizationMiddleware`          | Compresses conversation history when it grows too long                                                                                        |
+| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                                                                                                           |
+| `ToolCallLoggingMiddleware`        | Logs all tool calls                                                                                                                           |
+| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                                                                                                       |
+| `DeferredToolsMiddleware`          | Defers non-core tools behind a `tool_search` capability, loaded on demand                                                                     |
+| `LoopBreakerMiddleware`            | Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute                            |
+| `StepBudgetMiddleware`             | Warns the model as the run approaches its per-run step budget                                                                                 |
+| `EnsureResponseMiddleware`         | Guarantees a non-empty final response by retrying empty LLM responses                                                                         |
 
 ### Conditionally enabled
 

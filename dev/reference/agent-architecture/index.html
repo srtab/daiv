@@ -1943,7 +1943,7 @@
 <p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
 <div class="admonition note">
 <p class="admonition-title">Tools are deferred by default</p>
-<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, <code>publish_artifact</code>, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
+<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, <code>publish_artifact</code>, <code>fetch_artifact</code>, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
 </div>
 <h3 id="filesystem">Filesystem</h3>
 <table>
@@ -2056,7 +2056,11 @@
 <tbody>
 <tr>
 <td><code>publish_artifact</code></td>
-<td>Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run <a href="../../features/sessions/#artifacts">artifact</a> and return its viewer URL</td>
+<td>Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run <a href="../../features/sessions/#artifacts">artifact</a> and return its viewer URL; with <code>artifact_id</code>, replace the file of an artifact the session already published, keeping its URL</td>
+</tr>
+<tr>
+<td><code>fetch_artifact</code></td>
+<td>Copy an artifact the session already published back into <code>/workspace/tmp</code>, so it can be revised</td>
 </tr>
 </tbody>
 </table>
@@ -2107,7 +2111,7 @@
 </tr>
 <tr>
 <td><code>ArtifactsMiddleware</code></td>
-<td>The <code>publish_artifact</code> tool and its system-prompt section — stores a workspace file as a run artifact</td>
+<td>The <code>publish_artifact</code> and <code>fetch_artifact</code> tools and their system-prompt section — stores a workspace file as a run artifact, or revises one</td>
 </tr>
 <tr>
 <td><code>SubAgentMiddleware</code></td>
@@ -2261,7 +2265,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 20:20:26 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 6, 2026 20:04:40 UTC">October 6, 2026</span>
   </span>
 
     
