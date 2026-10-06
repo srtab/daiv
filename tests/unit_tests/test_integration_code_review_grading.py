@@ -3,6 +3,10 @@
 The judge call is not covered here; the ``code_review`` integration suite exercises it.
 """
 
+import json
+import shutil
+from pathlib import Path
+
 import pytest
 
 from tests.integration_tests.code_review_grading import (
@@ -18,6 +22,7 @@ from tests.integration_tests.code_review_grading import (
 )
 
 SHA = "f5580ea4d7011f7e005fa46bfc0f3ba935595f69"
+DATA_DIR = Path(__file__).parents[1] / "integration_tests" / "data" / "code_review"
 PATCH = (
     "diff --git a/daiv/app/views.py b/daiv/app/views.py\n"
     "--- a/daiv/app/views.py\n+++ b/daiv/app/views.py\n@@ -1 +1 @@\n-a\n+b\n"
@@ -251,3 +256,26 @@ def test_severity_counts_and_blocking():
 
     assert severity_counts(findings) == {"Critical": 1, "Important": 1, "Suggestion": 1, "Question": 1}
     assert [f.severity for f in blocking(findings)] == ["Critical", "Important"]
+
+
+class TestShippedCases:
+    def test_the_shipped_cases_pass(self):
+        validate_cases(_shipped_cases(), DATA_DIR)
+
+    def test_they_pair_every_dimension_with_a_clean_twin(self):
+        cases = _shipped_cases()
+        twinned = {case["twin"] for case in cases if case["kind"] == "clean"}
+        dimensions = {case["planted"]["dimension"] for case in cases if case["id"] in twinned}
+
+        assert dimensions == {"correctness", "security", "performance"}
+
+    def test_a_missing_patch_fails_validation(self, tmp_path):
+        shutil.copytree(DATA_DIR, tmp_path / "code_review")
+        (tmp_path / "code_review" / "patches" / "clean-mute-job.patch").unlink()
+
+        with pytest.raises(ValueError, match="clean-mute-job"):
+            validate_cases(_shipped_cases(), tmp_path / "code_review")
+
+
+def _shipped_cases() -> list[dict]:
+    return [json.loads(line) for line in (DATA_DIR / "cases.jsonl").read_text().splitlines() if line.strip()]

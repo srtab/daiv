@@ -1,0 +1,53 @@
+diff --git a/daiv/schedules/urls.py b/daiv/schedules/urls.py
+index 3d44a68..d11cf97 100644
+--- a/daiv/schedules/urls.py
++++ b/daiv/schedules/urls.py
+@@ -4,6 +4,7 @@ from schedules.views import (
+     ScheduleCreateView,
+     ScheduleDeleteView,
+     ScheduleDuplicateView,
++    ScheduleExportView,
+     ScheduleListView,
+     ScheduleRunNowView,
+     ScheduleTemplateCreateView,
+@@ -28,4 +29,5 @@ urlpatterns = [
+     path("<int:pk>/run/", ScheduleRunNowView.as_view(), name="schedule_run_now"),
+     path("<int:pk>/unsubscribe/", ScheduleUnsubscribeView.as_view(), name="schedule_unsubscribe"),
+     path("<int:pk>/duplicate/", ScheduleDuplicateView.as_view(), name="schedule_duplicate"),
++    path("<int:pk>/export/", ScheduleExportView.as_view(), name="schedule_export"),
+ ]
+diff --git a/daiv/schedules/views.py b/daiv/schedules/views.py
+index 501d72f..e1b0f70 100644
+--- a/daiv/schedules/views.py
++++ b/daiv/schedules/views.py
+@@ -398,3 +398,30 @@ class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
+             {"label": f'"{self.object.name}"', "url": reverse("schedule_template_update", args=[self.object.pk])},
+             {"label": "Delete", "url": None},
+         ]
++
++
++class ScheduleExportView(LoginRequiredMixin, View):
++    """Download a schedule's configuration as JSON, to recreate it elsewhere or attach to a report."""
++
++    http_method_names = ["get"]
++
++    def get(self, request, pk):
++        schedule = get_object_or_404(
++            ScheduledJob.objects.select_related("sandbox_environment").prefetch_related("subscribers"), pk=pk
++        )
++        payload = {
++            "name": schedule.name,
++            "prompt": schedule.prompt,
++            "repos": schedule.repos,
++            "frequency": schedule.frequency,
++            "cron_expression": schedule.cron_expression,
++            "time": schedule.time.isoformat() if schedule.time else None,
++            "agent_model": schedule.agent_model,
++            "agent_thinking_level": schedule.agent_thinking_level,
++            "mcp_overrides": schedule.mcp_overrides,
++            "sandbox_environment": schedule.sandbox_environment.name if schedule.sandbox_environment else None,
++            "subscribers": [user.email for user in schedule.subscribers.all()],
++        }
++        response = HttpResponse(json.dumps(payload, indent=2), content_type="application/json")
++        response["Content-Disposition"] = f'attachment; filename="schedule-{schedule.pk}.json"'
++        return response
