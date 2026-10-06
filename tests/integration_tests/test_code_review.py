@@ -117,16 +117,17 @@ async def test_code_review_recall(model_name, case, eval_request):
 
 _SAME_FILE_OTHER_BUG = Finding(
     severity="Important",
-    title="Export response is not cached",
-    location="`daiv/schedules/views.py:425`",
-    details="Each download serialises the schedule again; add a cache header so browsers reuse the file.",
+    title="Exported `time` drops the timezone",
+    location="`daiv/schedules/api/views.py:26`",
+    details="`schedule.time.isoformat()` emits a naive time of day, so a client in another timezone reads the wrong "
+    "run time. Include the timezone the scheduler evaluates `time` in.",
 )
 _PLANTED_BUG = Finding(
     severity="Critical",
-    title="Any user can export any schedule",
-    location="`daiv/schedules/views.py:410`",
-    details="The view fetches from `ScheduledJob.objects` with no owner filter, so a logged-in user can read other "
-    "users' schedules, prompts and subscriber emails. Scope it with `_ScheduleOwnerMixin`.",
+    title="Any API caller can export any schedule",
+    location="`daiv/schedules/api/views.py:14`",
+    details="The endpoint queries `ScheduledJob.objects` with no owner filter, so any API key reads other users' "
+    "schedules, prompts and subscriber emails. Scope it with `ScheduledJob.objects.by_owner(request.auth)`.",
 )
 
 
