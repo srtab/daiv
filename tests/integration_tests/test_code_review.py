@@ -6,6 +6,7 @@ Each run clones srtab/daiv, points the clone's ``main`` at the case's ``base_sha
 sandbox seeded from that clone. A case that cannot be set up stops the whole run: it is a broken case, not a vote.
 """
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -103,14 +104,15 @@ async def test_the_judge_tells_the_planted_bug_from_another_in_the_same_file():
     planted = next(param.values[0] for param in CASES if param.id == "bug-schedule-export-no-owner-check")["planted"]
 
     try:
-        hit = (await grade_bug_case([_PLANTED_BUG], planted)).hit
-        other = (await grade_bug_case([_SAME_FILE_OTHER_BUG], planted)).hit
+        planted_grade, other_grade = await asyncio.gather(
+            grade_bug_case([_PLANTED_BUG], planted), grade_bug_case([_SAME_FILE_OTHER_BUG], planted)
+        )
     except JudgeError as err:
         pytest.exit(f"The recall judge is unavailable: {err}", returncode=2)
-    if not hit or other:
+    if not planted_grade.hit or other_grade.hit:
         pytest.exit(
-            f"The recall judge cannot tell the planted bug from another in the same file (planted: {hit}, other: "
-            f"{other}).",
+            f"The recall judge cannot tell the planted bug from another in the same file (planted: "
+            f"{planted_grade.hit}, other: {other_grade.hit}).",
             returncode=2,
         )
 

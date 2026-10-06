@@ -6,7 +6,7 @@ The judge call itself is stubbed here; the ``code_review`` integration suite exe
 import json
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -380,30 +380,24 @@ class TestGradeBugCase:
 class TestJudgePlantedBug:
     FINDING = Finding(severity="Critical", title="Unscoped lookup", location="`daiv/app/views.py:1`", details="")
 
-    def _judge_answers(self, monkeypatch, answer) -> None:
-        async def ainvoke(prompt: str):
-            if isinstance(answer, Exception):
-                raise answer
-            return answer
-
-        structured = SimpleNamespace(ainvoke=ainvoke)
-        monkeypatch.setattr(
-            code_review_grading, "_judge", lambda: SimpleNamespace(with_structured_output=lambda schema: structured)
-        )
+    def _judge_answers(self, monkeypatch, **ainvoke) -> None:
+        model = MagicMock()
+        model.with_structured_output.return_value.ainvoke = AsyncMock(**ainvoke)
+        monkeypatch.setattr(code_review_grading, "_judge", lambda: model)
 
     async def test_returns_the_verdict(self, monkeypatch):
-        self._judge_answers(monkeypatch, Verdict(passed=True, explanation="same defect"))
+        self._judge_answers(monkeypatch, return_value=Verdict(passed=True, explanation="same defect"))
 
         assert (await judge_planted_bug("unscoped", self.FINDING)).passed
 
     async def test_an_empty_answer_is_a_judge_fault_not_a_miss(self, monkeypatch):
-        self._judge_answers(monkeypatch, None)
+        self._judge_answers(monkeypatch, return_value=None)
 
         with pytest.raises(JudgeError, match="returned nothing"):
             await judge_planted_bug("unscoped", self.FINDING)
 
     async def test_a_provider_error_is_a_judge_fault_not_a_miss(self, monkeypatch):
-        self._judge_answers(monkeypatch, RuntimeError("502 Bad Gateway"))
+        self._judge_answers(monkeypatch, side_effect=RuntimeError("502 Bad Gateway"))
 
         with pytest.raises(JudgeError, match="502 Bad Gateway"):
             await judge_planted_bug("unscoped", self.FINDING)
