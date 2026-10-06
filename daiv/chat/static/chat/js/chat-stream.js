@@ -260,6 +260,8 @@
 
   const parseTodos = argsArray("todos");
 
+  const artifactPayload = memoizePayload("result", (result) => window.parseArtifactResult(result));
+
   const ASK_USER_QUESTION = "ask_user_question";
   // Mirrors automation.agent.questions.QUESTION_DELIVERED; a Python test pins the two together.
   const QUESTION_DELIVERED = "Question delivered to the user. This turn is over; their answer arrives as the next user message.";
@@ -303,7 +305,7 @@
       for (const seg of t.segments) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
-          const payload = window.artifactPayload(seg);
+          const payload = artifactPayload(seg);
           if (payload?.id) artifacts.set(payload.id, payload);
         } else if (PATH_TOOLS.has(seg.name)) {
           record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
@@ -407,7 +409,7 @@
     // leaves those bindings subscribed to nothing.
     latestTodos: [],
     filesTouched: [],
-    latestArtifacts: [],
+    latestArtifactsById: new Map(),
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -718,7 +720,7 @@
       this._freezeMcpOrder();
 
       // The one walk of the transcript. It subscribes to everything `latestTodos`, `filesTouched`
-      // and `latestArtifacts` read — every segment's type, name and payload — so a pushed turn, a
+      // and `latestArtifactsById` read — every segment's type, name and payload — so a pushed turn, a
       // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
@@ -728,7 +730,8 @@
         if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
         if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
         if (!sameList(artifacts, publishedArtifacts, ARTIFACT_FIELDS)) {
-          this.latestArtifacts = publishedArtifacts = artifacts;
+          publishedArtifacts = artifacts;
+          this.latestArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
         }
       });
 
@@ -1143,14 +1146,13 @@
     // Recomputed on every render (no memoization), so a publish streaming mid-group
     // joins the existing card as its args/result grow.
     visibleSegments(turn) {
-      const latest = new Map(this.latestArtifacts.map((a) => [a.id, a]));
       const out = [];
       for (const s of turn.segments) {
         if (s.type === "tool_call" && s.name === "write_todos") continue;
         if (s.type === "text" && !String(s.content ?? "").trim()) continue;
         if (s.type === "tool_call" && s.name === "publish_artifact") {
           const last = out[out.length - 1];
-          const item = window.artifactItem(s, latest);
+          const item = window.artifactItem(s, this.latestArtifactsById);
           if (last?.type !== "artifact_group") out.push({ type: "artifact_group", items: [item] });
           else if (!item.id || !last.items.some((it) => it.id === item.id)) last.items.push(item);
         } else {

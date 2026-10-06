@@ -36,7 +36,7 @@ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessD
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
-from sessions.artifacts import ArtifactKind, reload_artifact
+from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -53,7 +53,6 @@ logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
-    from django.db.models.fields.files import FieldFile
 
 
 POLL_INTERVAL = 2.0
@@ -458,40 +457,6 @@ ARTIFACT_RAW_HEADERS = {
 ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
 
 
-def _log_missing_artifact_file(artifact: RunArtifact) -> None:
-    logger.error(
-        "Artifact %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
-        artifact.pk,
-        artifact.file.name,
-    )
-
-
-def _open_stored_file(artifact: RunArtifact) -> FieldFile | None:
-    try:
-        return artifact.file.open("rb")
-    except FileNotFoundError:
-        return None
-
-
-def _artifact_viewer_context(artifact: RunArtifact) -> dict[str, Any]:
-    unavailable = not artifact.file.storage.exists(artifact.file.name)
-    inline_text = artifact.kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT)
-    too_large = inline_text and artifact.size > ARTIFACT_INLINE_TEXT_MAX_BYTES
-    text = None
-    if inline_text and not too_large and not unavailable:
-        if (fh := _open_stored_file(artifact)) is None:
-            unavailable = True
-        else:
-            with fh:
-                text = fh.read().decode("utf-8", errors="replace")
-    return {
-        "text": text,
-        "too_large": too_large,
-        "unavailable": unavailable,
-        "previewable": not (unavailable or too_large or artifact.kind == ArtifactKind.OTHER),
-    }
-
-
 class RunArtifactMixin(LoginRequiredMixin):
     """Scopes an artifact lookup to the URL's session and to the sessions the viewer may see."""
 
@@ -521,12 +486,22 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         artifact: RunArtifact = self.object
-        viewer = _artifact_viewer_context(artifact)
-        if viewer["unavailable"] and reload_artifact(artifact):
-            viewer = _artifact_viewer_context(artifact)
-        if viewer["unavailable"]:
-            _log_missing_artifact_file(artifact)
-        return {**super().get_context_data(**kwargs), **viewer, "sandbox": ARTIFACT_SANDBOX}
+        fh = open_artifact_file(artifact)
+        inline_text = artifact.kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT)
+        too_large = inline_text and artifact.size > ARTIFACT_INLINE_TEXT_MAX_BYTES
+        text = None
+        if fh is not None:
+            with fh:
+                if inline_text and not too_large:
+                    text = fh.read().decode("utf-8", errors="replace")
+        return {
+            **super().get_context_data(**kwargs),
+            "text": text,
+            "too_large": too_large,
+            "unavailable": fh is None,
+            "previewable": not (fh is None or too_large or artifact.kind == ArtifactKind.OTHER),
+            "sandbox": ARTIFACT_SANDBOX,
+        }
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
@@ -535,11 +510,7 @@ class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
 
     def get(self, request, *args, **kwargs):
         artifact: RunArtifact = self.get_object()
-        fh = _open_stored_file(artifact)
-        if fh is None and reload_artifact(artifact):
-            fh = _open_stored_file(artifact)
-        if fh is None:
-            _log_missing_artifact_file(artifact)
+        if (fh := open_artifact_file(artifact)) is None:
             raise Http404("Artifact file is missing.")
         content_type = artifact.content_type
         if content_type.startswith("text/"):

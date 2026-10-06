@@ -39,7 +39,7 @@ class ArtifactStore(Protocol):
         ...
 
     async def astore(
-        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str | None = None
+        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str = ""
     ) -> str:
         """Keep ``content`` and return the tool's success result; raise :class:`ArtifactError` to reject it.
 

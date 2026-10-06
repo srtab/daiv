@@ -207,7 +207,7 @@ class ArtifactsMiddleware(AgentMiddleware):
                 filename=PurePosixPath(path).name,
                 content=downloaded.content,
                 title=title,
-                artifact_id=artifact_id or None,
+                artifact_id=artifact_id,
             )
         except ArtifactError as exc:
             return f"Error publishing artifact '{path}': {exc}"

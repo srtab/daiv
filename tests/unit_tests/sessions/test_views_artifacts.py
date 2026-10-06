@@ -3,10 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
 from django.urls import reverse
 from django.utils import timezone
 
@@ -16,7 +13,7 @@ from sessions import views as views_module
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from codebase.models import RepositoryAccess
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
 
 pytestmark = pytest.mark.django_db
 
@@ -191,9 +188,7 @@ def _revise_after_lookup(monkeypatch, view_class, artifact: RunArtifact, content
 
     def load_then_revise(view, queryset=None):
         loaded = load(view, queryset)
-        revised = default_storage.save(f"artifacts/{artifact.run_id}/{artifact.pk}-rev.md", ContentFile(content))
-        RunArtifact.objects.filter(pk=artifact.pk).update(file=revised, size=len(content))
-        default_storage.delete(loaded.file.name)
+        commit_revision(loaded, content)
         return loaded
 
     monkeypatch.setattr(view_class, "get_object", load_then_revise)
@@ -216,16 +211,6 @@ def test_raw_streams_a_revision_that_commits_after_the_lookup(member_client, mem
 
     assert resp.status_code == 200
     assert b"".join(resp.streaming_content) == b"# v2"
-
-
-def test_detail_renders_unavailable_when_the_file_goes_after_the_exists_check(member_client, member_user):
-    artifact = _own_artifact(member_user, filename="audit.md")
-    artifact.file.storage.delete(artifact.file.name)
-
-    with patch.object(default_storage, "exists", return_value=True):
-        resp = member_client.get(artifact.get_absolute_url())
-
-    assert (resp.status_code, resp.context["unavailable"], resp.context["text"]) == (200, True, None)
 
 
 def test_raw_requires_login(client, member_user):

@@ -10,7 +10,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import run_finished
 
 from accounts.models import User
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -578,17 +578,12 @@ def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_ca
 
 @pytest.mark.django_db
 def test_deleting_an_artifact_loaded_before_a_revision_removes_the_revised_file(django_capture_on_commit_callbacks):
-    from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
-
-    from sessions.models import RunArtifact
 
     run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
     stale = make_artifact(run)
     neighbour = make_artifact(run, filename="other.md")
-    revised = default_storage.save(f"artifacts/{run.pk}/{stale.pk}-rev.md", ContentFile(b"# v2"))
-    RunArtifact.objects.filter(pk=stale.pk).update(file=revised)
-    default_storage.delete(stale.file.name)
+    revised = commit_revision(stale, b"# v2")
 
     with django_capture_on_commit_callbacks(execute=True):
         stale.delete()

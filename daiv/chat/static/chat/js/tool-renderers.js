@@ -7,9 +7,10 @@
 //     -> HTML string rendered inside <details> when the card is expanded.
 //
 //   artifactItem(seg, latestById)
-//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... }
+//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
+//        showing the newest result `latestById` holds for its artifact id
 //
-//   artifactPayload(seg)
+//   parseArtifactResult(result)
 //     -> the parsed publish_artifact success result, or null
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
@@ -466,11 +467,10 @@
 
   const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
 
-  window.artifactPayload = (seg) => parseArtifactResult(seg.result);
+  window.parseArtifactResult = parseArtifactResult;
 
   // A server-built segment reads `done` with a null result until its ToolMessage is
   // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
-  // `latestById` maps an artifact id to its latest result; after a revision, that is newer than `seg`'s own.
   window.artifactItem = (seg, latestById) => {
     const argsStr = seg.args;
     const args = parseArgs(argsStr);

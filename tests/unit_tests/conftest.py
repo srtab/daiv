@@ -297,7 +297,7 @@ class FakeArtifactStore:
         return self.accepts
 
     async def astore(
-        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str | None = None
+        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str = ""
     ) -> str:
         if self.error is not None:
             raise self.error

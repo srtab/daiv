@@ -6,7 +6,6 @@ from pathlib import PurePosixPath
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.contrib.sites.models import Site
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import DatabaseError
 from django.db.backends.base.base import BaseDatabaseWrapper
@@ -38,7 +37,7 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME, ArtifactError
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -533,9 +532,7 @@ async def test_aread_artifact_reads_a_revision_that_commits_after_the_lookup():
 
     def lookup_then_revise(thread_id: str, artifact_id: str) -> RunArtifact:
         loaded = lookup(thread_id, artifact_id)
-        revised = default_storage.save(f"artifacts/{run.pk}/{artifact.pk}-rev.md", ContentFile(b"# v2"))
-        RunArtifact.objects.filter(pk=artifact.pk).update(file=revised)
-        default_storage.delete(loaded.file.name)
+        commit_revision(loaded, b"# v2")
         return loaded
 
     with patch.object(artifacts_module, "_session_artifact", side_effect=lookup_then_revise):

@@ -151,7 +151,7 @@ async def test_publish_hands_the_file_to_the_store_and_returns_its_result():
             "filename": "audit.html",
             "content": b"<h1>Audit</h1>",
             "title": "Audit",
-            "artifact_id": None,
+            "artifact_id": "",
         }
     ]
     assert json.loads(result) == {"status": "published", "filename": "audit.html"}
