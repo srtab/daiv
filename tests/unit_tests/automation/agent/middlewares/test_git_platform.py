@@ -791,6 +791,10 @@ class TestPublishedTextIsRepoRelative:
             "/workspace/repo/e.md",
         ]
 
+    @pytest.mark.parametrize("flag", ["-n", "--note", "--message", "--content"])
+    def test_other_text_flags_are_rewritten(self, flag):
+        assert _repo_relative_flag_values(["x", flag, "See /workspace/repo/a.py"]) == ["x", flag, "See a.py"]
+
     async def test_a_gitlab_note_body_is_repo_relative(self):
         runtime = _make_gitlab_runtime()
         mock_settings = Mock()
