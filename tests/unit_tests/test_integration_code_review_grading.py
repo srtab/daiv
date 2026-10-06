@@ -1,6 +1,6 @@
-"""Coverage for the recall suite's deterministic grading: case validation, report parsing and the clean-twin rule.
+"""Coverage for the recall suite's grading: case validation, report parsing, the clean-twin rule and bug bookkeeping.
 
-The judge call is not covered here; the ``code_review`` integration suite exercises it.
+The judge call itself is stubbed here; the ``code_review`` integration suite exercises it.
 """
 
 import json
@@ -9,10 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration_tests import code_review_grading
 from tests.integration_tests.code_review_grading import (
     Finding,
     blocking,
     clean_case_violation,
+    grade_bug_case,
     is_degraded,
     is_review_report,
     located_in,
@@ -21,6 +23,7 @@ from tests.integration_tests.code_review_grading import (
     severity_counts,
     validate_cases,
 )
+from tests.integration_tests.evaluators import Verdict
 
 SHA = "f5580ea4d7011f7e005fa46bfc0f3ba935595f69"
 DATA_DIR = Path(__file__).parents[1] / "integration_tests" / "data" / "code_review"
@@ -293,6 +296,41 @@ class TestCleanCase:
 
     def test_a_complete_review_is_not_degraded(self):
         assert not is_degraded(REPORT)
+
+
+class TestGradeBugCase:
+    @pytest.fixture
+    def judged(self, monkeypatch) -> list[str]:
+        """The titles the judge saw; it matches only the finding titled "Unscoped lookup"."""
+        calls: list[str] = []
+
+        async def judge(defect: str, finding: Finding) -> Verdict:
+            calls.append(finding.title)
+            return Verdict(passed=finding.title == "Unscoped lookup", explanation=finding.title)
+
+        monkeypatch.setattr(code_review_grading, "judge_planted_bug", judge)
+        return calls
+
+    async def test_the_hit_is_the_only_blocking_finding_left_out_of_the_noise(self, judged):
+        findings = [
+            Finding(severity="Critical", title="Missing throttle", location="`daiv/app/views.py:3`", details=""),
+            Finding(severity="Important", title="Unscoped lookup", location="`daiv/app/views.py:1`", details=""),
+            Finding(severity="Important", title="Route not listed", location="`daiv/daiv/api.py:9`", details=""),
+            Finding(severity="Suggestion", title="Name the route", location="`daiv/app/views.py:2`", details=""),
+            Finding(severity="Question", title="Admins too?", location="`daiv/app/views.py:1`", details=""),
+        ]
+
+        grade = await grade_bug_case(findings, bug_case()["planted"])
+
+        assert judged == ["Missing throttle", "Unscoped lookup", "Name the route"]
+        assert (grade.hit, grade.hit_severity, grade.noise) == (True, "Important", 2)
+
+    async def test_a_miss_has_no_hit_severity(self, judged):
+        finding = Finding(severity="Critical", title="Missing throttle", location="`daiv/app/views.py:3`", details="")
+
+        grade = await grade_bug_case([finding], bug_case()["planted"])
+
+        assert (grade.hit, grade.hit_severity, grade.noise) == (False, None, 1)
 
 
 def test_severity_counts_and_blocking():

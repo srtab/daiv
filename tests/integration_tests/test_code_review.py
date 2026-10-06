@@ -27,6 +27,7 @@ from .code_review_grading import (
     blocking,
     clean_case_violation,
     grade_bug_case,
+    is_degraded,
     parse_report,
     severity_counts,
     validate_cases,
@@ -97,7 +98,7 @@ async def test_code_review_recall(model_name, case, eval_request):
     metrics.messages = result["messages"]
     report = final_text(result["messages"])
     findings = parse_report(report)
-    metrics.extra["findings"] = severity_counts(findings)
+    metrics.extra.update(findings=severity_counts(findings), degraded=is_degraded(report))
     t.log_outputs({"report": report})
 
     if case["kind"] == "clean":
@@ -107,7 +108,7 @@ async def test_code_review_recall(model_name, case, eval_request):
         return
 
     grade = await grade_bug_case(findings, case["planted"])
-    metrics.extra["noise"] = grade.noise
+    metrics.extra.update(noise=grade.noise, hit_severity=grade.hit_severity)
     assert grade.hit, (
         f"No finding matched the planted defect: {case['planted']['defect']}\n"
         f"Judge: {list(grade.explanations)}\nReport:\n{report}"

@@ -224,6 +224,7 @@ class BugGrade:
     hit: bool
     noise: int
     explanations: tuple[str, ...]
+    hit_severity: str | None
 
 
 @cache
@@ -252,8 +253,11 @@ async def judge_planted_bug(defect: str, finding: Finding) -> Verdict:
 
 
 async def grade_bug_case(findings: Sequence[Finding], planted: dict) -> BugGrade:
-    """A hit when the judge matches any finding in the planted file; noise is every other Critical/Important."""
-    matched: set[int] = set()
+    """A hit when the judge matches any finding in the planted file; noise is every other Critical/Important.
+
+    ``hit_severity`` is the severity of the first matched finding in report order.
+    """
+    matched: list[int] = []
     explanations = []
     for index, finding in enumerate(findings):
         if not located_in(finding, planted["file"]):
@@ -261,6 +265,11 @@ async def grade_bug_case(findings: Sequence[Finding], planted: dict) -> BugGrade
         verdict = await judge_planted_bug(planted["defect"], finding)
         explanations.append(f"{finding.title}: {verdict.explanation}")
         if verdict.passed:
-            matched.add(index)
+            matched.append(index)
     noise = sum(1 for index, finding in enumerate(findings) if finding.severity in BLOCKING and index not in matched)
-    return BugGrade(hit=bool(matched), noise=noise, explanations=tuple(explanations))
+    return BugGrade(
+        hit=bool(matched),
+        noise=noise,
+        explanations=tuple(explanations),
+        hit_severity=findings[matched[0]].severity if matched else None,
+    )
