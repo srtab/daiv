@@ -188,7 +188,7 @@ def _collected_integration_paths(config: pytest.Config) -> bool:
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Mark every integration test as needing DB access and the session event loop, and refuse to run this suite blind.
+    """Mark every integration test as needing DB access, async ones the session loop; refuse to run this suite blind.
 
     Required so pytest-django's ``django_db_setup`` actually creates the test
     schema: by default it skips DB creation when no test asks for DB access
@@ -205,8 +205,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     ours = [item for item in items if _HERE in item.path.parents]
     for item in ours:
         item.add_marker(pytest.mark.django_db)
-        # The OpenAI SDK's cached async HTTP client pools connections across tests; on a
-        # per-test loop the next test's request trips over the closed loop ("Event loop is closed").
+        # langchain-openai's cached async httpx client outlives a per-test loop ("Event loop is closed").
         if pytest_asyncio.is_async_test(item):
             item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 

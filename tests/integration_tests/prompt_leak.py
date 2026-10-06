@@ -1,7 +1,7 @@
 """Collection-time guard against eval vocabulary in the agent's prompts.
 
-A prompt change must not pass its eval by copying a case's wording, so every suite with eval cases runs
-``assert_no_prompt_leak`` over its case texts at collection, with two rules:
+A prompt change must not pass its eval by copying a case's wording, so the eval suites run ``assert_no_prompt_leak``
+over their case texts at collection, with two rules:
 
 - no case text may share an 8-word span (``memory_grading.shared_span``) with any prompt the agent can be sent;
 - a 3-7 word case text may not appear whole in any prompt outside ``skills/``, which quote trigger phrases by design.
@@ -81,11 +81,7 @@ def agent_prompt_texts() -> dict[str, str]:
 
 
 def assert_no_prompt_leak(case_texts: Iterable[str]) -> None:
-    """Raise ``ValueError`` on either leak rule.
-
-    - a case text shares an 8-word span with any prompt;
-    - a 3-7 word case text appears whole in a prompt outside ``skills/``.
-    """
+    """Raise ``ValueError`` when a case text breaks either rule in the module docstring."""
     prompts = agent_prompt_texts()
     for text in case_texts:
         words = len(text.split())
