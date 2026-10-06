@@ -5,7 +5,7 @@ can be answered without a model is answered here — the report's findings, whic
 file, the clean-twin rule and the noise count. The judge sees only findings located in the planted file, one at a time,
 and line numbers never decide anything because the model miscounts them.
 
-Nothing here may import a chat model at module import time: the Provider table is populated by a session fixture that
+Nothing here may build a chat model at module import time: the Provider table is populated by a session fixture that
 runs after collection.
 """
 
