@@ -41,12 +41,12 @@ assert_no_prompt_leak([param.values[0] for param in [*SKILL_REQUESTS, *NEAR_MISS
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 @pytest.mark.parametrize("model_name", SKILLS_MODELS)
 @pytest.mark.parametrize("user_message,skill", SKILL_REQUESTS)
-async def test_skill_activated(model_name, user_message, skill, request):
+async def test_skill_activated(model_name, user_message, skill, eval_request):
     require_provider_for_model(model_name)
 
     t.log_inputs({"model_name": model_name, "user_message": user_message, "skill": skill})
 
-    with measure(request) as metrics:
+    with measure(eval_request) as metrics:
         result = await run_agent_once(model_name, user_message, interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG)
     metrics.messages = result["messages"]
 
@@ -67,12 +67,12 @@ async def test_skill_activated(model_name, user_message, skill, request):
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 @pytest.mark.parametrize("model_name", SKILLS_MODELS)
 @pytest.mark.parametrize("user_message", NEAR_MISS_REQUESTS)
-async def test_skill_not_activated(model_name, user_message, request):
+async def test_skill_not_activated(model_name, user_message, eval_request):
     require_provider_for_model(model_name)
 
     t.log_inputs({"model_name": model_name, "user_message": user_message})
 
-    with measure(request) as metrics:
+    with measure(eval_request) as metrics:
         result = await run_agent_once(model_name, user_message, interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG)
     metrics.messages = result["messages"]
 

@@ -112,11 +112,11 @@ assert_no_prompt_leak([*(param.values[0] for param in [*AMBIGUOUS_REQUESTS, *CLE
 
 
 @pytest.mark.parametrize("prompt", AMBIGUOUS_REQUESTS)
-async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt, request):
+async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt, eval_request):
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
-        with measure(request) as metrics:
+        with measure(eval_request) as metrics:
             result = await run(prompt)
     metrics.messages = result["messages"]
 
@@ -126,11 +126,11 @@ async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt, reque
 
 
 @pytest.mark.parametrize("prompt", CLEAR_REQUESTS)
-async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt, request):
+async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt, eval_request):
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
-        with measure(request) as metrics:
+        with measure(eval_request) as metrics:
             result = await run(prompt)
     metrics.messages = result["messages"]
 
@@ -142,11 +142,11 @@ async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt, re
 @pytest.mark.parametrize(
     "answer", [pytest.param(MIGRATION_ANSWER, id="answered"), pytest.param(SKIP_ANSWER, id="skipped")]
 )
-async def test_a_reply_to_the_question_resumes_without_asking_again(model_name, answer, request):
+async def test_a_reply_to_the_question_resumes_without_asking_again(model_name, answer, eval_request):
     t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": answer})
 
     async with agent_runner(model_name) as run:
-        with measure(request) as metrics:
+        with measure(eval_request) as metrics:
             asked = await run(MIGRATION_PROMPT)
             assert_ended_on_one_clean_question(asked["messages"])
             replied = await run(answer)

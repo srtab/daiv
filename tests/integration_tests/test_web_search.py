@@ -29,11 +29,11 @@ assert_no_prompt_leak([QUESTION])
 WRITE_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
 
 
-async def test_a_search_answer_uses_the_current_year_and_ends_with_sources(model_name, request):
+async def test_a_search_answer_uses_the_current_year_and_ends_with_sources(model_name, eval_request):
     require_provider_for_model(model_name)
     t.log_inputs({"model_name": model_name, "prompt": QUESTION})
 
-    with measure(request) as metrics:
+    with measure(eval_request) as metrics:
         result = await run_agent_once(model_name, QUESTION, interrupt_on=WRITE_INTERRUPTS)
     messages = metrics.messages = result["messages"]
     t.log_outputs(result)

@@ -37,14 +37,14 @@ async def _run(model_name: str, prompt: str, request: pytest.FixtureRequest) -> 
     return extract_tool_calls(result["messages"])
 
 
-async def test_a_multi_step_request_is_planned_before_the_first_edit(model_name, request):
-    tool_calls = await _run(model_name, MULTI_STEP_REQUEST, request)
+async def test_a_multi_step_request_is_planned_before_the_first_edit(model_name, eval_request):
+    tool_calls = await _run(model_name, MULTI_STEP_REQUEST, eval_request)
 
     assert (violation := todo_planning_violation(tool_calls)) is None, violation
 
 
-async def test_a_one_step_edit_is_not_planned(model_name, request):
-    tool_calls = await _run(model_name, ONE_STEP_REQUEST, request)
+async def test_a_one_step_edit_is_not_planned(model_name, eval_request):
+    tool_calls = await _run(model_name, ONE_STEP_REQUEST, eval_request)
 
     todos = [call for call in tool_calls if call["name"] == "write_todos"]
     assert not todos, f"Expected no write_todos for a one-step edit, got {todos}"

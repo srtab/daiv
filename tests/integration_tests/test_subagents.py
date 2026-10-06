@@ -27,7 +27,7 @@ assert_no_prompt_leak([SEARCH_REQUEST])
 EXPLORE_TOOLS = frozenset({*READ_ONLY_FS_TOOLS, "write_todos"})
 
 
-async def test_explore_reports_absolute_paths_using_only_its_own_tools(model_name, request):
+async def test_explore_reports_absolute_paths_using_only_its_own_tools(model_name, eval_request):
     require_provider_for_model(model_name)
     t.log_inputs({"model_name": model_name, "prompt": SEARCH_REQUEST})
 
@@ -35,7 +35,7 @@ async def test_explore_reports_absolute_paths_using_only_its_own_tools(model_nam
         repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
     ) as ctx:
         explore = create_explore_subagent(DiskWorkspace(ctx), f"{REPO_PATH}/", models=ModelChain(names=(model_name,)))
-        with measure(request) as metrics:
+        with measure(eval_request) as metrics:
             result = await explore["runnable"].ainvoke(
                 {"messages": [{"role": "user", "content": SEARCH_REQUEST}]}, context=ctx
             )

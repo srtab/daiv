@@ -154,6 +154,12 @@ def _restore_providers(_provider_snapshot, django_db_blocker) -> None:
         Provider.invalidate_cache()
 
 
+@pytest.fixture
+def eval_request(request: pytest.FixtureRequest) -> pytest.FixtureRequest:
+    """The pytest request, for tests that cannot take ``request`` themselves: langsmith's test wrapper swallows it."""
+    return request
+
+
 _MISSING_KEY_REASON = (
     "OPENROUTER_API_KEY is not set. Export it, or add it to docker/local/app/config.secrets.env "
     "(loaded by the --envfile flag in `make integration-tests`)."
