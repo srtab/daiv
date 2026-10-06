@@ -177,7 +177,7 @@ class TestWriteEvalMetricsRow:
         monkeypatch.delenv("DAIV_EVAL_METRICS_OUT", raising=False)
         monkeypatch.chdir(tmp_path)
 
-        write_eval_metrics_row(_item(), SimpleNamespace(when="call", skipped=False, passed=True))
+        write_eval_metrics_row(_item(eval_metrics=RunMetrics(usage={"input_tokens": 5})), _call_report(passed=True))
 
         assert list(tmp_path.iterdir()) == []
 
@@ -199,7 +199,17 @@ class TestWriteEvalMetricsRow:
         out = tmp_path / "metrics.jsonl"
         monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
 
-        write_eval_metrics_row(_item(), SimpleNamespace(when="call", skipped=True, passed=False))
+        ran = _item(eval_metrics=RunMetrics(usage={"input_tokens": 5}))
+
+        write_eval_metrics_row(ran, SimpleNamespace(when="call", skipped=True, passed=False))
+
+        assert not out.exists()
+
+    def test_a_test_that_measured_no_agent_call_is_not_a_vote(self, monkeypatch, tmp_path):
+        out = tmp_path / "metrics.jsonl"
+        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+
+        write_eval_metrics_row(_item(), _call_report(passed=True))
 
         assert not out.exists()
 

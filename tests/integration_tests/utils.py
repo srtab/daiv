@@ -264,14 +264,16 @@ def eval_metrics_row(item: pytest.Item, *, passed: bool, run: int, git_sha: str)
 def write_eval_metrics_row(item: pytest.Item, report: pytest.TestReport) -> None:
     """Append ``item``'s row to ``$DAIV_EVAL_METRICS_OUT`` after its call phase; a no-op when the variable is unset.
 
-    A skipped item, or one that failed before the agent spent any tokens (a clone, GitLab or provider outage), writes
-    nothing: neither is a vote.
+    None of these is a vote, so none writes a row:
+    - a skipped item;
+    - an item that never entered ``measure``, so made no measured agent call;
+    - an item that failed before the agent spent any tokens (a clone, GitLab or provider outage).
     """
     out = os.environ.get("DAIV_EVAL_METRICS_OUT")
     if not out or report.when != "call" or report.skipped:
         return
     metrics: RunMetrics | None = getattr(item, "eval_metrics", None)
-    if report.failed and not (metrics and metrics.usage.get("input_tokens")):
+    if metrics is None or (report.failed and not metrics.usage.get("input_tokens")):
         return
     row = eval_metrics_row(
         item, passed=report.passed, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()
