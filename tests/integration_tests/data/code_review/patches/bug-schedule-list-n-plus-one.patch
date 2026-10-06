@@ -13,7 +13,7 @@ index 1fe5e10..2729aa7 100644
      <div class="mt-2 flex flex-wrap items-center gap-1.5">
          {% if schedule.is_fired_one_off %}
 diff --git a/daiv/schedules/views.py b/daiv/schedules/views.py
-index 501d72f..aee3362 100644
+index 501d72f..f796b64 100644
 --- a/daiv/schedules/views.py
 +++ b/daiv/schedules/views.py
 @@ -18,7 +18,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -53,3 +53,19 @@ index 501d72f..aee3362 100644
          return context
  
  
+@@ -187,6 +201,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+     def _render_error_response(self, request, schedule) -> HttpResponse:
+         """Render the current schedule row and signal HTMX to roll back the toggle attempt."""
+         schedule.refresh_from_db()
++        _attach_last_run_status([schedule])
+         html = render_to_string(
+             "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+         )
+@@ -219,6 +234,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+             else:
+                 schedule.next_run_at = None
+             schedule.save(update_fields=["is_enabled", "next_run_at", "modified"])
++        _attach_last_run_status([schedule])
+         html = render_to_string(
+             "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+         )
