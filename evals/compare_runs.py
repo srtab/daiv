@@ -5,7 +5,7 @@ counts as a gain only when both sides are unanimous over at least ``STABLE_VOTES
 flip is a regression. Only suites present in both files are compared, so a before run over every suite can serve a PR
 that re-ran a subset.
 
-Usage: uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl
+Usage: uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl (exits 1 when no case ran on both sides)
 """
 
 from __future__ import annotations
@@ -73,6 +73,8 @@ class Comparison:
     deltas: list[CaseDelta]
     missing: list[str]
     one_sided_suites: list[str]
+    before_run: str
+    after_run: str
     before_medians: dict[str, dict[str, float | None]]
     after_medians: dict[str, dict[str, float | None]]
     largest_case_increase: dict[str, tuple[str, float, float] | None]
@@ -190,6 +192,16 @@ def _warnings(label: str, rows: list[dict]) -> list[str]:
     return warnings
 
 
+def _commits(rows: list[dict]) -> set[str]:
+    return {row["git_sha"] for row in rows if row.get("git_sha")}
+
+
+def _run_description(rows: list[dict]) -> str:
+    commits = ", ".join(sorted({str(row.get("git_sha")) for row in rows})) or "–"
+    models = ", ".join(sorted({str(row.get("model")) for row in rows})) or "–"
+    return f"{commits} on {models}"
+
+
 def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     before_suites = {row["suite"] for row in before_rows}
     after_suites = {row["suite"] for row in after_rows}
@@ -213,6 +225,21 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     after_models = {row.get("model") for row in after_rows}
     if before_models != after_models:
         warnings.append(f"BEFORE ran {sorted(map(str, before_models))} but AFTER ran {sorted(map(str, after_models))}.")
+    if not deltas:
+        warnings.append("No case ran on both sides; this comparison measured nothing.")
+    if missing:
+        warnings.append(
+            f"{len(missing)} case(s) ran on one side only (see Not compared); "
+            "a change that breaks a case before its first model call shows up here."
+        )
+    warnings += [
+        f"BEFORE and AFTER share commit {sha}; was the AFTER run on the PR branch?"
+        for sha in sorted(_commits(before_rows) & _commits(after_rows))
+    ]
+    if zero_token_rows := sum(row.get("input_tokens") == 0 for row in [*before_rows, *after_rows]):
+        warnings.append(
+            f"{zero_token_rows} row(s) report 0 input tokens; usage may be unreported, which hides failing votes."
+        )
 
     before_medians, after_medians = suite_medians(before_rows_shared), suite_medians(after_rows_shared)
     if any(delta.regressed for delta in deltas):
@@ -226,6 +253,8 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         deltas=deltas,
         missing=missing,
         one_sided_suites=sorted(before_suites ^ after_suites),
+        before_run=_run_description(before_rows),
+        after_run=_run_description(after_rows),
         before_medians=before_medians,
         after_medians=after_medians,
         largest_case_increase=largest_case_increase(before_rows_shared, after_rows_shared, labels),
@@ -260,6 +289,8 @@ def render_markdown(comparison: Comparison) -> str:
     gains = sum(delta.stable_gain for delta in comparison.deltas)
     lines = [
         "## Eval comparison",
+        "",
+        f"BEFORE: {comparison.before_run} · AFTER: {comparison.after_run}",
         "",
         f"**Verdict: {comparison.verdict}** — {regressions} PASS→FAIL flip(s), {gains} stable FAIL→PASS flip(s).",
         "",
@@ -313,8 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)
     args = parser.parse_args(argv)
-    sys.stdout.write(render_markdown(compare(load_rows(args.before), load_rows(args.after))))
-    return 0
+    comparison = compare(load_rows(args.before), load_rows(args.after))
+    sys.stdout.write(render_markdown(comparison))
+    return 0 if comparison.deltas else 1
 
 
 if __name__ == "__main__":

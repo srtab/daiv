@@ -185,6 +185,57 @@ class TestOneSidedRows:
         assert any("repeated (case, run)" in warning for warning in compare(before, rows("t::a", [True] * 3)).warnings)
 
 
+class TestMeasuredNothingWarnings:
+    def test_two_files_with_no_case_in_common_say_nothing_was_measured(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::b", [True] * 3))
+
+        assert "No case ran on both sides; this comparison measured nothing." in comparison.warnings
+
+    def test_a_comparison_with_a_shared_case_does_not_say_nothing_was_measured(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True] * 3))
+
+        assert not any("measured nothing" in warning for warning in comparison.warnings)
+
+    def test_cases_on_one_side_only_are_counted_in_a_warning(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+
+        assert (
+            "1 case(s) ran on one side only (see Not compared); a change that breaks a case before its first "
+            "model call shows up here."
+        ) in compare(before, rows("t::a", [True] * 3)).warnings
+
+    def test_no_one_sided_warning_when_every_case_ran_on_both_sides(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True] * 3))
+
+        assert not any("one side only" in warning for warning in comparison.warnings)
+
+    def test_a_commit_present_on_both_sides_is_flagged(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True] * 3))
+
+        assert "BEFORE and AFTER share commit abc123; was the AFTER run on the PR branch?" in comparison.warnings
+
+    def test_different_commits_on_each_side_are_not_flagged(self):
+        after = rows("t::a", [True] * 3)
+        for row in after:
+            row["git_sha"] = "def456"
+
+        assert not any("share commit" in warning for warning in compare(rows("t::a", [True] * 3), after).warnings)
+
+    def test_rows_reporting_zero_input_tokens_are_counted_on_either_side(self):
+        before = rows("t::a", [True] * 3, input_tokens=0)
+        after = rows("t::a", [True] * 3)
+        after[0]["input_tokens"] = 0
+
+        warnings = compare(before, after).warnings
+
+        assert "4 row(s) report 0 input tokens; usage may be unreported, which hides failing votes." in warnings
+
+    def test_rows_without_a_token_count_are_not_flagged_as_zero(self):
+        comparison = compare(rows("t::a", [True] * 3, input_tokens=None), rows("t::a", [True] * 3))
+
+        assert not any("0 input tokens" in warning for warning in comparison.warnings)
+
+
 class TestRecallSummary:
     def test_counts_majority_hits_clean_passes_and_noise_per_run(self):
         data = (
@@ -214,9 +265,35 @@ def test_markdown_carries_the_verdict_the_flip_and_the_token_table():
     assert "1,000 → 900 (-10.0%)" in markdown
 
 
+def test_markdown_header_names_the_commits_and_models_of_both_runs():
+    before = rows("t::a", [True] * 3)
+    before[0]["git_sha"] = "bbb222"
+    after = rows("t::a", [True] * 3)
+    for row in after:
+        row["git_sha"] = "def456"
+        row["model"] = "openrouter:other/model"
+
+    lines = render_markdown(compare(before, after)).splitlines()
+
+    assert lines[:3] == [
+        "## Eval comparison",
+        "",
+        "BEFORE: abc123, bbb222 on openrouter:z-ai/glm-5.2 · AFTER: def456 on openrouter:other/model",
+    ]
+
+
 def test_main_prints_the_comparison(tmp_path, capsys):
     path = tmp_path / "run.jsonl"
     path.write_text("\n".join(json.dumps(row) for row in rows("t::a", [True] * 3)) + "\n")
 
     assert main([str(path), str(path)]) == 0
     assert "**Verdict: neutral**" in capsys.readouterr().out
+
+
+def test_main_exits_nonzero_but_still_prints_when_no_case_ran_on_both_sides(tmp_path, capsys):
+    before, after = tmp_path / "before.jsonl", tmp_path / "after.jsonl"
+    before.write_text(json.dumps(rows("t::a", [True])[0]) + "\n")
+    after.write_text(json.dumps(rows("t::b", [True])[0]) + "\n")
+
+    assert main([str(before), str(after)]) == 1
+    assert "this comparison measured nothing" in capsys.readouterr().out
