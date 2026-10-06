@@ -1,15 +1,24 @@
+import json
 import os
-from typing import TYPE_CHECKING
+import subprocess  # noqa: S404
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from functools import cache
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from langchain.messages import AIMessage
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.base import _BARE_NAME_HEURISTICS
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from core.constants import ModelName
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Generator, Sequence
+
     from langchain_core.messages import BaseMessage
     from langchain_core.tools import ToolCall
 
@@ -140,3 +149,86 @@ ASK_USER_MODELS = _models_from_env("DAIV_EVAL_ASK_USER_MODELS", CODING_MODEL_NAM
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
+
+
+@dataclass
+class RunMetrics:
+    """One measured agent call. ``measure`` fills ``usage``; the test sets ``messages`` and any suite ``extra``."""
+
+    messages: Sequence[BaseMessage] = ()
+    extra: dict[str, Any] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)
+
+    def as_row(self) -> dict[str, Any]:
+        return {**self.usage, "turns": sum(isinstance(message, AIMessage) for message in self.messages), **self.extra}
+
+
+@contextmanager
+def measure(request: pytest.FixtureRequest) -> Generator[RunMetrics]:
+    """Record the enclosed agent call's tokens and cost on ``request.node.eval_metrics``.
+
+    Usage is recorded even when the block raises, so a failing case still reports what it spent. Keep judge calls
+    outside the block: everything the block calls is counted.
+    """
+    metrics = RunMetrics()
+    request.node.eval_metrics = metrics
+    with track_usage_metadata() as handler:
+        try:
+            yield metrics
+        finally:
+            summary = build_usage_summary(handler)
+            metrics.usage = {
+                "input_tokens": summary.input_tokens,
+                "output_tokens": summary.output_tokens,
+                "cache_read_tokens": sum(
+                    (usage.get("input_token_details") or {}).get("cache_read", 0)
+                    for usage in handler.usage_metadata.values()
+                ),
+                "cost": float(summary.cost_usd) if summary.cost_usd is not None else None,
+            }
+
+
+@cache
+def _git_sha() -> str:
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+
+    sha = git("rev-parse", "HEAD").stdout.strip() or "unknown"
+    return sha if git("diff", "--quiet", "HEAD").returncode == 0 else f"{sha}+dirty"
+
+
+def eval_metrics_row(item: pytest.Item, *, passed: bool, run: int, git_sha: str) -> dict[str, Any]:
+    """One ``evals/compare_runs.py`` row: the test's identity and outcome plus what ``measure`` recorded."""
+    callspec = getattr(item, "callspec", None)
+    marker = item.get_closest_marker("langsmith")
+    metrics: RunMetrics | None = getattr(item, "eval_metrics", None)
+    return {
+        "nodeid": item.nodeid,
+        "suite": (marker.kwargs.get("test_suite_name") if marker else None) or item.module.__name__,
+        "case": item.name,
+        "model": callspec.params.get("model_name") if callspec else None,
+        "run": run,
+        "git_sha": git_sha,
+        "passed": passed,
+        "input_tokens": None,
+        "output_tokens": None,
+        "cache_read_tokens": None,
+        "turns": None,
+        "cost": None,
+        **(metrics.as_row() if metrics else {}),
+    }
+
+
+def write_eval_metrics_row(item: pytest.Item, report: pytest.TestReport) -> None:
+    """Append ``item``'s row to ``$DAIV_EVAL_METRICS_OUT`` after its call phase; a no-op when the variable is unset.
+
+    A skipped item writes nothing: a skip is a missing vote, not a failing one.
+    """
+    out = os.environ.get("DAIV_EVAL_METRICS_OUT")
+    if not out or report.when != "call" or report.skipped:
+        return
+    row = eval_metrics_row(
+        item, passed=report.passed, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()
+    )
+    with Path(out).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row) + "\n")

@@ -233,6 +233,15 @@ async def sandbox_session(runtime_ctx):
         await session.release(resumable=False)
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item):
+    from .utils import write_eval_metrics_row
+
+    report = yield
+    write_eval_metrics_row(item, report)
+    return report
+
+
 def pytest_terminal_summary(terminalreporter) -> None:
     """Print the per-case-per-model vote split the memory suites recorded.
 
