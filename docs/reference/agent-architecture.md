@@ -62,7 +62,7 @@ Both create a persistent conversation thread (stored in Redis with a 7-day TTL b
 The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
 
 !!! note "Tools are deferred by default"
-    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
+    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, `fetch_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -106,7 +106,8 @@ Commands are evaluated against a [command policy](../features/sandbox.md) before
 
 | Tool | Description |
 |------|-------------|
-| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](../features/sessions.md#artifacts) and return its viewer URL |
+| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](../features/sessions.md#artifacts) and return its viewer URL; with `artifact_id`, replace the file of an artifact the session already published, keeping its URL |
+| `fetch_artifact` | Copy an artifact the session already published back into `/workspace/tmp`, so it can be revised |
 
 ### MCP
 
@@ -132,7 +133,7 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 | `GitMiddleware` | Branch management, auto-commit, MR creation |
 | `GitPlatformMiddleware` | Git platform CLI tool (issues, MRs, pipelines) |
 | `SkillsMiddleware` | Skill loading and slash command execution |
-| `ArtifactsMiddleware` | The `publish_artifact` tool and its system-prompt section — stores a workspace file as a run artifact |
+| `ArtifactsMiddleware` | The `publish_artifact` and `fetch_artifact` tools and their system-prompt section — stores a workspace file as a run artifact, or revises one |
 | `SubAgentMiddleware` | Delegates tasks to subagents |
 | `MemoryMiddleware` | Loads `AGENTS.md` and repository context |
 | `TodoListMiddleware` | Task tracking within conversations |

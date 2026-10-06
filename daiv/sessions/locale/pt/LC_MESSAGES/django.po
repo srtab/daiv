@@ -403,6 +403,15 @@ msgstr "O agente está a trabalhar"
 msgid "This page refreshes automatically when the run finishes."
 msgstr "Esta página atualiza automaticamente quando a execução terminar."
 
+msgid "Publishing…"
+msgstr "A publicar…"
+
+msgid "Updating…"
+msgstr "A atualizar…"
+
+msgid "Updated"
+msgstr "Atualizado"
+
 msgid "Copy"
 msgstr "Copiar"
 
@@ -513,6 +522,10 @@ msgstr "Ver execução"
 #, python-format
 msgid "Published %(when)s"
 msgstr "Publicado %(when)s"
+
+#, python-format
+msgid "Updated %(when)s"
+msgstr "Atualizado %(when)s"
 
 msgid "Open raw"
 msgstr "Abrir original"
