@@ -130,15 +130,17 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     # still contribute a ``system_prompt_suffix`` we want to keep. Strip to drop
     # leading whitespace introduced by an empty base + suffix concat.
     inherited = (request.system_prompt or "").strip()
-    inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
-    return (
-        _output_invariants_system_prompt(working_directory)
-        + "\n\n"
-        + cast("str", daiv_system_prompt.content).strip()
-        + "\n\n"
-        + inherited_system_prompt
-    ).rstrip()
+    return "\n\n".join(
+        filter(
+            None,
+            (
+                _output_invariants_system_prompt(working_directory),
+                cast("str", daiv_system_prompt.content).strip(),
+                inherited,
+            ),
+        )
+    )
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:

@@ -35,3 +35,8 @@ def synthetic_kind(message: Any) -> str | None:
 def is_synthetic(message: Any) -> bool:
     """Whether ``message`` carries the synthetic mark. Dict-shaped checkpoint messages never do."""
     return synthetic_kind(message) is not None
+
+
+def is_person_message(message: Any) -> bool:
+    """Whether ``message`` is a human message a person wrote, rather than one DAIV added."""
+    return getattr(message, "type", None) == "human" and not is_synthetic(message)

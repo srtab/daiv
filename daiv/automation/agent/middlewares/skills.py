@@ -18,7 +18,7 @@ from skills.services import _record_invocation
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
-from automation.agent.synthetic import is_synthetic
+from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
 
@@ -57,7 +57,7 @@ Usage notes:
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
   - `skill: "code-review", skill_args: ["my-branch"]` - invoke with arguments
-"""  # noqa: E501
+"""
 
 SKILLS_SYSTEM_PROMPT = f"""\
 ## Skills
@@ -337,7 +337,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             msg = messages[i]
             if isinstance(msg, AIMessage):
                 return True
-            if isinstance(msg, HumanMessage) and not is_synthetic(msg):
+            if is_person_message(msg):
                 # Hit another human message before finding an AI message — no agent response yet
                 break
 
