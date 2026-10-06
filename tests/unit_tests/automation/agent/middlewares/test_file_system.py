@@ -10,7 +10,9 @@ from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFil
 from deepagents.middleware.filesystem import FilesystemPermission, _check_fs_permission
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
+from langgraph.types import Command
 
+from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.middlewares import file_system as fs_module
 from automation.agent.middlewares.file_system import (
     EDIT_SUCCESS_PREFIX,
@@ -623,6 +625,25 @@ async def test_grep_label_does_not_disable_large_tool_result_eviction(setup):
     result = await fs.awrap_tool_call(request, handler)
 
     assert oversized not in str(result.content), "oversized result was not evicted — super() was bypassed"
+
+
+async def test_skill_results_are_never_evicted(setup):
+    """A skill body is the instructions the model must follow, so it skips eviction however large it is."""
+    fs = DAIVFilesystemMiddleware(backend=setup.backend, tool_token_limit_before_evict=10)
+    body = "x" * 20_000
+    request = ToolCallRequest(
+        tool_call={"name": SKILLS_TOOL_NAME, "args": {"skill": "demo"}, "id": "call_skill"},
+        tool=None,
+        state={"messages": []},
+        runtime=_runtime(state={}, working_dir=setup.repo),
+    )
+
+    async def handler(req: ToolCallRequest):
+        return Command(update={"messages": [ToolMessage(content=body, tool_call_id="call_skill")]})
+
+    result = await fs.awrap_tool_call(request, handler)
+
+    assert result.update["messages"][0].content == body
 
 
 async def _grep_via_middleware(setup, **kwargs) -> str:

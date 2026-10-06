@@ -154,6 +154,19 @@ class TestReviewAfterRunMatrix:
         assert reply.args[2].startswith("done\n\n")
         assert "(!200)" in reply.args[2]
 
+    async def test_the_reply_is_posted_repo_relative(self, mention):
+        agent = addressor_agent(
+            return_value={"messages": [AIMessage(content="Updated /workspace/repo/daiv/x.py.")]},
+            state_values={"protected_branch_fallback_source": "feature", "merge_request": _merge_request(200)},
+        )
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address()
+
+        [reply] = mention.create_merge_request_comment.call_args_list
+        assert reply.args[2].startswith("Updated daiv/x.py.")
+        assert "/workspace/repo/" not in reply.args[2]
+
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, mention):
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})

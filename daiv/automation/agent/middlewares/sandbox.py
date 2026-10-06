@@ -98,13 +98,6 @@ Safety boundaries:
 - Do not access or print secrets/credentials (e.g., `.env`, tokens, SSH keys).
 - No DB schema changes/migrations/seeds.
 - No Docker image/container build/push/run actions.
-
-Git safety protocol:
-- NEVER update git config (no `git config --global/--local/--system` changes).
-- Git is for inspection only (e.g., status/diff/log/show) unless explicitly instructed otherwise.
-- VERY IMPORTANT: Never commit or push (or rewrite git history), even if the user asks.
-- NEVER run destructive git commands, even if the user asks:
-  - Examples: `git push --force/--force-with-lease`, `git reset --hard`, `git checkout .`, `git restore .`, `git clean -f/-fd/-fx`, `git branch -D`
 """  # noqa: E501
 
 SANDBOX_SYSTEM_PROMPT = f"""\
@@ -152,11 +145,7 @@ Safety / boundaries (never do these):
 - Do not run destructive or system-level commands.
 - Assume offline unless the user explicitly asks for network-dependent actions.
 
-Git safety (highest priority):
-- NEVER update git config.
-- NEVER commit or push, even if the user asks.
-- NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
-- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash.
+Git: commits, pushes, config changes and history rewrites are blocked by policy; use git only to inspect.
 
 ## Scratchpad (`/workspace/tmp`)
 `/workspace/tmp` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/workspace/tmp` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory (`/workspace/repo`) instead, never `/workspace/tmp`."""  # noqa: E501

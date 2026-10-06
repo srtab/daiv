@@ -28,6 +28,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
 from accounts.credentials import CredentialReason, ainvalidate_cached_token, aresolve_access_token, platform_host
+from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
@@ -290,7 +291,7 @@ Scope: By default every operation targets the CURRENT project, under DAIV's own 
 {{{{/cross_project}}}}
 
 **Core policy:**
-- If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code.
+- If the user references an issue, PR/MR, pipeline, workflow, job, check, CI failure, review comment, or platform artifact, inspect it before editing code. An issue already in the conversation's `<issue>` block counts as inspected; fetch it only for its comments or when its description was cut.
 - Prefer platform facts over assumptions.
 - Do not propose a fix for failing CI until you have inspected the most relevant failing logs/traces available.
 - Use the smallest query that identifies the exact resource, then inspect that resource in detail.
@@ -311,7 +312,7 @@ Scope: By default every operation targets the CURRENT project, under DAIV's own 
 Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 
 **GitLab-specific guidance:**
-- For issue work, fetch the issue first and use its title/description as the task definition.
+- For issue work, use the issue in the conversation's `<issue>` block as the task definition. Fetch it only when it is not there, for its comments, or when its description was cut.
 - For merge request work, fetch the MR first; if CI is relevant, inspect its latest pipeline before changing code.
 - For pipeline failures, do not edit code or CI config until you have read the failing job trace(s).
 
@@ -335,7 +336,7 @@ Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 <example>
 user: Fix issue #42.
 assistant:
-  [Call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
+  [If the conversation has no `<issue>` block for #42, call `{GITLAB_TOOL_NAME}("project-issue get --iid 42", output_mode="detailed")`]
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
@@ -383,7 +384,7 @@ assistant:
 Use this tool for GitHub issues, pull requests, checks, workflow runs, and logs.
 
 **GitHub-specific guidance:**
-- For issue work, fetch the issue first and use its title/body as the task definition.
+- For issue work, use the issue in the conversation's `<issue>` block as the task definition. Fetch it only when it is not there, for its comments, or when its description was cut.
 - For pull request work, fetch the PR first; if CI is relevant, inspect checks and the failing run/job before changing code.
 - For workflow failures, do not edit code or workflow config until you have read the most relevant failing logs.
 - Prefer direct log/detail subcommands over summaries when possible.
@@ -391,7 +392,7 @@ Use this tool for GitHub issues, pull requests, checks, workflow runs, and logs.
 <example>
 user: Fix issue #42.
 assistant:
-  [Call `{GITHUB_TOOL_NAME}("issue view 42")`]
+  [If the conversation has no `<issue>` block for #42, call `{GITHUB_TOOL_NAME}("issue view 42")`]
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
@@ -1498,6 +1499,31 @@ async def _cross_project_failure(
     )
 
 
+_PUBLISHED_TEXT_FLAGS = frozenset({"--body", "--title", "--description", "--notes", "-b", "-t"})
+
+
+def _repo_relative_flag_values(args: list[str]) -> list[str]:
+    """``args`` with the values of the flags that carry published text made repo-relative.
+
+    Handles ``--flag value`` and ``--flag=value``. Every other argument, file and position flags included,
+    is passed through unchanged.
+    """
+    rewritten: list[str] = []
+    value_follows = False
+    for arg in args:
+        if value_follows:
+            rewritten.append(repo_relative_text(arg))
+            value_follows = False
+            continue
+        flag, sep, value = arg.partition("=")
+        if sep and flag in _PUBLISHED_TEXT_FLAGS:
+            rewritten.append(f"{flag}={repo_relative_text(value)}")
+        else:
+            rewritten.append(arg)
+            value_follows = arg in _PUBLISHED_TEXT_FLAGS
+    return rewritten
+
+
 async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
     """
     Create an inline MR diff discussion via the python-gitlab Python API.
@@ -1576,7 +1602,7 @@ async def _run_gitlab_subcommand(
         return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
 
     try:
-        splitted_subcommand = shlex.split(subcommand.strip())
+        splitted_subcommand = _repo_relative_flag_values(shlex.split(subcommand.strip()))
     except ValueError as e:
         return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 
@@ -1808,7 +1834,7 @@ async def _run_github_subcommand(
         return "error: Subcommand cannot be empty. Format: '<object> <action> [arguments...]'"
 
     try:
-        splitted_subcommand = shlex.split(subcommand.strip())
+        splitted_subcommand = _repo_relative_flag_values(shlex.split(subcommand.strip()))
     except ValueError as e:
         return f"error: Failed to parse subcommand: {str(e)}. Check for unmatched quotes."
 

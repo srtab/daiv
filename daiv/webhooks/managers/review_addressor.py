@@ -12,6 +12,7 @@ from sessions.executor.spec import RunHooks, RunSpec
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
+from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import (
     GitPlatform,
@@ -394,5 +395,5 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.repo_id, self.merge_request.merge_request_id, body, reply_to_id=reply_to_id
+            self.repo_id, self.merge_request.merge_request_id, repo_relative_text(body), reply_to_id=reply_to_id
         )

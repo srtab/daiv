@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from automation.agent.synthetic import is_synthetic
 from automation.agent.utils import extract_text_content
 
 MAX_TOOL_OUTPUT_CHARS = 1_000
@@ -18,13 +19,15 @@ def _truncate(text: str, limit: int) -> str:
 def serialize_transcript(messages: list[Any], *, max_chars: int = MAX_TRANSCRIPT_CHARS) -> str:
     """Serialize a LangGraph message list into a compact plain-text transcript.
 
-    Keeps roles, text content, tool names and truncated args/outputs. When the
-    result exceeds ``max_chars``, the middle is elided: the head holds the task
-    definition and the tail holds outcomes/corrections — where extraction signal
-    lives.
+    Keeps roles, text content, tool names and truncated args/outputs; DAIV's own synthetic
+    messages are left out. When the result exceeds ``max_chars``, the middle is elided: the
+    head holds the task definition and the tail holds outcomes/corrections — where
+    extraction signal lives.
     """
     lines: list[str] = []
     for message in messages:
+        if is_synthetic(message):
+            continue
         msg_type = getattr(message, "type", "unknown")
         if msg_type == "tool":
             name = getattr(message, "name", None) or "tool"

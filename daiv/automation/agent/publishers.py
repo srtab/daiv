@@ -14,7 +14,7 @@ from django.urls import reverse
 from asgiref.sync import sync_to_async
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.utils import build_langsmith_config
+from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients import RepoClient
 from codebase.exceptions import MergeRequestBranchNotVisibleError
@@ -518,13 +518,13 @@ class GitChangePublisher(ChangePublisher):
             source_branch=branch_name,
             target_branch=target_branch,
             labels=[BOT_LABEL],
-            title=title,
+            title=repo_relative_text(title),
             assignee_id=assignee_id,
             as_draft=as_draft,
             description=render_to_string(
                 "automation/issue_merge_request.txt",
                 {
-                    "description": description,
+                    "description": repo_relative_text(description),
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),

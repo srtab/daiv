@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.config import get_config
 
-from automation.agent.middlewares.reminders import append_system_reminder
+from automation.agent.middlewares.reminders import call_with_reminder
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -40,6 +40,8 @@ BUDGET_FINALIZE = (
     "</system-reminder>"
 )
 
+type Band = Literal["warn", "finalize"]
+
 
 class StepBudgetMiddleware(AgentMiddleware):
     """
@@ -51,9 +53,10 @@ class StepBudgetMiddleware(AgentMiddleware):
 
     Implemented entirely inside ``wrap_model_call`` so it adds no graph node (a
     ``before_model`` hook — e.g. ``ModelCallLimitMiddleware`` — would itself inflate the
-    per-turn superstep cost it is trying to guard). The reminder is appended only to the
-    in-flight request and never persisted to the conversation state, so it repeats on
-    every call while the budget stays low.
+    per-turn superstep cost it is trying to guard). Each band (warning, then finalize) is
+    announced once, on the first call inside it, and the reminder is saved into the thread
+    ahead of the reply it produced (see ``reminders``), so the model keeps seeing it without
+    the request changing behind an answer it already gave.
 
     Budget is measured *per run*, not against the absolute ``langgraph_step``. LangGraph
     applies ``recursion_limit`` relative to the resume point (it sets
@@ -77,6 +80,7 @@ class StepBudgetMiddleware(AgentMiddleware):
         # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
         # call; consumption is then measured relative to it (see class docstring).
         self._baseline_step: int | None = None
+        self._sent_bands: set[Band] = set()
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -84,10 +88,13 @@ class StepBudgetMiddleware(AgentMiddleware):
         reminder = self._budget_reminder()
         if reminder is None:
             return await handler(request)
-        return await handler(append_system_reminder(request, reminder))
+        band, text = reminder
+        response = await call_with_reminder(request, handler, text, kind="step_budget")
+        self._sent_bands.add(band)
+        return response
 
-    def _budget_reminder(self) -> str | None:
-        """Build the budget reminder for the current superstep, or ``None`` when far from the limit."""
+    def _budget_reminder(self) -> tuple[Band, str] | None:
+        """The band this superstep is in and its reminder, or ``None`` when far from the limit or already sent."""
         config = get_config()
         limit = config.get("recursion_limit")
         step = config.get("metadata", {}).get("langgraph_step")
@@ -111,18 +118,22 @@ class StepBudgetMiddleware(AgentMiddleware):
             consumed = 0
 
         remaining = limit - consumed
+        band: Band
         if remaining <= self.finalize_remaining_steps:
-            template = BUDGET_FINALIZE
+            band, template = "finalize", BUDGET_FINALIZE
         elif remaining <= self.warn_remaining_steps:
-            template = BUDGET_WARNING
+            band, template = "warn", BUDGET_WARNING
         else:
+            return None
+        if band in self._sent_bands:
             return None
 
         turns = max(remaining // STEPS_PER_TURN, 1)
         logger.info(
-            "Run has consumed %d of %d supersteps (%d remaining); injecting budget reminder.",
+            "Run has consumed %d of %d supersteps (%d remaining); injecting %s budget reminder.",
             consumed,
             limit,
             remaining,
+            band,
         )
-        return template.format(turns=turns)
+        return band, template.format(turns=turns)

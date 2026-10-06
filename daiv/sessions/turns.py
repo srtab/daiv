@@ -11,7 +11,9 @@ import json
 import logging
 from typing import Any
 
+from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.questions import is_question_close
+from automation.agent.synthetic import is_synthetic
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -20,7 +22,7 @@ logger = logging.getLogger("daiv.sessions")
 # langchain-openai) ``function_call``.
 _TOOL_CALL_BLOCK_TYPES = frozenset({"tool_use", "tool_call", "function_call"})
 _THINKING_BLOCK_TYPES = frozenset({"thinking", "reasoning"})
-_SKILL_TOOL_NAME = "skill"
+_SKILL_PLACEHOLDER_PREFIX = "Launching skill '"
 _ASSISTANT_ROLES = ("ai", "assistant")
 
 
@@ -43,10 +45,15 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     entries are paired back onto their originating tool-call segment via the
     ``tool_call_id``.
 
-    The ``skill`` tool injects a synthetic ``HumanMessage`` carrying the
-    resolved SKILL.md body right after its ``ToolMessage``. On reload we fold
-    that body into the skill call's ``result`` instead of rendering it as a
-    user turn — it's agent scaffolding, not something the human typed.
+    The ``skill`` tool returns the resolved SKILL.md body as its tool result. Threads saved
+    before that carry the body in a synthetic ``HumanMessage`` right after a placeholder
+    ``ToolMessage``; on reload we fold that body into the skill call's ``result`` instead of
+    rendering it as a user turn — it's agent scaffolding, not something the human typed. The
+    fold applies only after that old placeholder, so a human message following a skill result
+    that already holds the body stays a user turn.
+
+    DAIV's own synthetic messages (saved reminders) are skipped: the model saw them, but
+    nobody typed them.
 
     The close message a question turn ends on is skipped: the chat renders the question from
     the ``ask_user_question`` call.
@@ -59,6 +66,8 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     for index, m in enumerate(messages):
         mtype = message_role(m)
         if mtype in ("human", "user"):
+            if is_synthetic(m):
+                continue
             if pending_skill_tc_id is not None:
                 _fold_skill_body(m, turns, tool_index, pending_skill_tc_id)
                 pending_skill_tc_id = None
@@ -72,13 +81,16 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
             for seg_idx, seg in enumerate(turn["segments"]):
                 if seg["type"] == "tool_call" and seg["id"]:
                     tool_index[seg["id"]] = (turn_idx, seg_idx)
-                    if seg["name"] == _SKILL_TOOL_NAME:
+                    if seg["name"] == SKILLS_TOOL_NAME:
                         skill_tool_ids.add(seg["id"])
             turns.append(turn)
             pending_skill_tc_id = None
         elif mtype in ("tool", "tool_result"):
             tc_id = _attach_tool_result(m, turns, tool_index)
-            pending_skill_tc_id = tc_id if tc_id in skill_tool_ids else None
+            is_skill_placeholder = tc_id in skill_tool_ids and _tool_message_text(m).startswith(
+                _SKILL_PLACEHOLDER_PREFIX
+            )
+            pending_skill_tc_id = tc_id if is_skill_placeholder else None
 
     return turns
 
@@ -90,11 +102,15 @@ def _attach_tool_result(m: Any, turns: list[dict[str, Any]], tool_index: dict[st
         return None
 
     t_idx, s_idx = tool_index[tc_id]
+    turns[t_idx]["segments"][s_idx]["result"] = _tool_message_text(m)
+    return tc_id
+
+
+def _tool_message_text(m: Any) -> str:
     content = getattr(m, "content", "")
     if isinstance(content, list):
         content = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-    turns[t_idx]["segments"][s_idx]["result"] = str(content or "")
-    return tc_id
+    return str(content or "")
 
 
 def _fold_skill_body(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], tc_id: str) -> None:
