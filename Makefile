@@ -93,9 +93,11 @@ eval-prompts:
 	@test -n "$(OUT)" || { echo 'OUT is required: the JSONL file every pass appends to'; exit 2; }
 	@mkdir -p "$(dir $(abspath $(OUT)))"
 	@GITLAB_URL="$${CODEBASE_GITLAB_URL:-$$(sed -n 's/^CODEBASE_GITLAB_URL=//p' docker/local/app/config.secrets.env 2>/dev/null | tail -1)}"; \
+	SANDBOX_URL="$${DAIV_SANDBOX_URL:-$$(sed -n 's/^DAIV_SANDBOX_URL=//p' docker/local/app/config.secrets.env 2>/dev/null | tail -1)}"; \
 	for run in $$(seq 1 $${DAIV_EVAL_REPEATS:-3}); do \
 		echo "eval-prompts: pass $$run of $${DAIV_EVAL_REPEATS:-3}"; \
 		CODEBASE_GITLAB_URL="$${GITLAB_URL:-http://127.0.0.1:8929}" \
+		DAIV_SANDBOX_URL="$${SANDBOX_URL:-http://127.0.0.1:8888}" \
 		LANGSMITH_TEST_TRACKING="$${LANGSMITH_TEST_TRACKING:-false}" \
 		DAIV_EVAL_METRICS_OUT="$(abspath $(OUT))" DAIV_EVAL_RUN=$$run \
 		$(foreach var,$(EVAL_SUITE_MODEL_VARS),DAIV_EVAL_$(var)_MODELS="$(EVAL_MODEL)") \
