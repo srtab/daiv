@@ -233,6 +233,12 @@ class TestCleanCase:
 
         assert "did not end on a code-review report" in clean_case_violation(report, parse_report(report))
 
+    def test_no_findings_mid_sentence_fails(self):
+        report = "I ran out of steps. No findings were confirmed yet."
+
+        assert not is_review_report(report)
+        assert "did not end on a code-review report" in clean_case_violation(report, parse_report(report))
+
     def test_no_findings_passes(self):
         report = "## Code Review\n\nNo findings — no reported issues met the review threshold."
 

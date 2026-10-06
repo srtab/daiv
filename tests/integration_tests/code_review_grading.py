@@ -180,7 +180,7 @@ def parse_report(report: str) -> list[Finding]:
 
 
 def is_review_report(report: str) -> bool:
-    return bool(_REVIEW_HEADING.search(report)) or "No findings" in report
+    return bool(_REVIEW_HEADING.search(report)) or bool(re.search(r"^\W*No findings\b", report, re.MULTILINE))
 
 
 def severity_counts(findings: Sequence[Finding]) -> dict[str, int]:
