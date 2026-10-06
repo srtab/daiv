@@ -206,6 +206,9 @@ ini_options.markers = [
   "own_replies: test registers its own webhook reply responses; skips the blanket sendMessage mock",
   "sandbox: integration test against a real sandbox executor",
   "skills: integration test of built-in agent skills",
+  "subagents: integration test of the explore subagent's tools and report (paid model calls)",
+  "todos: integration test that multi-step work is planned with write_todos (paid model calls)",
+  "web_search: integration test of web search queries and source citation (paid model calls)",
 ]
 ini_options.asyncio_default_fixture_loop_scope = "function"
 ini_options.asyncio_mode = "auto"

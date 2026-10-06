@@ -150,6 +150,9 @@ EVAL_MODEL = "openrouter:z-ai/glm-5.2"
 
 ASK_USER_MODELS = _models_from_env("DAIV_EVAL_ASK_USER_MODELS", CODING_MODEL_NAMES)
 SKILLS_MODELS = _models_from_env("DAIV_EVAL_SKILLS_MODELS", CODING_MODEL_NAMES)
+TODOS_MODELS = _models_from_env("DAIV_EVAL_TODOS_MODELS", [EVAL_MODEL])
+WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL])
+SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
