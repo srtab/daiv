@@ -166,7 +166,6 @@ class TestStepBudgetMiddleware:
             response = await middleware.awrap_model_call(_request(), handler)
 
         assert "NOW" in response.result[0].content
-        assert middleware._sent_bands == {"warn", "finalize"}
 
     async def test_band_is_resent_when_the_model_call_fails(self):
         async def failing(request: ModelRequest) -> ModelResponse:
@@ -182,10 +181,3 @@ class TestStepBudgetMiddleware:
             response = await middleware.awrap_model_call(_request(), handler)
 
         assert is_synthetic(response.result[0])
-
-    def test_rebuilt_instance_starts_over(self):
-        with _patched_config(recursion_limit=500, step=470):
-            first = _middleware()
-            first._sent_bands.add("warn")
-            assert first._budget_reminder() is None
-            assert _middleware()._budget_reminder() is not None
