@@ -1,8 +1,9 @@
 """Recall of the ``/code-review`` skill on hand-planted bugs, with clean twins to price the false positives.
 
-Each run clones srtab/daiv, checks out the case's ``base_sha`` (``set_runtime_ctx`` clones with ``git clone --branch``,
-which takes no commit sha), applies the case's patch to the working tree, and asks for an interactive working-tree
-review in a fresh sandbox seeded from that clone.
+Each run clones srtab/daiv, points the clone's ``main`` at the case's ``base_sha`` and drops its upstream
+(``set_runtime_ctx`` clones with ``git clone --branch``, which takes no commit sha, and the agent is told it is on
+``main``), applies the case's patch to the working tree, and asks for an interactive working-tree review in a fresh
+sandbox seeded from that clone. A case that cannot be set up stops the whole run: it is a broken case, not a vote.
 """
 
 import json
@@ -58,10 +59,19 @@ async def patched_checkout(case: dict):
         if ctx.sandbox_client is None:
             pytest.skip("The global default sandbox environment has no base image.")
         try:
-            ctx.gitrepo.git.checkout("--detach", case["base_sha"])
+            ctx.gitrepo.git.checkout("-B", "main", case["base_sha"])
+            ctx.gitrepo.git.branch("--unset-upstream", "main")
         except GitCommandError as err:
-            pytest.fail(f"base_sha {case['base_sha']} is not in the integration copy of srtab/daiv: {err}")
-        ctx.gitrepo.git.apply(str(DATA_DIR / case["patch_path"]))
+            pytest.exit(
+                f"{case['id']}: could not check out base_sha {case['base_sha']}: {err.stderr.strip()}", returncode=2
+            )
+        try:
+            ctx.gitrepo.git.apply(str(DATA_DIR / case["patch_path"]))
+        except GitCommandError as err:
+            pytest.exit(
+                f"{case['id']}: {case['patch_path']} does not apply on {case['base_sha']}: {err.stderr.strip()}",
+                returncode=2,
+            )
         session = SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
         try:
             yield ctx, session
