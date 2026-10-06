@@ -1,8 +1,10 @@
 """Collection-time guard against eval vocabulary in the agent's prompts.
 
 A prompt change must not pass its eval by copying a case's wording, so every suite with eval cases runs
-``assert_no_prompt_leak`` over its case texts at collection: no case text may share an 8-word span
-(``memory_grading.shared_span``) with any prompt the agent can be sent.
+``assert_no_prompt_leak`` over its case texts at collection, with two rules:
+
+- no case text may share an 8-word span (``memory_grading.shared_span``) with any prompt the agent can be sent;
+- a 3-7 word case text may not appear whole in any prompt outside ``skills/``, which quote trigger phrases by design.
 """
 
 from __future__ import annotations
@@ -12,10 +14,12 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .memory_grading import shared_span
+from .memory_grading import _LEAK_SPAN_WORDS, shared_span
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+_MIN_WHOLE_CASE_WORDS = 3
 
 _PROMPT_MODULES = (
     "automation.agent.prompts",
@@ -75,11 +79,19 @@ def agent_prompt_texts() -> dict[str, str]:
 
 
 def assert_no_prompt_leak(case_texts: Iterable[str]) -> None:
-    """Raise ``ValueError`` when a case text shares an 8-word span with any agent prompt."""
+    """Raise ``ValueError`` on either leak rule.
+
+    - a case text shares an 8-word span with any prompt;
+    - a 3-7 word case text appears whole in a prompt outside ``skills/``.
+    """
     prompts = agent_prompt_texts()
     for text in case_texts:
+        words = len(text.split())
         for name, prompt in prompts.items():
-            if span := shared_span(prompt, text):
+            span = shared_span(prompt, text)
+            if not span and _MIN_WHOLE_CASE_WORDS <= words < _LEAK_SPAN_WORDS and not name.startswith("skills/"):
+                span = shared_span(prompt, text, words=words)
+            if span:
                 raise ValueError(
                     f"An eval case shares the span {span!r} with {name}. A prompt must not copy eval case wording; "
                     "reword the prompt (or, in a case-fix PR, the case)."

@@ -25,6 +25,42 @@ def test_an_unrelated_case_passes():
     assert_no_prompt_leak(["What is the latest released version of Django?", "/code-review"])
 
 
+class TestShortCases:
+    @pytest.fixture(autouse=True)
+    def _prompts(self, monkeypatch):
+        monkeypatch.setattr(
+            "tests.integration_tests.prompt_leak.agent_prompt_texts",
+            lambda: {
+                "automation.agent.prompts.EXAMPLE_PROMPT": "Always rename the user model before you touch /init.",
+                "skills/example/SKILL.md": "Trigger on: rename the user model, or on /init.",
+            },
+        )
+
+    @pytest.mark.parametrize("case", ["Rename the user model", "rename the user model before you touch"])
+    def test_a_short_case_pasted_whole_into_a_non_skill_prompt_fails(self, case):
+        with pytest.raises(ValueError, match=r"EXAMPLE_PROMPT"):
+            assert_no_prompt_leak([case])
+
+    def test_the_error_names_the_shared_span(self):
+        with pytest.raises(ValueError, match="rename the user model"):
+            assert_no_prompt_leak(["Rename the user model"])
+
+    def test_a_short_case_that_only_a_skill_text_contains_passes(self, monkeypatch):
+        monkeypatch.setattr(
+            "tests.integration_tests.prompt_leak.agent_prompt_texts",
+            lambda: {"skills/example/SKILL.md": "Trigger on: rename the user model, or on /init."},
+        )
+
+        assert_no_prompt_leak(["Rename the user model"])
+
+    @pytest.mark.parametrize("case", ["/init", "touch /init"])
+    def test_a_one_or_two_word_case_never_trips_containment(self, case):
+        assert_no_prompt_leak([case])
+
+    def test_a_case_only_partly_in_the_prompt_passes(self):
+        assert_no_prompt_leak(["Rename the user model today"])
+
+
 def test_covers_the_prompts_the_changes_touch():
     names = agent_prompt_texts().keys()
 
