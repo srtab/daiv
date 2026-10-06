@@ -16,7 +16,7 @@ MULTI_STEP_REQUEST = (
     "skip the status update and the enqueue when it is set, count the runs it would release, include that count "
     "in the summary it prints, add tests for both modes, and mention the option in the command's help text."
 )
-ONE_STEP_REQUEST = "Add `*.log` to `.gitignore`."
+ONE_STEP_REQUEST = "Add `*.orig` to `.gitignore`."
 
 assert_no_prompt_leak([MULTI_STEP_REQUEST, ONE_STEP_REQUEST])
 
