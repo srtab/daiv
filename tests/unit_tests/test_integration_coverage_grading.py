@@ -85,3 +85,12 @@ def test_absolute_paths_finds_paths_under_the_root_only():
     assert absolute_paths(report, "/workspace/repo") == [
         "/workspace/repo/daiv/automation/agent/middlewares/step_budget.py"
     ]
+
+
+def test_absolute_paths_drops_a_sentence_final_period():
+    report = "See /workspace/repo/daiv/automation/agent/config.py. Then check /workspace/repo/daiv/core/redis.py."
+
+    assert absolute_paths(report, "/workspace/repo") == [
+        "/workspace/repo/daiv/automation/agent/config.py",
+        "/workspace/repo/daiv/core/redis.py",
+    ]

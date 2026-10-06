@@ -53,4 +53,4 @@ def calls_outside(tool_calls: Sequence[Mapping], allowed: Collection[str]) -> li
 
 
 def absolute_paths(text: str, root: str) -> list[str]:
-    return re.findall(rf"{re.escape(root.rstrip('/'))}/[\w.\-/]+", text)
+    return [match.rstrip(".") for match in re.findall(rf"{re.escape(root.rstrip('/'))}/[\w.\-/]+", text)]
