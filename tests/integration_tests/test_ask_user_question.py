@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
@@ -14,7 +14,15 @@ from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
 from .evaluators import judge_question_relevance
-from .utils import ASK_USER_MODELS, agent_settings_on, extract_tool_calls, require_provider_for_model
+from .prompt_leak import assert_no_prompt_leak
+from .utils import (
+    ASK_USER_MODELS,
+    agent_settings_on,
+    extract_tool_calls,
+    final_text,
+    measure,
+    require_provider_for_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +83,6 @@ def failed_asks(messages) -> list[str]:
     ]
 
 
-def final_text(messages) -> str:
-    return messages[-1].text if messages and isinstance(messages[-1], AIMessage) else ""
-
-
 def assert_ended_on_one_clean_question(messages) -> dict:
     payload = pending_question(messages)
     assert payload is not None, "Expected the run to end on a question"
@@ -95,36 +99,40 @@ async def log_question_relevance(prompt: str, payload: dict) -> None:
     t.log_feedback(key="question_relevance", score=int(verdict.passed), comment=verdict.explanation)
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        pytest.param(MIGRATION_PROMPT, id="readings-lead-to-different-work"),
-        pytest.param("Rename the product to its new name everywhere in the codebase.", id="blocked-on-missing-fact"),
-    ],
-)
-async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt):
+AMBIGUOUS_REQUESTS = [
+    pytest.param(MIGRATION_PROMPT, id="readings-lead-to-different-work"),
+    pytest.param("Rename the product to its new name everywhere in the codebase.", id="blocked-on-missing-fact"),
+]
+CLEAR_REQUESTS = [
+    pytest.param("Which test framework does this project use?", id="answerable-by-reading-the-code"),
+    pytest.param("Add `.DS_Store` to `.gitignore`.", id="clear-scoped-edit"),
+]
+
+assert_no_prompt_leak([*(param.values[0] for param in [*AMBIGUOUS_REQUESTS, *CLEAR_REQUESTS]), MIGRATION_ANSWER])
+
+
+@pytest.mark.parametrize("prompt", AMBIGUOUS_REQUESTS)
+async def test_an_ambiguous_request_ends_on_a_question(model_name, prompt, request):
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
-        result = await run(prompt)
+        with measure(request) as metrics:
+            result = await run(prompt)
+    metrics.messages = result["messages"]
 
     t.log_outputs(result)
     payload = assert_ended_on_one_clean_question(result["messages"])
     await log_question_relevance(prompt, payload)
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        pytest.param("Which test framework does this project use?", id="answerable-by-reading-the-code"),
-        pytest.param("Add `.DS_Store` to `.gitignore`.", id="clear-scoped-edit"),
-    ],
-)
-async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt):
+@pytest.mark.parametrize("prompt", CLEAR_REQUESTS)
+async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt, request):
     t.log_inputs({"model_name": model_name, "prompt": prompt})
 
     async with agent_runner(model_name) as run:
-        result = await run(prompt)
+        with measure(request) as metrics:
+            result = await run(prompt)
+    metrics.messages = result["messages"]
 
     t.log_outputs(result)
     assert not (asks := ask_calls(result["messages"])), f"Expected no question, got: {asks}"
@@ -134,13 +142,15 @@ async def test_a_clear_request_is_not_met_with_a_question(model_name, prompt):
 @pytest.mark.parametrize(
     "answer", [pytest.param(MIGRATION_ANSWER, id="answered"), pytest.param(SKIP_ANSWER, id="skipped")]
 )
-async def test_a_reply_to_the_question_resumes_without_asking_again(model_name, answer):
+async def test_a_reply_to_the_question_resumes_without_asking_again(model_name, answer, request):
     t.log_inputs({"model_name": model_name, "prompt": MIGRATION_PROMPT, "answer": answer})
 
     async with agent_runner(model_name) as run:
-        asked = await run(MIGRATION_PROMPT)
-        assert_ended_on_one_clean_question(asked["messages"])
-        replied = await run(answer)
+        with measure(request) as metrics:
+            asked = await run(MIGRATION_PROMPT)
+            assert_ended_on_one_clean_question(asked["messages"])
+            replied = await run(answer)
+    metrics.messages = replied["messages"]
 
     t.log_outputs(replied)
     reply_turn = replied["messages"][len(asked["messages"]) :]

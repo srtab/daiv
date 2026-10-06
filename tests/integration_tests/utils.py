@@ -123,7 +123,7 @@ def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
     return [tool_call for message in messages if isinstance(message, AIMessage) for tool_call in message.tool_calls]
 
 
-def _models_from_env(env_var: str, default: list[ModelName]) -> list[str]:
+def _models_from_env(env_var: str, default: Sequence[str]) -> list[str]:
     """``default``, or a comma-separated model-spec override from ``env_var``.
 
     Any spec ``parse_model_spec`` accepts, not only a ``ModelName``. DAIV_EVAL_ALL_MODELS
@@ -145,10 +145,49 @@ MEMORY_CONSOLIDATION_MODELS = _models_from_env(
 # the decision check — is deterministic and never calls the judge.
 MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_4_6
 
+# Keep in step with EVAL_MODEL in the Makefile.
+EVAL_MODEL = "openrouter:z-ai/glm-5.2"
+
 ASK_USER_MODELS = _models_from_env("DAIV_EVAL_ASK_USER_MODELS", CODING_MODEL_NAMES)
+SKILLS_MODELS = _models_from_env("DAIV_EVAL_SKILLS_MODELS", CODING_MODEL_NAMES)
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
+
+
+def final_text(messages: Sequence[BaseMessage]) -> str:
+    return messages[-1].text if messages and isinstance(messages[-1], AIMessage) else ""
+
+
+async def run_agent_once(
+    model_name: str, prompt: str, *, interrupt_on: dict[str, bool] | None = None, ask_user_enabled: bool = True
+) -> dict:
+    """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    from sandbox_envs.services import build_sandbox_spec
+
+    from automation.agent.graph import create_daiv_agent
+    from automation.agent.workspace.disk import DiskWorkspace
+    from codebase.base import Scope
+    from codebase.context import set_runtime_ctx
+
+    async with set_runtime_ctx(
+        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
+    ) as ctx:
+        agent = await create_daiv_agent(
+            settings=agent_settings_on(model_name, ctx),
+            ctx=ctx,
+            auto_commit_changes=False,
+            checkpointer=InMemorySaver(),
+            interrupt_on=interrupt_on,
+            workspace=DiskWorkspace(ctx),
+            ask_user_enabled=ask_user_enabled,
+        )
+        return await agent.ainvoke(
+            {"messages": [{"role": "user", "content": prompt}]},
+            context=ctx,
+            config={"configurable": {"thread_id": "1"}},
+        )
 
 
 @dataclass
