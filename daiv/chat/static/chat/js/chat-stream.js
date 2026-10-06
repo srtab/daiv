@@ -289,18 +289,23 @@
 
   const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
-  // Every file the agent has written, most-recent first: path -> { path, op, fromPath?, segmentId }.
-  const collectFilesTouched = (turns) => {
-    const map = new Map();
+  // One walk for two outputs. `files`: every file the agent has written, most-recent first, as
+  // { path, op, fromPath?, segmentId }. `artifacts`: the last publish result per artifact id, what its URL serves now.
+  const collectOutputs = (turns) => {
+    const files = new Map();
+    const artifacts = new Map();
     const record = (path, op, seg, extra = {}) => {
       if (!path) return;
-      map.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
+      files.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
     };
     for (const t of turns) {
       if (t.role === "run_status") continue;
       for (const seg of t.segments) {
         if (seg.type !== "tool_call") continue;
-        if (PATH_TOOLS.has(seg.name)) {
+        if (seg.name === "publish_artifact") {
+          const payload = window.artifactPayload(seg);
+          if (payload?.id) artifacts.set(payload.id, payload);
+        } else if (PATH_TOOLS.has(seg.name)) {
           record(pickPath(seg), seg.name === "write_file" ? "added" : "modified", seg);
         } else if (seg.name === "bash") {
           for (const entry of bashFilesChanged(seg)) {
@@ -310,7 +315,7 @@
         }
       }
     }
-    return [...map.values()].reverse();
+    return { files: [...files.values()].reverse(), artifacts: [...artifacts.values()] };
   };
 
   // Whether a freshly derived list still says what the published one does, by the fields a
@@ -320,6 +325,7 @@
 
   const TODO_FIELDS = ["content", "status"];
   const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
+  const ARTIFACT_FIELDS = ["id", "status", "title", "filename", "kind", "size", "url", "download_url"];
 
   const chat = (config) => {
   // What the transcript effect last published. Write-side only — never read by a binding —
@@ -327,6 +333,7 @@
   // its own output, which would subscribe it to what it writes.
   let publishedTodos = [];
   let publishedFiles = [];
+  let publishedArtifacts = [];
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -400,6 +407,7 @@
     // leaves those bindings subscribed to nothing.
     latestTodos: [],
     filesTouched: [],
+    latestArtifacts: [],
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
@@ -709,16 +717,19 @@
         : this._defaultMcpNames();
       this._freezeMcpOrder();
 
-      // The one walk of the transcript. It subscribes to everything `latestTodos` and
-      // `filesTouched` read — every segment's type, name and payload — so a pushed turn, a
+      // The one walk of the transcript. It subscribes to everything `latestTodos`, `filesTouched`
+      // and `latestArtifacts` read — every segment's type, name and payload — so a pushed turn, a
       // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
-        const files = collectFilesTouched(this.turns);
+        const { files, artifacts } = collectOutputs(this.turns);
         if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
         if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+        if (!sameList(artifacts, publishedArtifacts, ARTIFACT_FIELDS)) {
+          this.latestArtifacts = publishedArtifacts = artifacts;
+        }
       });
 
       // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
@@ -1132,15 +1143,16 @@
     // Recomputed on every render (no memoization), so a publish streaming mid-group
     // joins the existing card as its args/result grow.
     visibleSegments(turn) {
+      const latest = new Map(this.latestArtifacts.map((a) => [a.id, a]));
       const out = [];
       for (const s of turn.segments) {
         if (s.type === "tool_call" && s.name === "write_todos") continue;
         if (s.type === "text" && !String(s.content ?? "").trim()) continue;
         if (s.type === "tool_call" && s.name === "publish_artifact") {
           const last = out[out.length - 1];
-          const item = window.artifactItem(s);
-          if (last && last.type === "artifact_group") last.items.push(item);
-          else out.push({ type: "artifact_group", items: [item] });
+          const item = window.artifactItem(s, latest);
+          if (last?.type !== "artifact_group") out.push({ type: "artifact_group", items: [item] });
+          else if (!item.id || !last.items.some((it) => it.id === item.id)) last.items.push(item);
         } else {
           out.push(s);
         }

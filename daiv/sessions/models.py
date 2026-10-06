@@ -619,10 +619,12 @@ class RunEnvelope(models.Model):
         return self.offered_action != OfferedAction.NONE
 
 
-def artifact_upload_to(instance: RunArtifact, filename: str) -> str:
-    """Storage name ``artifacts/<run_id>/<artifact_id><ext>``: unique per row, so a re-published name never collides."""
+def artifact_upload_to(instance: RunArtifact, filename: str, *, revision: str = "") -> str:
+    """Storage name ``artifacts/<run_id>/<artifact_id>[-<revision>]<ext>``: unique per row and revision, so neither a
+    re-published name nor a revision lands on a stored file, even on a storage that overwrites."""
     ext = PurePosixPath(filename).suffix.lower()[:16]
-    return f"artifacts/{instance.run_id}/{instance.id}{ext}"
+    suffix = f"-{revision}" if revision else ""
+    return f"artifacts/{instance.run_id}/{instance.id}{suffix}{ext}"
 
 
 class RunArtifact(models.Model):
@@ -631,7 +633,7 @@ class RunArtifact(models.Model):
     The bytes live in the default file storage (``MEDIA_ROOT``); the row carries what the viewer,
     the Jobs API and MCP expose. Deleting the run cascades to the row, and
     ``sessions.signals.delete_artifact_file`` removes the stored bytes. A later run of the session
-    may revise the file in place (``updated_at``); ``run`` stays the run that first published it.
+    may revise the file in place (``updated_at``, ``revised_by``); ``run`` stays the run that first published it.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -643,6 +645,9 @@ class RunArtifact(models.Model):
     file = models.FileField(_("file"), upload_to=artifact_upload_to, max_length=500)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), null=True, blank=True, editable=False)
+    revised_by = models.ManyToManyField(
+        Run, blank=True, related_name="revised_artifacts", verbose_name=_("revised by"), editable=False
+    )
 
     objects = RunArtifactManager()
 

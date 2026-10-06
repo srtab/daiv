@@ -85,8 +85,9 @@ response. Do not commit generated reports to the repository unless the user aske
 default. Pick HTML when the report benefits from layout, styled tables or charts, and Markdown for prose findings.
 
 When the user asks to change an artifact this session already published, revise it instead of publishing a new \
-one: edit its file (copy it back with `{FETCH_ARTIFACT_TOOL_NAME}` if it is no longer in the workspace) and publish \
-it with `artifact_id` set to the artifact's `id`. Its URL stays the same."""
+one: edit its file (copy it back with `{FETCH_ARTIFACT_TOOL_NAME}` if it is no longer in the workspace; load that \
+tool via `tool_search` too if it is not loaded) and publish it with `artifact_id` set to the artifact's `id`. Its URL \
+stays the same."""
 
 _GIVE_UP_ADVICE = "Do not retry; put the key content in your final response instead."
 _INTERNAL_FAILURE = (
@@ -120,8 +121,7 @@ def _workspace_path_error(path: str) -> str | None:
 
 
 def _fetch_path_error(path: str) -> str | None:
-    pure = PurePosixPath(path)
-    if ".." not in pure.parts and PurePosixPath(TMP_PATH) in pure.parents:
+    if is_workspace_path(path, root=TMP_PATH):
         return None
     return f"'{path}' must be an absolute path under {TMP_PATH} (no '..' segments)."
 

@@ -1,4 +1,4 @@
-// Per-tool UI strategies. Three exports on window:
+// Per-tool UI strategies. Four exports on window:
 //
 //   toolSignature(name, argsStr, result, status)
 //     -> { label, path, badges: [{text, tone}] }
@@ -6,8 +6,11 @@
 //   toolBodyHTML(name, argsStr, result, status)
 //     -> HTML string rendered inside <details> when the card is expanded.
 //
-//   artifactItem(seg)
+//   artifactItem(seg, latestById)
 //     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... }
+//
+//   artifactPayload(seg)
+//     -> the parsed publish_artifact success result, or null
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral signature/body rather than throwing. Unknown tools fall
@@ -463,9 +466,12 @@
 
   const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
 
+  window.artifactPayload = (seg) => parseArtifactResult(seg.result);
+
   // A server-built segment reads `done` with a null result until its ToolMessage is
   // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
-  window.artifactItem = (seg) => {
+  // `latestById` maps an artifact id to its latest result; after a revision, that is newer than `seg`'s own.
+  window.artifactItem = (seg, latestById) => {
     const argsStr = seg.args;
     const args = parseArgs(argsStr);
     const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
@@ -480,15 +486,17 @@
 
     const parsed = parseArtifactResult(seg.result);
     if (parsed) {
+      const current = (parsed.id && latestById?.get(parsed.id)) || parsed;
       return {
         state: "published",
-        updated: parsed.status === "updated",
-        title: parsed.title || basename(pathArg),
-        filename: parsed.filename || "",
-        kindLabel: ARTIFACT_KIND_LABELS[parsed.kind] || "",
-        sizeLabel: parsed.size != null ? formatBytes(parsed.size) : "",
-        url: parsed.url,
-        download_url: parsed.download_url || "",
+        id: parsed.id || "",
+        updated: current.status === "updated",
+        title: current.title || basename(pathArg),
+        filename: current.filename || "",
+        kindLabel: ARTIFACT_KIND_LABELS[current.kind] || "",
+        sizeLabel: current.size != null ? formatBytes(current.size) : "",
+        url: current.url,
+        download_url: current.download_url || "",
       };
     }
 

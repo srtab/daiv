@@ -577,6 +577,27 @@ def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_ca
 
 
 @pytest.mark.django_db
+def test_deleting_an_artifact_loaded_before_a_revision_removes_the_revised_file(django_capture_on_commit_callbacks):
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from sessions.models import RunArtifact
+
+    run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
+    stale = make_artifact(run)
+    neighbour = make_artifact(run, filename="other.md")
+    revised = default_storage.save(f"artifacts/{run.pk}/{stale.pk}-rev.md", ContentFile(b"# v2"))
+    RunArtifact.objects.filter(pk=stale.pk).update(file=revised)
+    default_storage.delete(stale.file.name)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        stale.delete()
+
+    assert not default_storage.exists(revised)
+    assert default_storage.exists(neighbour.file.name)
+
+
+@pytest.mark.django_db
 def test_artifact_file_delete_failure_is_logged(django_capture_on_commit_callbacks, caplog):
     from sessions.models import RunArtifact
 

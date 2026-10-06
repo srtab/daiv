@@ -116,7 +116,7 @@ Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MC
 
 Ask the agent to change a report it already published — "add a section on licenses", "make the table sortable" — and it revises the artifact instead of publishing a new one: it edits the file and publishes it again with the artifact's id, so the file is replaced and **the URL stays the same**. If the file is no longer in its workspace (an earlier run published it), the agent first copies it back with `fetch_artifact`. This works across runs of the same session, but never across sessions: the agent can only read or revise artifacts of the session it runs in. You can paste an artifact's URL into the conversation to point the agent at it.
 
-A revised artifact stays on the run that first published it — in the transcript after it expires, on the dashboard, and in the Jobs API and MCP job-status responses. Its row in the transcript card of the revising turn is marked **Updated**, and the viewer's header shows when it was last updated. Only the latest version is kept; revisions do not count towards the per-run file limit.
+A revised artifact stays on the run that first published it — in the transcript after it expires and on the dashboard. The Jobs API and MCP job-status responses list it under that run and under every run that revised it. Every transcript row for it shows its current title, type and size, rows are marked **Updated** once it has been revised, and the viewer's header shows when it was last updated. Only the latest version is kept; revisions do not count towards the per-run file limit.
 
 ---
 

@@ -7,7 +7,8 @@ never runs in DAIV's origin.
 
 ``RunArtifactStore`` is the agent's ``automation.agent.artifacts.ArtifactStore`` for executor runs: a file goes to the
 ``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits. A revision replaces an artifact's file
-in place: the row, and so its URL, stays, and it stays on the run that first published it.
+in place: the row, and so its URL, stays, and it stays on the run that first published it; the revising run is added
+to its ``revised_by``, so that run's job status lists it too.
 """
 
 from __future__ import annotations
@@ -22,8 +23,10 @@ from functools import partial
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Literal
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.base import ContentFile
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -206,37 +209,41 @@ def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> Run
 
 
 async def areplace_artifact(
-    thread_id: str, artifact_id: str, *, filename: str, content: bytes, title: str = ""
+    run: Run, artifact_id: str, *, filename: str, content: bytes, title: str = ""
 ) -> RunArtifact:
-    """Replace the file of artifact ``artifact_id`` of the session ``thread_id``, keeping its id and URL.
+    """Replace the file of artifact ``artifact_id`` of ``run``'s session, keeping its id and URL, and add ``run`` to its
+    ``revised_by``.
 
     ``filename`` renames it and sets its content type; a blank ``title`` keeps the current one. Raises
     :class:`ArtifactError` on a rejected file or an artifact the session does not have.
     """
     safe_name = _checked_name(filename, content)
-    return await sync_to_async(_replace_artifact)(thread_id, artifact_id, safe_name, content, title)
+    return await sync_to_async(_replace_artifact)(run, artifact_id, safe_name, content, title)
 
 
-def _replace_artifact(thread_id: str, artifact_id: str, safe_name: str, content: bytes, title: str) -> RunArtifact:
-    from sessions.models import RunArtifact
+def _replace_artifact(run: Run, artifact_id: str, safe_name: str, content: bytes, title: str) -> RunArtifact:
+    from sessions.models import RunArtifact, artifact_upload_to
 
-    artifact = _session_artifact(thread_id, artifact_id)
+    artifact = _session_artifact(run.session_id, artifact_id)
     storage = artifact.file.storage
-    artifact.file.save(safe_name, ContentFile(content), save=False)
+    name = artifact_upload_to(artifact, safe_name, revision=uuid.uuid4().hex)
     try:
+        name = storage.save(name, ContentFile(content), max_length=artifact.file.field.max_length)
         with transaction.atomic():
             # Concurrent revisions serialise on the row, so each one deletes the file the one before it left.
             if (replaced := RunArtifact.objects.select_for_update().filter(pk=artifact.pk).first()) is None:
                 raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+            artifact.file = name
             artifact.title = (title.strip() or replaced.title)[:200]
             artifact.filename = safe_name[:255]
             artifact.content_type = guess_content_type(safe_name)
             artifact.size = len(content)
             artifact.updated_at = timezone.now()
             artifact.save(update_fields=["title", "filename", "content_type", "size", "file", "updated_at"])
+            artifact.revised_by.add(run)
             transaction.on_commit(partial(delete_stored_file, storage, replaced.file.name))
     except BaseException:
-        delete_stored_file(storage, artifact.file.name)
+        delete_stored_file(storage, name)
         raise
     return artifact
 
@@ -248,14 +255,37 @@ async def aread_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
 
 def _read_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
     artifact = _session_artifact(thread_id, artifact_id)
-    try:
-        with artifact.file.open("rb") as fh:
-            return ArtifactFile(filename=artifact.filename, content=fh.read())
-    except FileNotFoundError:
+    content = _read_stored_file(artifact)
+    if content is None and reload_artifact(artifact):
+        content = _read_stored_file(artifact)
+    if content is None:
         logger.error("Artifact %s: stored file %s is missing", artifact.pk, artifact.file.name)
         raise ArtifactError(
-            f"the stored file of artifact '{artifact_id}' is missing; publish the file again as a new artifact."
-        ) from None
+            f"the stored file of artifact '{artifact_id}' is missing. Write the file again and publish it with "
+            f'`artifact_id="{artifact_id}"` to restore the artifact at the same URL.'
+        )
+    return ArtifactFile(filename=artifact.filename, content=content)
+
+
+def _read_stored_file(artifact: RunArtifact) -> bytes | None:
+    try:
+        with artifact.file.open("rb") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return None
+
+
+def reload_artifact(artifact: RunArtifact) -> bool:
+    """SYNC ONLY: reload ``artifact`` in place; whether a revision replaced its file since it was loaded.
+
+    A revision deletes the file it replaces, so a reader that finds its file missing reloads and, on ``True``, retries.
+    """
+    loaded_name = artifact.file.name
+    try:
+        artifact.refresh_from_db()
+    except ObjectDoesNotExist:
+        return False
+    return artifact.file.name != loaded_name
 
 
 def _session_artifact(thread_id: str, artifact_id: str) -> RunArtifact:
@@ -278,6 +308,21 @@ def delete_stored_file(storage: Storage, name: str) -> None:
         storage.delete(name)
     except Exception:
         logger.exception("Failed to delete artifact file %s", name)
+
+
+def delete_artifact_files(storage: Storage, name: str, artifact_id: str) -> None:
+    """Delete ``name`` and every other stored file of artifact ``artifact_id``, by its storage-name prefix: a revision
+    that committed after a deletion loaded the row leaves the row's ``name`` stale."""
+    directory = PurePosixPath(name).parent
+    try:
+        _, files = storage.listdir(str(directory))
+    except FileNotFoundError:
+        files = []
+    except Exception:
+        logger.exception("Failed to list artifact files in %s", directory)
+        files = []
+    for stored in {name, *(str(directory / file) for file in files if file.startswith(artifact_id))}:
+        delete_stored_file(storage, stored)
 
 
 def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
@@ -325,7 +370,7 @@ class RunArtifactStore:
             raise ArtifactError("this run has no session to attach artifacts to.")
         status: PublishStatus
         if artifact_id:
-            artifact = await areplace_artifact(thread_id, artifact_id, filename=filename, content=content, title=title)
+            artifact = await areplace_artifact(run, artifact_id, filename=filename, content=content, title=title)
             status = "updated"
         else:
             artifact = await astore_artifact(run, filename=filename, content=content, title=title)
@@ -360,8 +405,11 @@ async def _apublished_result(artifact: RunArtifact, status: PublishStatus) -> st
 
 
 async def aserialize_run_artifacts(run: Run) -> list[ArtifactPayload]:
-    """``serialize_artifact`` for every artifact of ``run``, oldest first."""
-    return await sync_to_async(lambda: [serialize_artifact(artifact) for artifact in run.artifacts.all()])()
+    """``serialize_artifact`` for every artifact ``run`` published or revised, oldest first."""
+    from sessions.models import RunArtifact
+
+    artifacts = RunArtifact.objects.filter(Q(run=run) | Q(revised_by=run)).distinct().select_related("run")
+    return await sync_to_async(lambda: [serialize_artifact(artifact) for artifact in artifacts])()
 
 
 async def aserialize_run_artifacts_for_status(run: Run) -> tuple[list[ArtifactPayload], str | None]:
