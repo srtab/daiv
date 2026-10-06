@@ -88,6 +88,7 @@ def _item(**overrides) -> SimpleNamespace:
         "module": SimpleNamespace(__name__="tests.integration_tests.test_skills"),
         "callspec": SimpleNamespace(params={"model_name": "openrouter:z-ai/glm-5.2"}),
         "get_closest_marker": lambda name: marker if name == "langsmith" else None,
+        "fixturenames": ["model_name", "eval_request"],
     }
     return SimpleNamespace(**(fields | overrides))
 
@@ -195,23 +196,43 @@ class TestWriteEvalMetricsRow:
         [row] = [json.loads(line) for line in out.read_text().splitlines()]
         assert (row["run"], row["passed"]) == (3, False)
 
-    def test_a_skipped_test_is_a_missing_vote_not_a_failure(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize("when", ["setup", "call"])
+    def test_a_skipped_case_writes_a_row_without_a_vote(self, monkeypatch, tmp_path, when):
         out = tmp_path / "metrics.jsonl"
         monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
 
         ran = _item(eval_metrics=RunMetrics(usage={"input_tokens": 5}))
 
-        write_eval_metrics_row(ran, SimpleNamespace(when="call", skipped=True, passed=False))
+        write_eval_metrics_row(ran, SimpleNamespace(when=when, skipped=True, passed=False, failed=False))
+
+        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        assert row["passed"] is None
+
+    def test_a_case_whose_setup_failed_writes_a_row_without_a_vote(self, monkeypatch, tmp_path):
+        out = tmp_path / "metrics.jsonl"
+        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+
+        write_eval_metrics_row(_item(), SimpleNamespace(when="setup", skipped=False, passed=False, failed=True))
+
+        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        assert row["passed"] is None
+
+    def test_a_test_that_is_not_an_eval_case_writes_nothing(self, monkeypatch, tmp_path):
+        out = tmp_path / "metrics.jsonl"
+        monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
+
+        write_eval_metrics_row(_item(fixturenames=["model_name"]), _call_report(passed=False))
 
         assert not out.exists()
 
-    def test_a_test_that_measured_no_agent_call_is_not_a_vote(self, monkeypatch, tmp_path):
+    def test_a_case_that_measured_no_agent_call_casts_no_vote(self, monkeypatch, tmp_path):
         out = tmp_path / "metrics.jsonl"
         monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
 
         write_eval_metrics_row(_item(), _call_report(passed=True))
 
-        assert not out.exists()
+        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        assert row["passed"] is None
 
     @pytest.mark.parametrize(
         "item",
@@ -220,13 +241,14 @@ class TestWriteEvalMetricsRow:
             pytest.param(_item(eval_metrics=RunMetrics(usage={"input_tokens": 0})), id="zero-tokens"),
         ],
     )
-    def test_a_failure_before_any_model_call_is_a_missing_vote_not_a_failure(self, monkeypatch, tmp_path, item):
+    def test_a_failure_before_any_model_call_casts_no_vote(self, monkeypatch, tmp_path, item):
         out = tmp_path / "metrics.jsonl"
         monkeypatch.setenv("DAIV_EVAL_METRICS_OUT", str(out))
 
         write_eval_metrics_row(item, _call_report(passed=False))
 
-        assert not out.exists()
+        [row] = [json.loads(line) for line in out.read_text().splitlines()]
+        assert row["passed"] is None
 
     def test_a_failure_after_the_agent_ran_is_a_vote(self, monkeypatch, tmp_path):
         out = tmp_path / "metrics.jsonl"
