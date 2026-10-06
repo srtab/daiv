@@ -5,7 +5,9 @@ from evals.compare_runs import Votes, compare, main, recall_summary, render_mark
 SUITE = "DAIV: Skills"
 
 
-def rows(nodeid: str, outcomes: list[bool], *, suite: str = SUITE, input_tokens: int = 1000, **extra) -> list[dict]:
+def rows(
+    nodeid: str, outcomes: list[bool | None], *, suite: str = SUITE, input_tokens: int = 1000, **extra
+) -> list[dict]:
     return [
         {
             "nodeid": nodeid,
@@ -86,6 +88,12 @@ class TestTokenRule:
     def test_a_saving_in_one_suite_does_not_count_when_another_grows(self):
         before = rows("t::a", [True] * 3, input_tokens=1000) + rows("r::b", [True] * 3, suite="R", input_tokens=1000)
         after = rows("t::a", [True] * 3, input_tokens=900) + rows("r::b", [True] * 3, suite="R", input_tokens=1060)
+
+        assert compare(before, after).verdict == "neutral"
+
+    def test_an_after_side_reporting_no_tokens_is_not_a_gain(self):
+        before = rows("t::a", [True] * 3, input_tokens=1000)
+        after = rows("t::a", [True] * 3, input_tokens=0)
 
         assert compare(before, after).verdict == "neutral"
 
@@ -185,6 +193,59 @@ class TestOneSidedRows:
         assert any("repeated (case, run)" in warning for warning in compare(before, rows("t::a", [True] * 3)).warnings)
 
 
+class TestIncompleteCases:
+    def test_a_case_that_lost_a_vote_on_after_is_inconclusive(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True, None, None]))
+
+        assert list(comparison.incomplete) == ["t::a"]
+        assert comparison.verdict == "inconclusive"
+
+    def test_a_case_that_lost_a_vote_on_before_is_inconclusive(self):
+        assert compare(rows("t::a", [False, None, False]), rows("t::a", [True] * 3)).verdict == "inconclusive"
+
+    def test_a_case_with_no_vote_on_after_is_inconclusive_not_ignored(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+        after = rows("t::a", [True] * 3) + rows("t::b", [None] * 3)
+
+        comparison = compare(before, after)
+
+        assert list(comparison.incomplete) == ["t::b"]
+        assert comparison.missing == []
+        assert comparison.verdict == "inconclusive"
+
+    def test_a_suite_with_no_vote_on_after_is_compared_not_ignored(self):
+        before = rows("t::a", [True] * 3) + rows("r::b", [True] * 3, suite="R")
+        after = rows("t::a", [True] * 3) + rows("r::b", [None] * 3, suite="R")
+
+        comparison = compare(before, after)
+
+        assert comparison.one_sided_suites == []
+        assert comparison.verdict == "inconclusive"
+
+    def test_a_vote_lost_without_a_row_is_inconclusive(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+        after = rows("t::a", [True] * 3) + rows("t::b", [True])
+
+        assert compare(before, after).verdict == "inconclusive"
+
+    def test_a_regression_outweighs_an_incomplete_case(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+        after = rows("t::a", [False] * 3) + rows("t::b", [None] * 3)
+
+        assert compare(before, after).verdict == "regressed"
+
+    def test_rows_without_a_vote_stay_out_of_the_token_medians(self):
+        after = rows("t::a", [True, None])
+        after[1]["input_tokens"] = 90_000
+
+        assert compare(rows("t::a", [True] * 3), after).after_medians[SUITE]["input_tokens"] == 1000
+
+    def test_rows_without_a_vote_are_not_flagged_as_unreported_usage(self):
+        after = rows("t::a", [True] * 3) + rows("t::b", [None], input_tokens=0)
+
+        assert not any("0 input tokens" in warning for warning in compare(rows("t::a", [True] * 3), after).warnings)
+
+
 class TestMeasuredNothingWarnings:
     def test_two_files_with_no_case_in_common_say_nothing_was_measured(self):
         comparison = compare(rows("t::a", [True] * 3), rows("t::b", [True] * 3))
@@ -199,10 +260,9 @@ class TestMeasuredNothingWarnings:
     def test_cases_on_one_side_only_are_counted_in_a_warning(self):
         before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
 
-        assert (
-            "1 case(s) ran on one side only (see Not compared); a change that breaks a case before its first "
-            "model call shows up here."
-        ) in compare(before, rows("t::a", [True] * 3)).warnings
+        assert ("1 case(s) ran on one side only (see Not compared); was a case added, renamed or removed?") in compare(
+            before, rows("t::a", [True] * 3)
+        ).warnings
 
     def test_no_one_sided_warning_when_every_case_ran_on_both_sides(self):
         comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True] * 3))
@@ -297,6 +357,22 @@ def test_main_prints_the_comparison(tmp_path, capsys):
 
     assert main([str(path), str(path)]) == 0
     assert "**Verdict: neutral**" in capsys.readouterr().out
+
+
+def test_markdown_lists_the_incomplete_cases_with_their_votes():
+    markdown = render_markdown(compare(rows("t::a", [True] * 3), rows("t::a", [True, None, None])))
+
+    assert "**Verdict: inconclusive**" in markdown
+    assert "- `t::a`: BEFORE 3 of 3 votes, AFTER 1 of 3" in markdown
+
+
+def test_main_exits_nonzero_on_an_inconclusive_comparison(tmp_path, capsys):
+    before, after = tmp_path / "before.jsonl", tmp_path / "after.jsonl"
+    before.write_text("".join(json.dumps(row) + "\n" for row in rows("t::a", [True] * 3)))
+    after.write_text("".join(json.dumps(row) + "\n" for row in rows("t::a", [True, None, True])))
+
+    assert main([str(before), str(after)]) == 1
+    assert "**Verdict: inconclusive**" in capsys.readouterr().out
 
 
 def test_main_exits_nonzero_but_still_prints_when_no_case_ran_on_both_sides(tmp_path, capsys):

@@ -78,6 +78,5 @@ async def test_skill_not_activated(model_name, user_message, eval_request):
 
     t.log_outputs(result)
 
-    # tool_search and ask_user_question are not interrupted, so the run can outlast its first turn.
     skill_calls = [call for call in extract_tool_calls(result["messages"]) if call["name"] == SKILLS_TOOL_NAME]
     assert not skill_calls, f"Expected no skill call for a request no skill covers, got {skill_calls}"

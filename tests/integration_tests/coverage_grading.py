@@ -32,6 +32,16 @@ def todo_planning_violation(tool_calls: Sequence[Mapping]) -> str | None:
     return None
 
 
+def one_step_violation(tool_calls: Sequence[Mapping]) -> str | None:
+    """Why ``tool_calls`` fail "make a one-step edit without ``write_todos``", or ``None`` when they pass."""
+    names = [call["name"] for call in tool_calls]
+    if "write_todos" in names:
+        return f"write_todos was called for a one-step edit; tool calls: {names}"
+    if not EDIT_TOOLS & set(names) and "bash" not in names:
+        return f"the agent never tried the edit; tool calls: {names}"
+    return None
+
+
 def search_backend_failed(messages: Sequence[BaseMessage], tool_name: str) -> bool:
     """Whether ``tool_name`` ran and every result was a backend ``error:``, which is not a prompt outcome."""
     results = [message for message in messages if isinstance(message, ToolMessage) and message.name == tool_name]

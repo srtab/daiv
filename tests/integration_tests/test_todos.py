@@ -1,7 +1,7 @@
 import pytest
 from langsmith import testing as t
 
-from .coverage_grading import todo_planning_violation
+from .coverage_grading import one_step_violation, todo_planning_violation
 from .prompt_leak import assert_no_prompt_leak
 from .utils import TODOS_MODELS, extract_tool_calls, measure, require_provider_for_model, run_agent_once
 
@@ -46,5 +46,4 @@ async def test_a_multi_step_request_is_planned_before_the_first_edit(model_name,
 async def test_a_one_step_edit_is_not_planned(model_name, eval_request):
     tool_calls = await _run(model_name, ONE_STEP_REQUEST, eval_request)
 
-    todos = [call for call in tool_calls if call["name"] == "write_todos"]
-    assert not todos, f"Expected no write_todos for a one-step edit, got {todos}"
+    assert (violation := one_step_violation(tool_calls)) is None, violation

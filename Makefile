@@ -83,12 +83,11 @@ integration-tests:
 	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m "diff_to_metadata or memory"
 
 EVAL_MODEL ?= openrouter:z-ai/glm-5.2
-EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW MEMORY_EXTRACTION MEMORY_CONSOLIDATION
+EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW
 empty :=
 space := $(empty) $(empty)
 
-# One pytest pass per DAIV_EVAL_REPEATS (default 3), each appending one row per case to OUT; evals/compare_runs.py takes
-# the majority. Exit 1 (some tests failed) is a result, so the loop goes on; anything above 1 is a broken run.
+# pytest exit 1 (some tests failed) is a result, so the loop goes on; anything above 1 is a broken run.
 eval-prompts:
 	@test -n "$(SUITES)" || { echo 'SUITES is required, e.g. make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl'; exit 2; }
 	@test -n "$(OUT)" || { echo 'OUT is required: the JSONL file every pass appends to'; exit 2; }

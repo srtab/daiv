@@ -2,10 +2,12 @@
 
 Each JSONL row is one test item on one pass (``run``). A case's result is the majority of its rows; a FAIL→PASS flip
 counts as a gain only when both sides are unanimous over at least ``STABLE_VOTES`` votes, while any PASS→FAIL majority
-flip is a regression. Only suites present in both files are compared, so a before run over every suite can serve a PR
-that re-ran a subset.
+flip is a regression. A row with ``passed: null`` is a pass that cast no vote (a skip, or a failure before the first
+model call); a case with fewer votes than its file has passes makes the verdict inconclusive unless a case regressed.
+Only suites present in both files are compared, so a before run over every suite can serve a PR that re-ran a subset.
 
-Usage: uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl (exits 1 when no case ran on both sides)
+Usage: uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl (exits 1 when no case ran on both sides or the verdict is
+inconclusive)
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from typing import Literal
 STABLE_VOTES = 3
 TOKEN_GAIN = 0.05
 
-Verdict = Literal["regressed", "improved", "neutral"]
+Verdict = Literal["regressed", "inconclusive", "improved", "neutral"]
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,7 @@ class CaseDelta:
 @dataclass(frozen=True)
 class Comparison:
     deltas: list[CaseDelta]
+    incomplete: dict[str, str]
     missing: list[str]
     one_sided_suites: list[str]
     before_run: str
@@ -99,7 +102,8 @@ def load_rows(path: Path) -> list[dict]:
 def case_votes(rows: list[dict]) -> dict[str, Votes]:
     outcomes: dict[str, list[bool]] = {}
     for row in rows:
-        outcomes.setdefault(row["nodeid"], []).append(bool(row["passed"]))
+        if row["passed"] is not None:
+            outcomes.setdefault(row["nodeid"], []).append(bool(row["passed"]))
     return {nodeid: Votes(sum(results), len(results)) for nodeid, results in outcomes.items()}
 
 
@@ -134,7 +138,7 @@ def token_gain(before: dict[str, dict[str, float | None]], after: dict[str, dict
     changes = []
     for suite in before.keys() & after.keys():
         old, new = before[suite]["input_tokens"], after[suite]["input_tokens"]
-        if old and new is not None:
+        if old and new:
             changes.append((new - old) / old)
     return bool(changes) and min(changes) <= -TOKEN_GAIN and max(changes) < TOKEN_GAIN
 
@@ -179,6 +183,24 @@ def recall_summary(rows: list[dict]) -> dict[str, float] | None:
     }
 
 
+def _incomplete(
+    nodeids: set[str],
+    before_votes: dict[str, Votes],
+    after_votes: dict[str, Votes],
+    before_rows: list[dict],
+    after_rows: list[dict],
+) -> dict[str, str]:
+    """Cases on both sides with fewer votes than their file has passes, each with its vote counts."""
+    before_passes, after_passes = len({row["run"] for row in before_rows}), len({row["run"] for row in after_rows})
+    incomplete = {}
+    for nodeid in sorted(nodeids):
+        before = before_votes.get(nodeid, Votes(0, 0)).total
+        after = after_votes.get(nodeid, Votes(0, 0)).total
+        if before < before_passes or after < after_passes:
+            incomplete[nodeid] = f"BEFORE {before} of {before_passes} votes, AFTER {after} of {after_passes}"
+    return incomplete
+
+
 def _warnings(label: str, rows: list[dict]) -> list[str]:
     warnings = []
     if len(shas := sorted({str(row.get("git_sha")) for row in rows})) > 1:
@@ -211,14 +233,16 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
 
     before_votes, after_votes = case_votes(before_rows), case_votes(after_rows)
     labels = {row["nodeid"]: (row["case"], row["suite"]) for row in [*before_rows, *after_rows]}
+    voted_on_both = before_votes.keys() & after_votes.keys()
     deltas = [
         CaseDelta(nodeid, *labels[nodeid], before_votes[nodeid], after_votes[nodeid])
-        for nodeid in sorted(before_votes.keys() & after_votes.keys())
+        for nodeid in sorted(voted_on_both)
     ]
-    missing = sorted(before_votes.keys() ^ after_votes.keys())
-    shared_nodeids = before_votes.keys() & after_votes.keys()
-    before_rows_shared = [row for row in before_rows if row["nodeid"] in shared_nodeids]
-    after_rows_shared = [row for row in after_rows if row["nodeid"] in shared_nodeids]
+    before_cases, after_cases = {row["nodeid"] for row in before_rows}, {row["nodeid"] for row in after_rows}
+    missing = sorted(before_cases ^ after_cases)
+    incomplete = _incomplete(before_cases & after_cases, before_votes, after_votes, before_rows, after_rows)
+    before_rows_shared = [row for row in before_rows if row["nodeid"] in voted_on_both and row["passed"] is not None]
+    after_rows_shared = [row for row in after_rows if row["nodeid"] in voted_on_both and row["passed"] is not None]
 
     warnings = _warnings("BEFORE", before_rows) + _warnings("AFTER", after_rows)
     before_models = {row.get("model") for row in before_rows}
@@ -229,14 +253,14 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         warnings.append("No case ran on both sides; this comparison measured nothing.")
     if missing:
         warnings.append(
-            f"{len(missing)} case(s) ran on one side only (see Not compared); "
-            "a change that breaks a case before its first model call shows up here."
+            f"{len(missing)} case(s) ran on one side only (see Not compared); was a case added, renamed or removed?"
         )
     warnings += [
         f"BEFORE and AFTER share commit {sha}; was the AFTER run on the PR branch?"
         for sha in sorted(_commits(before_rows) & _commits(after_rows))
     ]
-    if zero_token_rows := sum(row.get("input_tokens") == 0 for row in [*before_rows, *after_rows]):
+    voting_rows = [row for row in [*before_rows, *after_rows] if row["passed"] is not None]
+    if zero_token_rows := sum(row.get("input_tokens") == 0 for row in voting_rows):
         warnings.append(
             f"{zero_token_rows} row(s) report 0 input tokens; usage may be unreported, which hides failing votes."
         )
@@ -244,6 +268,8 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     before_medians, after_medians = suite_medians(before_rows_shared), suite_medians(after_rows_shared)
     if any(delta.regressed for delta in deltas):
         verdict: Verdict = "regressed"
+    elif incomplete:
+        verdict = "inconclusive"
     elif any(delta.stable_gain for delta in deltas) or token_gain(before_medians, after_medians):
         verdict = "improved"
     else:
@@ -251,6 +277,7 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
 
     return Comparison(
         deltas=deltas,
+        incomplete=incomplete,
         missing=missing,
         one_sided_suites=sorted(before_suites ^ after_suites),
         before_run=_run_description(before_rows),
@@ -331,6 +358,12 @@ def render_markdown(comparison: Comparison) -> str:
             f"| Critical/Important per run on clean twins | {old['clean_findings_per_run']:.1f} "
             f"| {new['clean_findings_per_run']:.1f} |",
         ]
+    if comparison.incomplete:
+        lines += [
+            "",
+            "Incomplete (a pass cast no vote: a skip, or a failure before the first model call):",
+            *(f"- `{nodeid}`: {votes}" for nodeid, votes in comparison.incomplete.items()),
+        ]
     if comparison.missing:
         lines += ["", "Not compared (rows on one side only):", *(f"- `{nodeid}`" for nodeid in comparison.missing)]
     if comparison.one_sided_suites:
@@ -347,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     comparison = compare(load_rows(args.before), load_rows(args.after))
     sys.stdout.write(render_markdown(comparison))
-    return 0 if comparison.deltas else 1
+    return 0 if comparison.deltas and comparison.verdict != "inconclusive" else 1
 
 
 if __name__ == "__main__":

@@ -240,7 +240,7 @@ def _git_sha() -> str:
     return sha if git("diff", "--quiet", "HEAD").returncode == 0 else f"{sha}+dirty"
 
 
-def eval_metrics_row(item: pytest.Item, *, passed: bool, run: int, git_sha: str) -> dict[str, Any]:
+def eval_metrics_row(item: pytest.Item, *, passed: bool | None, run: int, git_sha: str) -> dict[str, Any]:
     """One ``evals/compare_runs.py`` row: the test's identity and outcome plus what ``measure`` recorded."""
     callspec = getattr(item, "callspec", None)
     marker = item.get_closest_marker("langsmith")
@@ -263,21 +263,28 @@ def eval_metrics_row(item: pytest.Item, *, passed: bool, run: int, git_sha: str)
 
 
 def write_eval_metrics_row(item: pytest.Item, report: pytest.TestReport) -> None:
-    """Append ``item``'s row to ``$DAIV_EVAL_METRICS_OUT`` after its call phase; a no-op when the variable is unset.
+    """Append an eval case's row for this pass to ``$DAIV_EVAL_METRICS_OUT``; a no-op when the variable is unset.
 
-    None of these is a vote, so none writes a row:
-    - a skipped item;
-    - an item that never entered ``measure``, so made no measured agent call;
-    - an item that failed before the agent spent any tokens (a clone, GitLab or provider outage).
+    An eval case is a test taking ``eval_request``; other tests write nothing. Every eval case writes one row per pass,
+    with ``passed: null`` when it cast no vote:
+    - it skipped, or its setup failed;
+    - it never entered ``measure``, so made no measured agent call;
+    - it failed before the agent spent any tokens (a clone, GitLab or provider outage).
     """
     out = os.environ.get("DAIV_EVAL_METRICS_OUT")
-    if not out or report.when != "call" or report.skipped:
+    if not out or "eval_request" not in item.fixturenames:
+        return
+    if report.when == "teardown" or (report.when == "setup" and report.passed):
         return
     metrics: RunMetrics | None = getattr(item, "eval_metrics", None)
-    if metrics is None or (report.failed and not metrics.usage.get("input_tokens")):
-        return
+    voted = (
+        report.when == "call"
+        and not report.skipped
+        and metrics is not None
+        and (report.passed or bool(metrics.usage.get("input_tokens")))
+    )
     row = eval_metrics_row(
-        item, passed=report.passed, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()
+        item, passed=report.passed if voted else None, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()
     )
     with Path(out).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row) + "\n")

@@ -29,7 +29,7 @@ uv run pytest tests/unit_tests/ -k "test_notes"
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
 make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl   # prompt evals on EVAL_MODEL (GLM-5.2): DAIV_EVAL_REPEATS passes (default 3), one JSONL row per case per pass; markers: ask_user skills todos web_search subagents code_review
-uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / improved / neutral
+uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / inconclusive / improved / neutral
 
 # Translations
 make makemessages && make compilemessages
