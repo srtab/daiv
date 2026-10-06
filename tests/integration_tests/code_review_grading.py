@@ -227,6 +227,10 @@ class BugGrade:
     hit_severity: str | None
 
 
+class JudgeError(Exception):
+    """The judge call failed or returned nothing: a harness fault, never a missed bug."""
+
+
 @cache
 def _judge():
     from automation.agent.base import BaseAgent, ThinkingLevel
@@ -248,8 +252,13 @@ async def judge_planted_bug(defect: str, finding: Finding) -> Verdict:
         "Pass only if the finding identifies the same defect: the same root cause in the same code, in any wording "
         "and with any proposed fix. A finding about a different problem in the same code does not pass."
     )
-    result = await _judge().with_structured_output(Verdict).ainvoke(prompt)
-    return result or Verdict(passed=False, explanation="the judge returned nothing")
+    try:
+        result = await _judge().with_structured_output(Verdict).ainvoke(prompt)
+    except Exception as err:
+        raise JudgeError(f"the judge call failed: {err!r}") from err
+    if result is None:
+        raise JudgeError("the judge returned nothing")
+    return result
 
 
 async def grade_bug_case(findings: Sequence[Finding], planted: dict) -> BugGrade:

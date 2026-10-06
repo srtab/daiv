@@ -6,17 +6,20 @@ The judge call itself is stubbed here; the ``code_review`` integration suite exe
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from tests.integration_tests import code_review_grading
 from tests.integration_tests.code_review_grading import (
     Finding,
+    JudgeError,
     blocking,
     clean_case_violation,
     grade_bug_case,
     is_degraded,
     is_review_report,
+    judge_planted_bug,
     located_in,
     location_paths,
     parse_report,
@@ -331,6 +334,38 @@ class TestGradeBugCase:
         grade = await grade_bug_case([finding], bug_case()["planted"])
 
         assert (grade.hit, grade.hit_severity, grade.noise) == (False, None, 1)
+
+
+class TestJudgePlantedBug:
+    FINDING = Finding(severity="Critical", title="Unscoped lookup", location="`daiv/app/views.py:1`", details="")
+
+    def _judge_answers(self, monkeypatch, answer) -> None:
+        async def ainvoke(prompt: str):
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        structured = SimpleNamespace(ainvoke=ainvoke)
+        monkeypatch.setattr(
+            code_review_grading, "_judge", lambda: SimpleNamespace(with_structured_output=lambda schema: structured)
+        )
+
+    async def test_returns_the_verdict(self, monkeypatch):
+        self._judge_answers(monkeypatch, Verdict(passed=True, explanation="same defect"))
+
+        assert (await judge_planted_bug("unscoped", self.FINDING)).passed
+
+    async def test_an_empty_answer_is_a_judge_fault_not_a_miss(self, monkeypatch):
+        self._judge_answers(monkeypatch, None)
+
+        with pytest.raises(JudgeError, match="returned nothing"):
+            await judge_planted_bug("unscoped", self.FINDING)
+
+    async def test_a_provider_error_is_a_judge_fault_not_a_miss(self, monkeypatch):
+        self._judge_answers(monkeypatch, RuntimeError("502 Bad Gateway"))
+
+        with pytest.raises(JudgeError, match="502 Bad Gateway"):
+            await judge_planted_bug("unscoped", self.FINDING)
 
 
 def test_severity_counts_and_blocking():

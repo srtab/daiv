@@ -25,6 +25,7 @@ from core.site_settings import site_settings
 
 from .code_review_grading import (
     Finding,
+    JudgeError,
     blocking,
     clean_case_violation,
     grade_bug_case,
@@ -79,6 +80,41 @@ async def patched_checkout(case: dict):
             await session.release(resumable=False)
 
 
+_SAME_FILE_OTHER_BUG = Finding(
+    severity="Important",
+    title="Exported `time` drops the timezone",
+    location="`daiv/schedules/api/views.py:26`",
+    details="`schedule.time.isoformat()` emits a naive time of day, so a client in another timezone reads the wrong "
+    "run time. Include the timezone the scheduler evaluates `time` in.",
+)
+_PLANTED_BUG = Finding(
+    severity="Critical",
+    title="Any API caller can export any schedule",
+    location="`daiv/schedules/api/views.py:14`",
+    details="The endpoint queries `ScheduledJob.objects` with no owner filter, so any API key reads other users' "
+    "schedules, prompts and subscriber emails. Scope it with `ScheduledJob.objects.by_owner(request.auth)`.",
+)
+
+
+@pytest.mark.code_review
+@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
+async def test_the_judge_tells_the_planted_bug_from_another_in_the_same_file():
+    """Runs before the cases: a judge that fails it would grade every recall row, so it stops the whole run."""
+    planted = next(param.values[0] for param in CASES if param.id == "bug-schedule-export-no-owner-check")["planted"]
+
+    try:
+        hit = (await grade_bug_case([_PLANTED_BUG], planted)).hit
+        other = (await grade_bug_case([_SAME_FILE_OTHER_BUG], planted)).hit
+    except JudgeError as err:
+        pytest.exit(f"The recall judge is unavailable: {err}", returncode=2)
+    if not hit or other:
+        pytest.exit(
+            f"The recall judge cannot tell the planted bug from another in the same file (planted: {hit}, other: "
+            f"{other}).",
+            returncode=2,
+        )
+
+
 @pytest.mark.code_review
 @pytest.mark.langsmith(test_suite_name=TEST_SUITE)
 @pytest.mark.parametrize("model_name", CODE_REVIEW_MODELS)
@@ -117,34 +153,12 @@ async def test_code_review_recall(model_name, case, eval_request):
         assert violation is None, violation
         return
 
-    grade = await grade_bug_case(findings, case["planted"])
+    try:
+        grade = await grade_bug_case(findings, case["planted"])
+    except JudgeError as err:
+        pytest.skip(f"The judge failed, which is not a review outcome: {err}")
     metrics.extra.update(noise=grade.noise, hit_severity=grade.hit_severity)
     assert grade.hit, (
         f"No finding matched the planted defect: {case['planted']['defect']}\n"
         f"Judge: {list(grade.explanations)}\nReport:\n{report}"
     )
-
-
-_SAME_FILE_OTHER_BUG = Finding(
-    severity="Important",
-    title="Exported `time` drops the timezone",
-    location="`daiv/schedules/api/views.py:26`",
-    details="`schedule.time.isoformat()` emits a naive time of day, so a client in another timezone reads the wrong "
-    "run time. Include the timezone the scheduler evaluates `time` in.",
-)
-_PLANTED_BUG = Finding(
-    severity="Critical",
-    title="Any API caller can export any schedule",
-    location="`daiv/schedules/api/views.py:14`",
-    details="The endpoint queries `ScheduledJob.objects` with no owner filter, so any API key reads other users' "
-    "schedules, prompts and subscriber emails. Scope it with `ScheduledJob.objects.by_owner(request.auth)`.",
-)
-
-
-@pytest.mark.code_review
-@pytest.mark.langsmith(test_suite_name=TEST_SUITE)
-async def test_the_judge_tells_the_planted_bug_from_another_in_the_same_file():
-    planted = next(param.values[0] for param in CASES if param.id == "bug-schedule-export-no-owner-check")["planted"]
-
-    assert (await grade_bug_case([_PLANTED_BUG], planted)).hit
-    assert not (await grade_bug_case([_SAME_FILE_OTHER_BUG], planted)).hit
