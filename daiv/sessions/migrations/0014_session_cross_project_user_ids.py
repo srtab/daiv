@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0012_run_clone_seconds_sandbox_acquisition")]
+    dependencies = [("agent_sessions", "0013_runartifact_revisions")]
 
     operations = [
         migrations.AddField(

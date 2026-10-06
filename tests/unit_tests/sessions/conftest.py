@@ -9,7 +9,7 @@ from django.utils import timezone
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.artifacts import guess_content_type
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, WatchState, artifact_upload_to
 
 from accounts.models import User
 from codebase.base import Job, Pipeline
@@ -40,6 +40,15 @@ def make_artifact(
         artifact.created_at = created_at
     artifact.file.save(filename, ContentFile(content), save=True)
     return artifact
+
+
+def commit_revision(loaded: RunArtifact, content: bytes) -> str:
+    """Revise ``loaded``'s row behind its reader, as a concurrent publish would; returns the new name. SYNC ONLY."""
+    storage = loaded.file.storage
+    revised = storage.save(artifact_upload_to(loaded, loaded.filename, revision="rev"), ContentFile(content))
+    RunArtifact.objects.filter(pk=loaded.pk).update(file=revised, size=len(content))
+    storage.delete(loaded.file.name)
+    return revised
 
 
 @pytest.fixture

@@ -180,10 +180,10 @@ def _download_response(path: str, result: RunCommandResult | None) -> FileDownlo
     return FileDownloadResponse(path=path, error=error)
 
 
-def is_workspace_path(path: str) -> bool:
-    """Whether ``path`` is absolute, free of ``..`` segments and strictly inside ``/workspace``."""
+def is_workspace_path(path: str, root: str = WORKSPACE_PATH) -> bool:
+    """Whether ``path`` is absolute, free of ``..`` segments and strictly inside ``root`` (``/workspace``)."""
     pure = PurePosixPath(path)
-    return ".." not in pure.parts and PurePosixPath(WORKSPACE_PATH) in pure.parents
+    return ".." not in pure.parts and PurePosixPath(root) in pure.parents
 
 
 class _ReadFault(NamedTuple):

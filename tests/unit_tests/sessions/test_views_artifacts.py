@@ -13,7 +13,7 @@ from sessions import views as views_module
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
 from codebase.models import RepositoryAccess
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
 
 pytestmark = pytest.mark.django_db
 
@@ -182,6 +182,37 @@ def test_missing_file_renders_unavailable_and_raw_404s(member_client, member_use
     assert "MEDIA_ROOT" in caplog.text
 
 
+def _revise_after_lookup(monkeypatch, view_class, artifact: RunArtifact, content: bytes) -> None:
+    """Commit a revision of ``artifact`` right after ``view_class`` loads it, as a concurrent publish would."""
+    load = view_class.get_object
+
+    def load_then_revise(view, queryset=None):
+        loaded = load(view, queryset)
+        commit_revision(loaded, content)
+        return loaded
+
+    monkeypatch.setattr(view_class, "get_object", load_then_revise)
+
+
+def test_detail_renders_a_revision_that_commits_after_the_lookup(member_client, member_user, monkeypatch):
+    artifact = _own_artifact(member_user, filename="audit.md", content=b"# v1")
+    _revise_after_lookup(monkeypatch, views_module.RunArtifactDetailView, artifact, b"# v2")
+
+    resp = member_client.get(artifact.get_absolute_url())
+
+    assert (resp.status_code, resp.context["unavailable"], resp.context["text"]) == (200, False, "# v2")
+
+
+def test_raw_streams_a_revision_that_commits_after_the_lookup(member_client, member_user, monkeypatch):
+    artifact = _own_artifact(member_user, filename="audit.md", content=b"# v1")
+    _revise_after_lookup(monkeypatch, views_module.RunArtifactRawView, artifact, b"# v2")
+
+    resp = member_client.get(artifact.get_raw_url())
+
+    assert resp.status_code == 200
+    assert b"".join(resp.streaming_content) == b"# v2"
+
+
 def test_raw_requires_login(client, member_user):
     artifact = _own_artifact(member_user)
     resp = client.get(artifact.get_raw_url())
@@ -256,6 +287,17 @@ def test_detail_breadcrumbs_link_to_artifact_list(member_client, member_user):
         {"label": "Artifacts", "url": reverse("artifact_list")},
         {"label": "Findings", "url": None},
     ]
+
+
+@pytest.mark.parametrize("updated", [False, True])
+def test_detail_says_when_a_revised_artifact_was_updated(member_client, member_user, updated):
+    artifact = _own_artifact(member_user)
+    RunArtifact.objects.filter(pk=artifact.pk).update(updated_at=timezone.now() if updated else None)
+
+    html = member_client.get(artifact.get_absolute_url()).content.decode()
+
+    assert "Published" in html
+    assert ("Updated" in html) is updated
 
 
 def test_detail_links_back_to_its_session_and_repo(member_client, member_user):

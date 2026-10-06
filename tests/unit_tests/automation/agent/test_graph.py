@@ -13,7 +13,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
 
 from automation.agent.agent_settings import RunOverrides
-from automation.agent.artifacts import PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -145,12 +145,13 @@ async def test_the_artifact_store_reaches_the_publish_tool():
     assert artifacts._store is store
 
 
-async def test_without_an_artifact_store_the_agent_has_no_publish_tool():
+async def test_without_an_artifact_store_the_agent_has_no_artifact_tools():
     built = await _build(_disk_workspace())
 
     tools = [t.name for m in _middleware(built) for t in getattr(m, "tools", None) or []]
     assert not any(isinstance(m, ArtifactsMiddleware) for m in _middleware(built))
     assert PUBLISH_ARTIFACT_TOOL_NAME not in tools
+    assert FETCH_ARTIFACT_TOOL_NAME not in tools
 
 
 @pytest.mark.parametrize("allowed", [True, False])

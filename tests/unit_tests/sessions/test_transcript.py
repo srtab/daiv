@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from django.contrib.sites.models import Site
+from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
 from sessions.turns import build_turns
 
@@ -399,6 +400,17 @@ def test_artifact_turn_segments_carry_the_build_turns_tool_call_keys():
 
     assert turn.keys() == built[0].keys()
     assert turn["segments"][0].keys() == built[0]["segments"][0].keys()
+
+
+@pytest.mark.django_db
+def test_artifact_turns_mark_a_revised_artifact_updated():
+    run = _db_run(_db_session())
+    artifact = make_artifact(run)
+    RunArtifact.objects.filter(pk=artifact.pk).update(updated_at=timezone.now())
+
+    (turn,) = artifact_turns([run])
+
+    assert json.loads(turn["segments"][0]["result"])["status"] == "updated"
 
 
 @pytest.mark.django_db

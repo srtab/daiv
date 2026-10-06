@@ -367,6 +367,7 @@ def test_artifact_upload_to_is_unique_per_row_and_keeps_extension():
     artifact = _mk_artifact(run)
     assert artifact_upload_to(artifact, "/workspace/tmp/Report.MD") == f"artifacts/{run.pk}/{artifact.pk}.md"
     assert artifact_upload_to(artifact, "noext") == f"artifacts/{run.pk}/{artifact.pk}"
+    assert artifact_upload_to(artifact, "report.md", revision="r1") == f"artifacts/{run.pk}/{artifact.pk}-r1.md"
 
 
 def test_artifact_kind_follows_content_type():

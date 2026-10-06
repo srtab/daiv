@@ -36,7 +36,7 @@ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessD
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
-from sessions.artifacts import ArtifactKind
+from sessions.artifacts import ArtifactKind, open_artifact_file
 from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
@@ -460,14 +460,6 @@ ARTIFACT_RAW_HEADERS = {
 ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
 
 
-def _log_missing_artifact_file(artifact: RunArtifact) -> None:
-    logger.error(
-        "Artifact %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
-        artifact.pk,
-        artifact.file.name,
-    )
-
-
 class RunArtifactMixin(LoginRequiredMixin):
     """Scopes an artifact lookup to the URL's session and to the sessions the viewer may see."""
 
@@ -496,25 +488,23 @@ class RunArtifactDetailView(RunArtifactMixin, BreadcrumbMixin, DetailView):
         ]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        ctx = super().get_context_data(**kwargs)
         artifact: RunArtifact = self.object
-        unavailable = not artifact.file.storage.exists(artifact.file.name)
-        if unavailable:
-            _log_missing_artifact_file(artifact)
+        fh = open_artifact_file(artifact)
         inline_text = artifact.kind in (ArtifactKind.MARKDOWN, ArtifactKind.TEXT)
         too_large = inline_text and artifact.size > ARTIFACT_INLINE_TEXT_MAX_BYTES
         text = None
-        if inline_text and not too_large and not unavailable:
-            with artifact.file.open("rb") as fh:
-                text = fh.read().decode("utf-8", errors="replace")
-        ctx.update({
+        if fh is not None:
+            with fh:
+                if inline_text and not too_large:
+                    text = fh.read().decode("utf-8", errors="replace")
+        return {
+            **super().get_context_data(**kwargs),
             "text": text,
             "too_large": too_large,
-            "unavailable": unavailable,
-            "previewable": not (unavailable or too_large or artifact.kind == ArtifactKind.OTHER),
+            "unavailable": fh is None,
+            "previewable": not (fh is None or too_large or artifact.kind == ArtifactKind.OTHER),
             "sandbox": ARTIFACT_SANDBOX,
-        })
-        return ctx
+        }
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
@@ -523,11 +513,8 @@ class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
 
     def get(self, request, *args, **kwargs):
         artifact: RunArtifact = self.get_object()
-        try:
-            fh = artifact.file.open("rb")
-        except FileNotFoundError:
-            _log_missing_artifact_file(artifact)
-            raise Http404("Artifact file is missing.") from None
+        if (fh := open_artifact_file(artifact)) is None:
+            raise Http404("Artifact file is missing.")
         content_type = artifact.content_type
         if content_type.startswith("text/"):
             content_type = f"{content_type}; charset=utf-8"

@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-typing evals tailwind-build tailwind-watch
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-typing evals eval-prompts tailwind-build tailwind-watch
 
 help:
 	@echo "Available commands:"
@@ -14,6 +14,7 @@ help:
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
 	@echo "  make integration-tests          - Run integration tests"
+	@echo "  make eval-prompts SUITES=... OUT=...  - Run eval suites DAIV_EVAL_REPEATS times, appending metrics to OUT"
 
 setup:
 	@if [ ! -f docker/local/app/config.secrets.env ]; then \
@@ -80,6 +81,30 @@ integration-tests:
 	CODEBASE_GITLAB_URL="$${GITLAB_URL:-http://127.0.0.1:8929}" \
 	LANGSMITH_TEST_TRACKING="$${LANGSMITH_TEST_TRACKING:-false}" \
 	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m "diff_to_metadata or memory"
+
+EVAL_MODEL ?= openrouter:z-ai/glm-5.2
+EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW
+empty :=
+space := $(empty) $(empty)
+
+# pytest exit 1 (some tests failed) is a result, so the loop goes on; anything above 1 is a broken run.
+eval-prompts:
+	@test -n "$(SUITES)" || { echo 'SUITES is required, e.g. make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl'; exit 2; }
+	@test -n "$(OUT)" || { echo 'OUT is required: the JSONL file every pass appends to'; exit 2; }
+	@mkdir -p "$(dir $(abspath $(OUT)))"
+	@GITLAB_URL="$${CODEBASE_GITLAB_URL:-$$(sed -n 's/^CODEBASE_GITLAB_URL=//p' docker/local/app/config.secrets.env 2>/dev/null | tail -1)}"; \
+	SANDBOX_URL="$${DAIV_SANDBOX_URL:-$$(sed -n 's/^DAIV_SANDBOX_URL=//p' docker/local/app/config.secrets.env 2>/dev/null | tail -1)}"; \
+	for run in $$(seq 1 $${DAIV_EVAL_REPEATS:-3}); do \
+		echo "eval-prompts: pass $$run of $${DAIV_EVAL_REPEATS:-3}"; \
+		CODEBASE_GITLAB_URL="$${GITLAB_URL:-http://127.0.0.1:8929}" \
+		DAIV_SANDBOX_URL="$${SANDBOX_URL:-http://127.0.0.1:8888}" \
+		LANGSMITH_TEST_TRACKING="$${LANGSMITH_TEST_TRACKING:-false}" \
+		DAIV_EVAL_METRICS_OUT="$(abspath $(OUT))" DAIV_EVAL_RUN=$$run \
+		$(foreach var,$(EVAL_SUITE_MODEL_VARS),DAIV_EVAL_$(var)_MODELS="$(EVAL_MODEL)") \
+		uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov \
+			--log-level=INFO -m "$(subst $(space), or ,$(strip $(SUITES)))"; \
+		status=$$?; [ $$status -le 1 ] || exit $$status; \
+	done
 
 swebench:
 	uv run evals/swebench.py --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10

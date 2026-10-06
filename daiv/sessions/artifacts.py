@@ -6,7 +6,9 @@ that, and the raw endpoint serves every artifact under a ``sandbox`` CSP so agen
 never runs in DAIV's origin.
 
 ``RunArtifactStore`` is the agent's ``automation.agent.artifacts.ArtifactStore`` for executor runs: a file goes to the
-``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits.
+``Run`` that :func:`bind_active_run` names, within the ``sessions.conf`` limits. A revision replaces an artifact's file
+in place: the row, and so its URL, stays, and it stays on the run that first published it; the revising run is added
+to its ``revised_by``, so that run's job status lists it too.
 """
 
 from __future__ import annotations
@@ -14,26 +16,31 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.base import ContentFile
 from django.db import models, transaction
+from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
-from automation.agent.artifacts import ArtifactError
+from automation.agent.artifacts import ArtifactError, ArtifactFile
 from sessions.conf import settings
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import Generator
 
     from django.core.files.storage import Storage
+    from django.db.models.fields.files import FieldFile
 
     from sessions.models import Run, RunArtifact
 
@@ -156,8 +163,7 @@ async def aresolve_active_run(thread_id: str) -> Run | None:
     return run
 
 
-async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str = "") -> RunArtifact:
-    """Persist ``content`` as an artifact of ``run``; raises :class:`ArtifactError` on a rejected file."""
+def _checked_name(filename: str, content: bytes) -> str:
     safe_name = PurePosixPath(filename).name
     if safe_name in ("", ".."):
         raise ArtifactError(f"'{filename}' is not a file name.")
@@ -167,19 +173,28 @@ async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str
         raise ArtifactError(
             f"'{safe_name}' is {len(content)} bytes; artifacts are capped at {settings.ARTIFACT_MAX_BYTES} bytes."
         )
+    return safe_name
+
+
+async def astore_artifact(run: Run, *, filename: str, content: bytes, title: str = "") -> RunArtifact:
+    """Persist ``content`` as an artifact of ``run``; raises :class:`ArtifactError` on a rejected file."""
+    safe_name = _checked_name(filename, content)
     return await sync_to_async(_store_artifact)(run, safe_name, content, title)
+
+
+def _file_fields(safe_name: str, content: bytes, title: str) -> dict[str, Any]:
+    return {
+        "title": title[:200],
+        "filename": safe_name[:255],
+        "content_type": guess_content_type(safe_name),
+        "size": len(content),
+    }
 
 
 def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> RunArtifact:
     from sessions.models import Run, RunArtifact
 
-    artifact = RunArtifact(
-        run=run,
-        title=(title.strip() or safe_name)[:200],
-        filename=safe_name[:255],
-        content_type=guess_content_type(safe_name),
-        size=len(content),
-    )
+    artifact = RunArtifact(run=run, **_file_fields(safe_name, content, title.strip() or safe_name))
     try:
         artifact.file.save(safe_name, ContentFile(content), save=False)
         with transaction.atomic():
@@ -197,11 +212,126 @@ def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> Run
     return artifact
 
 
+async def areplace_artifact(
+    run: Run, artifact_id: str, *, filename: str, content: bytes, title: str = ""
+) -> RunArtifact:
+    """Revise artifact ``artifact_id`` of ``run``'s session; a blank ``title`` keeps the current one. Raises
+    :class:`ArtifactError` on a rejected file or an artifact the session does not have."""
+    safe_name = _checked_name(filename, content)
+    return await sync_to_async(_replace_artifact)(run, artifact_id, safe_name, content, title)
+
+
+def _replace_artifact(run: Run, artifact_id: str, safe_name: str, content: bytes, title: str) -> RunArtifact:
+    from sessions.models import RunArtifact, artifact_upload_to
+
+    artifact = _session_artifact(run.session_id, artifact_id)
+    storage = artifact.file.storage
+    name = artifact_upload_to(artifact, safe_name, revision=uuid.uuid4().hex)
+    try:
+        name = storage.save(name, ContentFile(content), max_length=artifact.file.field.max_length)
+        with transaction.atomic():
+            # Concurrent revisions serialise on the row, so each one deletes the file the one before it left.
+            if (replaced := RunArtifact.objects.select_for_update().filter(pk=artifact.pk).first()) is None:
+                raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+            fields = {
+                **_file_fields(safe_name, content, title.strip() or replaced.title),
+                "file": name,
+                "updated_at": timezone.now(),
+            }
+            for field, value in fields.items():
+                setattr(artifact, field, value)
+            artifact.save(update_fields=list(fields))
+            artifact.revised_by.add(run)
+            transaction.on_commit(partial(delete_stored_file, storage, replaced.file.name))
+    except BaseException:
+        delete_stored_file(storage, name)
+        raise
+    return artifact
+
+
+async def aread_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
+    """The current file of artifact ``artifact_id`` of the session ``thread_id``; raises :class:`ArtifactError`."""
+    return await sync_to_async(_read_artifact)(thread_id, artifact_id)
+
+
+def _read_artifact(thread_id: str, artifact_id: str) -> ArtifactFile:
+    artifact = _session_artifact(thread_id, artifact_id)
+    if (fh := open_artifact_file(artifact)) is None:
+        raise ArtifactError(
+            f"the stored file of artifact '{artifact_id}' is missing. Write the file again and publish it with "
+            f'`artifact_id="{artifact_id}"` to restore the artifact at the same URL.'
+        )
+    with fh:
+        return ArtifactFile(filename=artifact.filename, content=fh.read())
+
+
+def open_artifact_file(artifact: RunArtifact) -> FieldFile | None:
+    """SYNC ONLY: open ``artifact``'s stored file, or log and return ``None`` when it is missing.
+
+    A revision deletes the file it replaces, so a miss reloads ``artifact`` in place and retries on its new file.
+    """
+    if (fh := _open_stored_file(artifact)) is None and _reload_revised(artifact):
+        fh = _open_stored_file(artifact)
+    if fh is None:
+        logger.error(
+            "Artifact %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+            artifact.pk,
+            artifact.file.name,
+        )
+    return fh
+
+
+def _open_stored_file(artifact: RunArtifact) -> FieldFile | None:
+    try:
+        return artifact.file.open("rb")
+    except FileNotFoundError:
+        return None
+
+
+def _reload_revised(artifact: RunArtifact) -> bool:
+    loaded_name = artifact.file.name
+    try:
+        artifact.refresh_from_db()
+    except ObjectDoesNotExist:
+        return False
+    return artifact.file.name != loaded_name
+
+
+def _session_artifact(thread_id: str, artifact_id: str) -> RunArtifact:
+    from sessions.models import RunArtifact
+
+    try:
+        pk = uuid.UUID(artifact_id)
+    except ValueError:
+        raise ArtifactError(
+            f"'{artifact_id}' is not an artifact id; pass the `id` from the artifact's publish result."
+        ) from None
+    artifacts = RunArtifact.objects.filter(run__session_id=thread_id, pk=pk).select_related("run")
+    if (artifact := artifacts.first()) is None:
+        raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+    return artifact
+
+
 def delete_stored_file(storage: Storage, name: str) -> None:
     try:
         storage.delete(name)
     except Exception:
         logger.exception("Failed to delete artifact file %s", name)
+
+
+def delete_artifact_files(storage: Storage, name: str, artifact_id: str) -> None:
+    """Delete ``name`` and every other stored file of artifact ``artifact_id``, by its storage-name prefix: a revision
+    that committed after a deletion loaded the row leaves the row's ``name`` stale."""
+    directory = PurePosixPath(name).parent
+    try:
+        _, files = storage.listdir(str(directory))
+    except FileNotFoundError:
+        files = []
+    except Exception:
+        logger.exception("Failed to list artifact files in %s", directory)
+        files = []
+    for stored in {name, *(str(directory / file) for file in files if file.startswith(artifact_id))}:
+        delete_stored_file(storage, stored)
 
 
 def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
@@ -220,9 +350,13 @@ def serialize_artifact(artifact: RunArtifact) -> ArtifactPayload:
     )
 
 
-def published_tool_result(payload: ArtifactPayload) -> str:
-    """The ``publish_artifact`` success result, which the transcript's artifact card parses."""
-    return json.dumps({"status": "published", **payload.model_dump()})
+def _publish_status(artifact: RunArtifact) -> str:
+    return "updated" if artifact.updated_at else "published"
+
+
+def published_tool_result(artifact: RunArtifact) -> str:
+    """SYNC ONLY: the ``publish_artifact`` success result, which the transcript's artifact card parses."""
+    return json.dumps({"status": _publish_status(artifact), **serialize_artifact(artifact).model_dump()})
 
 
 class RunArtifactStore:
@@ -239,37 +373,54 @@ class RunArtifactStore:
     async def aaccepts(self, thread_id: str) -> bool:
         return await aresolve_active_run(thread_id) is not None
 
-    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+    async def astore(
+        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str = ""
+    ) -> str:
         if (run := await aresolve_active_run(thread_id)) is None:
             raise ArtifactError("this run has no session to attach artifacts to.")
-        artifact = await astore_artifact(run, filename=filename, content=content, title=title)
+        if artifact_id:
+            artifact = await areplace_artifact(run, artifact_id, filename=filename, content=content, title=title)
+        else:
+            artifact = await astore_artifact(run, filename=filename, content=content, title=title)
         logger.info(
-            "publish_artifact: run=%s stored %s (%s, %d bytes)",
+            "publish_artifact: run=%s %s artifact %s as %s (%s, %d bytes)",
             run.pk,
+            _publish_status(artifact),
+            artifact.pk,
             artifact.filename,
             artifact.content_type,
             artifact.size,
         )
         return await _apublished_result(artifact)
 
+    async def aread(self, *, thread_id: str, artifact_id: str) -> ArtifactFile:
+        return await aread_artifact(thread_id, artifact_id)
+
 
 async def _apublished_result(artifact: RunArtifact) -> str:
     try:
-        payload = await sync_to_async(serialize_artifact)(artifact)
+        return await sync_to_async(published_tool_result)(artifact)
     except Exception:
         logger.exception("publish_artifact: stored artifact %s but could not build its absolute URLs", artifact.pk)
         return json.dumps({
-            "status": "published",
+            "status": _publish_status(artifact),
             "id": str(artifact.pk),
             "url": artifact.get_absolute_url(),
             "warning": "Stored, but DAIV could not build absolute URLs; the URL is relative to the DAIV host.",
         })
-    return published_tool_result(payload)
 
 
 async def aserialize_run_artifacts(run: Run) -> list[ArtifactPayload]:
-    """``serialize_artifact`` for every artifact of ``run``, oldest first."""
-    return await sync_to_async(lambda: [serialize_artifact(artifact) for artifact in run.artifacts.all()])()
+    """``serialize_artifact`` for every artifact ``run`` published or revised, oldest first."""
+    from sessions.models import RunArtifact
+
+    artifacts = (
+        RunArtifact.objects
+        .filter(Q(run=run) | Q(revised_by=run), run__session_id=run.session_id)
+        .distinct()
+        .select_related("run")
+    )
+    return await sync_to_async(lambda: [serialize_artifact(artifact) for artifact in artifacts])()
 
 
 async def aserialize_run_artifacts_for_status(run: Run) -> tuple[list[ArtifactPayload], str | None]:

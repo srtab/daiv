@@ -19,7 +19,7 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
-from sessions.artifacts import published_tool_result, serialize_artifact
+from sessions.artifacts import published_tool_result
 from sessions.models import RunArtifact, RunStatus, SessionOrigin
 from sessions.turns import tool_call_segment
 
@@ -160,7 +160,7 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[di
 
 def _artifact_segment(artifact: RunArtifact) -> dict[str, Any]:
     segment = tool_call_segment({"id": f"artifact-{artifact.id}", "name": PUBLISH_ARTIFACT_TOOL_NAME})
-    return {**segment, "result": published_tool_result(serialize_artifact(artifact))}
+    return {**segment, "result": published_tool_result(artifact)}
 
 
 def artifact_turns(runs: list[Run]) -> list[dict[str, Any]]:
