@@ -2,9 +2,8 @@
 
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
 
 import httpx2
 from mcp.server.mcpserver import Context, MCPServer
@@ -13,9 +12,6 @@ from mcp.types import ToolAnnotations
 
 from automation.agent.mcp.client import StatusTrackingClient, build_client
 from automation.agent.mcp.errors import status_message
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 type Reply = tuple[int, bytes, bytes]
 type Route = Callable[[dict | None], Reply]
@@ -155,7 +151,7 @@ class Gate:
 
 
 @asynccontextmanager
-async def serve(server: MCPServer | None = None, *, stateless: bool = True, **gate_options) -> AsyncIterator[Gate]:
+async def serve(server: MCPServer | None = None, *, stateless: bool = True, **gate_options) -> AsyncGenerator[Gate]:
     app = (server or build_app()).streamable_http_app(
         stateless_http=stateless, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )

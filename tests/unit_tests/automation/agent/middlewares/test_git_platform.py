@@ -2642,6 +2642,10 @@ class TestPublishedTextIsRepoRelative:
             "/workspace/repo/e.md",
         ]
 
+    @pytest.mark.parametrize("flag", ["-n", "--note", "--message", "--content"])
+    def test_other_text_flags_are_rewritten(self, flag):
+        assert _repo_relative_flag_values(["x", flag, "See /workspace/repo/a.py"]) == ["x", flag, "See a.py"]
+
     async def test_a_gitlab_note_body_is_repo_relative(self):
         runtime = _make_gitlab_runtime()
         mock_settings = Mock()
@@ -2675,24 +2679,16 @@ class TestPublishedTextIsRepoRelative:
             "group/repo", 10, "see src/foo.py", VALID_POSITION
         )
 
-    @patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
     async def test_a_github_comment_body_is_repo_relative(self):
         runtime = ToolRuntime(
-            state={},
+            state={"github_token": "tok", "github_token_expires_at": 9999999999.0},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
             config={"configurable": {"thread_id": "t"}},
             stream_writer=Mock(),
             tool_call_id="c1",
             store=None,
         )
-        with (
-            patch("automation.agent.middlewares.git_platform.get_github_integration") as get_integration,
-            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-        ):
-            get_integration.return_value.get_access_token.return_value = Mock(
-                token="tok",  # noqa: S106
-                expires_at=Mock(timestamp=Mock(return_value=9999999999.0)),
-            )
+        with patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc:
             proc = Mock()
             proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
             proc.returncode = 0

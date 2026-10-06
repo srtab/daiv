@@ -46,14 +46,14 @@ def build_turns(messages: list[Any]) -> list[dict[str, Any]]:
     ``tool_call_id``.
 
     The ``skill`` tool returns the resolved SKILL.md body as its tool result. Threads saved
-    before that carry the body in a synthetic ``HumanMessage`` right after a placeholder
+    before that carry the body in an unmarked ``HumanMessage`` right after a placeholder
     ``ToolMessage``; on reload we fold that body into the skill call's ``result`` instead of
     rendering it as a user turn — it's agent scaffolding, not something the human typed. The
     fold applies only after that old placeholder, so a human message following a skill result
     that already holds the body stays a user turn.
 
-    DAIV's own synthetic messages (saved reminders) are skipped: the model saw them, but
-    nobody typed them.
+    DAIV's synthetic messages (saved reminders, the issue a run started from) are skipped: the
+    model saw them, but nobody typed them in this conversation.
 
     The close message a question turn ends on is skipped: the chat renders the question from
     the ``ask_user_question`` call.

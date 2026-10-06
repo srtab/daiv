@@ -1,7 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from memory.transcript import serialize_transcript
 
-from automation.agent.synthetic import synthetic_message
+from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 
 
 def test_serializes_roles_text_and_tool_calls():
@@ -53,3 +53,11 @@ def test_skips_synthetic_messages_but_keeps_the_real_human_message_after_them():
     transcript = serialize_transcript(messages)
     assert "previous response was empty" not in transcript
     assert "[human] No, use the other helper instead." in transcript
+
+
+def test_keeps_the_issue_a_run_started_from_truncated():
+    issue = synthetic_message("Issue #42 <title>Use the v2 client</title>" + "z" * 5_000, kind=ISSUE_CONTEXT_KIND)
+    transcript = serialize_transcript([issue, HumanMessage(content="Address the issue #42.")])
+    assert transcript.startswith("[issue] Issue #42 <title>Use the v2 client</title>")
+    assert "truncated" in transcript
+    assert transcript.endswith("[human] Address the issue #42.")

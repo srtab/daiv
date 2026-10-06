@@ -18,7 +18,7 @@ from skills.services import _record_invocation
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
-from automation.agent.synthetic import is_synthetic
+from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
 
@@ -36,14 +36,15 @@ SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
 
 
-def _last_write(_old: str | None, new: str | None) -> str | None:
-    return new
+def _keep_read_only(old: str | None, new: str | None) -> str | None:
+    """Read-only mode lasts until cleared (``None``): another skill's mode, even one set in the same turn, keeps it."""
+    return old if old == SKILL_MODE_READ_ONLY and new is not None else new
 
 
 class DAIVSkillsState(SkillsState):
     """Extended skills state that tracks the active skill mode."""
 
-    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write]]
+    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _keep_read_only]]
 
 
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
@@ -56,7 +57,7 @@ Usage notes:
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
   - `skill: "code-review", skill_args: ["my-branch"]` - invoke with arguments
-"""  # noqa: E501
+"""
 
 SKILLS_SYSTEM_PROMPT = f"""\
 ## Skills
@@ -322,7 +323,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         The pattern we look for (walking backwards from the end):
         1. The latest message is a HumanMessage (user follow-up)
-        2. Before it, there's an AIMessage (agent's plan/response)
+        2. Before it, past any synthetic messages, there's an AIMessage (agent's plan/response) rather than
+           another message a person wrote
         """
         if len(messages) < 2:
             return False
@@ -335,7 +337,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             msg = messages[i]
             if isinstance(msg, AIMessage):
                 return True
-            if isinstance(msg, HumanMessage) and not is_synthetic(msg):
+            if is_person_message(msg):
                 # Hit another human message before finding an AI message — no agent response yet
                 break
 

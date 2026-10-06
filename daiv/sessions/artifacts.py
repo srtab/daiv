@@ -31,7 +31,7 @@ from sessions.conf import settings
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from django.core.files.storage import Storage
 
@@ -129,7 +129,7 @@ def artifact_kind(content_type: str) -> ArtifactKind:
 
 
 @contextmanager
-def bind_active_run(run_id: str | uuid.UUID | None) -> Iterator[None]:
+def bind_active_run(run_id: str | uuid.UUID | None) -> Generator[None]:
     """Name the ``Run`` the code inside executes, for :func:`aresolve_active_run`; ``None`` binds nothing."""
     if not run_id:
         yield
