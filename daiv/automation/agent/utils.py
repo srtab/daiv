@@ -248,10 +248,10 @@ _WORKSPACE_PATH_PREFIX = re.compile(rf"(?<![\w.~/-]){re.escape(REPO_PATH)}/(?=[\
 
 
 def repo_relative_text(text: str) -> str:
-    """``text`` with the workspace prefix removed from every repository path, for anything DAIV publishes.
+    """``text`` with the workspace prefix removed from every repository path, for text DAIV posts to the platform.
 
-    Only a prefix that starts a path is removed; one that continues a URL or a longer path is kept. The
-    root itself, with or without a trailing slash, is kept too since it has no repo-relative form.
+    Only a prefix that starts a path is removed; one right after a word or path character, as in a URL's path or a
+    longer path, is kept. The root itself, with or without a trailing slash, is kept since it has no repo-relative form.
     """
     return _WORKSPACE_PATH_PREFIX.sub("", text)
 

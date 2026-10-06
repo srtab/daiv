@@ -46,8 +46,8 @@ async def ensure_non_empty_response(
     Each retry sends the original request plus one nudge, the same message on every retry.
     When a retry was sent, the nudge is saved into the thread ahead of the reply it produced
     (see ``reminders``); the discarded empty replies are never saved. If the model still
-    returns an empty response after ``MAX_EMPTY_RESPONSE_RETRIES``, the empty response is
-    returned as-is so the agent loop ends gracefully instead of spinning.
+    returns an empty response after ``MAX_EMPTY_RESPONSE_RETRIES``, that empty response is
+    returned, behind the saved nudge, so the agent loop ends gracefully instead of spinning.
     """
     response = await handler(request)
     nudge: HumanMessage | None = None

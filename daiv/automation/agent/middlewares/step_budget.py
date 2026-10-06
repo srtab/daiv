@@ -68,7 +68,7 @@ class StepBudgetMiddleware(AgentMiddleware):
     step this run started at (lazily, on the first model call) and count consumption from
     there. ``create_daiv_agent`` binds per-run state (sandbox, checkpointer, context) into the
     middleware stack, so the agent — and this instance — is necessarily rebuilt per invocation;
-    the baseline thus resets each run without needing a graph node.
+    the baseline and the bands already sent thus reset each run without needing a graph node.
     """
 
     def __init__(
