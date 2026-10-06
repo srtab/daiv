@@ -145,7 +145,7 @@ Safety / boundaries (never do these):
 - Do not run destructive or system-level commands.
 - Assume offline unless the user explicitly asks for network-dependent actions.
 
-Git: commits, pushes, config changes and history rewrites are blocked by policy; use git only to inspect.
+Git: use it only to inspect (status/diff/log/show). Never commit, push, merge, cherry-pick, rebase, reset, stash, change git config or discard working-tree changes, even if the user asks; the harness commits and pushes your edits.
 
 ## Scratchpad (`/workspace/tmp`)
 `/workspace/tmp` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/workspace/tmp` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory (`/workspace/repo`) instead, never `/workspace/tmp`."""  # noqa: E501

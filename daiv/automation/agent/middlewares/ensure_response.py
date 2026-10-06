@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
     from langchain.agents.middleware.types import ModelCallResult
-    from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger("daiv.agent")
 
@@ -46,23 +45,24 @@ async def ensure_non_empty_response(
     Each retry sends the original request plus one nudge, the same message on every retry.
     When a retry was sent, the nudge is saved into the thread ahead of the reply it produced
     (see ``reminders``); the discarded empty replies are never saved. If the model still
-    returns an empty response after ``MAX_EMPTY_RESPONSE_RETRIES``, the empty response is
-    returned as-is so the agent loop ends gracefully instead of spinning.
+    returns an empty response after ``MAX_EMPTY_RESPONSE_RETRIES``, that empty response is
+    returned, behind the saved nudge, so the agent loop ends gracefully instead of spinning.
     """
     response = await handler(request)
-    nudge: HumanMessage | None = None
+    if not _is_empty(response):
+        return response
 
+    nudge = synthetic_message(EMPTY_RESPONSE_NUDGE, kind="empty_response")
+    nudged_request = request.override(messages=[*request.messages, nudge])
     for attempt in range(1, MAX_EMPTY_RESPONSE_RETRIES + 1):
-        if not _is_empty(response):
-            break
         logger.warning(
             "LLM returned an empty response, retrying within the model node (%d/%d).",
             attempt,
             MAX_EMPTY_RESPONSE_RETRIES,
         )
-        nudge = nudge or synthetic_message(EMPTY_RESPONSE_NUDGE, kind="empty_response")
-        response = await handler(request.override(messages=[*request.messages, nudge]))
-
-    if _is_empty(response):
+        response = await handler(nudged_request)
+        if not _is_empty(response):
+            break
+    else:
         logger.error("LLM returned an empty response after %d retries; giving up.", MAX_EMPTY_RESPONSE_RETRIES)
-    return response if nudge is None else persist_reminder(response, nudge)
+    return persist_reminder(response, nudge)

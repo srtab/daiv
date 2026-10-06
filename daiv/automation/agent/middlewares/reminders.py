@@ -1,7 +1,7 @@
 """Reminders the harness adds to a model call, saved into the thread just before the reply they produced.
 
 A reminder sent on one call but missing from the next changes history the model already answered: the prompt
-cache restarts there, and the change breaks the thinking-block binding of Claude models.
+cache restarts there, and Claude models that bind thinking blocks to the exact history can invalidate them.
 Saving it through ``ModelResponse.result`` keeps it ahead of the reply; a ``Command`` returned in an
 ``ExtendedModelResponse`` would be applied after the reply instead.
 """

@@ -37,9 +37,10 @@ def _tool_signature(message: AIMessage) -> tuple[tuple[str, str], ...] | None:
 def repeated_tool_streak(messages: list[AnyMessage]) -> int:
     """Count consecutive trailing ``AIMessage``s whose tool-call signature is identical.
 
-    Scans from the end: ``ToolMessage``s (the results between calls) and DAIV's own synthetic messages (saved
-    reminders) are skipped; an ``AIMessage`` with no tool calls or a different signature, or any other message
-    type (a turn boundary), ends the run. Returns 0 when the most recent ``AIMessage`` has no tool calls.
+    Scans from the end: ``ToolMessage``s (the results between calls) and DAIV's synthetic messages (saved
+    reminders, the issue context) are skipped; an ``AIMessage`` with no tool calls or a different signature, or
+    any other message type (a turn boundary), ends the run. Returns 0 when the most recent ``AIMessage`` has no
+    tool calls.
     """
     signature: tuple[tuple[str, str], ...] | None = None
     streak = 0
