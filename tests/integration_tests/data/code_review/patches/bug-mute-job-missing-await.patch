@@ -1,0 +1,44 @@
+diff --git a/daiv/mcp_api/server.py b/daiv/mcp_api/server.py
+index 7cb21d0..40feae4 100644
+--- a/daiv/mcp_api/server.py
++++ b/daiv/mcp_api/server.py
+@@ -493,6 +493,39 @@ async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
+     return mcp_user, None
+ 
+ 
++@mcp.tool()
++async def mute_job(
++    job_id: Annotated[str, Field(description="The job ID returned by submit_job.")],
++    muted: Annotated[bool, Field(description="True silences this job's notifications; false restores them.")] = True,
++) -> dict:
++    """Mute or unmute the notifications of one of the caller's jobs.
++
++    Only notifications not yet sent are affected: a job that already finished has notified.
++    Returns ``{"job_id": str, "muted": bool}``.
++    """
++    mcp_user, auth_error = await _resolve_mcp_user()
++    if auth_error is not None:
++        return auth_error
++
++    try:
++        run_uuid = uuid_mod.UUID(job_id)
++    except ValueError:
++        return {"error": "Invalid job_id format."}
++
++    try:
++        run = await Run.objects.aget(id=run_uuid, user=mcp_user)
++    except Run.DoesNotExist:
++        return {"error": "Job not found."}
++
++    if run.status in TERMINAL_STATUSES:
++        return {"error": "Job already finished; its notifications were sent."}
++
++    run.muted = muted
++    run.asave(update_fields=["muted"])
++    logger.info("Job %s muted=%s", run.id, muted)
++    return {"job_id": str(run.id), "muted": run.muted}
++
++
+ # ---------------------------------------------------------------------------
+ # Pagination — shared limit bounds and opaque keyset cursors
+ # ---------------------------------------------------------------------------

@@ -1,0 +1,91 @@
+diff --git a/daiv/jobs/api/schemas.py b/daiv/jobs/api/schemas.py
+index f1465e1..b0b15c9 100644
+--- a/daiv/jobs/api/schemas.py
++++ b/daiv/jobs/api/schemas.py
+@@ -55,6 +55,15 @@ class JobSubmitResponse(Schema):
+     failed: list[JobSubmitFailureItem]
+ 
+ 
++class JobMergeRequest(Schema):
++    id: int | None = None
++    url: str | None = None
++    title: str | None = None
++    draft: bool = False
++    source_branch: str | None = None
++    target_branch: str | None = None
++
++
+ class JobStatusResponse(Schema):
+     job_id: str
+     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
+@@ -66,6 +75,10 @@ class JobStatusResponse(Schema):
+         "this thread_id and the answer as the prompt.",
+     )
+     merge_request_url: str | None = None
++    merge_request: JobMergeRequest | None = Field(
++        default=None,
++        description="The merge request holding the job's changes: the one it opened, or an open one on its branch.",
++    )
+     artifacts: list[ArtifactPayload] = Field(
+         default_factory=list, description="Files the agent published from this run, with viewer and download URLs."
+     )
+diff --git a/daiv/jobs/api/views.py b/daiv/jobs/api/views.py
+index 9372d10..7ffc29c 100644
+--- a/daiv/jobs/api/views.py
++++ b/daiv/jobs/api/views.py
+@@ -10,6 +10,7 @@ from ninja.errors import HttpError
+ from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
+ from sessions.artifacts import aserialize_run_artifacts_for_status
+ from sessions.models import Run, RunStatus, Session, SessionOrigin
++from sessions.repo_state import aget_existing_mr_payload
+ from sessions.services import RepoTarget, asubmit_batch_runs
+ 
+ from accounts.api.security import AuthBearer
+@@ -17,7 +18,14 @@ from automation.agent.validators import AgentOverrideError, validate_agent_overr
+ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
+ from core.api.throttling import JobsRateThrottle
+ 
+-from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
++from .schemas import (
++    JobMergeRequest,
++    JobStatusResponse,
++    JobSubmitFailureItem,
++    JobSubmitJobItem,
++    JobSubmitRequest,
++    JobSubmitResponse,
++)
+ 
+ if TYPE_CHECKING:
+     from accounts.models import User
+@@ -111,6 +119,23 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
+     return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)
+ 
+ 
++async def _job_merge_request(run: Run) -> JobMergeRequest | None:
++    """The merge request a job's changes live on.
++
++    A run that pushed to a branch which already had an open merge request records no URL of its
++    own, so the open merge request on the run's branch is looked up first and the run's own URL
++    is the fallback.
++    """
++    if not run.code_changes:
++        return None
++    payload = await aget_existing_mr_payload(run.ref, run.repo_id)
++    if payload is not None:
++        return JobMergeRequest(**payload)
++    if run.merge_request_web_url:
++        return JobMergeRequest(id=run.merge_request_iid, url=run.merge_request_web_url)
++    return None
++
++
+ @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})
+ async def get_job_status(request: HttpRequest, job_id: str):
+     """Get the status and result of a submitted job. Looks up by Run.id."""
+@@ -133,6 +158,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
+         result=run.result_summary or None,
+         question=run.question,
+         merge_request_url=run.merge_request_web_url or None,
++        merge_request=await _job_merge_request(run),
+         artifacts=artifacts,
+         artifacts_error=artifacts_error,
+         error=error,

@@ -1,0 +1,94 @@
+diff --git a/daiv/jobs/api/schemas.py b/daiv/jobs/api/schemas.py
+index f1465e1..8743132 100644
+--- a/daiv/jobs/api/schemas.py
++++ b/daiv/jobs/api/schemas.py
+@@ -55,6 +55,20 @@ class JobSubmitResponse(Schema):
+     failed: list[JobSubmitFailureItem]
+ 
+ 
++class JobListItem(Schema):
++    job_id: str
++    repo_id: str
++    ref: str | None = None
++    status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
++    created_at: datetime
++
++
++class JobListResponse(Schema):
++    jobs: list[JobListItem]
++    page: int
++    has_more: bool = Field(description="Whether a next page exists.")
++
++
+ class JobStatusResponse(Schema):
+     job_id: str
+     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
+diff --git a/daiv/jobs/api/views.py b/daiv/jobs/api/views.py
+index 9372d10..b6cd6ac 100644
+--- a/daiv/jobs/api/views.py
++++ b/daiv/jobs/api/views.py
+@@ -17,7 +17,15 @@ from automation.agent.validators import AgentOverrideError, validate_agent_overr
+ from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
+ from core.api.throttling import JobsRateThrottle
+ 
+-from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
++from .schemas import (
++    JobListItem,
++    JobListResponse,
++    JobStatusResponse,
++    JobSubmitFailureItem,
++    JobSubmitJobItem,
++    JobSubmitRequest,
++    JobSubmitResponse,
++)
+ 
+ if TYPE_CHECKING:
+     from accounts.models import User
+@@ -26,6 +34,9 @@ logger = logging.getLogger("daiv.jobs")
+ 
+ _THREAD_NOT_FOUND = "thread_id not found"
+ 
++DEFAULT_PAGE_SIZE = 20
++MAX_PAGE_SIZE = 50
++
+ jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
+ 
+ 
+@@ -111,6 +122,37 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
+     return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)
+ 
+ 
++@jobs_router.get("", response=JobListResponse)
++async def list_jobs(
++    request: HttpRequest, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE, repo_id: str | None = None
++):
++    """List the caller's jobs, newest first, one page at a time.
++
++    ``page`` is 1-based and ``page_size`` is capped at ``MAX_PAGE_SIZE``. ``has_more`` tells
++    whether requesting ``page + 1`` returns anything.
++    """
++    page = max(page, 1)
++    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
++    qs = Run.objects.filter(user=request.auth)
++    if repo_id:
++        qs = qs.filter(repo_id=repo_id)
++    qs = qs.order_by("-created_at", "-id")
++
++    start = page * page_size
++    rows = [run async for run in qs[start : start + page_size + 1]]
++    jobs = [
++        JobListItem(
++            job_id=str(run.id),
++            repo_id=run.repo_id,
++            ref=run.ref or None,
++            status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'WAITING_INPUT', 'FAILED']", run.status),
++            created_at=run.created_at,
++        )
++        for run in rows[:page_size]
++    ]
++    return JobListResponse(jobs=jobs, page=page, has_more=len(rows) > page_size)
++
++
+ @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})
+ async def get_job_status(request: HttpRequest, job_id: str):
+     """Get the status and result of a submitted job. Looks up by Run.id."""
