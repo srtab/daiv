@@ -156,7 +156,10 @@ def _restore_providers(_provider_snapshot, django_db_blocker) -> None:
 
 @pytest.fixture
 def eval_request(request: pytest.FixtureRequest) -> pytest.FixtureRequest:
-    """The pytest request, for tests that cannot take ``request`` themselves: langsmith's test wrapper swallows it."""
+    """The pytest request, for tests that cannot take ``request`` themselves: langsmith's test wrapper swallows it.
+
+    Taking it makes the test an eval case, which writes a row on every pass of ``make eval-prompts``.
+    """
     return request
 
 

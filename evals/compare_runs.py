@@ -16,6 +16,7 @@ import argparse
 import json
 import statistics
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -99,11 +100,18 @@ def load_rows(path: Path) -> list[dict]:
     return rows
 
 
+def _voting(rows: list[dict]) -> list[dict]:
+    return [row for row in rows if row["passed"] is not None]
+
+
+def _passes(rows: list[dict]) -> int:
+    return len({row["run"] for row in rows})
+
+
 def case_votes(rows: list[dict]) -> dict[str, Votes]:
     outcomes: dict[str, list[bool]] = {}
-    for row in rows:
-        if row["passed"] is not None:
-            outcomes.setdefault(row["nodeid"], []).append(bool(row["passed"]))
+    for row in _voting(rows):
+        outcomes.setdefault(row["nodeid"], []).append(bool(row["passed"]))
     return {nodeid: Votes(sum(results), len(results)) for nodeid, results in outcomes.items()}
 
 
@@ -172,7 +180,7 @@ def recall_summary(rows: list[dict]) -> dict[str, float] | None:
         return None
     votes = case_votes(review)
     kinds = {row["nodeid"]: row["kind"] for row in review}
-    runs = len({row["run"] for row in review})
+    runs = _passes(review)
     return {
         "hits": sum(1 for nodeid, vote in votes.items() if kinds[nodeid] == "bug" and vote.majority),
         "bug_cases": sum(1 for kind in kinds.values() if kind == "bug"),
@@ -183,22 +191,16 @@ def recall_summary(rows: list[dict]) -> dict[str, float] | None:
     }
 
 
-def _incomplete(
-    nodeids: set[str],
-    before_votes: dict[str, Votes],
-    after_votes: dict[str, Votes],
-    before_rows: list[dict],
-    after_rows: list[dict],
-) -> dict[str, str]:
+def _incomplete(nodeids: set[str], before_rows: list[dict], after_rows: list[dict]) -> dict[str, str]:
     """Cases on both sides with fewer votes than their file has passes, each with its vote counts."""
-    before_passes, after_passes = len({row["run"] for row in before_rows}), len({row["run"] for row in after_rows})
-    incomplete = {}
-    for nodeid in sorted(nodeids):
-        before = before_votes.get(nodeid, Votes(0, 0)).total
-        after = after_votes.get(nodeid, Votes(0, 0)).total
-        if before < before_passes or after < after_passes:
-            incomplete[nodeid] = f"BEFORE {before} of {before_passes} votes, AFTER {after} of {after_passes}"
-    return incomplete
+    before_passes, after_passes = _passes(before_rows), _passes(after_rows)
+    before = Counter(row["nodeid"] for row in _voting(before_rows))
+    after = Counter(row["nodeid"] for row in _voting(after_rows))
+    return {
+        nodeid: f"BEFORE {before[nodeid]} of {before_passes} votes, AFTER {after[nodeid]} of {after_passes}"
+        for nodeid in sorted(nodeids)
+        if before[nodeid] < before_passes or after[nodeid] < after_passes
+    }
 
 
 def _warnings(label: str, rows: list[dict]) -> list[str]:
@@ -240,9 +242,9 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     ]
     before_cases, after_cases = {row["nodeid"] for row in before_rows}, {row["nodeid"] for row in after_rows}
     missing = sorted(before_cases ^ after_cases)
-    incomplete = _incomplete(before_cases & after_cases, before_votes, after_votes, before_rows, after_rows)
-    before_rows_shared = [row for row in before_rows if row["nodeid"] in voted_on_both and row["passed"] is not None]
-    after_rows_shared = [row for row in after_rows if row["nodeid"] in voted_on_both and row["passed"] is not None]
+    incomplete = _incomplete(before_cases & after_cases, before_rows, after_rows)
+    before_rows_shared = [row for row in _voting(before_rows) if row["nodeid"] in voted_on_both]
+    after_rows_shared = [row for row in _voting(after_rows) if row["nodeid"] in voted_on_both]
 
     warnings = _warnings("BEFORE", before_rows) + _warnings("AFTER", after_rows)
     before_models = {row.get("model") for row in before_rows}
@@ -259,8 +261,7 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         f"BEFORE and AFTER share commit {sha}; was the AFTER run on the PR branch?"
         for sha in sorted(_commits(before_rows) & _commits(after_rows))
     ]
-    voting_rows = [row for row in [*before_rows, *after_rows] if row["passed"] is not None]
-    if zero_token_rows := sum(row.get("input_tokens") == 0 for row in voting_rows):
+    if zero_token_rows := sum(row.get("input_tokens") == 0 for row in _voting([*before_rows, *after_rows])):
         warnings.append(
             f"{zero_token_rows} row(s) report 0 input tokens; usage may be unreported, which hides failing votes."
         )
