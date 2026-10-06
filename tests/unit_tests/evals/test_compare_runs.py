@@ -95,6 +95,46 @@ class TestTokenRule:
         assert suite_medians(data)[SUITE]["input_tokens"] == 1000
 
 
+class TestLargestCaseIncrease:
+    def test_a_single_case_blow_up_is_named_even_when_the_suite_median_falls(self):
+        before = (
+            rows("t::a", [True] * 3, input_tokens=1000)
+            + rows("t::b", [True] * 3, input_tokens=2000)
+            + rows("t::c", [True] * 3, input_tokens=3000)
+        )
+        after = (
+            rows("t::a", [True] * 3, input_tokens=1000)
+            + rows("t::b", [True] * 3, input_tokens=1900)
+            + rows("t::c", [True] * 3, input_tokens=30000)
+        )
+
+        comparison = compare(before, after)
+
+        assert comparison.verdict == "improved"
+        assert comparison.largest_case_increase == {SUITE: ("c", 3000, 30000)}
+        assert "`c` 3,000 → 30,000 (+900.0%)" in render_markdown(comparison)
+
+    def test_a_suite_where_no_case_rose_shows_a_dash(self):
+        before = rows("t::a", [True] * 3, input_tokens=1000) + rows("t::b", [True] * 3, input_tokens=2000)
+        after = rows("t::a", [True] * 3, input_tokens=1000) + rows("t::b", [True] * 3, input_tokens=1500)
+
+        comparison = compare(before, after)
+
+        assert comparison.largest_case_increase == {SUITE: None}
+        suite_row = next(line for line in render_markdown(comparison).splitlines() if line.startswith(f"| {SUITE} |"))
+        assert suite_row.endswith("| – |")
+
+    def test_cases_on_one_side_only_and_rows_without_tokens_are_ignored(self):
+        before = rows("t::a", [True] * 3, input_tokens=1000) + rows("t::b", [True] * 3, input_tokens=None)
+        after = (
+            rows("t::a", [True] * 3, input_tokens=1000)
+            + rows("t::b", [True] * 3, input_tokens=9000)
+            + rows("t::c", [True] * 3, input_tokens=90000)
+        )
+
+        assert compare(before, after).largest_case_increase == {SUITE: None}
+
+
 class TestOneSidedRows:
     def test_a_case_missing_on_one_side_is_listed_and_not_counted(self):
         before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)

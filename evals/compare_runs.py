@@ -75,6 +75,7 @@ class Comparison:
     one_sided_suites: list[str]
     before_medians: dict[str, dict[str, float | None]]
     after_medians: dict[str, dict[str, float | None]]
+    largest_case_increase: dict[str, tuple[str, float, float] | None]
     before_recall: dict[str, float] | None
     after_recall: dict[str, float] | None
     warnings: list[str]
@@ -134,6 +135,28 @@ def token_gain(before: dict[str, dict[str, float | None]], after: dict[str, dict
         if old and new is not None:
             changes.append((new - old) / old)
     return bool(changes) and min(changes) <= -TOKEN_GAIN and max(changes) < TOKEN_GAIN
+
+
+def largest_case_increase(
+    before_rows: list[dict], after_rows: list[dict], labels: dict[str, tuple[str, str]]
+) -> dict[str, tuple[str, float, float] | None]:
+    """Per suite, the case whose median input tokens rose most in relative terms, as ``(case, before, after)``."""
+    before_by_case, after_by_case = _case_medians(before_rows), _case_medians(after_rows)
+    largest: dict[str, tuple[str, float, float] | None] = {}
+    for nodeid in sorted(before_by_case.keys() & after_by_case.keys()):
+        case, suite = labels[nodeid]
+        old, new = before_by_case[nodeid], after_by_case[nodeid]
+        best = largest.setdefault(suite, None)
+        if old and new is not None and new > old and (best is None or new / old > best[2] / best[1]):
+            largest[suite] = (case, old, new)
+    return largest
+
+
+def _case_medians(rows: list[dict]) -> dict[str, float | None]:
+    by_case: dict[str, list[dict]] = {}
+    for row in rows:
+        by_case.setdefault(row["nodeid"], []).append(row)
+    return {nodeid: _median(case_rows, "input_tokens") for nodeid, case_rows in by_case.items()}
 
 
 def recall_summary(rows: list[dict]) -> dict[str, float] | None:
@@ -205,6 +228,7 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
         one_sided_suites=sorted(before_suites ^ after_suites),
         before_medians=before_medians,
         after_medians=after_medians,
+        largest_case_increase=largest_case_increase(before_rows_shared, after_rows_shared, labels),
         before_recall=recall_summary(before_rows_shared),
         after_recall=recall_summary(after_rows_shared),
         warnings=warnings,
@@ -227,6 +251,10 @@ def _share(value: float | None) -> str:
     return "–" if value is None else f"{value:.0%}"
 
 
+def _largest_increase(increase: tuple[str, float, float] | None) -> str:
+    return "–" if increase is None else f"`{increase[0]}` {_change(increase[1], increase[2])}"
+
+
 def render_markdown(comparison: Comparison) -> str:
     regressions = sum(delta.regressed for delta in comparison.deltas)
     gains = sum(delta.stable_gain for delta in comparison.deltas)
@@ -243,15 +271,16 @@ def render_markdown(comparison: Comparison) -> str:
         ),
         "",
         "| Suite | Input tokens / run (median) | Output tokens / run (median) | Turns / run (median) "
-        "| Cache-read share |",
-        "|---|---|---|---|---|",
+        "| Cache-read share | Largest case increase |",
+        "|---|---|---|---|---|---|",
     ]
     for suite in sorted(comparison.before_medians.keys() & comparison.after_medians.keys()):
         old, new = comparison.before_medians[suite], comparison.after_medians[suite]
         lines.append(
             f"| {suite} | {_change(old['input_tokens'], new['input_tokens'])} "
             f"| {_change(old['output_tokens'], new['output_tokens'])} | {_change(old['turns'], new['turns'])} "
-            f"| {_share(old['cache_read_share'])} → {_share(new['cache_read_share'])} |"
+            f"| {_share(old['cache_read_share'])} → {_share(new['cache_read_share'])} "
+            f"| {_largest_increase(comparison.largest_case_increase.get(suite))} |"
         )
     if comparison.before_recall and comparison.after_recall:
         old, new = comparison.before_recall, comparison.after_recall
