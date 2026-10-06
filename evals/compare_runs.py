@@ -265,15 +265,15 @@ def compare(before_rows: list[dict], after_rows: list[dict]) -> Comparison:
     )
 
 
-def _number(value: float | None) -> str:
-    return "–" if value is None else f"{value:,.0f}"
+def _number(value: float | None, decimals: int = 0) -> str:
+    return "–" if value is None else f"{value:,.{decimals}f}"
 
 
-def _change(old: float | None, new: float | None) -> str:
+def _change(old: float | None, new: float | None, decimals: int = 0) -> str:
     if old is None or new is None:
-        return f"{_number(old)} → {_number(new)}"
+        return f"{_number(old, decimals)} → {_number(new, decimals)}"
     percent = f" ({(new - old) / old:+.1%})" if old else ""
-    return f"{_number(old)} → {_number(new)}{percent}"
+    return f"{_number(old, decimals)} → {_number(new, decimals)}{percent}"
 
 
 def _share(value: float | None) -> str:
@@ -309,7 +309,8 @@ def render_markdown(comparison: Comparison) -> str:
         old, new = comparison.before_medians[suite], comparison.after_medians[suite]
         lines.append(
             f"| {suite} | {_change(old['input_tokens'], new['input_tokens'])} "
-            f"| {_change(old['output_tokens'], new['output_tokens'])} | {_change(old['turns'], new['turns'])} "
+            f"| {_change(old['output_tokens'], new['output_tokens'])} "
+            f"| {_change(old['turns'], new['turns'], decimals=1)} "
             f"| {_share(old['cache_read_share'])} → {_share(new['cache_read_share'])} "
             f"| {_largest_increase(comparison.largest_case_increase.get(suite))} |"
         )

@@ -265,6 +265,15 @@ def test_markdown_carries_the_verdict_the_flip_and_the_token_table():
     assert "1,000 → 900 (-10.0%)" in markdown
 
 
+def test_median_turns_keep_their_decimal():
+    before = rows("t::a", [True] * 2)
+    before[1]["turns"] = 3
+
+    markdown = render_markdown(compare(before, rows("t::a", [True] * 2, turns=3)))
+
+    assert "2.5 → 3.0 (+20.0%)" in markdown
+
+
 def test_markdown_header_names_the_commits_and_models_of_both_runs():
     before = rows("t::a", [True] * 3)
     before[0]["git_sha"] = "bbb222"
