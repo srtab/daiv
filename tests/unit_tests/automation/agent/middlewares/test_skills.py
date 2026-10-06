@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
-from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, DAIVSkillsState, SkillsMiddleware
+from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMiddleware
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -1135,29 +1135,15 @@ def _read_file(file_path: str) -> str:
 
 
 async def test_skill_runs_beside_another_tool_in_one_turn():
-    backend = Mock()
-    backend.adownload_files = AsyncMock(
-        return_value=[Mock(error=None, content=b"---\nname: demo\ndescription: Demo\n---\nRun this.")]
-    )
-    skill_tool = SkillsMiddleware(backend=backend, sources=["/skills"])._skill_tool_generator()
-    turn = AIMessage(
-        content="",
-        tool_calls=[
-            {"name": "skill", "args": {"skill": "demo"}, "id": "call_skill"},
-            {"name": "read_file", "args": {"file_path": "/workspace/repo/a.py"}, "id": "call_read"},
+    result = await _run_turns_with_skills_middleware(
+        [
+            [
+                {"name": "skill", "args": {"skill": "demo"}, "id": "call_skill"},
+                {"name": "read_file", "args": {"file_path": "/workspace/repo/a.py"}, "id": "call_read"},
+            ]
         ],
+        [_read_file],
     )
-    agent = create_agent(
-        model=_ToolModel(messages=iter([turn, AIMessage(content="done")])),
-        tools=[skill_tool, _read_file],
-        state_schema=DAIVSkillsState,
-    )
-
-    with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
-        result = await agent.ainvoke({
-            "messages": [HumanMessage(content="go")],
-            "skills_metadata": [{"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"}],
-        })
 
     messages = result["messages"]
     assert [type(m).__name__ for m in messages] == [
@@ -1168,8 +1154,7 @@ async def test_skill_runs_beside_another_tool_in_one_turn():
         "AIMessage",
     ]
     assert {m.tool_call_id for m in messages[2:4]} == {"call_skill", "call_read"}
-    skill_result = next(m for m in messages[2:4] if m.tool_call_id == "call_skill")
-    assert skill_result.content.endswith("Run this.")
+    assert _tool_result(result, "call_skill").content.endswith("Run this.")
 
 
 WRITES: list[str] = []
@@ -1229,49 +1214,45 @@ async def _run_turns_with_skills_middleware(turns: list[list[dict]], tools: list
         return await agent.ainvoke({"messages": [HumanMessage(content="go")], "skills_metadata": _SKILLS_METADATA})
 
 
-class TestSkillBesideWriteInOneTurn:
-    WRITE_CALL = {
-        "name": "write_file",
-        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
-        "id": "call_write",
-    }
+def _tool_result(result: dict, tool_call_id: str) -> ToolMessage:
+    return next(m for m in result["messages"] if isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id)
 
+
+WRITE_CALL = {"name": "write_file", "args": {"file_path": "/workspace/repo/a.py", "content": "x"}, "id": "call_write"}
+
+
+class TestSkillBesideWriteInOneTurn:
     async def test_write_is_refused_beside_a_read_only_skill(self):
         result = await _run_turns_with_skills_middleware(
-            [[{"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}, self.WRITE_CALL]], [_write_file]
+            [[{"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}, WRITE_CALL]], [_write_file]
         )
 
-        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        write_result = _tool_result(result, "call_write")
         assert write_result.status == "error"
         assert "read-only skill is active" in write_result.content
         assert WRITES == []
 
     async def test_write_is_refused_when_the_read_only_skill_is_called_after_the_write(self):
         result = await _run_turns_with_skills_middleware(
-            [[self.WRITE_CALL, {"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}]], [_write_file]
+            [[WRITE_CALL, {"name": "skill", "args": {"skill": "plan"}, "id": "call_skill"}]], [_write_file]
         )
 
-        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        write_result = _tool_result(result, "call_write")
         assert write_result.status == "error"
         assert WRITES == []
 
     @pytest.mark.parametrize("skill", ["demo", "missing"])
     async def test_write_runs_beside_a_skill_that_sets_no_mode(self, skill: str):
         result = await _run_turns_with_skills_middleware(
-            [[{"name": "skill", "args": {"skill": skill}, "id": "call_skill"}, self.WRITE_CALL]], [_write_file]
+            [[{"name": "skill", "args": {"skill": skill}, "id": "call_skill"}, WRITE_CALL]], [_write_file]
         )
 
-        write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+        write_result = _tool_result(result, "call_write")
         assert write_result.status != "error"
         assert WRITES == ["/workspace/repo/a.py"]
 
 
 async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
-    write_call = {
-        "name": "write_file",
-        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
-        "id": "call_write",
-    }
 
     result = await _run_turns_with_skills_middleware(
         [
@@ -1279,7 +1260,7 @@ async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
                 {"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"},
                 {"name": "skill", "args": {"skill": "audit"}, "id": "call_audit"},
             ],
-            [write_call],
+            [WRITE_CALL],
         ],
         [_write_file],
     )
@@ -1291,11 +1272,6 @@ async def test_two_mode_setting_skills_in_one_turn_leave_the_mode_set():
 
 
 async def test_another_mode_called_after_a_read_only_skill_keeps_read_only():
-    write_call = {
-        "name": "write_file",
-        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
-        "id": "call_write",
-    }
 
     result = await _run_turns_with_skills_middleware(
         [
@@ -1303,7 +1279,7 @@ async def test_another_mode_called_after_a_read_only_skill_keeps_read_only():
                 {"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"},
                 {"name": "skill", "args": {"skill": "review"}, "id": "call_review"},
             ],
-            [write_call],
+            [WRITE_CALL],
         ],
         [_write_file],
     )
@@ -1314,15 +1290,10 @@ async def test_another_mode_called_after_a_read_only_skill_keeps_read_only():
 
 
 async def test_user_follow_up_clears_the_mode_set_by_a_skill():
-    write_call = {
-        "name": "write_file",
-        "args": {"file_path": "/workspace/repo/a.py", "content": "x"},
-        "id": "call_write",
-    }
     replies = [
         AIMessage(content="", tool_calls=[{"name": "skill", "args": {"skill": "plan"}, "id": "call_plan"}]),
         AIMessage(content="the plan"),
-        AIMessage(content="", tool_calls=[write_call]),
+        AIMessage(content="", tool_calls=[WRITE_CALL]),
         AIMessage(content="done"),
     ]
     agent = _skills_agent(replies, [_write_file], checkpointer=InMemorySaver())
@@ -1332,6 +1303,6 @@ async def test_user_follow_up_clears_the_mode_set_by_a_skill():
         await agent.ainvoke({"messages": [HumanMessage(content="/plan")], "skills_metadata": _SKILLS_METADATA}, config)
         result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
 
-    write_result = next(m for m in result["messages"] if getattr(m, "tool_call_id", None) == "call_write")
+    write_result = _tool_result(result, "call_write")
     assert write_result.status == "success"
     assert WRITES == ["/workspace/repo/a.py"]
