@@ -32,6 +32,9 @@ BLOCKING = frozenset({"Critical", "Important"})
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _HEADING = re.compile(r"^#{1,4}\s+(.+?)\s*$")
 _REVIEW_HEADING = re.compile(r"^#{1,3}\s*Code Review\b", re.MULTILINE)
+_NO_FINDINGS = re.compile(r"^\W*No findings\b", re.MULTILINE)
+_DEGRADED = re.compile(r"^.*Review unavailable for.*$", re.MULTILINE)
+_SEVERITY_WORD = re.compile(rf"\b({'|'.join(SEVERITIES)})s?\b", re.IGNORECASE)
 _ENTRY = re.compile(r"^\s*(?:\*\*)?\s*\d+[.)]\s*(.+?)\s*$")
 _TITLE_SPLIT = re.compile(r"\*\*\s*(?:—|–|-|:)?\s*")
 _DASH_SPLIT = re.compile(r"\s+(?:—|–|-)\s+")
@@ -130,11 +133,8 @@ def names_file(path: str, file: str) -> bool:
 
 
 def _severity(heading: str) -> str | None:
-    words = heading.strip("*: ").split()
-    first = words[0].strip("*:").casefold() if words else ""
-    return next(
-        (severity for severity in SEVERITIES if first in {severity.casefold(), f"{severity.casefold()}s"}), None
-    )
+    match = _SEVERITY_WORD.search(heading)
+    return match.group(1).capitalize() if match else None
 
 
 def _split_entry(text: str) -> tuple[str, str]:
@@ -180,7 +180,12 @@ def parse_report(report: str) -> list[Finding]:
 
 
 def is_review_report(report: str) -> bool:
-    return bool(_REVIEW_HEADING.search(report)) or bool(re.search(r"^\W*No findings\b", report, re.MULTILINE))
+    return bool(_REVIEW_HEADING.search(report)) or bool(_NO_FINDINGS.search(report))
+
+
+def is_degraded(report: str) -> bool:
+    """Whether some detectors did not report: the review names them on a ``Review unavailable for`` line."""
+    return bool(_DEGRADED.search(report))
 
 
 def severity_counts(findings: Sequence[Finding]) -> dict[str, int]:
@@ -193,9 +198,17 @@ def blocking(findings: Sequence[Finding]) -> list[Finding]:
 
 
 def clean_case_violation(report: str, findings: Sequence[Finding]) -> str | None:
-    """Why a clean twin's run fails, or ``None``: it must end on a review report with no Critical or Important."""
+    """Why a clean twin's run fails, or ``None``; it fails closed, passing only a complete, readable review.
+
+    The run must end on a review report, with at least one parsed finding or a ``No findings`` line, no detector
+    reported unavailable, and no Critical or Important finding.
+    """
     if not is_review_report(report):
         return f"the run did not end on a code-review report: {report[-400:]!r}"
+    if not findings and not _NO_FINDINGS.search(report):
+        return f"the report has no parsed finding and no 'No findings' line: {report[-400:]!r}"
+    if degraded := _DEGRADED.search(report):
+        return f"the review is degraded: {degraded.group(0).strip()!r}"
     if found := blocking(findings):
         return f"the clean change got {len(found)} Critical/Important finding(s): {[f.title for f in found]}"
     return None

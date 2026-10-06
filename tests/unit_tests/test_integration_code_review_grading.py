@@ -13,6 +13,7 @@ from tests.integration_tests.code_review_grading import (
     Finding,
     blocking,
     clean_case_violation,
+    is_degraded,
     is_review_report,
     located_in,
     location_paths,
@@ -179,6 +180,13 @@ class TestParseReport:
         assert (finding.severity, finding.title) == ("Critical", "Missing await")
         assert finding.paths == ("daiv/mcp_api/server.py",)
 
+    def test_a_severity_word_after_an_emoji(self):
+        report = "## Code Review\n\n### 🔴 Critical Issues\n**1. Missing await** — `daiv/mcp_api/server.py:524`\n"
+
+        [finding] = parse_report(report)
+
+        assert (finding.severity, finding.title) == ("Critical", "Missing await")
+
     def test_a_location_given_only_inside_the_details(self):
         report = "### Important Issues\n**1. Wrong default**\n\n- **Location:** `daiv/sessions/managers.py:34`\n"
 
@@ -249,6 +257,42 @@ class TestCleanCase:
 
         assert is_review_report(report)
         assert clean_case_violation(report, []) is None
+
+    def test_a_heading_less_no_findings_line_passes(self):
+        report = "No findings — no reported issues met the review threshold."
+
+        assert is_review_report(report)
+        assert clean_case_violation(report, parse_report(report)) is None
+
+    def test_a_degraded_review_fails(self):
+        report = (
+            "## Code Review\n\n_Review unavailable for: security._\n\n"
+            "No findings — none confirmed by the detectors that completed.\n"
+        )
+
+        assert is_degraded(report)
+        assert "degraded" in clean_case_violation(report, parse_report(report))
+
+    def test_a_review_that_could_not_be_completed_fails(self):
+        report = "## Code Review\n\nThe review could not be completed: no changed-hunk diff could be obtained.\n"
+
+        assert "no parsed finding" in clean_case_violation(report, parse_report(report))
+
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            pytest.param("### Important Issues\n- **Leak** — `a.py:1`\n", id="bulleted"),
+            pytest.param("### Important Issues\n\n#### Leak\n`a.py:1` keeps the handle open.\n", id="h4-entries"),
+        ],
+    )
+    def test_entries_the_parser_cannot_read_fail(self, entries):
+        report = f"## Code Review\n\n{entries}"
+
+        assert parse_report(report) == []
+        assert "no parsed finding" in clean_case_violation(report, [])
+
+    def test_a_complete_review_is_not_degraded(self):
+        assert not is_degraded(REPORT)
 
 
 def test_severity_counts_and_blocking():
