@@ -9,6 +9,7 @@ sandbox seeded from that clone. A case that cannot be set up stops the whole run
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,8 @@ from .utils import CODE_REVIEW_MODELS, agent_settings_on, final_text, measure, r
 DATA_DIR = Path(__file__).parent / "data" / "code_review"
 TEST_SUITE = "DAIV: Code review recall"
 REVIEW_REQUEST = "/code-review"
+# The seeded GLOBAL default, python:3.12-alpine, has no git, so the review would never see the patch.
+SANDBOX_IMAGE = "ghcr.io/astral-sh/uv:python3.14-bookworm"
 
 
 def load_cases() -> list:
@@ -55,11 +58,8 @@ CASES = load_cases()
 
 @asynccontextmanager
 async def patched_checkout(case: dict):
-    async with set_runtime_ctx(
-        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
-    ) as ctx:
-        if ctx.sandbox_client is None:
-            pytest.skip("The global default sandbox environment has no base image.")
+    spec = replace(await build_sandbox_spec(None), base_image=SANDBOX_IMAGE)
+    async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=spec) as ctx:
         try:
             ctx.gitrepo.git.checkout("-B", "main", case["base_sha"])
             ctx.gitrepo.git.branch("--unset-upstream", "main")
