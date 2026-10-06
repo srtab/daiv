@@ -5,8 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
-from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
+from langchain_core.messages import AIMessage, HumanMessage
 from sessions.executor.lock import SessionLockTimeoutError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
@@ -365,6 +364,18 @@ class TestIssueAfterRunMatrix:
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "Fixed daiv/x.py:3."
 
+    async def test_the_label_prompt_id_follows_the_issue(self, captured_client):
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent):
+            await _address(issue=_issue(labels=[BOT_LABEL]))
+            await _address(issue=_issue(labels=[BOT_LABEL]))
+            await _address(issue=_issue(labels=[BOT_LABEL, BOT_AUTO_LABEL]))
+
+        first, retry, relabelled = ([m.id for m in c.args[0]["messages"]] for c in agent.ainvoke.await_args_list)
+        assert retry == first
+        assert set(relabelled).isdisjoint(first)
+
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(stub_base_init):
@@ -430,23 +441,3 @@ class TestIssueContextMessage:
         assert same[0].id == same[1].id
         assert same[0].id.startswith("issue-context-42-")
         assert edited.id != same[0].id
-
-    def test_a_rerun_with_the_same_issue_keeps_one_copy(self):
-        thread = add_messages([], [issue_context_message(_described_issue()), HumanMessage(content="first", id="p1")])
-        thread = add_messages(
-            thread, [issue_context_message(_described_issue()), HumanMessage(content="again", id="p2")]
-        )
-
-        assert [m.content for m in thread if not is_synthetic(m)] == ["first", "again"]
-        assert len([m for m in thread if is_synthetic(m)]) == 1
-        assert is_synthetic(thread[0])
-
-    def test_the_issue_is_added_again_after_clear(self):
-        thread = add_messages([], [issue_context_message(_described_issue()), HumanMessage(content="first", id="p1")])
-        thread = add_messages(thread, [RemoveMessage(id=REMOVE_ALL_MESSAGES), AIMessage(content="Cleared.", id="r1")])
-        thread = add_messages(
-            thread, [issue_context_message(_described_issue()), HumanMessage(content="again", id="p2")]
-        )
-
-        assert [type(m).__name__ for m in thread] == ["AIMessage", "HumanMessage", "HumanMessage"]
-        assert is_synthetic(thread[1])

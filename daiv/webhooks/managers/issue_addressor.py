@@ -86,8 +86,9 @@ class IssueAddressorManager(BaseManager):
     """
     Runs the agent on an issue and answers on it.
 
-    Every run sends the issue itself (``issue_context_message``) ahead of the turn's prompt: the prompt stays
-    last because slash-command parsing reads only the latest message.
+    Every run sends the issue itself (``issue_context_message``) ahead of the turn's prompt: the prompt must stay
+    last because slash-command parsing reads only the latest message. The label prompt's id follows the issue
+    message's, so a re-run on a changed issue appends both instead of rewriting the earlier prompt in place.
     """
 
     def __init__(
@@ -142,13 +143,14 @@ class IssueAddressorManager(BaseManager):
     async def _address_issue(
         self, *, ref: str | None, sandbox_env_id: str | None, run_id: str | None, use_max: bool | None
     ) -> AgentResult:
-        prompt_message, triggered_by = self._input_message()
+        issue_message = issue_context_message(self.issue)
+        prompt_message, triggered_by = self._input_message(issue_message_id=issue_message.id)
         outcome = await execute_run(
             RunSpec(
                 thread_id=self.thread_id,
                 repo_id=self.repo_id,
                 scope=Scope.ISSUE,
-                input_messages=(issue_context_message(self.issue), prompt_message),
+                input_messages=(issue_message, prompt_message),
                 trigger="mention" if self.mention_comment_id else "label",
                 lock=await self._lock_policy(),
                 ref=ref,
@@ -171,7 +173,7 @@ class IssueAddressorManager(BaseManager):
         )
         return outcome.agent_result
 
-    def _input_message(self) -> tuple[HumanMessage, str]:
+    def _input_message(self, *, issue_message_id: str) -> tuple[HumanMessage, str]:
         """The turn's message and who triggered it: the mention comment, or the prompt the bot label implies."""
         if self.mention_comment_id:
             comment = self.client.get_issue_comment(self.repo_id, self.issue.iid, self.mention_comment_id).notes[-1]
@@ -182,7 +184,9 @@ class IssueAddressorManager(BaseManager):
         prompt = ADDRESS_ISSUE_PROMPT if self.issue.has_auto_label() else PLAN_ISSUE_PROMPT
         return (
             HumanMessage(
-                name=self.issue.author.username, id=str(self.issue.iid), content=prompt.format(issue_iid=self.issue.iid)
+                name=self.issue.author.username,
+                id=f"{issue_message_id}-prompt",
+                content=prompt.format(issue_iid=self.issue.iid),
             ),
             self.issue.author.username,
         )
