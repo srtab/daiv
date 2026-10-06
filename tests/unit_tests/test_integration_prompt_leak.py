@@ -73,6 +73,8 @@ def test_covers_the_prompts_the_changes_touch():
         "output_invariants_system_prompt",
         "automation.agent.middlewares.git_platform.GIT_PLATFORM_SYSTEM_PROMPT",
         "tool_description_overrides.read_file",
+        "automation.agent.middlewares.ask_user_question.ASK_USER_QUESTION_DESCRIPTION",
+        "automation.agent.questions.QUESTION_DELIVERED",
         "skills/code-review/SKILL.md",
         "skills/code-review/agents/cr-correctness.md",
     } <= names

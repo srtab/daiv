@@ -24,7 +24,9 @@ _MIN_WHOLE_CASE_WORDS = 3
 _PROMPT_MODULES = (
     "automation.agent.prompts",
     "automation.agent.graph",
+    "automation.agent.questions",
     "automation.agent.middlewares.artifacts",
+    "automation.agent.middlewares.ask_user_question",
     "automation.agent.middlewares.ensure_response",
     "automation.agent.middlewares.file_system",
     "automation.agent.middlewares.git",
