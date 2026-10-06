@@ -34,7 +34,7 @@ from codebase.exceptions import CloneRefNotFoundError
 from core.utils import async_download_url, is_git_ref_not_found_text
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from github.IssueComment import IssueComment
 
@@ -292,7 +292,7 @@ class GitHubClient(RepoClient):
         return WebhookSetupResult.CREATED
 
     @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+    def load_repo(self, repository: Repository, sha: str) -> Generator[Repo]:
         """
         Clone a repository to a temporary directory.
 

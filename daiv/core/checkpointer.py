@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from core.checkpoint_types import registered_checkpoint_types
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from langchain_core.runnables import RunnableConfig
 
@@ -117,7 +117,7 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
 
 
 @asynccontextmanager
-async def open_checkpointer() -> AsyncIterator[AsyncRedisSaver]:
+async def open_checkpointer() -> AsyncGenerator[AsyncRedisSaver]:
     """Yield a configured AsyncRedisSaver using project settings.
 
     Single source of truth for the Redis connection + TTL. The default serializer is

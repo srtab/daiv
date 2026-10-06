@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from sessions.locks import STALE_RUN_MINUTES, SessionLock
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
+
+    pass
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -52,7 +54,7 @@ class SessionLockLostError(Exception):
 @asynccontextmanager
 async def hold_session_lock(
     policy: LockPolicy, thread_id: str, *, background_heartbeat: bool = True
-) -> AsyncIterator[str | None]:
+) -> AsyncGenerator[str | None]:
     """Hold ``thread_id``'s execution slot for the body under ``policy`` and yield the holder id, ``None`` for
     ``NoLock``.
 

@@ -1,6 +1,6 @@
 import logging
 import sys
-from collections.abc import Awaitable, Callable  # noqa: TC003
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator  # noqa: TC003
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -21,7 +21,7 @@ from codebase.utils import get_repo_ref
 from core.sandbox.client import DAIVSandboxClient
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Sequence
+    from collections.abc import Sequence
 
 
 logger = logging.getLogger("daiv.codebase")
@@ -129,7 +129,7 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 @contextmanager
 def _load_repo_with_optional_fallback(
     repo_client: RepoClient, repository: Repository, ref: str, default_branch: str, fallback: bool
-) -> Iterator[tuple[Repo, str]]:
+) -> Generator[tuple[Repo, str]]:
     """Clone ``repository`` at ``ref``; on a vanished ref, optionally retry on ``default_branch``.
 
     Yields ``(repo, effective_ref)``. The clone is acquired inside the ``try/except`` but the
@@ -186,7 +186,7 @@ async def set_runtime_ctx(
     references: Sequence[ExternalRef] | None = None,
     fallback_ref_on_missing: bool = False,
     **kwargs: Any,
-) -> AsyncIterator[RuntimeCtx]:
+) -> AsyncGenerator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
 
     Args:
