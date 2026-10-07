@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
-from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMiddleware
+from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SKILLS_SYSTEM_PROMPT, SkillsMiddleware
 from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
@@ -1306,3 +1306,13 @@ async def test_user_follow_up_clears_the_mode_set_by_a_skill():
     write_result = _tool_result(result, "call_write")
     assert write_result.status == "success"
     assert WRITES == ["/workspace/repo/a.py"]
+
+
+def test_skills_prompt_states_the_invocation_rule_in_one_bullet():
+    rule = (
+        "call the `skill` tool before other work on it. Naming a skill in text without calling the tool does nothing."
+    )
+
+    assert sum(rule in line for line in SKILLS_SYSTEM_PROMPT.splitlines()) == 1
+    for shouted in ("IMMEDIATELY", "BLOCKING", "NEVER just announce"):
+        assert shouted not in SKILLS_SYSTEM_PROMPT
