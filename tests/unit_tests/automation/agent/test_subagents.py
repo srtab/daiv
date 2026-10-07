@@ -552,6 +552,17 @@ class TestExploreSubagent:
         assert "/myrepo/" in prompt
         assert "/repo/src/app/utils.py" not in prompt
 
+    def test_prompt_states_the_read_only_capability_plainly(self):
+        from automation.agent.subagents import _explore_system_prompt
+
+        prompt = _explore_system_prompt("/myrepo/")
+        assert (
+            "You can only read and search. You have no tools that create, edit, move or delete files or run commands."
+            in prompt
+        )
+        assert "STRICTLY PROHIBITED" not in prompt
+        assert "CRITICAL: READ-ONLY" not in prompt
+
 
 def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):
     lines = ["---", f"name: {name}", f"description: {description}"]

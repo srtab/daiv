@@ -14,7 +14,7 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent
-from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES
+from automation.agent.constants import REPO_PATH, SKILLS_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -34,19 +34,14 @@ from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
+from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
-from automation.agent.prompts import (
-    AGENTS_MEMORY_SYSTEM_PROMPT,
-    DAIV_SYSTEM_PROMPT,
-    REPO_RELATIVE_SYSTEM_REMINDER,
-    WRITE_TODOS_SYSTEM_PROMPT,
-)
+from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
     create_explore_subagent,
@@ -97,13 +92,7 @@ def _output_invariants_system_prompt(working_directory: str) -> str:
     prefix = working_directory.rstrip("/") + "/"
     return f"""\
 <output_invariants>
-Applies to ALL user-visible text:
-
-- NEVER include "{prefix}" anywhere in user-visible output.
-- Any repository file path shown to the user MUST be repo-relative (no leading "/").
-  <example>{prefix}daiv/core/utils.py -> daiv/core/utils.py</example>
-- Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
-- Before emitting any user-visible text, check for "{prefix}" and rewrite to repo-relative form.
+- Show repository paths repo-relative in user-visible text (e.g. `daiv/core/utils.py:42`), never under "{prefix}"; link them with platform-native blob URLs on the branch.
 
 {filesystem_absolute_path_directive(working_directory)}
 </output_invariants>"""  # noqa: E501
@@ -141,15 +130,16 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     # still contribute a ``system_prompt_suffix`` we want to keep. Strip to drop
     # leading whitespace introduced by an empty base + suffix concat.
     inherited = (request.system_prompt or "").strip()
-    inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
-    return (
-        _output_invariants_system_prompt(working_directory)
-        + "\n\n"
-        + cast("str", daiv_system_prompt.content).strip()
-        + "\n\n"
-        + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMINDER
+    return "\n\n".join(
+        filter(
+            None,
+            (
+                _output_invariants_system_prompt(working_directory),
+                cast("str", daiv_system_prompt.content).strip(),
+                inherited,
+            ),
+        )
     )
 
 
@@ -182,8 +172,8 @@ async def create_daiv_agent(
         settings: The run's resolved agent settings: its model chains, recursion limit, web toggles and switches.
         ctx: The runtime context.
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
-        artifact_store: Where ``publish_artifact`` keeps files; ``None`` leaves the tool out (the run executor always
-            passes one).
+        artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
+            tools out (the run executor always passes one).
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
             output state at turn end. For eval harnesses; keep ``False`` for normal runs.

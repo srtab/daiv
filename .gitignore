@@ -186,3 +186,5 @@ daiv-traces/
 predictions.json
 
 .worktrees/
+
+eval-runs/

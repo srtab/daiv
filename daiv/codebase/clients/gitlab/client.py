@@ -44,7 +44,7 @@ from core.utils import async_download_url, build_uri, is_git_auth_error_text, is
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
 
     from gitlab.v4.objects import (
         Project,
@@ -417,7 +417,7 @@ class GitLabClient(RepoClient):
         return None
 
     @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+    def load_repo(self, repository: Repository, sha: str) -> Generator[Repo]:
         """
         Clone a repository to a temporary directory.
 

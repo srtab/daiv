@@ -25,7 +25,7 @@ from codebase.clients import RepoClient
 from codebase.clients.utils import safe_slug
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from codebase.clients.base import Emoji, WebhookSetupResult
 
@@ -194,7 +194,7 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support webhooks")
 
     @contextmanager
-    def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
+    def load_repo(self, repository: Repository, sha: str) -> Generator[Repo]:
         """
         Clone a repository to a temporary directory and checkout the specified commit.
 

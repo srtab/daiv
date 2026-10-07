@@ -1,4 +1,4 @@
-// Per-tool UI strategies. Three exports on window:
+// Per-tool UI strategies. Four exports on window:
 //
 //   toolSignature(name, argsStr, result, status)
 //     -> { label, path, badges: [{text, tone}] }
@@ -6,8 +6,12 @@
 //   toolBodyHTML(name, argsStr, result, status)
 //     -> HTML string rendered inside <details> when the card is expanded.
 //
-//   artifactItem(seg)
-//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... }
+//   artifactItem(seg, latestById)
+//     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
+//        showing the newest result `latestById` holds for its artifact id
+//
+//   parseArtifactResult(result)
+//     -> the parsed publish_artifact success result, or null
 //
 // Every extraction is defensive: if JSON doesn't parse or expected keys are missing,
 // we return a neutral signature/body rather than throwing. Unknown tools fall
@@ -417,7 +421,13 @@
     };
   };
 
-  // publish_artifact returns JSON ({"status":"published","url":...}) on success and an
+  const sigFetchArtifact = (args, result, argsStr) => {
+    const target = pickKeyOrPartial(args, ["path"], argsStr) || pickKeyOrPartial(args, ["artifact_id"], argsStr) || "";
+    const failed = ERROR_PREFIX_RE.test(String(result ?? "").trim());
+    return { label: "fetch_artifact", path: target, badges: failed ? [badge("error", "danger")] : [] };
+  };
+
+  // publish_artifact returns JSON ({"status":"published"|"updated","url":...}) on success and an
   // "Error publishing artifact..." string otherwise.
   const parseArtifactResult = (result) => {
     const parsed = parseArgs(result);
@@ -446,6 +456,7 @@
     web_search: sigWebSearch,
     gitlab: sigGitlab,
     gh: sigGh,
+    fetch_artifact: sigFetchArtifact,
   };
 
   const basename = (p) => {
@@ -456,27 +467,36 @@
 
   const ARTIFACT_KIND_LABELS = { markdown: "Markdown", html: "HTML", image: "Image", text: "Text", other: "File" };
 
+  window.parseArtifactResult = parseArtifactResult;
+
   // A server-built segment reads `done` with a null result until its ToolMessage is
   // checkpointed, so a missing result means still publishing unless RUN_ERROR marked it.
-  window.artifactItem = (seg) => {
+  window.artifactItem = (seg, latestById) => {
     const argsStr = seg.args;
     const args = parseArgs(argsStr);
     const pathArg = pickKeyOrPartial(args, ["path"], argsStr) ?? "";
 
     if (seg.status === "running" || (seg.result == null && seg.status !== "error")) {
-      return { state: "running", title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg };
+      return {
+        state: "running",
+        title: pickKeyOrPartial(args, ["title"], argsStr) || pathArg,
+        updating: Boolean(pickKeyOrPartial(args, ["artifact_id"], argsStr)),
+      };
     }
 
     const parsed = parseArtifactResult(seg.result);
     if (parsed) {
+      const current = (parsed.id && latestById?.get(parsed.id)) || parsed;
       return {
         state: "published",
-        title: parsed.title || basename(pathArg),
-        filename: parsed.filename || "",
-        kindLabel: ARTIFACT_KIND_LABELS[parsed.kind] || "",
-        sizeLabel: parsed.size != null ? formatBytes(parsed.size) : "",
-        url: parsed.url,
-        download_url: parsed.download_url || "",
+        id: parsed.id || "",
+        updated: current.status === "updated",
+        title: current.title || basename(pathArg),
+        filename: current.filename || "",
+        kindLabel: ARTIFACT_KIND_LABELS[current.kind] || "",
+        sizeLabel: current.size != null ? formatBytes(current.size) : "",
+        url: current.url,
+        download_url: current.download_url || "",
       };
     }
 

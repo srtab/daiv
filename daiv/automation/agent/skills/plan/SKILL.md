@@ -37,7 +37,7 @@ Before exploring, determine which tier the task falls into. This drives how much
 
 Scale exploration effort to complexity.
 
-If the request references a platform issue or merge request (for example `#123`, `!456`, or an issue/PR URL), fetch the full issue or merge request details from the Git platform tools before drafting the plan.
+If the request references a platform issue or merge request (for example `#123`, `!456`, or an issue/PR URL), fetch its full details from the Git platform tools before drafting the plan. An issue already in the latest `<issue>` block of the conversation needs no fetch unless you need its comments or its description was cut.
 
 **Simple tasks:** Read the specific files that need to change. Run a few targeted greps to verify the change fits existing patterns.
 

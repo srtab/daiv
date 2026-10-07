@@ -34,6 +34,11 @@
             <span class="text-gray-500">
                 {% blocktranslate with when=artifact.created_at|naturaltime %}Published {{ when }}{% endblocktranslate %}
             </span>
+            {% if artifact.updated_at %}
+            <span class="text-gray-500">
+                {% blocktranslate with when=artifact.updated_at|naturaltime %}Updated {{ when }}{% endblocktranslate %}
+            </span>
+            {% endif %}
         </div>
     </div>
     {% if previewable %}

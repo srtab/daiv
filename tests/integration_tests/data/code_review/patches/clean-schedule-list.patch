@@ -1,0 +1,73 @@
+diff --git a/daiv/schedules/templates/schedules/_schedule_row.html b/daiv/schedules/templates/schedules/_schedule_row.html
+index 1fe5e10..2729aa7 100644
+--- a/daiv/schedules/templates/schedules/_schedule_row.html
++++ b/daiv/schedules/templates/schedules/_schedule_row.html
+@@ -52,6 +52,9 @@
+     </div>
+ 
+     <span class="block min-w-0 break-words pr-10 text-[15px] font-medium text-white">{{ schedule.name }}</span>
++    {% if schedule.last_run_status %}
++    <span class="mt-1 text-xs text-gray-500">Last run: {{ schedule.last_run_status|lower }}</span>
++    {% endif %}
+ 
+     <div class="mt-2 flex flex-wrap items-center gap-1.5">
+         {% if schedule.is_fired_one_off %}
+diff --git a/daiv/schedules/views.py b/daiv/schedules/views.py
+index 501d72f..c79f2c2 100644
+--- a/daiv/schedules/views.py
++++ b/daiv/schedules/views.py
+@@ -18,7 +18,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+ from mcp_connectors.selection import mcp_picker_context
+ from sandbox_envs.selection import resolve_repo_envs
+ from sandbox_envs.services import env_picker_context
+-from sessions.models import SessionOrigin
++from sessions.models import Run, SessionOrigin
+ from sessions.services import RepoTarget, submit_batch_runs
+ 
+ from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
+@@ -71,6 +71,21 @@ def _template_picker_payload() -> list[dict]:
+     return [t.to_picker_dict() for t in qs]
+ 
+ 
++def _attach_last_run_status(schedules) -> None:
++    """Set ``last_run_status`` on each schedule: the status of the newest run of its last batch.
++
++    ``None`` for a schedule that never fired or whose batch rows were purged. One query for
++    the whole page.
++    """
++    batch_ids = [schedule.last_run_batch_id for schedule in schedules if schedule.last_run_batch_id is not None]
++    latest_by_batch: dict = {}
++    runs = Run.objects.filter(batch_id__in=batch_ids).order_by("batch_id", "-created_at").only("batch_id", "status")
++    for run in runs:
++        latest_by_batch.setdefault(run.batch_id, run.status)
++    for schedule in schedules:
++        schedule.last_run_status = latest_by_batch.get(schedule.last_run_batch_id)
++
++
+ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
+     model = ScheduledJob
+     template_name = "schedules/schedule_list.html"
+@@ -83,6 +98,7 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
+     def get_context_data(self, **kwargs):
+         context = super().get_context_data(**kwargs)
+         context["schedule_templates"] = _template_picker_payload()
++        _attach_last_run_status(context["schedules"])
+         return context
+ 
+ 
+@@ -187,6 +203,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+     def _render_error_response(self, request, schedule) -> HttpResponse:
+         """Render the current schedule row and signal HTMX to roll back the toggle attempt."""
+         schedule.refresh_from_db()
++        _attach_last_run_status([schedule])
+         html = render_to_string(
+             "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+         )
+@@ -219,6 +236,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+             else:
+                 schedule.next_run_at = None
+             schedule.save(update_fields=["is_enabled", "next_run_at", "modified"])
++        _attach_last_run_status([schedule])
+         html = render_to_string(
+             "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+         )

@@ -21,7 +21,7 @@ from langchain_core.tracers.context import register_configure_hook
 from core.models import ProviderType
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Generator, Mapping
 
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.outputs import LLMResult
@@ -249,7 +249,7 @@ register_configure_hook(_usage_metadata_var, inheritable=True)
 
 
 @contextmanager
-def track_usage_metadata() -> Iterator[CostAwareUsageMetadataCallbackHandler]:
+def track_usage_metadata() -> Generator[CostAwareUsageMetadataCallbackHandler]:
     """Activate a ``CostAwareUsageMetadataCallbackHandler`` for the enclosed block.
 
     The handler is auto-propagated to every nested ``Runnable`` invocation (including

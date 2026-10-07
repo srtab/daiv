@@ -18,6 +18,7 @@ from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
+from .constants import REPO_PATH
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
 from .schemas import Image
 
@@ -241,6 +242,18 @@ def final_assistant_text(messages: Sequence[BaseMessage]) -> str | None:
             return text[:FINAL_ASSISTANT_TEXT_MAX_CHARS].rstrip() + "…[truncated]"
         return text
     return None
+
+
+_WORKSPACE_PATH_PREFIX = re.compile(rf"(?<![\w.~/-]){re.escape(REPO_PATH)}/(?=[\w-]|\.[\w./-])")
+
+
+def repo_relative_text(text: str) -> str:
+    """``text`` with the workspace prefix removed from every repository path, for text DAIV posts to the platform.
+
+    Only a prefix that starts a path is removed; one right after a word or path character, as in a URL's path or a
+    longer path, is kept. The root itself, with or without a trailing slash, is kept since it has no repo-relative form.
+    """
+    return _WORKSPACE_PATH_PREFIX.sub("", text)
 
 
 def conversation_thread_id() -> str | None:

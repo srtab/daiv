@@ -1,0 +1,82 @@
+diff --git a/daiv/sessions/filters.py b/daiv/sessions/filters.py
+index f615097..4ddceaf 100644
+--- a/daiv/sessions/filters.py
++++ b/daiv/sessions/filters.py
+@@ -31,6 +31,7 @@ class SessionFilter(django_filters.FilterSet):
+     mr = django_filters.NumberFilter(method="filter_mr")
+     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
+     batch = django_filters.UUIDFilter(method="filter_batch")
++    mine = django_filters.BooleanFilter(method="filter_mine")
+     range = django_filters.ChoiceFilter(choices=RANGE_CHOICES, method="filter_range")
+     # Dates filter last_active_at (the column the list sorts on and every row shows).
+     date_from = django_filters.DateFilter(field_name="last_active_at", lookup_expr="date__gte")
+@@ -51,6 +52,14 @@ class SessionFilter(django_filters.FilterSet):
+     def filter_batch(self, queryset, name, value):
+         return queryset.filter(runs__batch_id=value).distinct()
+ 
++    def filter_mine(self, queryset, name, value):
++        # "Started by me": the sessions the user owns outright, not every shared webhook thread
++        # they posted a comment on.
++        if not value or self.request is None:
++            return queryset
++        started = Session.objects.by_owner(self.request.user).values("pk")
++        return queryset.filter(pk__in=started)
++
+     def filter_mr(self, queryset, name, value):
+         # IIDs are per-project, so this pools every repository's request of that number unless
+         # ``repo`` is also given; the links DAIV publishes always pair the two.
+diff --git a/daiv/sessions/managers.py b/daiv/sessions/managers.py
+index 74b5722..674328c 100644
+--- a/daiv/sessions/managers.py
++++ b/daiv/sessions/managers.py
+@@ -10,37 +10,40 @@ if TYPE_CHECKING:
+ 
+ 
+ class SessionQuerySet(models.QuerySet["Session"]):
+-    def _owner_q(self, user: User) -> models.Q:
++    def _owner_q(self, user: User, *, include_run_actors: bool = True) -> models.Q:
+         """Ownership predicate shared by ``by_owner``/``visible_to``.
+ 
+         A user owns a session when they own the session row, match its
+         ``external_username``, subscribe to its schedule, or acted in any of its runs
+         (user FK or external_username on the Run). The run-level match preserves
+-        per-actor visibility on shared webhook threads.
++        per-actor visibility on shared webhook threads; ``include_run_actors=False`` drops it,
++        leaving the sessions the user started or subscribes to.
+         """
+         from sessions.models import Run
+ 
++        owner_q = (
++            models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
++        )
++        if not include_run_actors:
++            return owner_q
+         run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
+             models.Q(user=user) | models.Q(external_username=user.username)
+         )
+-        return (
+-            models.Q(user=user)
+-            | models.Q(external_username=user.username)
+-            | models.Q(scheduled_job__subscribers=user)
+-            | models.Exists(run_match)
+-        )
++        return owner_q | models.Exists(run_match)
+ 
+-    def by_owner(self, user: User) -> models.QuerySet[Session]:
++    def by_owner(self, user: User, *, include_run_actors: bool = False) -> models.QuerySet[Session]:
+         """Sessions the user owns (ownership only).
+ 
+         This is the visibility boundary for thread continuation / API lookups. It builds
+         with no platform-identity DB read, so it is safe to construct inside async query
+         chains (``await ...by_owner(user).aexists()``). Use :meth:`visible_to` for the
+         broader "can view" surface that also includes repo-read access.
++
++        ``include_run_actors`` also counts sessions the user only acted in (see ``_owner_q``).
+         """
+         if user.is_admin:
+             return self.all()
+-        return self.filter(self._owner_q(user)).distinct()
++        return self.filter(self._owner_q(user, include_run_actors=include_run_actors)).distinct()
+ 
+     def visible_to(self, user: User) -> models.QuerySet[Session]:
+         """Sessions the user may view: ownership OR a repository they can currently read.

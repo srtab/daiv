@@ -1,15 +1,24 @@
+import json
 import os
-from typing import TYPE_CHECKING
+import subprocess  # noqa: S404
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from functools import cache
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from langchain.messages import AIMessage
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.base import _BARE_NAME_HEURISTICS
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from core.constants import ModelName
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Generator, Sequence
+
     from langchain_core.messages import BaseMessage
     from langchain_core.tools import ToolCall
 
@@ -114,7 +123,7 @@ def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
     return [tool_call for message in messages if isinstance(message, AIMessage) for tool_call in message.tool_calls]
 
 
-def _models_from_env(env_var: str, default: list[ModelName]) -> list[str]:
+def _models_from_env(env_var: str, default: Sequence[str]) -> list[str]:
     """``default``, or a comma-separated model-spec override from ``env_var``.
 
     Any spec ``parse_model_spec`` accepts, not only a ``ModelName``. DAIV_EVAL_ALL_MODELS
@@ -136,7 +145,146 @@ MEMORY_CONSOLIDATION_MODELS = _models_from_env(
 # the decision check — is deterministic and never calls the judge.
 MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_4_6
 
+# Keep in step with EVAL_MODEL in the Makefile.
+EVAL_MODEL = "openrouter:z-ai/glm-5.2"
+
 ASK_USER_MODELS = _models_from_env("DAIV_EVAL_ASK_USER_MODELS", CODING_MODEL_NAMES)
+SKILLS_MODELS = _models_from_env("DAIV_EVAL_SKILLS_MODELS", CODING_MODEL_NAMES)
+TODOS_MODELS = _models_from_env("DAIV_EVAL_TODOS_MODELS", [EVAL_MODEL])
+WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL])
+SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
+CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
+
+
+def final_text(messages: Sequence[BaseMessage]) -> str:
+    return messages[-1].text if messages and isinstance(messages[-1], AIMessage) else ""
+
+
+async def run_agent_once(
+    model_name: str, prompt: str, *, interrupt_on: dict[str, bool] | None = None, ask_user_enabled: bool = True
+) -> dict:
+    """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    from sandbox_envs.services import build_sandbox_spec
+
+    from automation.agent.graph import create_daiv_agent
+    from automation.agent.workspace.disk import DiskWorkspace
+    from codebase.base import Scope
+    from codebase.context import set_runtime_ctx
+
+    async with set_runtime_ctx(
+        repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=await build_sandbox_spec(None)
+    ) as ctx:
+        agent = await create_daiv_agent(
+            settings=agent_settings_on(model_name, ctx),
+            ctx=ctx,
+            auto_commit_changes=False,
+            checkpointer=InMemorySaver(),
+            interrupt_on=interrupt_on,
+            workspace=DiskWorkspace(ctx),
+            ask_user_enabled=ask_user_enabled,
+        )
+        return await agent.ainvoke(
+            {"messages": [{"role": "user", "content": prompt}]},
+            context=ctx,
+            config={"configurable": {"thread_id": "1"}},
+        )
+
+
+@dataclass
+class RunMetrics:
+    """One measured agent call. ``measure`` fills ``usage``; the test sets ``messages`` and any suite ``extra``."""
+
+    messages: Sequence[BaseMessage] = ()
+    extra: dict[str, Any] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)
+
+    def as_row(self) -> dict[str, Any]:
+        return {**self.usage, "turns": sum(isinstance(message, AIMessage) for message in self.messages), **self.extra}
+
+
+@contextmanager
+def measure(request: pytest.FixtureRequest) -> Generator[RunMetrics]:
+    """Record the enclosed agent call's tokens and cost on ``request.node.eval_metrics``.
+
+    Usage is recorded even when the block raises, so a failing case still reports what it spent. Keep judge calls
+    outside the block: everything the block calls is counted.
+    """
+    metrics = RunMetrics()
+    request.node.eval_metrics = metrics
+    with track_usage_metadata() as handler:
+        try:
+            yield metrics
+        finally:
+            summary = build_usage_summary(handler)
+            metrics.usage = {
+                "input_tokens": summary.input_tokens,
+                "output_tokens": summary.output_tokens,
+                "cache_read_tokens": sum(
+                    (usage.get("input_token_details") or {}).get("cache_read", 0)
+                    for usage in handler.usage_metadata.values()
+                ),
+                "cost": float(summary.cost_usd) if summary.cost_usd is not None else None,
+            }
+
+
+@cache
+def _git_sha() -> str:
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+
+    sha = git("rev-parse", "HEAD").stdout.strip() or "unknown"
+    return sha if git("diff", "--quiet", "HEAD").returncode == 0 else f"{sha}+dirty"
+
+
+def eval_metrics_row(item: pytest.Item, *, passed: bool | None, run: int, git_sha: str) -> dict[str, Any]:
+    """One ``evals/compare_runs.py`` row: the test's identity and outcome plus what ``measure`` recorded."""
+    callspec = getattr(item, "callspec", None)
+    marker = item.get_closest_marker("langsmith")
+    metrics: RunMetrics | None = getattr(item, "eval_metrics", None)
+    return {
+        "nodeid": item.nodeid,
+        "suite": (marker.kwargs.get("test_suite_name") if marker else None) or item.module.__name__,
+        "case": item.name,
+        "model": callspec.params.get("model_name") if callspec else None,
+        "run": run,
+        "git_sha": git_sha,
+        "passed": passed,
+        "input_tokens": None,
+        "output_tokens": None,
+        "cache_read_tokens": None,
+        "turns": None,
+        "cost": None,
+        **(metrics.as_row() if metrics else {}),
+    }
+
+
+def write_eval_metrics_row(item: pytest.Item, report: pytest.TestReport) -> None:
+    """Append an eval case's row for this pass to ``$DAIV_EVAL_METRICS_OUT``; a no-op when the variable is unset.
+
+    An eval case is a test taking ``eval_request``; other tests write nothing. Every eval case writes one row per pass,
+    with ``passed: null`` when it cast no vote:
+    - it skipped, or its setup failed;
+    - it never entered ``measure``, so made no measured agent call;
+    - it failed before the agent spent any tokens (a clone, GitLab or provider outage).
+    """
+    out = os.environ.get("DAIV_EVAL_METRICS_OUT")
+    if not out or "eval_request" not in item.fixturenames:
+        return
+    if report.when == "teardown" or (report.when == "setup" and report.passed):
+        return
+    metrics: RunMetrics | None = getattr(item, "eval_metrics", None)
+    voted = (
+        report.when == "call"
+        and not report.skipped
+        and metrics is not None
+        and (report.passed or metrics.usage.get("input_tokens"))
+    )
+    row = eval_metrics_row(
+        item, passed=report.passed if voted else None, run=int(os.environ.get("DAIV_EVAL_RUN", "1")), git_sha=_git_sha()
+    )
+    with Path(out).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row) + "\n")

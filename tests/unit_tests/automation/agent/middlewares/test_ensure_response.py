@@ -8,6 +8,7 @@ from automation.agent.middlewares.ensure_response import (
     MAX_EMPTY_RESPONSE_RETRIES,
     ensure_non_empty_response,
 )
+from automation.agent.synthetic import is_synthetic
 
 
 def _request(messages: list | None = None) -> ModelRequest:
@@ -34,6 +35,7 @@ class TestEnsureNonEmptyResponse:
 
         assert len(seen) == 1
         assert response.result[-1].text() == "Hello, I can help with that."
+        assert len(response.result) == 1
 
     async def test_returns_response_with_tool_calls_without_retrying(self):
         msg = AIMessage(content="", tool_calls=[{"name": "read_file", "args": {"path": "foo.py"}, "id": "tc-1"}])
@@ -53,6 +55,19 @@ class TestEnsureNonEmptyResponse:
         retry_messages = seen[1].messages
         assert retry_messages[-1].content == EMPTY_RESPONSE_NUDGE
         assert len(retry_messages) == len(seen[0].messages) + 1
+        assert response.result[0] is retry_messages[-1]
+        assert is_synthetic(response.result[0])
+        assert len(response.result) == 2
+
+    async def test_both_retries_share_one_saved_nudge(self):
+        handler, seen = _handler([AIMessage(content=""), AIMessage(content=""), AIMessage(content="Third time.")])
+        response = await ensure_non_empty_response.awrap_model_call(_request(), handler)
+
+        assert len(seen) == 3
+        assert seen[1].messages[-1] is seen[2].messages[-1]
+        assert len(seen[2].messages) == len(seen[0].messages) + 1
+        assert response.result[0] is seen[2].messages[-1]
+        assert response.result[1].text() == "Third time."
 
     async def test_gives_up_after_max_retries(self):
         empty = AIMessage(content="")
@@ -63,6 +78,8 @@ class TestEnsureNonEmptyResponse:
         # The empty response is returned as-is so the agent loop ends instead of spinning.
         assert not response.result[-1].text()
         assert not response.result[-1].tool_calls
+        assert is_synthetic(response.result[0])
+        assert len(response.result) == 2
 
     async def test_does_not_mutate_original_request_messages(self):
         original_messages = [HumanMessage(content="hi")]

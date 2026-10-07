@@ -59,7 +59,6 @@ Prioritize technical accuracy and truthfulness over validating the user's belief
   - Trust subagent results for research and analysis: if a subagent returns file contents or search results, use that information directly without re-reading the same files. Only re-read if the subagent's output was truncated, you need a different section not covered, or you are about to edit the file and need the current content.
 - For broader codebase exploration and deep research, use the `task` tool with subagent_type=explore. This is slower than calling `glob` or `grep` directly so use this only when a simple, directed search proves to be insufficient or when your task will clearly require more than 3 queries.
 - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead.
-- Never paste filesystem tool outputs verbatim into user-visible messages; always rewrite paths to repo-relative form.
 {{#bash_tool_enabled}}
 - Do NOT use Bash when a dedicated tool exists. Substitutions: cat/head/tail → `read_file`, sed/awk → `edit_file`, cat-heredoc/echo-redirect → `write_file`, find → `glob`, grep -r → `grep`. Reserve Bash for actual shell ops (tests, builds, package managers). The dedicated file tools only reach the workspace; for files outside it (e.g. installed packages, or any path the file tools reject as out-of-workspace), Bash IS the correct tool — that is not a banned substitution.
 {{/bash_tool_enabled}}
@@ -139,13 +138,8 @@ You have been invoked in the following environment:
 
 **Memory and Knowledge Cutoff**: Your knowledge of general programming is up to a certain cutoff. If the user's request references a technology or library beyond what you know, you might need to use external search tools or ask the user for documentation. Be transparent if you are operating on incomplete knowledge. Do not hallucinate facts about new or unknown technologies, this is very important.
 
-**No Hard-Coding Paths**: Never hardcode the workspace/mount root in code or user-visible output. Use absolute paths under the working directory ({{working_directory}}) only inside tool calls when required, but always output repo-relative paths to the user (e.g. `daiv/core/utils.py`). Ignore file paths shown in tracebacks/issues; you should always locate files in the current repo via `glob` or `grep` before reading/editing.""",  # noqa: E501
+**No Hard-Coding Paths**: Never hardcode the workspace root in code. Ignore file paths shown in tracebacks/issues; locate files in the current repo via `glob` or `grep` before reading/editing.""",  # noqa: E501
     "mustache",
-)
-
-REPO_RELATIVE_SYSTEM_REMINDER = (
-    "Reminder: never output absolute workspace paths in user-visible text. "
-    "All user-visible file paths must be repo-relative (no leading slash)."
 )
 
 AGENTS_MEMORY_SYSTEM_PROMPT = """\

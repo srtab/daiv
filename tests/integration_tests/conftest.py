@@ -155,6 +155,15 @@ def _restore_providers(_provider_snapshot, django_db_blocker) -> None:
         Provider.invalidate_cache()
 
 
+@pytest.fixture
+def eval_request(request: pytest.FixtureRequest) -> pytest.FixtureRequest:
+    """The pytest request, for tests that cannot take ``request`` themselves: langsmith's test wrapper swallows it.
+
+    Taking it makes the test an eval case, which writes a row on every pass of ``make eval-prompts``.
+    """
+    return request
+
+
 _MISSING_KEY_REASON = (
     "OPENROUTER_API_KEY is not set. Export it, or add it to docker/local/app/config.secrets.env "
     "(loaded by the --envfile flag in `make integration-tests`)."
@@ -164,7 +173,8 @@ _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
     "registered markers, so a typo deselects everything and exits 5 (NO_TESTS_COLLECTED) with no "
     "indication the marker name was wrong — this suite names the cause instead. "
-    "Valid markers for this suite: diff_to_metadata, memory, sandbox, skills, deferred_frozen."
+    "Valid markers for this suite: ask_user, code_review, deferred_frozen, diff_to_metadata, memory, sandbox, skills, "
+    "subagents, todos, web_search."
 )
 
 
@@ -182,7 +192,7 @@ def _collected_integration_paths(config: pytest.Config) -> bool:
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Mark every integration test as needing DB access, and refuse to run this suite blind.
+    """Mark every integration test as needing DB access, async ones the session loop; refuse to run this suite blind.
 
     Required so pytest-django's ``django_db_setup`` actually creates the test
     schema: by default it skips DB creation when no test asks for DB access
@@ -199,6 +209,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     ours = [item for item in items if _HERE in item.path.parents]
     for item in ours:
         item.add_marker(pytest.mark.django_db)
+        # langchain-openai's cached async httpx client outlives a per-test loop ("Event loop is closed").
+        if pytest_asyncio.is_async_test(item):
+            item.add_marker(pytest.mark.asyncio(loop_scope="session"), append=False)
 
     # A -m that deselected everything: pytest exits 5 (NO_TESTS_COLLECTED) with no explanation, so
     # a typo in the Makefile's marker expression would fail opaquely instead of naming the cause.
@@ -234,6 +247,15 @@ async def sandbox_session(runtime_ctx):
         yield session
     finally:
         await session.release(resumable=False)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item):
+    from .utils import write_eval_metrics_row
+
+    report = yield
+    write_eval_metrics_row(item, report)
+    return report
 
 
 def pytest_terminal_summary(terminalreporter) -> None:

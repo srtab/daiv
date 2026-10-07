@@ -16,8 +16,9 @@ from langgraph.types import Command
 from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, SKILLS_TOOL_NAME
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
+from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
 
@@ -35,25 +36,28 @@ SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
 
 
+def _keep_read_only(old: str | None, new: str | None) -> str | None:
+    """Read-only mode lasts until cleared (``None``): another skill's mode, even one set in the same turn, keeps it."""
+    return old if old == SKILL_MODE_READ_ONLY and new is not None else new
+
+
 class DAIVSkillsState(SkillsState):
     """Extended skills state that tracks the active skill mode."""
 
-    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr]]
+    active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _keep_read_only]]
 
 
-SKILLS_TOOL_NAME = "skill"
 SKILLS_TOOL_DESCRIPTION = """Execute a skill within the main conversation.
 
 Usage notes:
   - Use this tool with the skill name and optional arguments
   - If the skill does not exist, the tool will return an error.
   - Only use skills listed in <available_skills>.
-  - CRITICAL: NEVER call this tool in parallel with other tools. The skill tool MUST be the ONLY tool call in any assistant turn that uses it. Calling skill alongside other tools will cause an API error.
 
 Examples:
   - `skill: "pdf"` - invoke the pdf skill
   - `skill: "code-review", skill_args: ["my-branch"]` - invoke with arguments
-"""  # noqa: E501
+"""
 
 SKILLS_SYSTEM_PROMPT = f"""\
 ## Skills
@@ -74,10 +78,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 </example>
 
 **Important:**
-- When a skill is relevant, you must invoke the `{SKILLS_TOOL_NAME}` tool IMMEDIATELY as your first action.
-- NEVER just announce or mention a skill in your text response without actually calling the `{SKILLS_TOOL_NAME}` tool.
-- This is a BLOCKING REQUIREMENT: invoke the relevant `{SKILLS_TOOL_NAME}` tool BEFORE generating any other response about the task.
-- CRITICAL: The `{SKILLS_TOOL_NAME}` tool MUST be the ONLY tool call in its assistant turn. NEVER call `{SKILLS_TOOL_NAME}` in parallel with other tools (e.g., do NOT call `{SKILLS_TOOL_NAME}` and `gitlab` at the same time). Other tools can be called in subsequent turns after the skill has been processed.
+- When a skill in <available_skills> matches the request, call the `{SKILLS_TOOL_NAME}` tool before other work on it. Naming a skill in text without calling the tool does nothing.
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
@@ -279,9 +280,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         skill activation and skill exit. Filtering at request-time invalidates the
         Anthropic prompt cache and forces a full prefix re-create on the next call.
         """
-        if (
-            request.tool_call["name"] in WRITE_TOOL_NAMES
-            and request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+        if request.tool_call["name"] in WRITE_TOOL_NAMES and (
+            request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+            or self._calls_read_only_skill_this_turn(request.state)
         ):
             return ToolMessage(
                 content=(
@@ -294,12 +295,34 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return await handler(request)
 
     @staticmethod
+    def _calls_read_only_skill_this_turn(state: dict) -> bool:
+        """Whether the turn being executed also calls a read-only skill.
+
+        The skill tool's mode update lands only after every call of the turn has run, so a write
+        called beside it still sees the previous ``active_skill_mode``.
+        """
+        last_ai = next((m for m in reversed(state.get("messages", [])) if isinstance(m, AIMessage)), None)
+        if last_ai is None:
+            return False
+
+        read_only_skills = {
+            skill["name"]
+            for skill in state.get("skills_metadata", [])
+            if skill.get("metadata", {}).get("mode") == SKILL_MODE_READ_ONLY
+        }
+        return any(
+            call["name"] == SKILLS_TOOL_NAME and call["args"].get("skill") in read_only_skills
+            for call in last_ai.tool_calls
+        )
+
+    @staticmethod
     def _has_user_followup(messages: list[AnyMessage]) -> bool:
-        """Check if the user has sent a follow-up message after the agent responded to a skill injection.
+        """Check if the user has sent a follow-up message after the agent replied while a skill was active.
 
         The pattern we look for (walking backwards from the end):
         1. The latest message is a HumanMessage (user follow-up)
-        2. Before it, there's an AIMessage (agent's plan/response)
+        2. Before it, past any synthetic messages, there's an AIMessage (agent's plan/response) rather than
+           another message a person wrote
         """
         if len(messages) < 2:
             return False
@@ -312,7 +335,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             msg = messages[i]
             if isinstance(msg, AIMessage):
                 return True
-            if isinstance(msg, HumanMessage):
+            if is_person_message(msg):
                 # Hit another human message before finding an AI message — no agent response yet
                 break
 
@@ -373,12 +396,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
-            update: dict = {
-                "messages": [
-                    ToolMessage(content=f"Launching skill '{skill}'...", tool_call_id=runtime.tool_call_id),
-                    HumanMessage(content=body),
-                ]
-            }
+            update: dict = {"messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)]}
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
 

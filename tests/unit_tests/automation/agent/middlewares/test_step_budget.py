@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
+import pytest
 from langchain.agents.middleware import ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+from automation.agent.synthetic import is_synthetic
 
 
 def _request() -> ModelRequest:
@@ -43,17 +45,17 @@ class TestStepBudgetMiddleware:
 
     def test_warning_reminder_in_warn_zone(self):
         with _patched_config(recursion_limit=500, step=470):
-            reminder = _middleware()._budget_reminder()
-        assert reminder is not None
+            band, text = _middleware()._budget_reminder()
+        assert band == "warn"
         # 30 supersteps left ≈ 15 turns
-        assert "15 tool-call turns" in reminder
-        assert "hard-stopped" in reminder
+        assert "15 tool-call turns" in text
+        assert "hard-stopped" in text
 
     def test_finalize_reminder_near_limit(self):
         with _patched_config(recursion_limit=500, step=490):
-            reminder = _middleware()._budget_reminder()
-        assert reminder is not None
-        assert "NOW" in reminder
+            band, text = _middleware()._budget_reminder()
+        assert band == "finalize"
+        assert "NOW" in text
 
     def test_no_reminder_without_recursion_limit_in_config(self):
         with _patched_config(recursion_limit=None, step=470):
@@ -80,7 +82,7 @@ class TestStepBudgetMiddleware:
         with _patched_config(recursion_limit=500, step=937):  # consumed 470 → 30 remaining
             reminder = middleware._budget_reminder()
         assert reminder is not None
-        assert "15 tool-call turns" in reminder
+        assert "15 tool-call turns" in reminder[1]
 
     def test_baseline_captured_once_and_not_re_anchored(self):
         # The baseline is anchored on the first call and never re-captured, so consumption keeps
@@ -105,7 +107,7 @@ class TestStepBudgetMiddleware:
             assert middleware._budget_reminder() is None
         assert middleware._baseline_step == 500
 
-    async def test_wrap_model_call_appends_reminder_to_request(self):
+    async def test_wrap_model_call_sends_and_saves_the_reminder(self):
         seen_requests = []
 
         async def handler(request: ModelRequest) -> ModelResponse:
@@ -114,11 +116,13 @@ class TestStepBudgetMiddleware:
 
         request = _request()
         with _patched_config(recursion_limit=500, step=470):
-            await _middleware().awrap_model_call(request, handler)
+            response = await _middleware().awrap_model_call(request, handler)
 
-        assert len(seen_requests[0].messages) == 2
-        assert "tool-call turns" in seen_requests[0].messages[-1].content
-        # The reminder is ephemeral: the original request is untouched.
+        sent = seen_requests[0].messages[-1]
+        assert "tool-call turns" in sent.content
+        assert response.result[0] is sent
+        assert is_synthetic(sent)
+        assert response.result[1].content == "ok"
         assert len(request.messages) == 1
 
     async def test_wrap_model_call_passes_request_through_far_from_limit(self):
@@ -133,3 +137,47 @@ class TestStepBudgetMiddleware:
             await _middleware().awrap_model_call(request, handler)
 
         assert seen_requests[0] is request
+
+    async def test_each_band_is_sent_once(self):
+        seen_requests = []
+
+        async def handler(request: ModelRequest) -> ModelResponse:
+            seen_requests.append(request)
+            return ModelResponse(result=[AIMessage(content="ok")])
+
+        middleware = _middleware()
+        with _patched_config(recursion_limit=500, step=470):
+            await middleware.awrap_model_call(_request(), handler)
+        second_request = _request()
+        with _patched_config(recursion_limit=500, step=472):
+            second_response = await middleware.awrap_model_call(second_request, handler)
+
+        assert seen_requests[1] is second_request
+        assert len(second_response.result) == 1
+
+    async def test_finalize_band_still_fires_after_the_warning(self):
+        async def handler(request: ModelRequest) -> ModelResponse:
+            return ModelResponse(result=[AIMessage(content="ok")])
+
+        middleware = _middleware()
+        with _patched_config(recursion_limit=500, step=470):
+            await middleware.awrap_model_call(_request(), handler)
+        with _patched_config(recursion_limit=500, step=490):
+            response = await middleware.awrap_model_call(_request(), handler)
+
+        assert "NOW" in response.result[0].content
+
+    async def test_band_is_resent_when_the_model_call_fails(self):
+        async def failing(request: ModelRequest) -> ModelResponse:
+            raise RuntimeError("provider down")
+
+        async def handler(request: ModelRequest) -> ModelResponse:
+            return ModelResponse(result=[AIMessage(content="ok")])
+
+        middleware = _middleware()
+        with _patched_config(recursion_limit=500, step=470), pytest.raises(RuntimeError):
+            await middleware.awrap_model_call(_request(), failing)
+        with _patched_config(recursion_limit=500, step=470):
+            response = await middleware.awrap_model_call(_request(), handler)
+
+        assert is_synthetic(response.result[0])

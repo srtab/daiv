@@ -19,7 +19,7 @@ from sessions.models import Run, Session
 from sessions.pipeline_watch.service import PipelineWatch
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable
     from contextlib import AbstractAsyncContextManager
 
     from langchain.agents import CompiledAgent
@@ -210,7 +210,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
 
 
 @asynccontextmanager
-async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncIterator[AgentRun]:
+async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
     # Imported here so django.setup(), which reaches this module via executor.tasks, never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec

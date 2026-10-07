@@ -21,6 +21,7 @@ from sandbox_envs.spec import SandboxSpec
 from accounts.models import Role
 from accounts.models import User as AccountUser
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
+from automation.agent.artifacts import ArtifactError, ArtifactFile
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -281,25 +282,43 @@ class FakeWorkspace:
 
 @dataclass
 class FakeArtifactStore:
-    """An ``ArtifactStore`` a test scripts: ``accepts`` answers ``aaccepts``, ``error`` makes ``astore`` raise, and
-    ``asked`` / ``stored`` record the calls."""
+    """An ``ArtifactStore`` a test scripts: ``accepts`` answers ``aaccepts``, ``error`` makes ``astore`` and ``aread``
+    raise, ``artifacts`` holds what ``aread`` finds by id, and ``asked`` / ``stored`` / ``read`` record the calls."""
 
     max_bytes: int = 10 * 1024 * 1024
     per_run_max: int = 20
     accepts: bool = True
     error: Exception | None = None
+    artifacts: dict[str, ArtifactFile] = field(default_factory=dict)
     asked: list[str] = field(default_factory=list)
     stored: list[dict[str, Any]] = field(default_factory=list)
+    read: list[tuple[str, str]] = field(default_factory=list)
 
     async def aaccepts(self, thread_id: str) -> bool:
         self.asked.append(thread_id)
         return self.accepts
 
-    async def astore(self, *, thread_id: str, filename: str, content: bytes, title: str = "") -> str:
+    async def astore(
+        self, *, thread_id: str, filename: str, content: bytes, title: str = "", artifact_id: str = ""
+    ) -> str:
         if self.error is not None:
             raise self.error
-        self.stored.append({"thread_id": thread_id, "filename": filename, "content": content, "title": title})
-        return json.dumps({"status": "published", "filename": filename})
+        self.stored.append({
+            "thread_id": thread_id,
+            "filename": filename,
+            "content": content,
+            "title": title,
+            "artifact_id": artifact_id,
+        })
+        return json.dumps({"status": "updated" if artifact_id else "published", "filename": filename})
+
+    async def aread(self, *, thread_id: str, artifact_id: str) -> ArtifactFile:
+        self.read.append((thread_id, artifact_id))
+        if self.error is not None:
+            raise self.error
+        if artifact_id not in self.artifacts:
+            raise ArtifactError(f"this session has no artifact '{artifact_id}'.")
+        return self.artifacts[artifact_id]
 
 
 def _archive_members(archive: bytes | None) -> frozenset[str] | None:
