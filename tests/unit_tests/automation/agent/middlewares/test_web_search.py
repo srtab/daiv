@@ -8,7 +8,12 @@ from ddgs import ddgs as ddgs_module
 from ddgs.exceptions import DDGSException
 from pydantic import SecretStr
 
-from automation.agent.middlewares.web_search import WebSearchConfigurationError, WebSearchMiddleware, web_search_tool
+from automation.agent.middlewares.web_search import (
+    WEB_SEARCH_SYSTEM_PROMPT,
+    WebSearchConfigurationError,
+    WebSearchMiddleware,
+    web_search_tool,
+)
 
 
 @pytest.fixture
@@ -301,3 +306,24 @@ class TestWebSearchMiddleware:
         await middleware.awrap_model_call(request, handler)
 
         handler.assert_awaited_once_with(overridden_request)
+
+
+class TestWebSearchSystemPrompt:
+    @pytest.fixture
+    def prompt(self):
+        return WEB_SEARCH_SYSTEM_PROMPT.format(current_year=2026, previous_year=2025)
+
+    def test_states_year_rule(self, prompt):
+        assert "Year in queries:" in prompt
+        assert "Use the current year (2026) in queries" in prompt
+
+    def test_states_sources_rule(self, prompt):
+        assert "Sources:" in prompt
+        assert (
+            "List each result you used as `[<title>](<link>)`. "
+            'Skip entries with an empty `link` (the "Suggested answer" hint).'
+        ) in prompt
+
+    @pytest.mark.parametrize("emphasis", ["MANDATORY", "CRITICAL REQUIREMENT", "You MUST"])
+    def test_has_no_emphasis_markers(self, prompt, emphasis):
+        assert emphasis not in prompt
