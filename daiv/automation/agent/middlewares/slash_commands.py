@@ -24,7 +24,11 @@ if TYPE_CHECKING:
 
     from deepagents.graph import SubAgent
     from deepagents.middleware.subagents import CompiledSubAgent
+    from langchain_core.messages import BaseMessage
     from langchain_core.runnables import RunnableConfig
+
+    from automation.agent.agent_settings import AgentSettings
+    from slash_commands.base import SlashCommand
 
 logger = logging.getLogger("daiv.tools")
 
@@ -66,13 +70,13 @@ def _load_global_skill_metadata() -> list[SkillMetadata]:
 
 
 class SlashCommandMiddleware(AgentMiddleware):
-    """Intercept builtin slash commands before the sandbox session starts.
+    """Intercept builtin slash commands before the agent loop.
 
-    Runs ahead of ``SandboxMiddleware`` so commands that reset/inspect the thread
-    (``/clear``, ``/help``, ``/agents``, ...) short-circuit the run without paying for a
-    sandbox session. Builtin commands need only static context (the configured subagents)
-    plus, for ``/help``, the builtin + custom *global* skill list — all read from disk, so
-    this hook never touches the sandbox backend.
+    Commands that reset/inspect the thread (``/clear``, ``/help``, ``/agents``, ...) short-circuit
+    the run. The run executor starts no sandbox for one that does not read the repository
+    (:func:`skips_sandbox`), and ``/agents`` gets the subagents the agent was built with. Builtin
+    commands need only that static context plus, for ``/help``, the builtin + custom *global*
+    skill list — all read from disk, so this hook never touches the sandbox backend.
     """
 
     # Declares the skills state channels so this middleware may reset ``active_skill_mode`` when a
@@ -93,24 +97,11 @@ class SlashCommandMiddleware(AgentMiddleware):
         slash_command = self._extract_slash_command(messages, context.bot_username)
         if not slash_command:
             return None
-
-        command_classes = slash_command_registry.get_commands(scope=context.scope, command=slash_command.command)
-        if not command_classes:
+        command_class = _builtin_command_class(slash_command, context)
+        if command_class is None:
             return None
 
-        if len(command_classes) > 1:
-            logger.warning(
-                "[%s] Multiple `%s` slash commands found for scope '%s': %r",
-                self.name,
-                slash_command.command,
-                context.scope.value,
-                [c.command for c in command_classes],
-            )
-            return None
-
-        command = command_classes[0](
-            scope=context.scope, repo_id=context.repository.slug, bot_username=context.bot_username
-        )
+        command = command_class(scope=context.scope, repo_id=context.repository.slug, bot_username=context.bot_username)
         logger.info("[%s] Executing `%s` slash command", self.name, slash_command.raw)
 
         try:
@@ -143,7 +134,8 @@ class SlashCommandMiddleware(AgentMiddleware):
                 update["active_skill_mode"] = None
             return update
 
-    def _extract_slash_command(self, messages: list[AnyMessage], bot_username: str) -> SlashCommandCommand | None:
+    @staticmethod
+    def _extract_slash_command(messages: Sequence[BaseMessage], bot_username: str) -> SlashCommandCommand | None:
         latest_message = messages[-1]
         if not is_person_message(latest_message):
             return None
@@ -151,3 +143,29 @@ class SlashCommandMiddleware(AgentMiddleware):
         if not text_content or not text_content.strip():
             return None
         return parse_slash_command(text_content, bot_username)
+
+
+def skips_sandbox(messages: Sequence[BaseMessage], context: RuntimeCtx, settings: AgentSettings) -> bool:
+    """Whether the latest of ``messages`` invokes a builtin slash command that needs no sandbox:
+    ``SlashCommandMiddleware``, which ``settings`` enables, answers it without the agent loop, and it does not read the
+    repository (``SlashCommand.reads_repository``). The run executor then acquires none."""
+    if not settings.features.slash_commands or not messages:
+        return False
+    slash_command = SlashCommandMiddleware._extract_slash_command(messages, context.bot_username)
+    if slash_command is None:
+        return False
+    command_class = _builtin_command_class(slash_command, context)
+    return command_class is not None and not command_class.reads_repository
+
+
+def _builtin_command_class(slash_command: SlashCommandCommand, context: RuntimeCtx) -> type[SlashCommand] | None:
+    """The one builtin command ``slash_command`` names in ``context``'s scope; ``None`` for none or several (logged)."""
+    command_classes = slash_command_registry.get_commands(scope=context.scope, command=slash_command.command)
+    if len(command_classes) > 1:
+        logger.warning(
+            "Multiple `%s` slash commands found for scope '%s': %r",
+            slash_command.command,
+            context.scope.value,
+            [c.command for c in command_classes],
+        )
+    return command_classes[0] if len(command_classes) == 1 else None

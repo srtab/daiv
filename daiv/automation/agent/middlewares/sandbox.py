@@ -7,7 +7,7 @@ import logging
 import tarfile
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NotRequired
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
@@ -31,7 +31,7 @@ from core.sandbox.client import is_transient_sandbox_error
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from langgraph.runtime import Runtime
 
@@ -145,10 +145,25 @@ Safety / boundaries (never do these):
 - Do not run destructive or system-level commands.
 - Assume offline unless the user explicitly asks for network-dependent actions.
 
-Git: use it only to inspect (status/diff/log/show). Never commit, push, merge, cherry-pick, rebase, reset, stash, change git config or discard working-tree changes, even if the user asks; the harness commits and pushes your edits.
+Git: use it only to inspect (status/diff/log/show), and to merge a branch in when asked, as the Git context section describes. Never commit, push, cherry-pick, rebase, reset, stash, switch branches (`git switch`, `git checkout`), change git config or discard all working-tree changes, even if the user asks; the harness commits and pushes your edits. Restore a single file with `git restore <path>`.
 
 ## Scratchpad (`/workspace/tmp`)
 `/workspace/tmp` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/workspace/tmp` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory (`/workspace/repo`) instead, never `/workspace/tmp`."""  # noqa: E501
+
+
+_BRANCH_SWITCH_HINT = (
+    " Switching branches is unavailable: the Git middleware pushes to the branch the run started on. "
+    "To restore files, use `git restore <path>` (with `--source=<ref>`, `--ours` or `--theirs` as needed)."
+)
+_RULE_HINTS = {
+    "git merge": (
+        " Start the merge with exactly `git merge --no-commit --no-ff <ref>`, or undo one with `git merge --abort`. "
+        "Do not commit it yourself (`--continue` included): the Git middleware commits it at turn-end "
+        "(see the Git context section in the system prompt)."
+    ),
+    "git checkout": _BRANCH_SWITCH_HINT,
+    "git switch": _BRANCH_SWITCH_HINT,
+}
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
@@ -214,13 +229,14 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
 
     reason_label = result.denial_reason.value if result.denial_reason else "policy"
     matched = result.matched_rule or "unknown"
-    hint = (
-        " This capability is intentionally unavailable — do not rephrase or try synonyms. "
-        "The Git middleware commits and pushes file changes automatically at turn-end "
-        "(see the Git context section in the system prompt)."
-        if matched.startswith("git ")
-        else " This capability is intentionally unavailable — do not rephrase or try synonyms."
-    )
+    hint = _RULE_HINTS.get(matched)
+    if hint is None:
+        hint = " This capability is intentionally unavailable — do not rephrase or try synonyms."
+        if matched.startswith("git "):
+            hint += (
+                " The Git middleware commits and pushes file changes automatically at turn-end "
+                "(see the Git context section in the system prompt)."
+            )
     return (
         f"error: Command blocked by policy ({reason_label}): "
         f"the command or one of its sub-commands matches the rule '{matched}'.{hint}"
@@ -284,6 +300,16 @@ async def _seed_archives(working_dir: str) -> tuple[bytes, bytes | None]:
         asyncio.to_thread(_make_repo_archive, working_dir), asyncio.to_thread(_make_global_skills_archive)
     )
     return repo_archive, skills_archive
+
+
+async def acquire_sandbox(session: SandboxSession, ctx: RuntimeCtx, checkpointed: Mapping[str, Any]) -> None:
+    """Acquire the run's container, reusing the warm one ``checkpointed`` (the thread's last checkpoint values) names
+    when ``SandboxSession.acquire`` can, else starting one seeded from the worker's clone."""
+    await session.acquire(
+        prior_id=checkpointed.get("session_id"),
+        prior_fingerprint=checkpointed.get("sandbox_fingerprint"),
+        seed=lambda: _seed_archives(str(ctx.gitrepo.working_dir)),
+    )
 
 
 class BashFailure(Enum):
@@ -362,19 +388,20 @@ class SandboxState(AgentState):
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware that gives the agent its run's sandbox: the ``bash`` tool, the sandbox system prompt, and the run's
-    :class:`~automation.agent.workspace.session.SandboxSession`, acquired in ``abefore_agent``. The agent's file tools
+    Middleware that gives the agent its run's sandbox: the ``bash`` tool, the sandbox system prompt, and the record of
+    the run's :class:`~automation.agent.workspace.session.SandboxSession` in the checkpoint. The agent's file tools
     (``read_file``/``write_file``/``edit_file``/``ls``/``glob``/``grep``) then operate on the sandbox through the
     ``/workspace`` :class:`SandboxFileBackend`; it is the one true store, with no local mirror to keep in sync.
 
-    The session is the run executor's: it builds it before the graph runs and releases it afterwards, whatever the
-    agent did, so nothing here closes it. Subagents receive the parent's workspace, whose session the parent has
-    already acquired, so their hook does nothing.
+    The session is the run executor's: it acquires it (:func:`acquire_sandbox`) before building the agent, so the build
+    can read the repository's subagents from the container, and releases it afterwards, whatever the agent did. A turn
+    that skips the sandbox (``skips_sandbox``) acquires none. Subagents share the parent's session and record the same
+    values.
 
     Args:
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/workspace/repo``); the agent's repo
             root.
-        workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is acquired here.
+        workspace: The run's sandbox workspace; its ``bash`` backs the tool and its session is recorded here.
 
     Example:
         ```python
@@ -423,17 +450,16 @@ class SandboxMiddleware(AgentMiddleware):
         return bash_tool
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
-        """Acquire the run's sandbox session, reusing the thread's warm container when ``SandboxSession.acquire`` can,
-        and record it in the checkpoint for the next turn."""
+        """Record the container the executor acquired in the checkpoint, for the next turn to reuse."""
         session = self._session
-        if session.is_acquired:
+        session_id = session.session_id
+        if session_id is None:
             return None
-        session_id, fingerprint = await session.acquire(
-            prior_id=state.get("session_id"),
-            prior_fingerprint=state.get("sandbox_fingerprint"),
-            seed=lambda: _seed_archives(str(runtime.context.gitrepo.working_dir)),
-        )
-        return {"session_id": session_id, "sandbox_fingerprint": fingerprint}
+        session.mark_checkpointed()
+        recorded = {"session_id": session_id, "sandbox_fingerprint": session.fingerprint}
+        if all(state.get(key) == value for key, value in recorded.items()):
+            return None
+        return recorded
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

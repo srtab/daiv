@@ -45,10 +45,9 @@ def _injected(egress: EgressConfigRequest) -> list[str]:
 async def _started_request(spec: SandboxSpec, credential: GitEgressCredential | None) -> StartSessionRequest:
     """The request a fresh container is started with, for ``spec`` and the credential the run mints."""
     client = FakeSandboxClient.opened()
-    session_id, _ = await _session(client, spec, credential=credential).acquire(
-        prior_id=None, prior_fingerprint=None, seed=_seed()
-    )
-    return client.sessions[session_id].request
+    session = _session(client, spec, credential=credential)
+    await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+    return client.sessions[session.session_id].request
 
 
 def test_a_disabled_spec_has_no_session():
@@ -129,14 +128,16 @@ class TestAcquire:
         client = FakeSandboxClient.opened()
         spec = sandbox_spec()
         first = _session(client, spec, credential=_credential("tok-1"))
-        session_id, fingerprint = await first.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        await first.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        session_id = first.session_id
+        first.mark_checkpointed()
         await first.release(resumable=True)
 
         fresh = _credential("tok-2")
         second = _session(client, spec, credential=fresh)
-        acquired = await second.acquire(prior_id=session_id, prior_fingerprint=fingerprint, seed=_seed())
+        await second.acquire(prior_id=session_id, prior_fingerprint=spec.fingerprint, seed=_seed())
 
-        assert acquired == (session_id, fingerprint)
+        assert second.session_id == session_id
         assert client.method_names()[-2:] == ["session_exists", "update_egress"]
         assert _injected(client.sessions[session_id].egress) == [fresh.value.get_secret_value()]
 
@@ -215,9 +216,8 @@ class TestAcquire:
         client.sessions[prior_id].state = "stopped"
         session = _session(client, sandbox_spec(base_image="python:3.13"))
 
-        session_id, _ = await session.acquire(
-            prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed()
-        )
+        await session.acquire(prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed())
+        session_id = session.session_id
 
         assert client.calls_to("session_exists") == []
         assert client.calls_to("close_session") == [(prior_id, True)]
@@ -309,9 +309,8 @@ class TestAcquisition:
         prior_id = await _running(client, None)
         session = _session(client)
 
-        session_id, _ = await session.acquire(
-            prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed()
-        )
+        await session.acquire(prior_id=prior_id, prior_fingerprint=sandbox_spec().fingerprint, seed=_seed())
+        session_id = session.session_id
 
         assert (session_id, session.acquisition) == (prior_id, SandboxAcquisition.WARM)
 
@@ -322,7 +321,8 @@ class TestAcquisition:
         client.fail("session_exists", status=status)
         session = _session(client)
 
-        session_id, _ = await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+        await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+        session_id = session.session_id
 
         assert session_id != prior_id
         assert session.acquisition is SandboxAcquisition.GONE
@@ -490,7 +490,8 @@ class TestRefreshCredential:
         rotated = _credential("tok-2", host="gitlab.com")
         source = AsyncMock(side_effect=[_credential("tok-1", host="gitlab.com"), rotated])
         session = SandboxSession(client, sandbox_spec(), credential_source=source)
-        session_id, _ = await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+        await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=_seed())
+        session_id = session.session_id
 
         assert await session.refresh_credential() is True
 

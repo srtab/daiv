@@ -283,8 +283,6 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        # Must stay after SandboxMiddleware: before_agent hooks run in registration order, and GitMiddleware's pre-run
-        # check runs git in the session SandboxMiddleware acquires.
         GitMiddleware(
             workspace=workspace, settings=settings, auto_commit_changes=auto_commit_changes, capture_patch=capture_patch
         ),

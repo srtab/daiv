@@ -19,6 +19,7 @@ from ag_ui.core.events import (
     TextMessageStartEvent,
 )
 from copilotkit import LangGraphAGUIAgent
+from langchain_core.messages import HumanMessage
 from sessions.executor.lock import Held, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
@@ -354,7 +355,7 @@ class ChatRunStreamer:
             thread_id=self.thread_id,
             repo_id=self.repo_id,
             scope=Scope.GLOBAL,
-            input_messages=(),
+            input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
             ref=self.ref,

@@ -20,6 +20,10 @@ class SlashCommand(ABC):
     return — required because deleting the Redis checkpoint alone is undone when the same
     turn writes its final checkpoint back under the same ``thread_id``."""
 
+    reads_repository: ClassVar[bool] = False
+    """When ``True``, a sandbox run starts its sandbox for the command as for any turn, so what building the agent
+    reads from the repository (its subagents) is there. Otherwise the command runs without one."""
+
     def __init__(self, *, scope: Scope, repo_id: str, bot_username: str | None = None):
         self.scope = scope
         self.repo_id = repo_id

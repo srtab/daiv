@@ -70,7 +70,7 @@ def _mock_ctx(*_args, **_kwargs):
     ``_streamer``'s ref so the ref-fallback branch stays dormant here.
     """
     ctx = MagicMock()
-    entered = MagicMock()
+    entered = MagicMock(sandbox=None, sandbox_client=None)
     entered.repo.ref = "main"
     entered.repo.head_detached = False
     ctx.__aenter__ = AsyncMock(return_value=entered)
@@ -90,10 +90,17 @@ def _executor_stack():
         yield stack
 
 
-def _streamer(input_data=None) -> ChatRunStreamer:
+def _streamer(input_data=None, **kwargs) -> ChatRunStreamer:
     if input_data is None:
         input_data = SimpleNamespace(thread_id="t-stream", run_id="r-1")
-    return ChatRunStreamer(repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data)
+    return ChatRunStreamer(
+        repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data, **kwargs
+    )
+
+
+def test_the_run_spec_carries_the_prompt_as_the_turns_input():
+    """The stream sends the prompt itself; the executor reads it to skip the sandbox for a builtin slash command."""
+    assert _streamer(prompt="/help")._run_spec().input_messages == (HumanMessage(content="/help"),)
 
 
 def _mock_agent(events):
@@ -884,7 +891,7 @@ async def test_events_falls_back_and_self_heals_ref_when_branch_gone():
 
     def _fallback_ctx(*_args, **_kwargs):
         ctx = MagicMock()
-        entered = MagicMock()
+        entered = MagicMock(sandbox=None, sandbox_client=None)
         entered.repo.ref = "dev"  # differs from requested "main" → fallback happened
         ctx.__aenter__ = AsyncMock(return_value=entered)
         ctx.__aexit__ = AsyncMock(return_value=None)

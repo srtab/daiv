@@ -83,10 +83,11 @@ def acquired_session(
     egress: EgressConfigRequest | None = None,
     credential_source=None,
 ) -> SandboxSession:
-    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress``, for tests of
-    what runs on an already-acquired session."""
+    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress`` and recorded in the
+    checkpoint, for tests of what runs on an already-acquired session."""
     session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
     session._session_id, session._egress = session_id, egress
+    session.mark_checkpointed()
     return session
 
 
@@ -119,11 +120,12 @@ class FakeSandboxClient:
     ``close_session`` is idempotent, and ``update_egress`` 409s on a session started without egress.
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
-    unmatched commands succeed with empty output.
+    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge.
     """
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
-        self.responses = responses or {}
+        self.responses = dict(responses or {})
+        self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []

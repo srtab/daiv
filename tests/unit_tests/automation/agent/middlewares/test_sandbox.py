@@ -13,6 +13,7 @@ from automation.agent.middlewares.sandbox import (
     BashFailure,
     SandboxMiddleware,
     _run_bash_commands,
+    acquire_sandbox,
 )
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxEgressUnavailableError, SandboxSession
@@ -198,6 +199,18 @@ class TestBashToolPolicyEnforcement:
     async def test_git_clean_is_blocked(self, tmp_path: Path):
         output, run_mock = await self._invoke("git clean -fd", tmp_path)
         assert output.startswith("error:")
+        run_mock.assert_not_awaited()
+
+    async def test_a_committing_merge_is_blocked_with_the_no_commit_form_to_use(self, tmp_path: Path):
+        """The generic hint says not to try alternatives; here the agent must retry with `--no-commit`."""
+        output, run_mock = await self._invoke("git merge origin/main", tmp_path)
+        assert "git merge --no-commit --no-ff" in output
+        assert "do not rephrase" not in output
+        run_mock.assert_not_awaited()
+
+    async def test_a_branch_switch_is_blocked_with_git_restore_to_use(self, tmp_path: Path):
+        output, run_mock = await self._invoke("git checkout main", tmp_path)
+        assert "git restore" in output
         run_mock.assert_not_awaited()
 
     # --- Safe commands pass through ---
@@ -522,11 +535,12 @@ def _run_session(client: FakeSandboxClient, runtime: Mock, token: str | None) ->
 async def _turn(
     client: FakeSandboxClient, state: dict, runtime: Mock, *, token: str | None = None, thread_id: str | None = "t-1"
 ) -> dict:
-    """Run one agent turn: the sandbox hook, a command through the backend, then the executor's release. Return the
-    state the checkpoint would hold after it."""
+    """Run one agent turn: the executor's acquisition from the last checkpoint, the sandbox hook that records it, a
+    command through the backend, then the executor's release. Return the state the checkpoint would hold after it."""
     session = _run_session(client, runtime, token)
     workspace = SandboxWorkspace(session)
     middleware = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
+    await acquire_sandbox(session, runtime.context, state)
     state = {**state, **(await middleware.abefore_agent(state, runtime) or {})}
     await workspace.bash.run_commands(list(_PROBE), fail_fast=True)
     await session.release(resumable=thread_id is not None)
@@ -739,6 +753,7 @@ class TestPinnedSessionLifecycle:
         runtime = _make_agent_runtime(repo_dir)
         workspace = SandboxWorkspace(_run_session(client, runtime, "tok-1"))
         parent = SandboxMiddleware(agent_root="/workspace/repo", workspace=workspace)
+        await acquire_sandbox(workspace.session, runtime.context, {})
         state = await parent.abefore_agent({}, runtime)
         calls_before = list(client.calls)
 
