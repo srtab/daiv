@@ -1619,15 +1619,19 @@ on for the relevant <a href="../sandbox-environments/">Sandbox Environment</a>.<
 <tbody>
 <tr>
 <td>Git history mutation</td>
-<td><code>git commit</code>, <code>git push</code>, <code>git reset</code>, <code>git rebase</code>, <code>git reflog delete</code>, <code>git filter-branch</code>, <code>git filter-repo</code></td>
+<td><code>git commit</code>, <code>git push</code>, <code>git reset</code>, <code>git rebase</code>, <code>git merge</code> (except <code>git merge --no-commit --no-ff &lt;ref&gt;</code> with no flag that commits or fast-forwards, and <code>git merge --abort</code>), <code>git pull</code>, <code>git cherry-pick</code>, <code>git revert</code>, <code>git am</code>, <code>git reflog delete</code>, <code>git filter-branch</code>, <code>git filter-repo</code></td>
+</tr>
+<tr>
+<td>Branch switching</td>
+<td><code>git checkout</code>, <code>git switch</code></td>
 </tr>
 <tr>
 <td>Git index manipulation</td>
-<td><code>git add</code>, <code>git hash-object</code>, <code>git update-index</code>, <code>git commit-tree</code></td>
+<td><code>git add</code>, <code>git stage</code>, <code>git hash-object</code>, <code>git update-index</code>, <code>git read-tree</code>, <code>git commit-tree</code></td>
 </tr>
 <tr>
 <td>Destructive operations</td>
-<td><code>git clean</code>, <code>git checkout .</code>, <code>git restore .</code></td>
+<td><code>git clean</code>, <code>git restore .</code></td>
 </tr>
 <tr>
 <td>Branch/tag deletion</td>
@@ -1643,7 +1647,8 @@ on for the relevant <a href="../sandbox-environments/">Sandbox Environment</a>.<
 </tr>
 </tbody>
 </table>
-<p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.</p>
+<p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else. Branch switching is blocked because DAIV pushes the branch the run started on; the agent restores files with <code>git restore</code> instead of <code>git checkout</code>.</p>
+<p>The agent can still merge a branch in, for example to resolve an MR's conflicts with its target branch: it runs <code>git merge --no-commit --no-ff</code>, resolves the conflicts, and DAIV commits the result as a merge commit at the end of the turn, listing the files that conflicted. If a conflicted file still contains conflict markers, DAIV commits and pushes nothing and says so in its reply.</p>
 <p>The policy checks every command in the invocation, including those in chains, pipelines, <code>if</code>/<code>case</code> statements, loops, subshells and functions, and it looks past leading variable assignments, so <code>HUSKY=0 git commit</code> is caught. It does not look inside command or process substitutions (<code>$(…)</code>, backticks, <code>&lt;(…)</code>), variable expansions (<code>git $cmd</code>), <code>bash -c</code> or <code>eval</code> strings, or wrappers such as <code>env</code>, and it compares words exactly as written, so <code>/usr/bin/git push</code>, <code>\git push</code> and <code>git "push"</code> are not caught. Treat it as a guardrail that stops the agent's plain invocations, not as a security boundary.</p>
 <h3 id="global-rules">Global rules</h3>
 <p>In addition to the built-in safety rules, operators can block more commands with
@@ -1651,8 +1656,11 @@ on for the relevant <a href="../sandbox-environments/">Sandbox Environment</a>.<
 <a href="../../reference/env-variables/">Environment Variables</a> reference). The value is a JSON
 array, for example <code>["curl", "npm publish"]</code>: each entry is a command name followed by
 any arguments that must appear after it in that order, though not necessarily adjacent,
-so <code>npm publish</code> also blocks <code>npm run publish</code>. Matching ignores case and the order of
-bundled short flags, so <code>rm -rf</code> also blocks <code>rm -fr</code>. <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> takes
+so <code>npm publish</code> also blocks <code>npm run publish</code>. For <code>git</code>, the first argument must be the
+git subcommand itself: <code>git revert</code> blocks <code>git -C repo revert</code>, but not <code>git log --grep revert</code>.
+When a git option the policy does not know comes before the subcommand, the rule matches its
+arguments anywhere, so an unfamiliar option cannot hide a blocked subcommand.
+Matching ignores case and the order of bundled short flags, so <code>rm -rf</code> also blocks <code>rm -fr</code>. <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> takes
 the same format but currently has no effect (see <a href="#precedence">Precedence</a>).</p>
 <p>The policy is global: there is no per-repository or per-environment policy. A
 <code>sandbox.command_policy</code> section left in <code>.daiv.yml</code> from v2.0.0 is ignored without a
@@ -1695,7 +1703,7 @@ running user. See <a href="../sandbox-environments/">Sandbox Environments</a> fo
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 29, 2026 06:32:38 UTC">September 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 4, 2026 15:52:16 UTC">October 4, 2026</span>
   </span>
 
     
