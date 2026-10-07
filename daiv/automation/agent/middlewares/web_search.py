@@ -64,14 +64,13 @@ Result format:
   - A plain string starting with `error:` instead of JSON means the search backend itself failed — this is a tool failure, not a result. Do not rephrase and retry: continue without web results and say so in your answer.
   - Tavily may prepend a synthesized summary as the first entry with `title="Suggested answer"` and `link=""`. Treat it as a hint, not a citable source.
 
-IMPORTANT - Use the correct year in search queries:
-  - You MUST use this year when searching for recent information, documentation, or current events.
+Year in queries:
+  - Use the current year ({{current_year}}) in queries about recent information, documentation or events.
   - Example: If today is {{current_year}}-07-15 and the user asks for "latest React docs", search for "React documentation {{current_year}}", NOT "React documentation {{previous_year}}".
 
-CRITICAL REQUIREMENT - You MUST follow this when using web search:
-  - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response when the answer primarily derives from search results.
-  - In the Sources section, list each relevant entry's `link` as a markdown hyperlink using its `title`: `[<title>](<link>)`. Skip entries with an empty `link` (the "Suggested answer" hint).
-  - This is MANDATORY - never skip including sources in your response
+Sources:
+  - When your answer comes mainly from search results, end it with a "Sources:" section.
+  - List each result you used as `[<title>](<link>)`. Skip entries with an empty `link` (the "Suggested answer" hint).
   - Example format:
 
     [Your answer here]
