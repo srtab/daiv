@@ -4,8 +4,8 @@ Carries DAIV's customizations to upstream ``deepagents.create_deep_agent``:
 suppression of upstream's ``BASE_AGENT_PROMPT`` (DAIV ships its own system
 prompt via ``dynamic_daiv_system_prompt`` and the upstream content would
 otherwise be appended verbatim, causing duplicate identity/Core-Behavior/
-Doing-Tasks sections), filesystem tool description overrides, exclusion of
-upstream's ``AnthropicPromptCachingMiddleware`` (DAIV ships its own
+Doing-Tasks sections), filesystem and task tool description overrides, exclusion
+of upstream's ``AnthropicPromptCachingMiddleware`` (DAIV ships its own
 OpenRouter-aware subclass), and disabling the auto-added ``general-purpose``
 subagent (DAIV provides its own pre-compiled one).
 
@@ -24,6 +24,7 @@ of the empty base.
 from __future__ import annotations
 
 from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
+from deepagents.middleware.subagents import TASK_TOOL_DESCRIPTION
 
 # Class-form exclusion (exact-type match) is *mandatory* for the prompt-cache
 # entry: DAIV's subclass shares upstream's ``__name__``, so a string-form
@@ -33,9 +34,14 @@ from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware as _
 
 from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS
 
+_SINGLE_WRITER_NOTE = (
+    "\n- Run at most one agent that can edit files at a time: they share your workspace. "
+    "Read-only agents, such as explore, can run in parallel."
+)
+
 DAIV_HARNESS_PROFILE = HarnessProfile(
     base_system_prompt="",
-    tool_description_overrides=CUSTOM_TOOL_DESCRIPTIONS,
+    tool_description_overrides={**CUSTOM_TOOL_DESCRIPTIONS, "task": TASK_TOOL_DESCRIPTION + _SINGLE_WRITER_NOTE},
     excluded_middleware=frozenset({_UpstreamAnthropicPromptCachingMiddleware}),
     general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
 )
