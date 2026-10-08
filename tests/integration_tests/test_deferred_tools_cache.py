@@ -14,8 +14,9 @@ prompt. Cases:
   * inline: the tool is declared mid-conversation right after the ``tool_search`` result (Anthropic
     ``tool_addition``, OpenAI Responses ``additional_tools``); on Anthropic the ``inline-tools`` beta header rides
     on every call.
-  * inline header flip (Anthropic only): the beta header first appears on B, as langchain-anthropic adds it only once
-    a tool block is in the request. Anthropic doesn't document whether that resets the cache; it must not.
+  * inline header flip (the first Anthropic inline model only): the beta header first appears on B, as
+    langchain-anthropic adds it only once a tool block is in the request. Anthropic doesn't document whether that
+    resets the cache; it must not.
   * frozen: the tools array never changes; the schema reaches the model only through the ``tool_search`` result.
     Held to the same bar, so only for providers whose cache matches exact prefixes (Claude by default).
   * freezing vs appending, for every frozen-list model and candidate: after A, B goes out once with the tool appended
@@ -212,12 +213,10 @@ async def test_inline_definition_keeps_cache(model_spec):
 
 
 @pytest.mark.deferred_cache
-@pytest.mark.parametrize("model_spec", DEFERRED_CACHE_INLINE_MODELS)
+@pytest.mark.parametrize("model_spec", [s for s in DEFERRED_CACHE_INLINE_MODELS if s.startswith("anthropic:")][:1])
 async def test_inline_beta_header_flip_keeps_cache(model_spec):
     require_provider_for_model(model_spec)
     model, build_block = _inline_model(model_spec)
-    if not isinstance(model, ChatAnthropic):
-        pytest.skip("only Anthropic gates inline definitions behind a beta header")
     nonce = uuid.uuid4().hex
     prompts = _prompts(nonce, build_block(digest_tool()))
     _assert_hits(f"inline-flip {model_spec}", await _measure(model, prompts, _cache_kwargs(model, nonce)))

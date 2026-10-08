@@ -44,12 +44,23 @@ class ModelName(StrEnum):
     CLAUDE_SONNET_4_5 = "openrouter:anthropic/claude-sonnet-4.5"
     CLAUDE_SONNET_4_6 = "openrouter:anthropic/claude-sonnet-4.6"
     CLAUDE_HAIKU_4_5 = "openrouter:anthropic/claude-haiku-4.5"
+    CLAUDE_OPUS_4_8 = "openrouter:anthropic/claude-opus-4.8"
+    CLAUDE_OPUS_5 = "openrouter:anthropic/claude-opus-5"
+    CLAUDE_OPUS_5_5 = "openrouter:anthropic/claude-opus-5.5"
+    CLAUDE_SONNET_5 = "openrouter:anthropic/claude-sonnet-5"
+    CLAUDE_SONNET_5_5 = "openrouter:anthropic/claude-sonnet-5.5"
+    CLAUDE_HAIKU_5_5 = "openrouter:anthropic/claude-haiku-5.5"
+    CLAUDE_FABLE_5_1 = "openrouter:anthropic/claude-fable-5.1"
 
     # OpenAI models
     GPT_5_3_CODEX = "openrouter:openai/gpt-5.3-codex"
     GPT_5_4 = "openrouter:openai/gpt-5.4"
     GPT_5_4_MINI = "openrouter:openai/gpt-5.4-mini"
     GPT_5_6_LUNA = "openrouter:openai/gpt-5.6-luna"
+    GPT_6_ASTRA = "openrouter:openai/gpt-6-astra"
+    GPT_6_LUNA = "openrouter:openai/gpt-6-luna"
+    GPT_6_SOL = "openrouter:openai/gpt-6-sol"
+    GPT_6_1_SOL = "openrouter:openai/gpt-6.1-sol"
 
     # z-ai models
     Z_AI_GLM_5_1 = "openrouter:z-ai/glm-5.1"

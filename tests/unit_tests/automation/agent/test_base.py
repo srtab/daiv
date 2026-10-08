@@ -5,8 +5,15 @@ import pytest
 from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from automation.agent.base import BaseAgent, ResolvedProvider, parse_model_spec
+from automation.agent.base import (
+    CLAUDE_THINKING_MODELS,
+    OPENAI_THINKING_MODELS,
+    BaseAgent,
+    ResolvedProvider,
+    parse_model_spec,
+)
 from automation.agent.chat_models import OPENROUTER_BASE_URL, ChatOpenRouter
+from core.constants import ModelName
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
 if TYPE_CHECKING:
@@ -498,3 +505,13 @@ class TestGetModelKwargs:
         assert kw["extra_body"]["reasoning"]["enabled"] is True
         assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.MEDIUM
         assert "temperature" not in kw
+
+
+@pytest.mark.parametrize("model_spec", [name for name in ModelName if "/claude-" in name])
+def test_every_listed_claude_model_gets_a_thinking_config(model_spec: str):
+    assert model_spec.split(":", 1)[1].startswith(CLAUDE_THINKING_MODELS)
+
+
+@pytest.mark.parametrize("model_spec", [name for name in ModelName if "/gpt-" in name])
+def test_every_listed_gpt_model_gets_a_thinking_config(model_spec: str):
+    assert model_spec.split(":", 1)[1].startswith(OPENAI_THINKING_MODELS)

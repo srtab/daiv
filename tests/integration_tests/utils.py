@@ -168,6 +168,13 @@ def _is_frozen_tools_model(model_spec: str) -> bool:
 
 DEFERRED_FROZEN_ALLOWLISTED = [
     ModelName.CLAUDE_SONNET_4_6,
+    ModelName.CLAUDE_OPUS_4_8,
+    ModelName.CLAUDE_OPUS_5,
+    ModelName.CLAUDE_OPUS_5_5,
+    ModelName.CLAUDE_SONNET_5,
+    ModelName.CLAUDE_SONNET_5_5,
+    ModelName.CLAUDE_HAIKU_5_5,
+    ModelName.CLAUDE_FABLE_5_1,
     "openrouter:qwen/qwen3.8-max",
     ModelName.MINIMAX_M3,
     ModelName.DEEPSEEK_V4_FLASH_0731,
@@ -188,7 +195,21 @@ DEFERRED_FROZEN_CANDIDATES = _models_from_env(
     [name for name in ModelName if not _is_frozen_tools_model(name) and name not in DEFERRED_FROZEN_REJECTED],
 )
 DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
-    "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS", ["anthropic:claude-sonnet-5-5", "openai:gpt-5.6-luna"]
+    "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS",
+    [
+        "anthropic:claude-sonnet-5-5",
+        "anthropic:claude-opus-5-5",
+        "anthropic:claude-fable-5-1",
+        "anthropic:claude-opus-5",
+        "anthropic:claude-opus-4-8",
+        "anthropic:claude-sonnet-5",
+        "anthropic:claude-haiku-5-5",
+        "openai:gpt-5.6-luna",
+        "openai:gpt-6.1-sol",
+        "openai:gpt-6-sol",
+        "openai:gpt-6-luna",
+        "openai:gpt-6-astra",
+    ],
 )
 DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_4_6])
 
