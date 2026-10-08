@@ -2,12 +2,14 @@
 
 Excluded from ``make test``. Each case replays three scripted model calls, each a strict prefix of the next:
 
-  * A: an ~8k-token system prompt and the user's request. Writes the cache.
+  * A: a short system prompt, the user's request and an ~8k-token file read. Writes the cache.
   * B: A plus the ``tool_search`` call and its result, with the loaded tool delivered the case's way.
   * C: B plus a call to the loaded tool and its result.
 
 A hit means B reads A's prompt from the cache and C reads B's. The ``tool_search`` result embeds the schema in
-every case, as production does. Cases:
+every case, as production does. The bulk sits in the history, as in a real session: many templates render tools
+after the system prompt but ahead of the messages, so appending one there loses the history, not the system
+prompt. Cases:
 
   * inline: the tool is declared mid-conversation right after the ``tool_search`` result (Anthropic
     ``tool_addition``, OpenAI Responses ``additional_tools``); on Anthropic the ``inline-tools`` beta header rides
@@ -18,7 +20,8 @@ every case, as production does. Cases:
     Held to the same bar, so only for providers whose cache matches exact prefixes (Claude by default).
   * freezing vs appending, for every frozen-list model and candidate: after A, B goes out once with the tool appended
     to the tools array and once frozen, and the frozen one must read more from the cache. Best-effort or coarse caches
-    (DeepSeek, Gemini) miss the 80% bar now and then, yet freezing still pays off wherever it beats appending.
+    (DeepSeek, Gemini) miss the 80% bar now and then, yet freezing still pays off wherever it beats appending. The
+    frozen C must also go through: its history calls a tool the tools array never declared.
 
 Every call logs its generation id; on OpenRouter, look it up to see which upstream provider served it.
 
@@ -41,6 +44,7 @@ import pytest
 from langchain_anthropic import ChatAnthropic, convert_to_anthropic_tool
 from langchain_anthropic.chat_models import _INLINE_TOOLS_BETA, _supports_mid_conversation_system_messages
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_openai import ChatOpenAI
 
@@ -86,6 +90,16 @@ def _tool_search() -> BaseTool:
     return make_tool_search(lambda: DeferredToolsIndex([digest_tool()]), top_k_default=5, top_k_max=10)
 
 
+def _read_file(file_path: str) -> str:
+    """Read a file from the repository."""
+    return ""
+
+
+def _core_tools() -> list[BaseTool]:
+    """The always-loaded tools every call binds, as production binds its file tools and ``tool_search``."""
+    return [StructuredTool.from_function(_read_file, name="read_file"), _tool_search()]
+
+
 def _anthropic_block(tool: BaseTool) -> dict:
     return {
         "type": "tool_addition",
@@ -127,10 +141,17 @@ def _cache_kwargs(model: BaseChatModel, nonce: str) -> dict:
 def _prompts(nonce: str, delivery: dict | None = None) -> tuple[list[BaseMessage], ...]:
     """Prompts A, B and C; ``delivery`` is the inline tool block inserted right after the ``tool_search`` result."""
     tool = digest_tool()
-    system = SystemMessage(
-        content=f"Session {nonce}.\n\n{_FILLER}\n\n{build_deferred_tools_block(DeferredToolsIndex([tool]))}"
+    system = SystemMessage(content=f"Session {nonce}.\n\n{build_deferred_tools_block(DeferredToolsIndex([tool]))}")
+    request = HumanMessage(
+        content="Read the runbook, then fetch a digest of ticket ABC-123, at most 3 notes, and skip resolved children."
     )
-    request = HumanMessage(content="Fetch a digest of ticket ABC-123, at most 3 notes, and skip resolved children.")
+    read_call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "read_file", "id": "call_rf", "args": {"file_path": "docs/runbook.md"}, "type": "tool_call"}
+        ],
+    )
+    runbook = ToolMessage(content=_FILLER, tool_call_id="call_rf")
     search_call = AIMessage(
         content="",
         tool_calls=[{"name": TOOL_SEARCH_NAME, "id": "call_ts", "args": {"select": [TOOL_NAME]}, "type": "tool_call"}],
@@ -149,7 +170,7 @@ def _prompts(nonce: str, delivery: dict | None = None) -> tuple[list[BaseMessage
     )
     digest_result = ToolMessage(content="ABC-123: 3 notes, no resolved children.", tool_call_id="call_digest")
 
-    prompt_a = [system, request]
+    prompt_a = [system, request, read_call, runbook]
     prompt_b = [*prompt_a, search_call, search_result, *([SystemMessage(content=[delivery])] if delivery else [])]
     prompt_c = [*prompt_b, digest_call, digest_result]
     return prompt_a, prompt_b, prompt_c
@@ -166,7 +187,7 @@ async def _call(model: BaseChatModel, tools: list[BaseTool], prompt: list[BaseMe
 
 
 async def _measure(model: BaseChatModel, prompts: tuple[list[BaseMessage], ...], kwargs: dict) -> list[_Usage]:
-    tools = [_tool_search()]
+    tools = _core_tools()
     return [await _call(model, tools, prompt, kwargs) for prompt in prompts]
 
 
@@ -218,12 +239,20 @@ async def test_freezing_keeps_more_cache_than_appending(model_spec):
     model = BaseAgent.get_model(model=model_spec)
     nonce = uuid.uuid4().hex
     kwargs = _cache_kwargs(model, nonce)
-    prompt_a, prompt_b, _ = _prompts(nonce)
+    prompt_a, prompt_b, prompt_c = _prompts(nonce)
 
-    a = await _call(model, [_tool_search()], prompt_a, kwargs)
-    appended = await _call(model, [_tool_search(), digest_tool()], prompt_b, kwargs)
-    frozen = await _call(model, [_tool_search()], prompt_b, kwargs)
-    logger.info("deferred-cache freeze-vs-append %s: A=%s appended B=%s frozen B=%s", model_spec, a, appended, frozen)
+    a = await _call(model, _core_tools(), prompt_a, kwargs)
+    appended = await _call(model, [*_core_tools(), digest_tool()], prompt_b, kwargs)
+    frozen = await _call(model, _core_tools(), prompt_b, kwargs)
+    frozen_c = await _call(model, _core_tools(), prompt_c, kwargs)
+    logger.info(
+        "deferred-cache freeze-vs-append %s: A=%s appended B=%s frozen B=%s frozen C=%s",
+        model_spec,
+        a,
+        appended,
+        frozen,
+        frozen_c,
+    )
 
     assert frozen.cache_read > appended.cache_read, (
         f"{model_spec}: freezing kept no more cache than appending (frozen B {frozen}, appended B {appended}, A {a})"
