@@ -19,7 +19,11 @@ from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
-from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
+from automation.agent.middlewares.deferred_tools import (
+    deferred_tools_middleware,
+    direct_mcp_tools,
+    inline_tool_definitions_middleware,
+)
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -241,6 +245,8 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
+    deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
+
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
         # middleware into the base stack by ``.name``, taking the same slot and preserving order.
@@ -271,7 +277,7 @@ async def create_daiv_agent(
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
-        *deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools),
+        *deferred_tools,
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
@@ -290,6 +296,7 @@ async def create_daiv_agent(
         dynamic_daiv_system_prompt,
         RepositoryMemoryMiddleware(enabled=settings.features.memory),
         *(middleware or []),
+        *inline_tool_definitions_middleware(deferred_tools),
     ]
 
     initial_tools = direct_mcp_tools(mcp_tools)

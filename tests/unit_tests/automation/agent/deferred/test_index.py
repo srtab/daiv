@@ -137,3 +137,43 @@ class TestDeferredToolsIndex:
         entry = index.get("plain_tool")
         assert entry is not None
         assert "plain" in entry.indexed_text and "tool" in entry.indexed_text
+
+
+class TestToolEntryAnthropicDefinition:
+    def test_is_the_anthropic_shape_of_the_tool(self):
+        tool = _make_tool("github_create_issue", "Create a GitHub issue", _GitHubArgs)
+
+        definition = DeferredToolsIndex([tool]).get("github_create_issue").anthropic_definition
+
+        assert definition["name"] == "github_create_issue"
+        assert definition["description"] == "Create a GitHub issue"
+        assert definition["input_schema"]["type"] == "object"
+        assert set(definition["input_schema"]["properties"]) == set(_GitHubArgs.model_fields)
+
+    def test_drops_the_keys_an_inline_definition_rejects(self):
+        tool = _make_tool("github_create_issue", "Create a GitHub issue", _GitHubArgs)
+        tool.extras = {"defer_loading": True, "cache_control": {"type": "ephemeral"}}
+
+        definition = DeferredToolsIndex([tool]).get("github_create_issue").anthropic_definition
+
+        assert "defer_loading" not in definition
+        assert "cache_control" not in definition
+
+    def test_is_built_once(self):
+        index = DeferredToolsIndex([_make_tool("github_create_issue", "Create", _GitHubArgs)])
+        entry = index.get("github_create_issue")
+
+        assert entry.anthropic_definition is entry.anthropic_definition
+
+    def test_is_none_without_a_json_schema(self):
+        class _OpaqueRepo:
+            pass
+
+        class _RepoArgs(BaseModel):
+            model_config = {"arbitrary_types_allowed": True}
+
+            repo: _OpaqueRepo = Field(description="An opaque repo handle")
+
+        entry = DeferredToolsIndex([_make_tool("repo_tool", "Operate on a repo", _RepoArgs)]).get("repo_tool")
+
+        assert entry.anthropic_definition is None

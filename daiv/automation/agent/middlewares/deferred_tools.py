@@ -9,12 +9,13 @@ from langchain_core.messages import AIMessage, ToolMessage
 from automation.agent.deferred.coercion import decode_stringified_args
 from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.deferred.index import DeferredToolsIndex
+from automation.agent.deferred.inline import inline_block_builder, with_inline_definitions
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
 from automation.agent.deferred.state import DeferredToolsState
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
 
     from langchain.agents.middleware.types import ModelRequest, ModelResponse, ToolCallRequest
     from langchain_core.tools import BaseTool
@@ -63,7 +64,9 @@ class DeferredToolsMiddleware(AgentMiddleware):
     On the first model call, the middleware snapshots the union of ``request.tools`` and
     ``extra_tools``, sends the always-loaded tools to the model, and indexes the rest for
     ``tool_search``. On allowlisted models (``FROZEN_TOOLS_MODELS``) the bound array stays frozen
-    and loaded schemas arrive via ``tool_search`` results; off the allowlist, already-loaded
+    and loaded schemas arrive via ``tool_search`` results; on models that take mid-conversation
+    definitions (``INLINE_TOOLS_MODELS``) it stays frozen too and its paired
+    ``InlineToolDefinitionsMiddleware`` declares loaded tools in place; elsewhere, already-loaded
     deferred tools are appended to the array as before. Subsequent calls reuse the index.
     """
 
@@ -142,9 +145,8 @@ class DeferredToolsMiddleware(AgentMiddleware):
                 allowed.append(tool)
                 seen_names.add(tool.name)
 
-        # Allowlisted models get a frozen array (schemas arrive via tool_search results);
-        # everyone else keeps the append. Evaluated per call, so a mid-run fallback model is gated right.
-        if _is_frozen(request.model):
+        # Evaluated per call, so a mid-run fallback model is gated right.
+        if _is_frozen(request.model) or inline_block_builder(request.model) is not None:
             new_tools = allowed
         else:
             # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
@@ -214,6 +216,29 @@ class DeferredToolsMiddleware(AgentMiddleware):
             response.result = [*messages, *corrective]
 
 
+class InlineToolDefinitionsMiddleware(AgentMiddleware):
+    """Declares the loaded deferred tools in place on models that take mid-conversation definitions.
+
+    Pairs with the ``DeferredToolsMiddleware`` whose index it reads, which keeps those models' tools
+    array frozen. It must sit inside every middleware that appends messages: see
+    ``automation.agent.deferred.inline``.
+    """
+
+    def __init__(self, get_index: Callable[[], DeferredToolsIndex]) -> None:
+        super().__init__()
+        self._get_index = get_index
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        build = inline_block_builder(request.model)
+        loaded: set[str] = request.state.get("loaded_tool_names") or set()
+        if build is not None and loaded:
+            messages = with_inline_definitions(request.messages, self._get_index(), loaded, build)
+            request = request.override(messages=messages)
+        return await handler(request)
+
+
 def direct_mcp_tools(mcp_tools: list[BaseTool] | None) -> list[BaseTool]:
     """MCP tools to bind directly on an agent's model.
 
@@ -249,3 +274,12 @@ def deferred_tools_middleware(always_loaded: Iterable[str], mcp_tools: list[Base
             top_k_max=deferred_settings.TOP_K_MAX,
         )
     ]
+
+
+def inline_tool_definitions_middleware(deferred: Sequence[AgentMiddleware]) -> list[AgentMiddleware]:
+    """The ``InlineToolDefinitionsMiddleware`` for the ``DeferredToolsMiddleware`` in ``deferred``, if any.
+
+    It must run inside every middleware that appends messages (reminders, the empty-reply nudge), so
+    callers put it last in their stack.
+    """
+    return [InlineToolDefinitionsMiddleware(m._get_index) for m in deferred if isinstance(m, DeferredToolsMiddleware)]

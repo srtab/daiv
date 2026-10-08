@@ -15,6 +15,7 @@ from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFAC
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS, DAIVFilesystemMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
@@ -48,7 +49,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, deferred_tools: bool = False, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
     base image, so a disk workspace shows the mode is the workspace's, not the context's."""
     with ExitStack() as stack:
@@ -56,7 +57,14 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             name: stack.enter_context(patch(f"automation.agent.graph.{target}", **kwargs))
             for name, (target, kwargs) in _patches().items()
         }
-        stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
+        stack.enter_context(
+            patch(
+                "automation.agent.middlewares.deferred_tools.deferred_settings",
+                ENABLED=deferred_tools,
+                TOP_K_DEFAULT=3,
+                TOP_K_MAX=10,
+            )
+        )
         site = site_snapshot(
             agent_recursion_limit=50,
             agent_model_name="m",
@@ -212,6 +220,14 @@ async def test_the_empty_reply_retry_runs_inside_the_reminder_middlewares():
     retry = middleware.index(ensure_non_empty_response)
     assert middleware.index(loop_breaker) < retry
     assert middleware.index(step_budget) < retry
+
+
+async def test_inline_definitions_run_inside_every_middleware_that_appends_messages():
+    middleware = _middleware(await _build(_disk_workspace(), deferred_tools=True))
+    [deferred] = [m for m in middleware if isinstance(m, DeferredToolsMiddleware)]
+
+    assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
+    assert middleware[-1]._get_index == deferred._get_index
 
 
 async def test_ask_user_is_enabled_by_default():
