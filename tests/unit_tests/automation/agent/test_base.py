@@ -404,7 +404,15 @@ class TestGetModelKwargs:
         assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384
 
     @pytest.mark.parametrize(
-        "model_name", ["claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable-5"]
+        "model_name",
+        [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "claude-haiku-5-5",
+        ],
     )
     def test_adaptive_thinking_models_use_effort_not_budget(self, model_name):
         """Opus 4.7+ rejects ``thinking.type=enabled``/``budget_tokens`` with a 400 and
@@ -448,7 +456,7 @@ class TestGetModelKwargs:
         )
         assert kw["effort"] == expected_effort
 
-    @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-fable-5"])
+    @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-fable-5", "claude-haiku-5-5"])
     def test_adaptive_thinking_model_without_thinking_level_drops_temperature(self, model_name):
         """No thinking level means no ``thinking`` field at all (valid on these models),
         but the seeded ``temperature=0`` would still 400 — it has to go."""
@@ -472,7 +480,13 @@ class TestGetModelKwargs:
         assert "effort" not in kw
 
     @pytest.mark.parametrize(
-        "model_name", ["anthropic/claude-opus-4.7", "anthropic/claude-opus-5", "anthropic/claude-sonnet-5"]
+        "model_name",
+        [
+            "anthropic/claude-opus-4.7",
+            "anthropic/claude-opus-5",
+            "anthropic/claude-sonnet-5",
+            "anthropic/claude-haiku-5.5",
+        ],
     )
     def test_adaptive_generation_openrouter_thinking_without_temperature(self, model_name):
         """The OpenRouter Anthropic path also seeds temperature=1 for Claude thinking
