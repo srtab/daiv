@@ -220,8 +220,8 @@ ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 env_files_skip_if_set = true
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 DJANGO_SECRET_KEY = "not-so-secret"
-ANTHROPIC_API_KEY = "anthropic-api-key"
-OPENAI_API_KEY = "openai-api-key"
+ANTHROPIC_API_KEY = { value = "anthropic-api-key", skip_if_set = true }
+OPENAI_API_KEY = { value = "openai-api-key", skip_if_set = true }
 CODEBASE_GITLAB_WEBHOOK_SECRET = "gitlab-webhook-secret"
 CODEBASE_GITHUB_INSTALLATION_ID = "123456"
 NINJA_SKIP_REGISTRY = true

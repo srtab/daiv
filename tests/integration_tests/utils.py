@@ -87,6 +87,9 @@ _PROVIDER_ENV_VAR = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
+# The [tool.pytest_env] defaults in pyproject.toml: set whenever no real key is exported.
+_PLACEHOLDER_API_KEYS = frozenset({"anthropic-api-key", "openai-api-key"})
+
 
 def _resolve_provider_slug(model_spec: str) -> str:
     if ":" in model_spec:
@@ -98,7 +101,7 @@ def _resolve_provider_slug(model_spec: str) -> str:
 
 
 def require_provider_for_model(model_spec: str) -> None:
-    """Skip the current test if the provider for ``model_spec`` has no API key.
+    """Skip the current test if the provider for ``model_spec`` has no real API key.
 
     Built-in providers map to the canonical env vars (OPENROUTER_API_KEY, etc.).
     Custom providers use the DAIV_TEST_PROVIDER_<SLUG>_API_KEY convention from
@@ -108,8 +111,8 @@ def require_provider_for_model(model_spec: str) -> None:
     env_var = _PROVIDER_ENV_VAR.get(slug)
     if env_var is None:
         env_var = f"DAIV_TEST_PROVIDER_{slug.upper()}_API_KEY"
-    if not os.environ.get(env_var):
-        pytest.skip(f"{env_var} not set; cannot run against {model_spec!r}.")
+    if os.environ.get(env_var, "") in {"", *_PLACEHOLDER_API_KEYS}:
+        pytest.skip(f"{env_var} has no real key; cannot run against {model_spec!r}.")
 
 
 def agent_settings_on(model_name: str, ctx: RuntimeCtx) -> AgentSettings:

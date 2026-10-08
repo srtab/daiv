@@ -43,8 +43,23 @@ def test_resolve_provider_slug(model_spec: str, expected_slug: str) -> None:
 
 def test_require_provider_skips_when_built_in_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="OPENROUTER_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="OPENROUTER_API_KEY has no real key"):
         require_provider_for_model("openrouter:anthropic/claude-sonnet-4.6")
+
+
+@pytest.mark.parametrize(
+    ("env_var", "placeholder", "model_spec"),
+    [
+        ("ANTHROPIC_API_KEY", "anthropic-api-key", "anthropic:claude-sonnet-5-5"),
+        ("OPENAI_API_KEY", "openai-api-key", "openai:gpt-5.4"),
+    ],
+)
+def test_require_provider_skips_pytest_env_placeholder(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, placeholder: str, model_spec: str
+) -> None:
+    monkeypatch.setenv(env_var, placeholder)
+    with pytest.raises(pytest.skip.Exception, match=f"{env_var} has no real key"):
+        require_provider_for_model(model_spec)
 
 
 def test_require_provider_runs_when_built_in_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +69,7 @@ def test_require_provider_runs_when_built_in_env_set(monkeypatch: pytest.MonkeyP
 
 def test_require_provider_skips_when_custom_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY has no real key"):
         require_provider_for_model("customprovider:model-x")
 
 
@@ -65,7 +80,7 @@ def test_require_provider_runs_when_custom_env_set(monkeypatch: pytest.MonkeyPat
 
 def test_require_provider_uses_bare_name_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="ANTHROPIC_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="ANTHROPIC_API_KEY has no real key"):
         require_provider_for_model("claude-haiku-4-5")
 
 
