@@ -166,7 +166,13 @@ def _is_frozen_tools_model(model_spec: str) -> bool:
     return model_spec.split(":", 1)[-1].startswith(tuple(deferred_settings.FROZEN_TOOLS_MODELS))
 
 
-DEFERRED_FROZEN_ALLOWLISTED = [ModelName.CLAUDE_SONNET_4_6, "openrouter:qwen/qwen3.8-max"]
+DEFERRED_FROZEN_ALLOWLISTED = [
+    ModelName.CLAUDE_SONNET_4_6,
+    "openrouter:qwen/qwen3.8-max",
+    ModelName.MINIMAX_M3,
+    ModelName.DEEPSEEK_V4_FLASH_0731,
+    ModelName.GEMINI_3_7_FLASH,
+]
 DEFERRED_FROZEN_REJECTED = [
     ModelName.Z_AI_GLM_5_1,
     ModelName.Z_AI_GLM_5_3_FLASH,
@@ -184,7 +190,10 @@ DEFERRED_FROZEN_CANDIDATES = _models_from_env(
 DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
     "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS", ["anthropic:claude-sonnet-5-5", "openai:gpt-5.6-luna"]
 )
-DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_4_6])
+DEFERRED_CACHE_FROZEN_MODELS = _models_from_env(
+    "DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS",
+    [ModelName.CLAUDE_SONNET_4_6, ModelName.MINIMAX_M3, ModelName.DEEPSEEK_V4_FLASH_0731, ModelName.GEMINI_3_7_FLASH],
+)
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))

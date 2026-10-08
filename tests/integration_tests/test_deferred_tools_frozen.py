@@ -121,7 +121,7 @@ async def test_mode2_frozen_reaches_tool(model_spec, group):
     require_provider_for_model(model_spec)
     results, report = await _attempts(model_spec, bind_digest=False, embed_schema=True)
     if group == "rejected" and not all(results):
-        pytest.xfail(f"{model_spec} is a known Mode-2 non-passer ({sum(results)}/{len(results)})")
+        pytest.xfail(f"{model_spec} is a known Mode-2 non-passer ({sum(results)}/{len(results)}): {report}")
     verdict = "do not allowlist it" if group == "candidate" else "remove it from FROZEN_TOOLS_MODELS"
     assert all(results), (
         f"{model_spec} passed Mode 2 (frozen array) {sum(results)}/{len(results)} — {verdict}: {report}"

@@ -11,11 +11,15 @@ TOOL_NAME = "rt_fetch_ticket_digest"
 
 def digest_tool() -> StructuredTool:
     """A deferred tool whose ``note_window``/``sweep_closed`` args can't be guessed from its name or from a request
-    phrased as "at most 3 notes, skip resolved children", so a call with them proves the model read the schema."""
+    phrased as "at most 3 notes, skip resolved children", so a call with them proves the model read the schema.
+
+    ``note_window`` is required: some models drop optional args even with the tool bound, which would read as a
+    schema the model never saw.
+    """
 
     class _Args(BaseModel):
         ticket: str = Field(description="Ticket identifier to summarize.")
-        note_window: int = Field(default=5, description="Maximum number of correspondence notes to include.")
+        note_window: int = Field(description="Maximum number of correspondence notes to include.")
         sweep_closed: bool = Field(default=False, description="Whether to include resolved child tickets.")
 
     def _run(ticket: str, note_window: int = 5, sweep_closed: bool = False) -> str:
