@@ -22,8 +22,8 @@ prompt. Cases:
   * freezing vs appending, for every frozen-list model and candidate: after A, B and C go out once with the tool
     appended to the tools array and once frozen, and the frozen pair must read more from the cache in total.
     Counting C matters: its history calls a tool the frozen array never declared, and a provider that misses there
-    gives back what freezing saved on B. Best-effort or coarse caches (DeepSeek, Gemini) miss the 80% bar now and
-    then, yet freezing still pays off wherever it beats appending.
+    gives back what freezing saved on B. A coarse cache (Gemini) misses the 80% bar now and then, yet freezing
+    still pays off wherever it beats appending.
 
 Every call logs its generation id; on OpenRouter, look it up to see which upstream provider served it. A model the
 account can't use (403) is skipped, not failed.

@@ -16,7 +16,8 @@ Each mode runs ``DAIV_EVAL_REPEATS`` times (default 3) and every attempt must ag
 livelocks once in three is a stuck run in production. Models come in three groups (see ``utils.py``):
 
   * allowlisted: already frozen; Mode 2 guards against a regression.
-  * rejected: gated before and failed Mode 2; xfail until every attempt passes.
+  * rejected: gated before and failed Mode 2, or passed it and lost the cache comparison in
+    ``test_deferred_tools_cache.py``; a Mode 2 failure xfails.
   * candidates: every ``ModelName`` the allowlist doesn't match yet, or the specs in
     ``DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES``. A Mode 2 pass qualifies the model name (without its provider
     slug) for the allowlist; check its prompt cache holds with ``test_deferred_tools_cache.py`` first.

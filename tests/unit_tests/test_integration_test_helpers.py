@@ -114,7 +114,7 @@ def test_discover_custom_slugs_includes_deferred_models(monkeypatch: pytest.Monk
         ("openrouter:anthropic/claude-sonnet-4.6", True),
         ("anthropic:claude-opus-4-6", True),
         ("openrouter:qwen/qwen3.8-max", True),
-        ("openrouter:deepseek/deepseek-v4-flash-0731", True),
+        ("openrouter:deepseek/deepseek-v4-flash-0731", False),
         ("openrouter:z-ai/glm-5.1", False),
         ("vllm:qwen3-coder", False),
     ],

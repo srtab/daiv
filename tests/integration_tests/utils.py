@@ -177,7 +177,6 @@ DEFERRED_FROZEN_ALLOWLISTED = [
     ModelName.CLAUDE_FABLE_5_1,
     "openrouter:qwen/qwen3.8-max",
     ModelName.MINIMAX_M3,
-    ModelName.DEEPSEEK_V4_FLASH_0731,
     ModelName.GEMINI_3_7_FLASH,
 ]
 DEFERRED_FROZEN_REJECTED = [
@@ -193,6 +192,8 @@ DEFERRED_FROZEN_REJECTED = [
     ModelName.GPT_6_1_SOL,
     ModelName.MOONSHOTAI_KIMI_K2_6,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
+    # Passes Mode 2, but its frozen B+C read less from the cache than appending did.
+    ModelName.DEEPSEEK_V4_FLASH_0731,
 ]
 DEFERRED_FROZEN_CANDIDATES = _models_from_env(
     "DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES",
