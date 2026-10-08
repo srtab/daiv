@@ -19,12 +19,14 @@ prompt. Cases:
     resets the cache; it must not.
   * frozen: the tools array never changes; the schema reaches the model only through the ``tool_search`` result.
     Held to the same bar, so only for providers whose cache matches exact prefixes (Claude by default).
-  * freezing vs appending, for every frozen-list model and candidate: after A, B goes out once with the tool appended
-    to the tools array and once frozen, and the frozen one must read more from the cache. Best-effort or coarse caches
-    (DeepSeek, Gemini) miss the 80% bar now and then, yet freezing still pays off wherever it beats appending. The
-    frozen C must also go through: its history calls a tool the tools array never declared.
+  * freezing vs appending, for every frozen-list model and candidate: after A, B and C go out once with the tool
+    appended to the tools array and once frozen, and the frozen pair must read more from the cache in total.
+    Counting C matters: its history calls a tool the frozen array never declared, and a provider that misses there
+    gives back what freezing saved on B. Best-effort or coarse caches (DeepSeek, Gemini) miss the 80% bar now and
+    then, yet freezing still pays off wherever it beats appending.
 
-Every call logs its generation id; on OpenRouter, look it up to see which upstream provider served it.
+Every call logs its generation id; on OpenRouter, look it up to see which upstream provider served it. A model the
+account can't use (403) is skipped, not failed.
 
 Run with live logs to see every call's numbers::
 
@@ -44,6 +46,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pytest
 from langchain_anthropic import ChatAnthropic, convert_to_anthropic_tool
 from langchain_anthropic.chat_models import _INLINE_TOOLS_BETA, _supports_mid_conversation_system_messages
+from langchain_core.exceptions import ModelPermissionDeniedError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -178,7 +181,10 @@ def _prompts(nonce: str, delivery: dict | None = None) -> tuple[list[BaseMessage
 
 
 async def _call(model: BaseChatModel, tools: list[BaseTool], prompt: list[BaseMessage], kwargs: dict) -> _Usage:
-    response = await model.bind_tools(tools).ainvoke(prompt, **kwargs)
+    try:
+        response = await model.bind_tools(tools).ainvoke(prompt, **kwargs)
+    except ModelPermissionDeniedError as exc:
+        pytest.skip(f"this account can't use the model: {exc}")
     usage = response.usage_metadata or {}
     return _Usage(
         usage.get("input_tokens", 0),
@@ -241,18 +247,12 @@ async def test_freezing_keeps_more_cache_than_appending(model_spec):
     prompt_a, prompt_b, prompt_c = _prompts(nonce)
 
     a = await _call(model, _core_tools(), prompt_a, kwargs)
-    appended = await _call(model, [*_core_tools(), digest_tool()], prompt_b, kwargs)
-    frozen = await _call(model, _core_tools(), prompt_b, kwargs)
-    frozen_c = await _call(model, _core_tools(), prompt_c, kwargs)
+    appended = [await _call(model, [*_core_tools(), digest_tool()], prompt, kwargs) for prompt in (prompt_b, prompt_c)]
+    frozen = [await _call(model, _core_tools(), prompt, kwargs) for prompt in (prompt_b, prompt_c)]
     logger.info(
-        "deferred-cache freeze-vs-append %s: A=%s appended B=%s frozen B=%s frozen C=%s",
-        model_spec,
-        a,
-        appended,
-        frozen,
-        frozen_c,
+        "deferred-cache freeze-vs-append %s: A=%s appended B,C=%s frozen B,C=%s", model_spec, a, appended, frozen
     )
 
-    assert frozen.cache_read > appended.cache_read, (
-        f"{model_spec}: freezing kept no more cache than appending (frozen B {frozen}, appended B {appended}, A {a})"
+    assert sum(u.cache_read for u in frozen) > sum(u.cache_read for u in appended), (
+        f"{model_spec}: freezing kept no more cache than appending over B and C (frozen {frozen}, appended {appended})"
     )

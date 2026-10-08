@@ -187,6 +187,10 @@ DEFERRED_FROZEN_REJECTED = [
     ModelName.GPT_5_4,
     ModelName.GPT_5_4_MINI,
     ModelName.GPT_5_6_LUNA,
+    ModelName.GPT_6_ASTRA,
+    ModelName.GPT_6_LUNA,
+    ModelName.GPT_6_SOL,
+    ModelName.GPT_6_1_SOL,
     ModelName.MOONSHOTAI_KIMI_K2_6,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
 ]
