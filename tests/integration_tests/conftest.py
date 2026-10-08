@@ -25,10 +25,22 @@ _BUILT_IN_SLUGS = set(_BUILT_IN_PROVIDER_ENV) | {"google"}
 
 
 def _discover_custom_slugs() -> set[str]:
-    from .utils import CODING_MODEL_NAMES, FAST_MODEL_NAMES
+    from .utils import (
+        CODING_MODEL_NAMES,
+        DEFERRED_CACHE_FROZEN_MODELS,
+        DEFERRED_CACHE_INLINE_MODELS,
+        DEFERRED_FROZEN_CANDIDATES,
+        FAST_MODEL_NAMES,
+    )
 
     slugs: set[str] = set()
-    for spec in (*CODING_MODEL_NAMES, *FAST_MODEL_NAMES):
+    for spec in (
+        *CODING_MODEL_NAMES,
+        *FAST_MODEL_NAMES,
+        *DEFERRED_FROZEN_CANDIDATES,
+        *DEFERRED_CACHE_INLINE_MODELS,
+        *DEFERRED_CACHE_FROZEN_MODELS,
+    ):
         if ":" in spec:
             prefix = spec.split(":", 1)[0]
             if prefix not in _BUILT_IN_SLUGS:
@@ -173,8 +185,8 @@ _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
     "registered markers, so a typo deselects everything and exits 5 (NO_TESTS_COLLECTED) with no "
     "indication the marker name was wrong — this suite names the cause instead. "
-    "Valid markers for this suite: ask_user, code_review, deferred_frozen, diff_to_metadata, memory, sandbox, skills, "
-    "subagents, todos, web_search."
+    "Valid markers for this suite: ask_user, code_review, deferred_cache, deferred_frozen, diff_to_metadata, memory, "
+    "sandbox, skills, subagents, todos, web_search."
 )
 
 

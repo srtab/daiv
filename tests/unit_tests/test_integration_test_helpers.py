@@ -95,6 +95,40 @@ def test_discover_custom_slugs_extracts_non_builtin(monkeypatch: pytest.MonkeyPa
     assert slugs == {"customprovider"}
 
 
+@pytest.mark.parametrize(
+    "models_attr", ["DEFERRED_FROZEN_CANDIDATES", "DEFERRED_CACHE_INLINE_MODELS", "DEFERRED_CACHE_FROZEN_MODELS"]
+)
+def test_discover_custom_slugs_includes_deferred_models(monkeypatch: pytest.MonkeyPatch, models_attr: str) -> None:
+    from tests.integration_tests.conftest import _discover_custom_slugs
+
+    for attr in ("DEFERRED_FROZEN_CANDIDATES", "DEFERRED_CACHE_INLINE_MODELS", "DEFERRED_CACHE_FROZEN_MODELS"):
+        monkeypatch.setattr(integration_utils, attr, [])
+    monkeypatch.setattr(integration_utils, models_attr, ["vllm:qwen3-coder"])
+
+    assert "vllm" in _discover_custom_slugs()
+
+
+@pytest.mark.parametrize(
+    ("model_spec", "frozen"),
+    [
+        ("openrouter:anthropic/claude-sonnet-4.6", True),
+        ("anthropic:claude-opus-4-6", True),
+        ("openrouter:qwen/qwen3.8-max", True),
+        ("openrouter:z-ai/glm-5.1", False),
+        ("vllm:qwen3-coder", False),
+    ],
+)
+def test_is_frozen_tools_model_matches_without_provider_slug(model_spec: str, frozen: bool) -> None:
+    assert integration_utils._is_frozen_tools_model(model_spec) is frozen
+
+
+def test_deferred_frozen_candidates_exclude_allowlisted_and_rejected() -> None:
+    candidates = set(integration_utils.DEFERRED_FROZEN_CANDIDATES)
+
+    assert not candidates & set(integration_utils.DEFERRED_FROZEN_REJECTED)
+    assert not any(integration_utils._is_frozen_tools_model(spec) for spec in candidates)
+
+
 def _item(**overrides) -> SimpleNamespace:
     marker = SimpleNamespace(kwargs={"test_suite_name": "DAIV: Skills"})
     fields = {

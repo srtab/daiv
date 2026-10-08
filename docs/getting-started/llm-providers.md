@@ -184,6 +184,9 @@ your-slug:model_name
 
 You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides).
 
+!!! tip "Prompt caching with on-demand tools"
+    The agent loads most of its tools on demand. On models listed in `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS`, loading a tool keeps the provider's prompt cache; on any other model, the first use of each tool re-sends the conversation uncached. Before adding a self-hosted model to that list, check that it can call a tool it only saw in a `tool_search` result: run `tests/integration_tests/test_deferred_tools_frozen.py` against it (the command is in that file's docstring). List the model name without your provider slug, e.g. `qwen3-coder` for `vllm:qwen3-coder`.
+
 !!! note
     The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.
 

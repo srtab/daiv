@@ -12,6 +12,7 @@ from langchain.messages import AIMessage
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.base import _BARE_NAME_HEURISTICS
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from core.constants import ModelName
 from core.site_settings import site_settings
@@ -157,6 +158,24 @@ TODOS_MODELS = _models_from_env("DAIV_EVAL_TODOS_MODELS", [EVAL_MODEL])
 WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL])
 SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
+
+
+def _is_frozen_tools_model(model_spec: str) -> bool:
+    """Whether ``model_spec`` already matches ``DEFERRED_TOOLS_FROZEN_TOOLS_MODELS``, which is matched against the
+    model name without its provider slug."""
+    return model_spec.split(":", 1)[-1].startswith(tuple(deferred_settings.FROZEN_TOOLS_MODELS))
+
+
+DEFERRED_FROZEN_ALLOWLISTED = [ModelName.CLAUDE_SONNET_4_6, "openrouter:qwen/qwen3.8-max"]
+DEFERRED_FROZEN_REJECTED = [ModelName.Z_AI_GLM_5_1, ModelName.GPT_5_3_CODEX]
+DEFERRED_FROZEN_CANDIDATES = _models_from_env(
+    "DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES",
+    [name for name in ModelName if not _is_frozen_tools_model(name) and name not in DEFERRED_FROZEN_REJECTED],
+)
+DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
+    "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS", ["anthropic:claude-sonnet-5-5", "openai:gpt-5.6-luna"]
+)
+DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_4_6])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
