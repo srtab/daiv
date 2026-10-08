@@ -9,8 +9,8 @@ each parametrization is skipped when its key is absent. Three modes per model:
   * Mode 3 (control): summary only, no schema, tool not bound. Must NOT yield correct typed args —
     proves a mode-1/2 pass really measures schema-reading.
 
-``max_notes``/``include_resolved`` are unguessable from the tool name, so correct args prove the
-schema was read rather than the name pattern-matched.
+``note_window``/``sweep_closed`` can't be inferred from the tool name or the request's wording, so correct args
+prove the schema was read. Every failure lists what each attempt actually did.
 
 Each mode runs ``DAIV_EVAL_REPEATS`` times (default 3) and every attempt must agree: a frozen model that
 livelocks once in three is a stuck run in production. Models come in three groups (see ``utils.py``):
@@ -32,6 +32,7 @@ A self-hosted model is gated the same way, through a custom provider::
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -80,15 +81,23 @@ def _called_digest_with_typed_args(response: AIMessage) -> bool:
             continue
         args = call.get("args") or {}
         # A real schema read yields the unguessable param names; string coercions ("3"/"true") count.
-        return "max_notes" in args or "include_resolved" in args
+        return "note_window" in args or "sweep_closed" in args
     return False
 
 
-async def _attempts(model_spec: str, *, bind_digest: bool, embed_schema: bool) -> list[bool]:
+def _describe(response: AIMessage) -> str:
+    if response.tool_calls:
+        return ", ".join(f"{call['name']}({json.dumps(call['args'], sort_keys=True)})" for call in response.tool_calls)
+    return f"text {response.text[:160]!r}"
+
+
+async def _attempts(model_spec: str, *, bind_digest: bool, embed_schema: bool) -> tuple[list[bool], str]:
+    """Whether each of ``EVAL_REPEATS`` attempts called the digest tool with schema-only args, and what each did."""
     model = _bound_model(model_spec, bind_digest=bind_digest)
     conversation = _conversation(embed_schema=embed_schema)
     responses = await asyncio.gather(*(model.ainvoke(conversation) for _ in range(EVAL_REPEATS)))
-    return [_called_digest_with_typed_args(response) for response in responses]
+    report = " | ".join(f"#{i}: {_describe(response)}" for i, response in enumerate(responses, start=1))
+    return [_called_digest_with_typed_args(response) for response in responses], report
 
 
 _MODELS = [
@@ -102,27 +111,29 @@ _MODELS = [
 @pytest.mark.parametrize("model_spec,group", _MODELS)
 async def test_mode1_fallback_reaches_tool(model_spec, group):
     require_provider_for_model(model_spec)
-    results = await _attempts(model_spec, bind_digest=True, embed_schema=True)
-    assert all(results), f"Mode 1 must pass for every model; {model_spec} passed {sum(results)}/{len(results)}"
+    results, report = await _attempts(model_spec, bind_digest=True, embed_schema=True)
+    assert all(results), f"Mode 1 must pass for any model; {model_spec} passed {sum(results)}/{len(results)}: {report}"
 
 
 @pytest.mark.deferred_frozen
 @pytest.mark.parametrize("model_spec,group", _MODELS)
 async def test_mode2_frozen_reaches_tool(model_spec, group):
     require_provider_for_model(model_spec)
-    results = await _attempts(model_spec, bind_digest=False, embed_schema=True)
+    results, report = await _attempts(model_spec, bind_digest=False, embed_schema=True)
     if group == "rejected" and not all(results):
-        pytest.xfail(f"{model_spec} is a known Mode-2 non-passer ({sum(results)}/{len(results)}; livelocks)")
+        pytest.xfail(f"{model_spec} is a known Mode-2 non-passer ({sum(results)}/{len(results)})")
     verdict = "do not allowlist it" if group == "candidate" else "remove it from FROZEN_TOOLS_MODELS"
-    assert all(results), f"{model_spec} passed Mode 2 (frozen array) {sum(results)}/{len(results)} — {verdict}"
+    assert all(results), (
+        f"{model_spec} passed Mode 2 (frozen array) {sum(results)}/{len(results)} — {verdict}: {report}"
+    )
 
 
 @pytest.mark.deferred_frozen
 @pytest.mark.parametrize("model_spec,group", _MODELS)
 async def test_mode3_control_does_not_reach_tool(model_spec, group):
     require_provider_for_model(model_spec)
-    results = await _attempts(model_spec, bind_digest=False, embed_schema=False)
+    results, report = await _attempts(model_spec, bind_digest=False, embed_schema=False)
     assert not any(results), (
         f"Control violated: {model_spec} produced correct args with no schema present "
-        f"({sum(results)}/{len(results)} attempts)"
+        f"({sum(results)}/{len(results)} attempts): {report}"
     )

@@ -167,7 +167,16 @@ def _is_frozen_tools_model(model_spec: str) -> bool:
 
 
 DEFERRED_FROZEN_ALLOWLISTED = [ModelName.CLAUDE_SONNET_4_6, "openrouter:qwen/qwen3.8-max"]
-DEFERRED_FROZEN_REJECTED = [ModelName.Z_AI_GLM_5_1, ModelName.GPT_5_3_CODEX]
+DEFERRED_FROZEN_REJECTED = [
+    ModelName.Z_AI_GLM_5_1,
+    ModelName.Z_AI_GLM_5_3_FLASH,
+    ModelName.GPT_5_3_CODEX,
+    ModelName.GPT_5_4,
+    ModelName.GPT_5_4_MINI,
+    ModelName.GPT_5_6_LUNA,
+    ModelName.MOONSHOTAI_KIMI_K2_6,
+    ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
+]
 DEFERRED_FROZEN_CANDIDATES = _models_from_env(
     "DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES",
     [name for name in ModelName if not _is_frozen_tools_model(name) and name not in DEFERRED_FROZEN_REJECTED],

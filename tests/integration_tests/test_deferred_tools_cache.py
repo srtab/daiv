@@ -12,8 +12,8 @@ every case, as production does. Cases:
   * inline: the tool is declared mid-conversation right after the ``tool_search`` result (Anthropic
     ``tool_addition``, OpenAI Responses ``additional_tools``); on Anthropic the ``inline-tools`` beta header rides
     on every call.
-  * inline header flip (Anthropic only): the beta header first appears on B. Anthropic doesn't document whether that
-    resets the cache, so a miss is an answer, not a failure (xfail).
+  * inline header flip (Anthropic only): the beta header first appears on B, as langchain-anthropic adds it only once
+    a tool block is in the request. Anthropic doesn't document whether that resets the cache; it must not.
   * frozen: the tools array never changes; the schema reaches the model only through the ``tool_search`` result.
   * append control: the tool joins the tools array on B, which must miss while the frozen B still hits.
 
@@ -131,7 +131,7 @@ def _prompts(nonce: str, delivery: dict | None = None) -> tuple[list[BaseMessage
             {
                 "name": TOOL_NAME,
                 "id": "call_digest",
-                "args": {"ticket": "ABC-123", "max_notes": 3, "include_resolved": False},
+                "args": {"ticket": "ABC-123", "note_window": 3, "sweep_closed": False},
                 "type": "tool_call",
             }
         ],
@@ -177,9 +177,6 @@ async def test_inline_definition_keeps_cache(model_spec):
 
 @pytest.mark.deferred_cache
 @pytest.mark.parametrize("model_spec", DEFERRED_CACHE_INLINE_MODELS)
-@pytest.mark.xfail(
-    raises=AssertionError, strict=False, reason="a miss answers the question: the header must be sent from the start"
-)
 async def test_inline_beta_header_flip_keeps_cache(model_spec):
     require_provider_for_model(model_spec)
     model, build_block = _inline_model(model_spec)
