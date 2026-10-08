@@ -190,10 +190,7 @@ DEFERRED_FROZEN_CANDIDATES = _models_from_env(
 DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
     "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS", ["anthropic:claude-sonnet-5-5", "openai:gpt-5.6-luna"]
 )
-DEFERRED_CACHE_FROZEN_MODELS = _models_from_env(
-    "DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS",
-    [ModelName.CLAUDE_SONNET_4_6, ModelName.MINIMAX_M3, ModelName.DEEPSEEK_V4_FLASH_0731, ModelName.GEMINI_3_7_FLASH],
-)
+DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_4_6])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))

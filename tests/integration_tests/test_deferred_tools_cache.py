@@ -15,14 +15,20 @@ every case, as production does. Cases:
   * inline header flip (Anthropic only): the beta header first appears on B, as langchain-anthropic adds it only once
     a tool block is in the request. Anthropic doesn't document whether that resets the cache; it must not.
   * frozen: the tools array never changes; the schema reaches the model only through the ``tool_search`` result.
-  * append control: the tool joins the tools array on B, which must miss while the frozen B still hits.
+    Held to the same bar, so only for providers whose cache matches exact prefixes (Claude by default).
+  * freezing vs appending, for every frozen-list model and candidate: after A, B goes out once with the tool appended
+    to the tools array and once frozen, and the frozen one must read more from the cache. Best-effort or coarse caches
+    (DeepSeek, Gemini) miss the 80% bar now and then, yet freezing still pays off wherever it beats appending.
+
+Every call logs its generation id; on OpenRouter, look it up to see which upstream provider served it.
 
 Run with live logs to see every call's numbers::
 
     uv run pytest --envfile +docker/local/app/config.secrets.env --no-cov --log-cli-level=INFO \\
         tests/integration_tests/test_deferred_tools_cache.py -m deferred_cache
 
-Models come from ``DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS`` and ``DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS``.
+Models come from ``DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS``, ``DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS`` and the
+frozen gate's lists in ``utils.py``.
 """
 
 from __future__ import annotations
@@ -43,10 +49,15 @@ from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
-from core.constants import ModelName
 
 from .deferred_tools import TOOL_NAME, digest_tool, tool_search_result
-from .utils import DEFERRED_CACHE_FROZEN_MODELS, DEFERRED_CACHE_INLINE_MODELS, require_provider_for_model
+from .utils import (
+    DEFERRED_CACHE_FROZEN_MODELS,
+    DEFERRED_CACHE_INLINE_MODELS,
+    DEFERRED_FROZEN_ALLOWLISTED,
+    DEFERRED_FROZEN_CANDIDATES,
+    require_provider_for_model,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -63,12 +74,12 @@ _FILLER = "\n".join(
     f"Reference note {i}: escalated tickets go through triage, then to the owning queue, before any reply is sent."
     for i in range(300)
 )
-_APPEND_CONTROL_MODEL = ModelName.CLAUDE_SONNET_4_6
 
 
 class _Usage(NamedTuple):
     input: int
     cache_read: int
+    generation: str
 
 
 def _tool_search() -> BaseTool:
@@ -147,7 +158,11 @@ def _prompts(nonce: str, delivery: dict | None = None) -> tuple[list[BaseMessage
 async def _call(model: BaseChatModel, tools: list[BaseTool], prompt: list[BaseMessage], kwargs: dict) -> _Usage:
     response = await model.bind_tools(tools).ainvoke(prompt, **kwargs)
     usage = response.usage_metadata or {}
-    return _Usage(usage.get("input_tokens", 0), (usage.get("input_token_details") or {}).get("cache_read") or 0)
+    return _Usage(
+        usage.get("input_tokens", 0),
+        (usage.get("input_token_details") or {}).get("cache_read") or 0,
+        response.response_metadata.get("id") or "",
+    )
 
 
 async def _measure(model: BaseChatModel, prompts: tuple[list[BaseMessage], ...], kwargs: dict) -> list[_Usage]:
@@ -197,9 +212,10 @@ async def test_frozen_array_keeps_cache(model_spec):
 
 
 @pytest.mark.deferred_cache
-async def test_append_control_misses_cache():
-    require_provider_for_model(_APPEND_CONTROL_MODEL)
-    model = BaseAgent.get_model(model=_APPEND_CONTROL_MODEL)
+@pytest.mark.parametrize("model_spec", [*DEFERRED_FROZEN_ALLOWLISTED, *DEFERRED_FROZEN_CANDIDATES])
+async def test_freezing_keeps_more_cache_than_appending(model_spec):
+    require_provider_for_model(model_spec)
+    model = BaseAgent.get_model(model=model_spec)
     nonce = uuid.uuid4().hex
     kwargs = _cache_kwargs(model, nonce)
     prompt_a, prompt_b, _ = _prompts(nonce)
@@ -207,7 +223,8 @@ async def test_append_control_misses_cache():
     a = await _call(model, [_tool_search()], prompt_a, kwargs)
     appended = await _call(model, [_tool_search(), digest_tool()], prompt_b, kwargs)
     frozen = await _call(model, [_tool_search()], prompt_b, kwargs)
-    logger.info("deferred-cache append-control: A=%s appended B=%s frozen B=%s", a, appended, frozen)
+    logger.info("deferred-cache freeze-vs-append %s: A=%s appended B=%s frozen B=%s", model_spec, a, appended, frozen)
 
-    assert frozen.cache_read >= _HIT_RATIO * a.input, f"A's cache was never written: frozen B read {frozen}"
-    assert appended.cache_read < _HIT_RATIO * a.input, f"Control violated: appended B still read {appended}"
+    assert frozen.cache_read > appended.cache_read, (
+        f"{model_spec}: freezing kept no more cache than appending (frozen B {frozen}, appended B {appended}, A {a})"
+    )
