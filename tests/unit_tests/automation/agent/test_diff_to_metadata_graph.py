@@ -1,14 +1,17 @@
 from unittest.mock import MagicMock, Mock, patch
 
+from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.memory import MemoryMiddleware
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.runnables import RunnableLambda
 
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.constants import REPO_PATH
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import memory_section
 from automation.agent.middlewares.file_system import build_disk_workspace_backend
 from automation.agent.middlewares.memory import build_agents_memory_middleware
+from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, model_attempts_with_failing_primary
 
 
 async def test_context_files_are_read_through_the_workspace_backend(tmp_path):
@@ -59,3 +62,22 @@ def test_memory_files_load_without_the_main_agents_guidelines():
         create_diff_to_metadata_graph(model_names=["m"], ctx=ctx, backend=MagicMock())
 
     assert build_memory.call_args.args[1:] == (REPO_PATH, "AGENTS.md", memory_section)
+
+
+async def test_fallback_attempt_carries_no_openrouter_cache_control():
+    primary = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
+    fallback = ChatOpenRouter(model="openai/gpt-5.4", api_key="x")
+    built = {"primary": primary, "fallback": fallback}
+
+    with (
+        patch("automation.agent.diff_to_metadata.graph.BaseAgent.get_model", side_effect=lambda *, model: built[model]),
+        patch("automation.agent.diff_to_metadata.graph.create_agent") as create_agent,
+    ):
+        create_diff_to_metadata_graph(
+            ["primary", "fallback"], ctx=Mock(), backend=Mock(spec=BackendProtocol), include_commit_message=False
+        )
+
+    assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
+        (primary, OPENROUTER_CACHE_SETTINGS),
+        (fallback, {}),
+    ]

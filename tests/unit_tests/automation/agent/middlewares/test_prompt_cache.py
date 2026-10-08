@@ -67,6 +67,24 @@ class TestAnthropicPromptCachingMiddleware:
         }
         assert request.model_settings == {"temperature": 0.3}
 
+    def test_wrap_model_call_adds_cache_control_to_extra_body_for_openrouter_models(self):
+        request = ModelRequest(
+            model=ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x"),
+            messages=[HumanMessage(content="user")],
+            system_prompt="system prompt",
+            state=Mock(),
+            runtime=Mock(),
+            model_settings={"temperature": 0.3},
+        )
+        handler = Mock(return_value=ModelResponse(result=[]))
+
+        AnthropicPromptCachingMiddleware().wrap_model_call(request, handler)
+
+        assert handler.call_args.args[0].model_settings == {
+            "temperature": 0.3,
+            "extra_body": {"cache_control": {"type": "ephemeral", "ttl": "5m"}},
+        }
+
     async def test_awrap_model_call_passes_through_non_openrouter_models(self):
         middleware = AnthropicPromptCachingMiddleware()
         middleware._is_openrouter_anthropic_model = Mock(return_value=False)
