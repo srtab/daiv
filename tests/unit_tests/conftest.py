@@ -595,3 +595,37 @@ def ask_user_question_messages(payload: dict | None = None) -> list:
         ToolMessage(content=QUESTION_DELIVERED, tool_call_id="ask-1", name=ASK_USER_QUESTION_TOOL_NAME),
         AIMessage(content=render_questions(payload)),
     ]
+
+
+OPENROUTER_CACHE_SETTINGS = {"extra_body": {"cache_control": {"type": "ephemeral", "ttl": "5m"}}}
+
+
+async def model_attempts_with_failing_primary(middleware: list, primary) -> list[tuple[Any, dict]]:
+    """Each attempt's ``(model, model_settings)`` when ``primary`` fails under ``middleware``'s fallback and caching.
+
+    Only those two hooks run, nested as ``create_agent`` nests them (first listed outermost).
+    """
+    from functools import partial
+
+    from langchain.agents.middleware import ModelFallbackMiddleware, ModelRequest, ModelResponse
+    from langchain_core.messages import HumanMessage
+
+    from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
+
+    attempts: list[tuple[Any, dict]] = []
+
+    async def call_model(request: ModelRequest) -> ModelResponse:
+        attempts.append((request.model, request.model_settings))
+        if request.model is primary:
+            raise RuntimeError("primary model unavailable")
+        return ModelResponse(result=[AIMessage(content="ok")])
+
+    handler = call_model
+    for hook in reversed([
+        m for m in middleware if isinstance(m, ModelFallbackMiddleware | AnthropicPromptCachingMiddleware)
+    ]):
+        handler = partial(hook.awrap_model_call, handler=handler)
+    await handler(
+        ModelRequest(model=primary, messages=[HumanMessage(content="hi")], state={"messages": []}, runtime=Mock())
+    )
+    return attempts

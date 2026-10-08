@@ -68,12 +68,11 @@ def create_diff_to_metadata_graph(
 
     middleware = [
         build_agents_memory_middleware(backend, REPO_PATH, ctx.config.context_file_name, memory_section),
+        # Wraps caching so a fallback attempt is cached (or not) for its own model, not the primary's.
+        *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         AnthropicPromptCachingMiddleware(),
         dynamic_system_prompt,
     ]
-
-    if fallback_models:
-        middleware.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
 
     graphs: dict[str, Runnable] = {}
 
