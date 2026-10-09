@@ -742,7 +742,7 @@ class TestInlineToolDefinitions:
         import automation.agent.middlewares.deferred_tools as mw_module
 
         monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
-        model = ChatOpenAI(model="gpt-6-astra", api_key="sk-x", use_responses_api=True)
+        model = ChatOpenAI(model="gpt-6-sol", api_key="sk-x", use_responses_api=True)
 
         sent = await self._send(model, loaded={"gh_issue"})
 

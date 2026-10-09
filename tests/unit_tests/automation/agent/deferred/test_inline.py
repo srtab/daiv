@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred import inline as inline_module
-from automation.agent.deferred.conf import DeferredToolsSettings
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY, inline_block_builder, with_inline_definitions
 
@@ -65,28 +64,34 @@ class TestInlineBlockBuilder:
     def test_supported_anthropic_models_get_tool_additions(self, model):
         assert inline_block_builder(_anthropic(model)) is inline_module._anthropic_block
 
-    def test_openai_responses_model_gets_additional_tools(self):
-        model = ChatOpenAI(model="gpt-6-astra", api_key="sk-not-used", use_responses_api=True)
-        assert inline_block_builder(model) is inline_module._openai_block
+    @pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna"])
+    def test_openai_responses_model_gets_additional_tools(self, model):
+        chat_model = ChatOpenAI(model=model, api_key="sk-not-used", use_responses_api=True)
+        assert inline_block_builder(chat_model) is inline_module._openai_block
 
     @pytest.mark.parametrize(
         "model",
         [
-            _anthropic("claude-sonnet-4-6"),
-            ChatOpenAI(model="gpt-6-astra", api_key="sk-not-used"),
+            ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used"),
+            ChatOpenAI(model="gpt-6-astra", api_key="sk-not-used", use_responses_api=True),
             ChatOpenRouter(model="anthropic/claude-opus-5-5", api_key="sk-not-used"),
             ChatOpenRouter(model="openai/gpt-5.6-luna", api_key="sk-not-used", use_responses_api=True),
             None,
         ],
-        ids=["unlisted-claude", "openai-chat-completions", "openrouter-claude", "openrouter-gpt", "no-model"],
+        ids=["openai-chat-completions", "unlisted-gpt", "openrouter-claude", "openrouter-gpt", "no-model"],
     )
     def test_other_models_get_nothing(self, model):
         assert inline_block_builder(model) is None
 
-    def test_listed_anthropic_model_langchain_would_hoist_gets_nothing(self, monkeypatch):
-        # langchain-anthropic raises on a non-leading system message for such a model, so listing it must not inline.
-        monkeypatch.setattr(inline_module.deferred_settings, "INLINE_TOOLS_MODELS", ["claude-haiku-5-5"])
-        assert inline_block_builder(_anthropic("claude-haiku-5-5")) is None
+    @pytest.mark.parametrize("model", ["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-6"])
+    def test_claude_model_langchain_would_hoist_gets_nothing(self, model):
+        # langchain-anthropic raises on a non-leading system message for such a model, so it must not inline.
+        assert not _supports_mid_conversation_system_messages(model)
+        assert inline_block_builder(_anthropic(model)) is None
+
+    def test_unlisted_claude_model_gets_nothing(self, monkeypatch):
+        monkeypatch.setattr(inline_module.deferred_settings, "INLINE_TOOLS_MODELS", ["claude-fable-5"])
+        assert inline_block_builder(_anthropic("claude-opus-5-5")) is None
 
     def test_empty_setting_disables_it(self, monkeypatch):
         monkeypatch.setattr(inline_module.deferred_settings, "INLINE_TOOLS_MODELS", [])
@@ -95,11 +100,6 @@ class TestInlineBlockBuilder:
     def test_embed_valve_off_disables_it(self, monkeypatch):
         monkeypatch.setattr(inline_module.deferred_settings, "EMBED_SCHEMAS_IN_RESULTS", False)
         assert inline_block_builder(_anthropic()) is None
-
-    def test_every_default_anthropic_prefix_is_kept_in_place_by_langchain(self):
-        prefixes = [p for p in DeferredToolsSettings().INLINE_TOOLS_MODELS if p.startswith("claude-")]
-        assert prefixes
-        assert all(_supports_mid_conversation_system_messages(prefix) for prefix in prefixes)
 
 
 class TestBlocks:
@@ -311,7 +311,7 @@ class TestOnTheWire:
         assert sent_later[: len(sent_first)] == sent_first
 
     def test_openai_responses_sends_an_additional_tools_item(self):
-        model = ChatOpenAI(model="gpt-6-astra", api_key="sk-not-used", use_responses_api=True)
+        model = ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used", use_responses_api=True)
         messages = [HumanMessage("go"), _search_call("ts", ["rt_digest"]), _search_result("ts", ["rt_digest"])]
         sent = with_inline_definitions(messages, _index("rt_digest"), {"rt_digest"}, inline_module._openai_block)
 
