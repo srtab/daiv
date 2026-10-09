@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "ag-ui-langgraph==0.0.46",
-  "ag-ui-protocol<1",
+  "ag-ui-protocol<2",
   "copilotkit==0.1.96",
   "croniter==6.2.4",
   "ddgs==9.16.0",
