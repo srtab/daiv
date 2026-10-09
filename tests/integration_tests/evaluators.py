@@ -19,7 +19,7 @@ def get_correctness_evaluator():
     return create_async_llm_as_judge(
         prompt=CORRECTNESS_PROMPT,
         feedback_key="correctness",
-        judge=BaseAgent.get_model(model=ModelName.GPT_5_3_CODEX, thinking_level=ThinkingLevel.MEDIUM),
+        judge=BaseAgent.get_model(model=ModelName.GPT_6_1_SOL, thinking_level=ThinkingLevel.MEDIUM),
     )
 
 
@@ -30,7 +30,7 @@ class Verdict(BaseModel):
 
 @cache
 def _question_judge():
-    return BaseAgent.get_model(model=ModelName.CLAUDE_OPUS_4_6, thinking_level=ThinkingLevel.MEDIUM)
+    return BaseAgent.get_model(model=ModelName.CLAUDE_OPUS_5_5, thinking_level=ThinkingLevel.MEDIUM)
 
 
 async def judge_question_relevance(request: str, rendered_questions: str) -> Verdict:

@@ -308,7 +308,7 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_WEB_FETCH_ENABLED`  | Enable/disable the native `web_fetch` tool                     | `true`         | `false` |
-| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-4.5` | `openrouter:openai/gpt-4.1-mini` |
+| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-5.5` | `openrouter:openai/gpt-4.1-mini` |
 | `DAIV_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `1800` |
 | `DAIV_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
@@ -360,14 +360,14 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
-| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-4-6` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-5-3-codex` |
+| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-5.5` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-6.1-sol` |
 | `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, or empty to disable) | `medium` |
 | `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (independent of `DAIV_AGENT_THINKING_LEVEL`) | `medium` |
-| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-4-6` |
+| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-5.5` |
 | `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks | `high` |
-| `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-4-5` |
-| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails | `gpt-5-4-mini` |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-5.5` |
+| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails | `gpt-6-luna` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
 
 ### Jobs API
@@ -384,8 +384,8 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `gpt-5.4-mini` |
-| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-4.5` |
+| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `gemini-3.8-flash` |
+| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `deepseek-v4.1-flash` |
 
 ### Titling
 
@@ -393,5 +393,5 @@ Generates short titles for sessions and runs from the user's initial prompt.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `gpt-5.4-mini` |
-| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-4.5` |
+| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `gpt-6-luna` |
+| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-5.5` |

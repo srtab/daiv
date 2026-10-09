@@ -52,25 +52,22 @@ INTERRUPT_ALL_TOOLS_CONFIG = {
 }
 
 CODING_MODEL_NAMES = [
-    ModelName.CLAUDE_SONNET_4_5,
-    ModelName.CLAUDE_SONNET_4_6,
-    ModelName.CLAUDE_OPUS_4_5,
-    ModelName.CLAUDE_OPUS_4_6,
-    ModelName.GPT_5_3_CODEX,
-    ModelName.GPT_5_4,
-    ModelName.Z_AI_GLM_5_1,
+    ModelName.CLAUDE_SONNET_5_5,
+    ModelName.CLAUDE_OPUS_5_5,
+    ModelName.GPT_6_1_SOL,
+    ModelName.Z_AI_GLM_5_2,
+    ModelName.Z_AI_GLM_5_3,
     ModelName.MINIMAX_M3,
-    ModelName.MOONSHOTAI_KIMI_K2_6,
+    ModelName.MOONSHOTAI_KIMI_K3,
 ]
 
 # What production runs for this task (`diff_to_metadata_model_name` and its fallback). The suite
 # defaults to these two: at 12 cases each, the full candidate list is 84 paid runs and ~20 minutes.
-_PRODUCTION_MODELS = [ModelName.GEMINI_3_7_FLASH, ModelName.DEEPSEEK_V4_FLASH_0731]
+_PRODUCTION_MODELS = [ModelName.GEMINI_3_8_FLASH, ModelName.DEEPSEEK_V4_1_FLASH]
 
 _CANDIDATE_MODELS = [
-    ModelName.GPT_5_4_MINI,
-    ModelName.CLAUDE_HAIKU_4_5,
-    ModelName.GPT_5_6_LUNA,
+    ModelName.GPT_6_LUNA,
+    ModelName.CLAUDE_HAIKU_5_5,
     ModelName.Z_AI_GLM_5_3_FLASH,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
 ]
@@ -138,16 +135,16 @@ def _models_from_env(env_var: str, default: Sequence[str]) -> list[str]:
 
 
 MEMORY_EXTRACTION_MODELS = _models_from_env(
-    "DAIV_EVAL_MEMORY_EXTRACTION_MODELS", [ModelName.GPT_5_4_MINI, ModelName.CLAUDE_HAIKU_4_5]
+    "DAIV_EVAL_MEMORY_EXTRACTION_MODELS", [ModelName.GPT_6_LUNA, ModelName.CLAUDE_HAIKU_5_5]
 )
 MEMORY_CONSOLIDATION_MODELS = _models_from_env(
-    "DAIV_EVAL_MEMORY_CONSOLIDATION_MODELS", [ModelName.CLAUDE_SONNET_4_6, ModelName.GPT_5_3_CODEX]
+    "DAIV_EVAL_MEMORY_CONSOLIDATION_MODELS", [ModelName.CLAUDE_SONNET_5_5, ModelName.GPT_6_1_SOL]
 )
 
-# In neither matrix above: GPT_5_3_CODEX is a graded consolidation cell and would grade its own
+# In neither matrix above: GPT_6_1_SOL is a graded consolidation cell and would grade its own
 # output. Same vendor as two graded cells, which is acceptable only because the primary gate —
 # the decision check — is deterministic and never calls the judge.
-MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_4_6
+MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_5_5
 
 # Keep in step with EVAL_MODEL in the Makefile.
 EVAL_MODEL = "openrouter:z-ai/glm-5.2"
@@ -167,7 +164,6 @@ def _is_frozen_tools_model(model_spec: str) -> bool:
 
 
 DEFERRED_FROZEN_ALLOWLISTED = [
-    ModelName.CLAUDE_SONNET_4_6,
     ModelName.CLAUDE_OPUS_4_8,
     ModelName.CLAUDE_OPUS_5,
     ModelName.CLAUDE_OPUS_5_5,
@@ -177,23 +173,15 @@ DEFERRED_FROZEN_ALLOWLISTED = [
     ModelName.CLAUDE_FABLE_5_1,
     "openrouter:qwen/qwen3.8-max",
     ModelName.MINIMAX_M3,
-    ModelName.GEMINI_3_7_FLASH,
+    "openrouter:google/gemini-3.7-flash",
 ]
 DEFERRED_FROZEN_REJECTED = [
-    ModelName.Z_AI_GLM_5_1,
     ModelName.Z_AI_GLM_5_3_FLASH,
-    ModelName.GPT_5_3_CODEX,
-    ModelName.GPT_5_4,
-    ModelName.GPT_5_4_MINI,
-    ModelName.GPT_5_6_LUNA,
     ModelName.GPT_6_ASTRA,
     ModelName.GPT_6_LUNA,
     ModelName.GPT_6_SOL,
     ModelName.GPT_6_1_SOL,
-    ModelName.MOONSHOTAI_KIMI_K2_6,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
-    # Passes Mode 2, but its frozen B+C read less from the cache than appending did.
-    ModelName.DEEPSEEK_V4_FLASH_0731,
 ]
 DEFERRED_FROZEN_CANDIDATES = _models_from_env(
     "DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES",
@@ -216,7 +204,7 @@ DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
         "openai:gpt-6-astra",
     ],
 )
-DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_4_6])
+DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_5_5])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))
