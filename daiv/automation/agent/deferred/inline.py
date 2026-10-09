@@ -56,9 +56,15 @@ def inline_block_builder(model: object) -> Callable[[ToolEntry], dict[str, Any] 
         and _supports_mid_conversation_system_messages(model.model)
     ):
         return _anthropic_block
-    if type(model) is ChatOpenAI and model.use_responses_api is True and model.model_name.startswith(prefixes):
+    if type(model) is ChatOpenAI and model.model_name.startswith(prefixes) and _routes_to_responses_api(model):
         return _openai_block
     return None
+
+
+def _routes_to_responses_api(model: ChatOpenAI) -> bool:
+    # langchain-openai's own routing, for a request with function tools bound (``tool_search`` at least): GPT 6
+    # goes over the Responses API then even with ``use_responses_api`` unset.
+    return model._use_responses_api({**model._default_params, "tools": [{"type": "function"}]})
 
 
 def _anthropic_block(entry: ToolEntry) -> dict[str, Any] | None:

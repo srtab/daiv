@@ -77,16 +77,28 @@ class TestInlineBlockBuilder:
         chat_model = ChatOpenAI(model=model, api_key="sk-not-used", use_responses_api=True)
         assert inline_block_builder(chat_model) is inline_module._openai_block
 
+    def test_gpt_6_gets_additional_tools_without_the_responses_flag(self):
+        chat_model = ChatOpenAI(model="gpt-6-luna", api_key="sk-not-used")
+        assert inline_block_builder(chat_model) is inline_module._openai_block
+
     @pytest.mark.parametrize(
         "model",
         [
-            ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used"),
+            ChatOpenAI(model="gpt-5.6-luna", api_key="sk-not-used"),
+            ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used", use_responses_api=False),
             ChatOpenAI(model="gpt-6-astra", api_key="sk-not-used", use_responses_api=True),
             ChatOpenRouter(model="anthropic/claude-opus-5-5", api_key="sk-not-used"),
             ChatOpenRouter(model="openai/gpt-5.6-luna", api_key="sk-not-used", use_responses_api=True),
             None,
         ],
-        ids=["openai-chat-completions", "unlisted-gpt", "openrouter-claude", "openrouter-gpt", "no-model"],
+        ids=[
+            "openai-chat-completions",
+            "responses-flag-off",
+            "unlisted-gpt",
+            "openrouter-claude",
+            "openrouter-gpt",
+            "no-model",
+        ],
     )
     def test_other_models_get_nothing(self, model):
         assert inline_block_builder(model) is None
@@ -279,12 +291,19 @@ class TestOnTheWire:
 
         assert sent_later[: len(sent_first)] == sent_first
 
-    def test_openai_responses_sends_an_additional_tools_item(self):
-        model = ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used", use_responses_api=True)
-        messages = _loaded_history()
-        sent = with_inline_definitions(messages, _index("rt_digest"), {"rt_digest"}, inline_module._openai_block)
+    @pytest.mark.parametrize(
+        "model",
+        [
+            ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used", use_responses_api=True),
+            ChatOpenAI(model="gpt-6-luna", api_key="sk-not-used"),
+        ],
+        ids=["responses-flag-on", "gpt-6-routed"],
+    )
+    def test_openai_responses_sends_an_additional_tools_item(self, model):
+        index = _index("rt_digest")
+        sent = with_inline_definitions(_loaded_history(), index, {"rt_digest"}, inline_block_builder(model))
 
-        payload = model._get_request_payload(sent)
+        payload = model._get_request_payload(sent, tools=[index.get("rt_digest").openai_schema])
 
         assert payload["input"][-1]["type"] == "additional_tools"
         assert payload["input"][-1]["tools"][0]["name"] == "rt_digest"
