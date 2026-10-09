@@ -65,6 +65,8 @@ Tools are deferred by default
 
 Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, `fetch_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
+How a loaded tool reaches the model depends on the model, so that loading one doesn't throw away the provider's prompt cache. Models that take tool definitions mid-conversation (recent Claude models on the Anthropic API, recent GPT models on the OpenAI Responses API) get the tool declared right after the `tool_search` result. Models listed in `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS` read its schema from that result. Any other model gets the tool added to its tools array, which costs one cache miss per newly loaded tool.
+
 ### Filesystem
 
 | Tool         | Description                     |
