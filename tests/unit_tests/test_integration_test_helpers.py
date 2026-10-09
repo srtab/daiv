@@ -43,8 +43,23 @@ def test_resolve_provider_slug(model_spec: str, expected_slug: str) -> None:
 
 def test_require_provider_skips_when_built_in_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="OPENROUTER_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="OPENROUTER_API_KEY has no real key"):
         require_provider_for_model("openrouter:anthropic/claude-sonnet-4.6")
+
+
+@pytest.mark.parametrize(
+    ("env_var", "placeholder", "model_spec"),
+    [
+        ("ANTHROPIC_API_KEY", "anthropic-api-key", "anthropic:claude-sonnet-5-5"),
+        ("OPENAI_API_KEY", "openai-api-key", "openai:gpt-5.4"),
+    ],
+)
+def test_require_provider_skips_pytest_env_placeholder(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, placeholder: str, model_spec: str
+) -> None:
+    monkeypatch.setenv(env_var, placeholder)
+    with pytest.raises(pytest.skip.Exception, match=f"{env_var} has no real key"):
+        require_provider_for_model(model_spec)
 
 
 def test_require_provider_runs_when_built_in_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +69,7 @@ def test_require_provider_runs_when_built_in_env_set(monkeypatch: pytest.MonkeyP
 
 def test_require_provider_skips_when_custom_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY has no real key"):
         require_provider_for_model("customprovider:model-x")
 
 
@@ -65,7 +80,7 @@ def test_require_provider_runs_when_custom_env_set(monkeypatch: pytest.MonkeyPat
 
 def test_require_provider_uses_bare_name_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="ANTHROPIC_API_KEY not set"):
+    with pytest.raises(pytest.skip.Exception, match="ANTHROPIC_API_KEY has no real key"):
         require_provider_for_model("claude-haiku-4-5")
 
 
@@ -78,6 +93,41 @@ def test_discover_custom_slugs_extracts_non_builtin(monkeypatch: pytest.MonkeyPa
 
     slugs = _discover_custom_slugs()
     assert slugs == {"customprovider"}
+
+
+@pytest.mark.parametrize(
+    "models_attr", ["DEFERRED_FROZEN_CANDIDATES", "DEFERRED_CACHE_INLINE_MODELS", "DEFERRED_CACHE_FROZEN_MODELS"]
+)
+def test_discover_custom_slugs_includes_deferred_models(monkeypatch: pytest.MonkeyPatch, models_attr: str) -> None:
+    from tests.integration_tests.conftest import _discover_custom_slugs
+
+    for attr in ("DEFERRED_FROZEN_CANDIDATES", "DEFERRED_CACHE_INLINE_MODELS", "DEFERRED_CACHE_FROZEN_MODELS"):
+        monkeypatch.setattr(integration_utils, attr, [])
+    monkeypatch.setattr(integration_utils, models_attr, ["vllm:qwen3-coder"])
+
+    assert "vllm" in _discover_custom_slugs()
+
+
+@pytest.mark.parametrize(
+    ("model_spec", "frozen"),
+    [
+        ("openrouter:anthropic/claude-sonnet-4.6", True),
+        ("anthropic:claude-opus-4-6", True),
+        ("openrouter:qwen/qwen3.8-max", True),
+        ("openrouter:deepseek/deepseek-v4-flash-0731", False),
+        ("openrouter:z-ai/glm-5.1", False),
+        ("vllm:qwen3-coder", False),
+    ],
+)
+def test_is_frozen_tools_model_matches_without_provider_slug(model_spec: str, frozen: bool) -> None:
+    assert integration_utils._is_frozen_tools_model(model_spec) is frozen
+
+
+def test_deferred_frozen_candidates_exclude_allowlisted_and_rejected() -> None:
+    candidates = set(integration_utils.DEFERRED_FROZEN_CANDIDATES)
+
+    assert not candidates & set(integration_utils.DEFERRED_FROZEN_REJECTED)
+    assert not any(integration_utils._is_frozen_tools_model(spec) for spec in candidates)
 
 
 def _item(**overrides) -> SimpleNamespace:
