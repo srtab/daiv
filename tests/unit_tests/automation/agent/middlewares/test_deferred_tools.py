@@ -11,11 +11,7 @@ from pydantic.errors import PydanticInvalidForJsonSchema
 
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY
-from automation.agent.middlewares.deferred_tools import (
-    DeferredToolsMiddleware,
-    InlineToolDefinitionsMiddleware,
-    inline_tool_definitions_middleware,
-)
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, inline_tool_definitions_middleware
 
 
 def _make_tool(name: str, description: str) -> StructuredTool:
@@ -703,20 +699,16 @@ class TestInlineToolDefinitions:
             ToolMessage("Loaded 1 tool(s).", tool_call_id="ts", artifact={LOADED_TOOLS_ARTIFACT_KEY: ["gh_issue"]}),
         ]
 
-    @staticmethod
-    def _model_request(model, *, loaded: set[str] | None = None) -> ModelRequest:
-        return ModelRequest(
+    async def _send(self, model, *, loaded: set[str] | None = None) -> ModelRequest:
+        deferred = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[_make_tool("gh_issue", "Open an issue")])
+        [inline] = inline_tool_definitions_middleware([deferred])
+        request = ModelRequest(
             model=model,
-            messages=TestInlineToolDefinitions._history(),
+            messages=self._history(),
             system_prompt="You are DAIV.",
             tools=[],
             state={"loaded_tool_names": loaded} if loaded else {},
         )
-
-    @staticmethod
-    async def _send(model, *, loaded: set[str] | None = None) -> ModelRequest:
-        deferred = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[_make_tool("gh_issue", "Open an issue")])
-        [inline] = inline_tool_definitions_middleware([deferred])
         captured: dict = {}
 
         async def model_call(request):
@@ -726,7 +718,7 @@ class TestInlineToolDefinitions:
         async def inner(request):
             return await inline.awrap_model_call(request, model_call)
 
-        await deferred.awrap_model_call(TestInlineToolDefinitions._model_request(model, loaded=loaded), inner)
+        await deferred.awrap_model_call(request, inner)
         return captured["request"]
 
     async def test_inline_model_gets_a_frozen_array_and_an_in_place_declaration(self):
@@ -759,12 +751,3 @@ class TestInlineToolDefinitions:
         sent = await self._send(ChatAnthropic(model="claude-opus-5-5", api_key="sk-ant-x"))
 
         assert sent.messages == self._history()
-
-    def test_factory_pairs_one_step_with_the_deferred_middleware(self):
-        deferred = DeferredToolsMiddleware(always_loaded=set())
-
-        [inline] = inline_tool_definitions_middleware([deferred])
-
-        assert isinstance(inline, InlineToolDefinitionsMiddleware)
-        assert inline._get_index == deferred._get_index
-        assert inline_tool_definitions_middleware([]) == []

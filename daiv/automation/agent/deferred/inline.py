@@ -15,7 +15,8 @@ the schema in its ``tool_search`` result.
 
 Anthropic accepts a mid-conversation system turn only before an assistant turn or at the end, and langchain-anthropic
 raises on one followed by a user turn. The declarations therefore have to be inserted after every reminder or nudge a
-middleware appends: ``InlineToolDefinitionsMiddleware`` runs innermost.
+middleware appends: ``InlineToolDefinitionsMiddleware`` runs after every DAIV middleware, and the deepagents tail inside
+it (skills, prompt caching, memory) appends no messages.
 """
 
 from __future__ import annotations
@@ -46,9 +47,9 @@ def inline_block_builder(model: object) -> Callable[[ToolEntry], dict[str, Any] 
 
     Also ``None`` when ``EMBED_SCHEMAS_IN_RESULTS`` is off: that valve sends every model back to the array append.
     """
-    prefixes = tuple(deferred_settings.INLINE_TOOLS_MODELS)
-    if not prefixes or not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
+    if not deferred_settings.EMBED_SCHEMAS_IN_RESULTS:
         return None
+    prefixes = tuple(deferred_settings.INLINE_TOOLS_MODELS)
     if (
         type(model) is ChatAnthropic
         and model.model.startswith(prefixes)
@@ -107,15 +108,14 @@ def with_inline_definitions(
     build: Callable[[ToolEntry], dict[str, Any] | None],
 ) -> list[AnyMessage]:
     """``messages`` with each loaded tool ``build`` can declare, in one ``SystemMessage`` per insertion point."""
-    blocks_at: dict[int, list[tuple[str, dict[str, Any]]]] = {}
-    for name, anchor in _anchors(messages, loaded).items():
+    blocks_at: dict[int, list[str | dict]] = {}
+    for name, anchor in sorted(_anchors(messages, loaded).items()):
         entry = index.get(name)
         block = build(entry) if entry is not None else None
         if block is not None:
-            blocks_at.setdefault(_insertion_point(messages, anchor), []).append((name, block))
+            blocks_at.setdefault(_insertion_point(messages, anchor), []).append(block)
 
     result = list(messages)
     for position in sorted(blocks_at, reverse=True):
-        blocks: list[str | dict] = [block for _, block in sorted(blocks_at[position], key=lambda item: item[0])]
-        result.insert(position, SystemMessage(content=blocks))
+        result.insert(position, SystemMessage(content=blocks_at[position]))
     return result

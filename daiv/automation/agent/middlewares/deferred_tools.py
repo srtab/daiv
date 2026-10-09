@@ -253,7 +253,9 @@ def direct_mcp_tools(mcp_tools: list[BaseTool] | None) -> list[BaseTool]:
     return list(mcp_tools)
 
 
-def deferred_tools_middleware(always_loaded: Iterable[str], mcp_tools: list[BaseTool] | None) -> list[AgentMiddleware]:
+def deferred_tools_middleware(
+    always_loaded: Iterable[str], mcp_tools: list[BaseTool] | None
+) -> list[DeferredToolsMiddleware]:
     """The deferred half: a ``DeferredToolsMiddleware`` hiding ``mcp_tools`` (and any other tool not
     in ``always_loaded``) behind ``tool_search``.
 
@@ -276,10 +278,8 @@ def deferred_tools_middleware(always_loaded: Iterable[str], mcp_tools: list[Base
     ]
 
 
-def inline_tool_definitions_middleware(deferred: Sequence[AgentMiddleware]) -> list[AgentMiddleware]:
-    """The ``InlineToolDefinitionsMiddleware`` for the ``DeferredToolsMiddleware`` in ``deferred``, if any.
-
-    It must run inside every middleware that appends messages (reminders, the empty-reply nudge), so
-    callers put it last in their stack.
-    """
-    return [InlineToolDefinitionsMiddleware(m._get_index) for m in deferred if isinstance(m, DeferredToolsMiddleware)]
+def inline_tool_definitions_middleware(
+    deferred: Sequence[DeferredToolsMiddleware],
+) -> list[InlineToolDefinitionsMiddleware]:
+    """The ``InlineToolDefinitionsMiddleware`` for each ``DeferredToolsMiddleware`` in ``deferred``."""
+    return [InlineToolDefinitionsMiddleware(m._get_index) for m in deferred]

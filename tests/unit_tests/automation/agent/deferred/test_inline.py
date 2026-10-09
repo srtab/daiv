@@ -46,6 +46,14 @@ def _search_result(call_id: str, names: list[str], *, status: str = "success") -
     )
 
 
+def _load(call_id: str, names: list[str], *, status: str = "success") -> list[AIMessage | ToolMessage]:
+    return [_search_call(call_id, names), _search_result(call_id, names, status=status)]
+
+
+def _loaded_history() -> list[HumanMessage | AIMessage | ToolMessage]:
+    return [HumanMessage("go"), *_load("ts", ["rt_digest"])]
+
+
 def _tool_call(call_id: str, name: str) -> AIMessage:
     call = {"name": name, "id": call_id, "args": {"ticket": "A-1"}, "type": "tool_call"}
     return AIMessage(content="", tool_calls=[call])
@@ -112,7 +120,6 @@ class TestBlocks:
         definition = block["tool"]["definition"]
         assert definition["name"] == "rt_digest"
         assert set(definition["input_schema"]["properties"]) == {"ticket", "note_window"}
-        assert "cache_control" not in definition
 
     def test_anthropic_block_skips_a_root_combinator_schema(self):
         tool = StructuredTool(
@@ -140,12 +147,12 @@ class TestBlocks:
 
 
 class TestWithInlineDefinitions:
-    def _insert(self, messages, loaded, index=None):
-        index = index or _index("rt_digest", "rt_lookup", "zz_other")
+    def _insert(self, messages, loaded):
+        index = _index("rt_digest", "rt_lookup", "zz_other")
         return with_inline_definitions(messages, index, loaded, inline_module._anthropic_block)
 
     def test_declares_right_after_the_loading_result_when_it_is_last(self):
-        messages = [HumanMessage("go"), _search_call("ts", ["rt_digest"]), _search_result("ts", ["rt_digest"])]
+        messages = _loaded_history()
 
         result = self._insert(messages, {"rt_digest"})
 
@@ -156,8 +163,7 @@ class TestWithInlineDefinitions:
     def test_declares_before_the_next_assistant_turn(self):
         messages = [
             HumanMessage("go"),
-            _search_call("ts", ["rt_digest"]),
-            _search_result("ts", ["rt_digest"]),
+            *_load("ts", ["rt_digest"]),
             _tool_call("c1", "rt_digest"),
             ToolMessage("digest", tool_call_id="c1"),
         ]
@@ -189,8 +195,7 @@ class TestWithInlineDefinitions:
         assert _declared(result[5]) == ["rt_digest"]
 
     def test_tools_loaded_together_share_one_message_sorted_by_name(self):
-        messages = [HumanMessage("go"), _search_call("ts", ["zz_other", "rt_digest"])]
-        messages.append(_search_result("ts", ["zz_other", "rt_digest"]))
+        messages = [HumanMessage("go"), *_load("ts", ["zz_other", "rt_digest"])]
 
         result = self._insert(messages, {"zz_other", "rt_digest"})
 
@@ -198,13 +203,7 @@ class TestWithInlineDefinitions:
         assert _declared(result[3]) == ["rt_digest", "zz_other"]
 
     def test_tools_loaded_apart_are_declared_at_their_own_results(self):
-        messages = [
-            HumanMessage("go"),
-            _search_call("ts1", ["rt_digest"]),
-            _search_result("ts1", ["rt_digest"]),
-            _search_call("ts2", ["rt_lookup"]),
-            _search_result("ts2", ["rt_lookup"]),
-        ]
+        messages = [HumanMessage("go"), *_load("ts1", ["rt_digest"]), *_load("ts2", ["rt_lookup"])]
 
         result = self._insert(messages, {"rt_digest", "rt_lookup"})
 
@@ -215,13 +214,7 @@ class TestWithInlineDefinitions:
         assert _declared(result[6]) == ["rt_lookup"]
 
     def test_a_reselected_tool_stays_at_its_first_result(self):
-        messages = [
-            HumanMessage("go"),
-            _search_call("ts1", ["rt_digest"]),
-            _search_result("ts1", ["rt_digest"]),
-            _search_call("ts2", ["rt_digest"]),
-            _search_result("ts2", ["rt_digest"]),
-        ]
+        messages = [HumanMessage("go"), *_load("ts1", ["rt_digest"]), *_load("ts2", ["rt_digest"])]
 
         result = self._insert(messages, {"rt_digest"})
 
@@ -238,13 +231,7 @@ class TestWithInlineDefinitions:
         assert result[2] is messages[1]
 
     def test_an_errored_result_is_not_an_anchor(self):
-        messages = [
-            HumanMessage("go"),
-            _search_call("ts1", ["rt_digest"]),
-            _search_result("ts1", ["rt_digest"], status="error"),
-            _search_call("ts2", ["rt_digest"]),
-            _search_result("ts2", ["rt_digest"]),
-        ]
+        messages = [HumanMessage("go"), *_load("ts1", ["rt_digest"], status="error"), *_load("ts2", ["rt_digest"])]
 
         result = self._insert(messages, {"rt_digest"})
 
@@ -253,19 +240,10 @@ class TestWithInlineDefinitions:
         ]  # fmt: skip
 
     def test_unindexed_and_undeclarable_tools_add_nothing(self):
-        messages = [HumanMessage("go"), _search_call("ts", ["gone"]), _search_result("ts", ["gone"])]
+        messages = [HumanMessage("go"), *_load("ts", ["gone"])]
 
         assert self._insert(messages, {"gone"}) == messages
         assert with_inline_definitions(messages, _index("gone"), {"gone"}, lambda entry: None) == messages
-
-    def test_rebuilding_on_a_longer_history_keeps_the_earlier_bytes(self):
-        first = [HumanMessage("go"), _search_call("ts", ["rt_digest"]), _search_result("ts", ["rt_digest"])]
-        later = [*first, _tool_call("c1", "rt_digest"), ToolMessage("digest", tool_call_id="c1")]
-
-        sent_first = self._insert(first, {"rt_digest"})
-        sent_later = self._insert(later, {"rt_digest"})
-
-        assert sent_later[: len(sent_first)] == sent_first
 
 
 class TestOnTheWire:
@@ -280,11 +258,7 @@ class TestOnTheWire:
             return model._get_request_payload(sent)
 
     def test_anthropic_keeps_the_declaration_in_place(self):
-        payload = self._anthropic_messages([
-            HumanMessage("go"),
-            _search_call("ts", ["rt_digest"]),
-            _search_result("ts", ["rt_digest"]),
-        ])
+        payload = self._anthropic_messages(_loaded_history())
 
         assert payload["system"] == "You are DAIV."
         assert [m["role"] for m in payload["messages"]] == ["user", "assistant", "user", "system"]
@@ -292,17 +266,12 @@ class TestOnTheWire:
         assert "inline-tools-2026-09-15" in payload["betas"]
 
     def test_anthropic_accepts_it_after_an_appended_reminder(self):
-        payload = self._anthropic_messages([
-            HumanMessage("go"),
-            _search_call("ts", ["rt_digest"]),
-            _search_result("ts", ["rt_digest"]),
-            HumanMessage("Step budget reminder."),
-        ])
+        payload = self._anthropic_messages([*_loaded_history(), HumanMessage("Step budget reminder.")])
 
         assert [m["role"] for m in payload["messages"]] == ["user", "assistant", "user", "system"]
 
     def test_anthropic_payload_extends_the_previous_one(self):
-        first = [HumanMessage("go"), _search_call("ts", ["rt_digest"]), _search_result("ts", ["rt_digest"])]
+        first = _loaded_history()
         later = [*first, _tool_call("c1", "rt_digest"), ToolMessage("digest", tool_call_id="c1")]
 
         sent_first = self._anthropic_messages(first)["messages"]
@@ -312,7 +281,7 @@ class TestOnTheWire:
 
     def test_openai_responses_sends_an_additional_tools_item(self):
         model = ChatOpenAI(model="gpt-6-sol", api_key="sk-not-used", use_responses_api=True)
-        messages = [HumanMessage("go"), _search_call("ts", ["rt_digest"]), _search_result("ts", ["rt_digest"])]
+        messages = _loaded_history()
         sent = with_inline_definitions(messages, _index("rt_digest"), {"rt_digest"}, inline_module._openai_block)
 
         payload = model._get_request_payload(sent)

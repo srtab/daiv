@@ -371,33 +371,13 @@ class TestSubagentMcpTools:
         # The subagent's own tools stay always-loaded — only MCP tools are deferred.
         assert dtm._always_loaded >= SUBAGENT_ALWAYS_LOADED_TOOLS
 
-    def test_builder_ends_with_the_inline_definitions_step(self, mock_model, mock_backend, mock_runtime_ctx):
-        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
-
-        with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
-            ds.ENABLED = True
-            ds.TOP_K_DEFAULT = 3
-            ds.TOP_K_MAX = 10
-            middleware = _build_general_purpose_middleware(
-                mock_model,
-                _workspace(mock_backend, sandbox=True),
-                mock_runtime_ctx,
-                web_search_enabled=True,
-                web_fetch_enabled=True,
-                mcp_tools=[],
-            )
-
-        assert isinstance(middleware[-2], DeferredToolsMiddleware)
-        assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
-        assert middleware[-1]._get_index == middleware[-2]._get_index
-
     def test_builder_still_installs_deferred_middleware_without_mcp_tools(
         self, mock_model, mock_backend, mock_runtime_ctx
     ):
         # Even with no MCP tools, a subagent still gets DeferredToolsMiddleware when deferral is on:
         # it defers the subagent's own web search/fetch + git-platform tools (not in
         # SUBAGENT_ALWAYS_LOADED_TOOLS), mirroring the main agent.
-        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
 
         with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
             ds.ENABLED = True
@@ -414,6 +394,8 @@ class TestSubagentMcpTools:
 
         dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
         assert dtm._extra_tools == []
+        assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
+        assert middleware[-1]._get_index == dtm._get_index
 
     def test_builder_omits_deferred_middleware_when_deferral_disabled(
         self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool

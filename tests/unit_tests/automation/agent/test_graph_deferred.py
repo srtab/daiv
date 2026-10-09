@@ -102,6 +102,16 @@ class TestCreateDaivAgentDeferredFlag:
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
         assert "DeferredToolsMiddleware" in middleware_types
 
+    async def test_flag_on_ends_the_stack_with_the_inline_definitions_step(self):
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
+
+        mock_create_deep_agent, *_ = await self._run(flag_on=True)
+
+        middleware = mock_create_deep_agent.call_args.kwargs["middleware"]
+        [deferred] = [m for m in middleware if isinstance(m, DeferredToolsMiddleware)]
+        assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
+        assert middleware[-1]._get_index == deferred._get_index
+
     async def test_registers_code_review_detectors_as_subagents(self):
         # Guards the ``*load_builtin_code_review_detectors(...)`` spread at graph.py: a refactor
         # dropping it would leave every review with zero detectors — the orchestrator would report
