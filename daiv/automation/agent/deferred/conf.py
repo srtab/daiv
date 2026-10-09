@@ -22,12 +22,22 @@ class DeferredToolsSettings(BaseSettings):
             "tool_search results. Empty list disables freezing."
         ),
     )
+    INLINE_TOOLS_MODELS: list[str] = Field(
+        default=["claude-", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna"],
+        description=(
+            "Prefix-matched model names that get each loaded tool declared mid-conversation, right after the "
+            "tool_search result that loaded it, through the provider's native mechanism (Anthropic tool_addition, "
+            "OpenAI Responses additional_tools); the tools array stays frozen. Applies only to models reached "
+            "through the Anthropic API or the OpenAI Responses API directly; on the Anthropic API, only to models "
+            "langchain-anthropic keeps mid-conversation system messages in place for. Empty list disables it."
+        ),
+    )
     EMBED_SCHEMAS_IN_RESULTS: bool = Field(
         default=True,
         description=(
-            "Emergency valve: if False, tool_search results carry summaries only and freezing is "
-            "forced off (a frozen model has no other way to receive schemas), so every model falls "
-            "back to the array-append + summary pre-change behaviour."
+            "Emergency valve: if False, tool_search results carry summaries only and freezing and inline "
+            "definitions are forced off, so every model falls back to the array-append + summary pre-change "
+            "behaviour."
         ),
     )
 

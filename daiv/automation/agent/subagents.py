@@ -16,7 +16,11 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agent import BaseAgent
 from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
-from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
+from automation.agent.middlewares.deferred_tools import (
+    deferred_tools_middleware,
+    direct_mcp_tools,
+    inline_tool_definitions_middleware,
+)
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     READ_ONLY_FS_TOOLS,
@@ -152,7 +156,8 @@ def _build_general_purpose_middleware(
     if bash_tool_enabled:
         middleware.append(SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace))
 
-    middleware.extend(deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools))
+    deferred_tools = deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools)
+    middleware.extend([*deferred_tools, *inline_tool_definitions_middleware(deferred_tools)])
 
     return middleware
 
