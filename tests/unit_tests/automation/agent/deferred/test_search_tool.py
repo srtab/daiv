@@ -6,6 +6,7 @@ from langchain_core.tools import StructuredTool
 from langgraph.types import Command
 
 from automation.agent.deferred.index import DeferredToolsIndex
+from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY
 from automation.agent.deferred.search_tool import make_tool_search
 
 
@@ -66,6 +67,27 @@ class TestToolSearch:
 
         assert isinstance(result, Command)
         assert result.update["loaded_tool_names"] == {"sentry_find_orgs"}
+
+    async def test_loaded_result_names_its_tools_in_the_artifact(self):
+        tools = [
+            _make_tool("github_create_issue", "Create a GitHub issue"),
+            _make_tool("sentry_find_orgs", "List orgs"),
+        ]
+        tool_search = make_tool_search(lambda: DeferredToolsIndex(tools), top_k_default=5, top_k_max=10)
+
+        by_select = await tool_search.ainvoke({"select": ["sentry_find_orgs", "nope"], "runtime": _runtime()})
+        by_query = await tool_search.ainvoke({"query": "github issue", "runtime": _runtime()})
+
+        assert by_select.update["messages"][0].artifact == {LOADED_TOOLS_ARTIFACT_KEY: ["sentry_find_orgs"]}
+        assert by_query.update["messages"][0].artifact == {LOADED_TOOLS_ARTIFACT_KEY: ["github_create_issue"]}
+
+    async def test_result_that_loads_nothing_has_no_artifact(self):
+        index = DeferredToolsIndex([_make_tool("github_create_issue", "Create issue")])
+        tool_search = make_tool_search(lambda: index, top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"select": ["nope"], "runtime": _runtime()})
+
+        assert result.update["messages"][0].artifact is None
 
     async def test_select_unknown_name_surfaces_in_message(self):
         index = DeferredToolsIndex([_make_tool("github_create_issue", "Create issue")])

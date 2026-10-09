@@ -40,7 +40,7 @@ class TestDbOverride:
 
     def test_db_empty_string_falls_to_default(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(agent_model_name="")):
-            assert ss.agent_model_name == "openrouter:anthropic/claude-sonnet-4.6"
+            assert ss.agent_model_name == "openrouter:anthropic/claude-sonnet-5.5"
 
 
 class TestEnvOverride:
@@ -209,13 +209,13 @@ class TestMemoryDefaults:
 
     def test_extraction_model_default(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_extraction_model_name=None)):
-            assert ss.memory_extraction_model_name == "openrouter:openai/gpt-5.4-mini"
+            assert ss.memory_extraction_model_name == "openrouter:openai/gpt-6-luna"
 
     def test_extraction_fallback_model_default(self, ss):
         with patch.object(
             SiteConfiguration, "get_cached", return_value=MagicMock(memory_extraction_fallback_model_name=None)
         ):
-            assert ss.memory_extraction_fallback_model_name == "openrouter:anthropic/claude-haiku-4.5"
+            assert ss.memory_extraction_fallback_model_name == "openrouter:anthropic/claude-haiku-5.5"
 
     def test_consolidation_model_default_is_empty(self, ss):
         # Optional override: empty means "reuse the repository's agent model".

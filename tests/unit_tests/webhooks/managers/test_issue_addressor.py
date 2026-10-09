@@ -23,7 +23,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.synthetic import SYNTHETIC_KWARG, is_synthetic
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import GitPlatform, Issue, MergeRequest, User
+from codebase.base import GitPlatform, Issue, MergeRequest, Scope, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.site_settings import site_settings
@@ -53,13 +53,16 @@ def _ctx() -> SimpleNamespace:
 
 
 def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
-    """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds the session from."""
+    """``_ctx()`` for a sandbox run: what draft recovery reads and what the executor builds and acquires the session
+    from."""
     sandbox = {
         "merge_request": None,
         "gitrepo": None,
         "repo": SimpleNamespace(ref="main", current_ref="daiv/issue-42"),
         "sandbox": sandbox_spec(),
         "sandbox_client": client,
+        "bot_username": "daiv",
+        "scope": Scope.ISSUE,
     }
     return SimpleNamespace(**(vars(_ctx()) | sandbox | {"credential_source": None}))
 
@@ -268,23 +271,20 @@ class TestIssueAfterRunMatrix:
         assert run.armed == []
 
     async def test_an_agent_error_recovers_the_draft_through_the_live_session(self, captured_client):
-        """B7: after an agent error, the draft is pushed through the turn's own session, the one the agent acquired."""
+        """B7: after an agent error, the draft is pushed through the turn's own session, the one the run acquired."""
         client = FakeSandboxClient.opened()
         session_id = client.add_running_session("sess-1")
 
-        async def _fail_mid_turn(*_args, **_kwargs):
-            session = run.create_agent.await_args.kwargs["workspace"].session
-            await session.acquire(prior_id=session_id, prior_fingerprint=None, seed=AsyncMock())
-            raise RuntimeError("boom")
-
-        agent = addressor_agent(side_effect=_fail_mid_turn)
+        agent = addressor_agent(side_effect=RuntimeError("boom"))
         agent.aget_state = AsyncMock(
             return_value=SimpleNamespace(values={"merge_request": None, "session_id": session_id})
         )
         agent.aupdate_state = AsyncMock()
         created: list = []
         with (
-            addressor_run(agent, ctx=_sandbox_ctx(client), stub_recovery=False) as run,
+            addressor_run(
+                agent, ctx=_sandbox_ctx(client), stub_recovery=False, checkpointed={"session_id": session_id}
+            ),
             patch(
                 "automation.agent.publishers.GitChangePublisher",
                 publisher_through_workspace(created, publishes=_merge_request()),

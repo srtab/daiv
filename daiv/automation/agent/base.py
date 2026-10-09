@@ -45,6 +45,7 @@ _CLAUDE_MODELS = (
     ("claude-opus-4-8", "anthropic/claude-opus-4.8", True),
     ("claude-opus-5", "anthropic/claude-opus-5", True),
     ("claude-haiku-4-5", "anthropic/claude-haiku-4.5", False),
+    ("claude-haiku-5", "anthropic/claude-haiku-5", True),
     ("claude-fable-5", "anthropic/claude-fable-5", True),
 )
 

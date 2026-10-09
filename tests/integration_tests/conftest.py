@@ -5,6 +5,7 @@ import pytest
 import pytest_asyncio
 from sandbox_envs.services import build_sandbox_spec
 
+from automation.agent.middlewares.sandbox import acquire_sandbox
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
@@ -24,10 +25,22 @@ _BUILT_IN_SLUGS = set(_BUILT_IN_PROVIDER_ENV) | {"google"}
 
 
 def _discover_custom_slugs() -> set[str]:
-    from .utils import CODING_MODEL_NAMES, FAST_MODEL_NAMES
+    from .utils import (
+        CODING_MODEL_NAMES,
+        DEFERRED_CACHE_FROZEN_MODELS,
+        DEFERRED_CACHE_INLINE_MODELS,
+        DEFERRED_FROZEN_CANDIDATES,
+        FAST_MODEL_NAMES,
+    )
 
     slugs: set[str] = set()
-    for spec in (*CODING_MODEL_NAMES, *FAST_MODEL_NAMES):
+    for spec in (
+        *CODING_MODEL_NAMES,
+        *FAST_MODEL_NAMES,
+        *DEFERRED_FROZEN_CANDIDATES,
+        *DEFERRED_CACHE_INLINE_MODELS,
+        *DEFERRED_CACHE_FROZEN_MODELS,
+    ):
         if ":" in spec:
             prefix = spec.split(":", 1)[0]
             if prefix not in _BUILT_IN_SLUGS:
@@ -172,8 +185,8 @@ _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
     "registered markers, so a typo deselects everything and exits 5 (NO_TESTS_COLLECTED) with no "
     "indication the marker name was wrong — this suite names the cause instead. "
-    "Valid markers for this suite: ask_user, code_review, deferred_frozen, diff_to_metadata, memory, sandbox, skills, "
-    "subagents, todos, web_search."
+    "Valid markers for this suite: ask_user, code_review, deferred_cache, deferred_frozen, diff_to_metadata, memory, "
+    "sandbox, skills, subagents, todos, web_search."
 )
 
 
@@ -234,13 +247,15 @@ async def runtime_ctx():
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def sandbox_session(runtime_ctx):
-    """The run's sandbox session, as the run executor builds it; its container is removed after the test."""
+    """The run's sandbox session, as the run executor builds and acquires it; its container is removed after the
+    test."""
     if runtime_ctx.sandbox_client is None:
         pytest.skip("The global default sandbox environment has no base image.")
     session = SandboxSession(
         runtime_ctx.sandbox_client, runtime_ctx.sandbox, credential_source=runtime_ctx.credential_source
     )
     try:
+        await acquire_sandbox(session, runtime_ctx, {})
         yield session
     finally:
         await session.release(resumable=False)

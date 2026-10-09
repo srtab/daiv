@@ -7,6 +7,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from langchain_anthropic import convert_to_anthropic_tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic.errors import PydanticInvalidForJsonSchema
 from rank_bm25 import BM25Plus
@@ -50,6 +51,20 @@ class ToolEntry:
         except Exception:
             logger.exception("deferred-index: unexpected schema-conversion failure for %s", self.name)
         return None
+
+    @cached_property
+    def anthropic_definition(self) -> dict | None:
+        """The tool's Anthropic definition for an inline ``tool_addition`` block, or ``None`` when it has no schema.
+
+        Cached so every model call sends the same bytes; ``cache_control`` and ``defer_loading`` don't belong in an
+        inline definition.
+        """
+        if self.openai_schema is None:
+            return None
+        definition = dict(convert_to_anthropic_tool(self.tool))
+        definition.pop("cache_control", None)
+        definition.pop("defer_loading", None)
+        return definition
 
 
 class DeferredToolsIndex:

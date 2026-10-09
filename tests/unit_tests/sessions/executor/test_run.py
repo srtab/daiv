@@ -1,7 +1,5 @@
 import asyncio
-import io
 import json
-import tarfile
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
@@ -27,15 +25,17 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.references import ExternalRef
+from codebase.repo_config import RepositoryConfig
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
+    agent_settings,
     ask_user_question_messages,
     sandbox_spec,
 )
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session
-from tests.unit_tests.sessions.executor.conftest import agent_stack, make_spec
+from tests.unit_tests.sessions.executor.conftest import agent_stack, disk_ctx, make_spec
 
 MR = {"merge_request_id": 7, "source_branch": "feat/published"}
 
@@ -235,7 +235,7 @@ async def test_a_failing_context_exit_still_frees_the_slot():
 
     @asynccontextmanager
     async def _context(**_kwargs):
-        yield MagicMock()
+        yield disk_ctx()
         raise OSError("clone cleanup failed")
 
     with agent_stack(_agent(), context=_context), pytest.raises(OSError, match="clone cleanup failed"):
@@ -827,17 +827,9 @@ def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None) -> MagicM
         sandbox=sandbox_spec(),
         sandbox_client=client,
         credential_source=credential_source,
+        bot_username="daiv",
+        scope=Scope.GLOBAL,
     )
-
-
-async def _acquire(session, prior_id: str | None) -> None:
-    await session.acquire(prior_id=prior_id, prior_fingerprint=None, seed=AsyncMock(return_value=(_archive(), None)))
-
-
-def _archive() -> bytes:
-    buffer = io.BytesIO()
-    tarfile.open(fileobj=buffer, mode="w:gz").close()
-    return buffer.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -848,9 +840,8 @@ async def test_a_finished_run_releases_its_sandbox_session_before_the_context_cl
     has a thread), after the after-run steps and while the run's client is still open."""
     client = FakeSandboxClient.opened()
     session_id = client.add_running_session("sess-1")
-    agent = _agent()
 
-    with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client), checkpointed={"session_id": session_id}) as stack:
         close_session = client.close_session
 
         async def _recorded_close(sid, *, force=False):
@@ -858,12 +849,6 @@ async def test_a_finished_run_releases_its_sandbox_session_before_the_context_cl
             await close_session(sid, force=force)
 
         client.close_session = _recorded_close
-
-        async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, session_id)
-            return {"messages": [MagicMock(content="done")]}
-
-        agent.ainvoke = AsyncMock(side_effect=_invoke)
         await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
 
     assert stack.events == ["context entered", "result built", f"closed sess-1 force={force}", "context exited"]
@@ -877,18 +862,73 @@ async def test_a_raising_agent_still_releases_its_sandbox_session(one_shot, forc
     client = FakeSandboxClient.opened()
     session_id = client.add_running_session("sess-1")
     agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+
+    with (
+        agent_stack(agent, ctx=_sandbox_ctx(client), checkpointed={"session_id": session_id}),
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
+
+    assert client.calls_to("close_session") == [(session_id, force)]
+
+
+async def test_the_container_is_acquired_before_the_agent_is_built():
+    """Building the agent lists the repository's subagents through the workspace, which needs the container."""
+    client = FakeSandboxClient.opened()
+
+    acquired_at_build = []
+
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client)) as stack:
+        agent = stack.create_agent.return_value
+
+        async def _build(**kwargs):
+            acquired_at_build.append(kwargs["workspace"].session.is_acquired)
+            return agent
+
+        stack.create_agent.side_effect = _build
+        await execute_run(make_spec())
+
+    assert acquired_at_build == [True]
+
+
+@pytest.mark.parametrize(
+    ("content", "repo", "starts"),
+    [
+        pytest.param("/help", None, 0, id="builtin"),
+        pytest.param("/agents", None, 1, id="reads-the-repository"),
+        pytest.param("/help", RepositoryConfig(slash_commands={"enabled": False}), 1, id="slash-commands-off"),
+    ],
+)
+async def test_a_slash_command_turn_acquires_a_container_only_when_the_agent_needs_one(content, repo, starts):
+    """``SlashCommandMiddleware`` answers a builtin command without the agent loop, so a container would be paid for
+    nothing; ``/agents`` lists the subagents building the agent read from the repository."""
+    client = FakeSandboxClient.opened()
+    resolve = None if repo is None else MagicMock(return_value=agent_settings(repo=repo))
+
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client), resolve=resolve):
+        await execute_run(make_spec(input_messages=(HumanMessage(content=content),)))
+
+    assert len(client.calls_to("start_session")) == starts
+
+
+@pytest.mark.parametrize("recorded", [True, False], ids=["recorded", "never-recorded"])
+async def test_a_new_container_is_kept_only_once_the_checkpoint_names_it(recorded):
+    """A container no checkpoint names could never be reused, so stopping it would only leave it to the reaper."""
+    client = FakeSandboxClient.opened()
+    agent = _agent()
 
     with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
 
         async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, session_id)
-            raise RuntimeError("agent blew up")
+            if recorded:
+                stack.create_agent.await_args.kwargs["workspace"].session.mark_checkpointed()
+            return {"messages": [MagicMock(content="done")]}
 
         agent.ainvoke = AsyncMock(side_effect=_invoke)
-        with pytest.raises(RuntimeError, match="agent blew up"):
-            await execute_run(make_spec(thread_id=None) if one_shot else make_spec())
+        await execute_run(make_spec())
 
-    assert client.calls_to("close_session") == [(session_id, force)]
+    assert client.calls_to("close_session") == [("sess-1", not recorded)]
 
 
 async def test_the_sandbox_session_mints_its_egress_credential_from_the_context():
@@ -896,15 +936,8 @@ async def test_the_sandbox_session_mints_its_egress_credential_from_the_context(
     push token."""
     client = FakeSandboxClient.opened()
     credential = GitEgressCredential.for_token(host="gitlab.com", token="tok")  # noqa: S106
-    agent = _agent()
 
-    with agent_stack(agent, ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))) as stack:
-
-        async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, None)
-            return {"messages": [MagicMock(content="done")]}
-
-        agent.ainvoke = AsyncMock(side_effect=_invoke)
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client, credential_source=AsyncMock(return_value=credential))):
         await execute_run(make_spec())
 
     [(request,)] = client.calls_to("start_session")
@@ -981,18 +1014,14 @@ async def test_a_sandbox_run_records_how_it_got_its_container(error):
     session, run = await _job_run()
     client = FakeSandboxClient.opened()
     agent = _agent()
+    if error is not None:
+        agent.ainvoke = AsyncMock(side_effect=error)
 
-    with agent_stack(agent, ctx=_sandbox_ctx(client)) as stack:
-
-        async def _invoke(*_args, **_kwargs):
-            await _acquire(stack.create_agent.await_args.kwargs["workspace"].session, None)
-            if error is not None:
-                raise error
-            return {"messages": [MagicMock(content="done")]}
-
-        agent.ainvoke = AsyncMock(side_effect=_invoke)
-        with pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext():
-            await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+    with (
+        agent_stack(agent, ctx=_sandbox_ctx(client)),
+        pytest.raises(RuntimeError, match="agent blew up") if error else nullcontext(),
+    ):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     await run.arefresh_from_db()
     assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "new")
@@ -1003,7 +1032,9 @@ async def test_a_sandbox_run_that_never_acquires_a_container_is_recorded_as_not_
     session, run = await _job_run()
 
     with agent_stack(_agent(), ctx=_sandbox_ctx(FakeSandboxClient.opened())):
-        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+        await execute_run(
+            make_spec(thread_id=session.thread_id, run_id=str(run.pk), input_messages=(HumanMessage(content="/help"),))
+        )
 
     await run.arefresh_from_db()
     assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "not_acquired")
@@ -1021,7 +1052,7 @@ async def test_a_release_cancelled_by_a_repeated_stop_still_records_the_measurem
         await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
     await run.arefresh_from_db()
-    assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "not_acquired")
+    assert (run.clone_seconds, run.sandbox_acquisition) == (2.5, "new")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1063,7 +1094,7 @@ def _stream(*events, error: Exception | None = None):
 @asynccontextmanager
 async def _context_failing_on_close(**_kwargs):
     try:
-        yield MagicMock(repo=SimpleNamespace(ref="main"))
+        yield disk_ctx(repo=SimpleNamespace(ref="main"))
     finally:
         raise OSError("clone cleanup failed")
 
@@ -1332,17 +1363,12 @@ class TestStreamRun:
         client = FakeSandboxClient.opened()
         session_id = client.add_running_session("sess-1")
 
-        async def _acquiring(run):
-            await _acquire(run.workspace.session, session_id)
-            yield "a"
-            yield "b"
-
         with (
-            agent_stack(_agent(), ctx=_sandbox_ctx(client)),
+            agent_stack(_agent(), ctx=_sandbox_ctx(client), checkpointed={"session_id": session_id}),
             patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
         ):
             events = stream_run(
-                make_spec(lock=NoLock()), _acquiring, should_stop=AsyncMock(return_value=ending == "stop")
+                make_spec(lock=NoLock()), _stream("a", "b"), should_stop=AsyncMock(return_value=ending == "stop")
             )
             assert await anext(events) == "a"
             if ending == "stop":
@@ -1359,14 +1385,13 @@ class TestStreamRun:
         session_id = client.add_running_session("sess-1")
         waiting = asyncio.Event()
 
-        async def _acquiring(run):
-            await _acquire(run.workspace.session, session_id)
+        async def _hanging(_run):
             yield "a"
             waiting.set()
             await asyncio.Event().wait()
 
-        with agent_stack(_agent(), ctx=_sandbox_ctx(client)):
-            task = asyncio.create_task(_drain(make_spec(lock=NoLock()), _acquiring))
+        with agent_stack(_agent(), ctx=_sandbox_ctx(client), checkpointed={"session_id": session_id}):
+            task = asyncio.create_task(_drain(make_spec(lock=NoLock()), _hanging))
             await waiting.wait()
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -1389,18 +1414,17 @@ class TestStreamRun:
         client = FakeSandboxClient.opened()
         session_id = client.add_running_session("sess-1")
 
-        async def _acquiring(run):
-            await _acquire(run.workspace.session, session_id)
-            yield "a"
-            yield "b"
-
         with (
-            agent_stack(_agent(state={"session_id": checkpointed}), ctx=_sandbox_ctx(client)),
+            agent_stack(
+                _agent(state={"session_id": checkpointed}),
+                ctx=_sandbox_ctx(client),
+                checkpointed={"session_id": session_id},
+            ),
             patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
             patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
             pytest.raises(SessionLockLostError),
         ):
-            await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _acquiring)
+            await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _stream("a", "b"))
 
         assert client.calls_to("close_session") == closes
 

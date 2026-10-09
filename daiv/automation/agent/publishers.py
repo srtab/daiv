@@ -27,9 +27,10 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from automation.agent.agent_settings import AgentSettings
+    from automation.agent.git_manager import PendingMerge
     from automation.agent.workspace.base import Workspace
     from codebase.context import RuntimeCtx
 
@@ -42,6 +43,17 @@ SESSION_TRAILER = "DAIV-Session"
 
 # A trailer line ("Token: value") or its folded continuation (leading whitespace).
 _TRAILER_LINE_RE = re.compile(r"[A-Za-z0-9-]+:\s|\s+\S")
+
+
+class UnresolvedMergeConflictsError(RuntimeError):
+    """The agent's merge still has conflict markers, so the publisher commits and pushes nothing."""
+
+    def __init__(self, paths: Sequence[str]):
+        self.paths = tuple(paths)
+        super().__init__(
+            f"The merge still has conflict markers in {', '.join(paths)}; nothing was committed or pushed. "
+            "The merge stays in progress in the run's workspace."
+        )
 
 
 def checkpointed_merge_request(state: Mapping[str, Any], *, strict: bool) -> MergeRequest | None:
@@ -77,8 +89,7 @@ def effective_merge_request(
     so a redundant MR is the cheap failure here and a stale publish target the expensive one.
 
     ``current_ref`` is the ref the *clone* is on — whether this workspace's history descends from
-    the MR's branch — not where in-sandbox git points. An agent that checked that branch out inside
-    the sandbox is dropped here despite a legitimate fast-forward; that is the safe direction.
+    the MR's branch — not where in-sandbox git points, which the sandbox policy keeps the agent from switching.
 
     Every caller that hands a ``merge_request`` to :meth:`GitChangePublisher.publish` resolves it
     through this, the post-error draft recovery included.
@@ -180,6 +191,10 @@ class GitChangePublisher(ChangePublisher):
         ``GitMiddleware._is_unpublished`` gate): a clean tree whose work is already on its MR — or no
         changes at all — short-circuits without an LLM metadata call or a no-op push. Otherwise
         commits any uncommitted work (LLM-generated message), pushes, and opens/updates the MR.
+
+        A merge the agent left pending (``git merge --no-commit``) is committed as a merge commit with git's merge
+        subject; one whose files still hold conflict markers raises ``UnresolvedMergeConflictsError`` before anything
+        is committed.
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
@@ -193,18 +208,26 @@ class GitChangePublisher(ChangePublisher):
 
         git_manager = await self.workspace.authenticated_git()
 
+        pending_merge = await git_manager.pending_merge()
+        if pending_merge is not None and pending_merge.conflicted_paths:
+            raise UnresolvedMergeConflictsError(pending_merge.conflicted_paths)
+
         snapshot = await git_manager.status_snapshot(
-            base_branch=base_branch, mr_source_branch=merge_request.source_branch if merge_request is not None else None
+            base_branch=base_branch,
+            mr_source_branch=merge_request.source_branch if merge_request is not None else None,
+            merge_head=pending_merge.head if pending_merge is not None else None,
         )
+        # A merge that leaves the tree as it was still needs its commit, to record the merged parent.
+        dirty = snapshot.dirty or pending_merge is not None
 
         # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
         diff_stats = diff_line_stats(snapshot.diff)
 
-        if not snapshot.dirty and not snapshot.diff.strip():
+        if not dirty and not snapshot.diff.strip():
             logger.info("No changes to publish.")
             return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
 
-        if not snapshot.dirty and merge_request is not None and not snapshot.has_unpushed:
+        if not dirty and merge_request is not None and not snapshot.has_unpushed:
             logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
             return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
@@ -221,15 +244,28 @@ class GitChangePublisher(ChangePublisher):
             protected_branch_fallback_source = merge_request.source_branch
             merge_request = None
 
+        if merge_request is None and not snapshot.diff.strip():
+            logger.info("No changes to open a merge request with.")
+            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+
         pr_metadata_diff = (
             snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
         )
-        changes_metadata = await self._diff_to_metadata(
-            pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff, agent_summary=agent_summary
+        commit_message_diff = snapshot.diff if dirty and pending_merge is None else None
+        changes_metadata = (
+            await self._diff_to_metadata(
+                pr_metadata_diff=pr_metadata_diff, commit_message_diff=commit_message_diff, agent_summary=agent_summary
+            )
+            if pr_metadata_diff or commit_message_diff is not None
+            else {}
         )
 
-        if snapshot.dirty:
-            commit_message = changes_metadata["commit_message"].commit_message
+        if dirty:
+            commit_message = (
+                self._merge_commit_message(pending_merge)
+                if pending_merge is not None
+                else changes_metadata["commit_message"].commit_message
+            )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
             await git_manager.commit_all(await self._with_trailers(commit_message))
@@ -258,7 +294,7 @@ class GitChangePublisher(ChangePublisher):
         await git_manager.push_head_to(
             branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
         )
-        # Read after the push: an integrate-on-reject rebase rewrites HEAD, and the heal below
+        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and the heal below
         # needs the sha that actually landed on the remote.
         pushed_sha = None
         if will_heal:
@@ -330,6 +366,14 @@ class GitChangePublisher(ChangePublisher):
             protected_branch_fallback_source=protected_branch_fallback_source,
             diff_stats=diff_stats,
         )
+
+    def _merge_commit_message(self, merge: PendingMerge) -> str:
+        """git's subject for the merge, then the files it left conflicted, which the agent resolved."""
+        subject = merge.commit_subject(None if self.ctx.repo.head_detached else self.ctx.repo.current_ref)
+        if not merge.unmerged_paths:
+            return subject
+        logger.info("Committing a merge of %s that conflicted in %s", merge.head, ", ".join(merge.unmerged_paths))
+        return "\n".join([subject, "", "Conflicts:", *(f"\t{path}" for path in merge.unmerged_paths)])
 
     @staticmethod
     def _live_target_branch(base_branch: str, remote_branches: list[str], default_branch: str) -> str:
@@ -427,14 +471,14 @@ class GitChangePublisher(ChangePublisher):
             logger.exception("Could not post the pipeline-failure note on MR !%s", merge_request.merge_request_id)
 
     async def _diff_to_metadata(
-        self, commit_message_diff: str, pr_metadata_diff: str | None = None, agent_summary: str | None = None
+        self, commit_message_diff: str | None, pr_metadata_diff: str | None = None, agent_summary: str | None = None
     ) -> dict[str, Any]:
         """
         Get the PR metadata from the diff.
 
         Args:
             ctx: The runtime context.
-            commit_message_diff: The diff of the commit message.
+            commit_message_diff: The diff of the commit message. If None, the commit message will not be computed.
             pr_metadata_diff: The diff of the PR metadata. If None, the PR metadata will not be computed.
             agent_summary: The agent's closing summary — a test that could not run, work left
                 unfinished. Reaches the PR-metadata prompt only; the commit-message template
@@ -444,9 +488,11 @@ class GitChangePublisher(ChangePublisher):
             The pull request metadata and commit message.
         """
 
-        input_data = {
-            "commit_message_diff": redact_diff_content(commit_message_diff, self.ctx.config.omit_content_patterns)
-        }
+        input_data: dict[str, str] = {}
+        if commit_message_diff is not None:
+            input_data["commit_message_diff"] = redact_diff_content(
+                commit_message_diff, self.ctx.config.omit_content_patterns
+            )
         context_parts: list[str] = []
         if self.ctx.scope == Scope.ISSUE:
             context_parts.append(
@@ -474,7 +520,11 @@ class GitChangePublisher(ChangePublisher):
             )
 
         changes_metadata_graph = create_diff_to_metadata_graph(
-            model_names=self.settings.diff_to_metadata.names, ctx=self.ctx, include_pr_metadata=bool(pr_metadata_diff)
+            model_names=self.settings.diff_to_metadata.names,
+            ctx=self.ctx,
+            backend=self.workspace.backend,
+            include_pr_metadata=bool(pr_metadata_diff),
+            include_commit_message=commit_message_diff is not None,
         )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]

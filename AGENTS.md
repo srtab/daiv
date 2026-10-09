@@ -29,7 +29,8 @@ uv run pytest tests/unit_tests/ -k "test_notes"
 make integration-tests   # real LLM calls; needs docker/local/app/config.secrets.env (LLM key + GitLab creds). Runs -m "diff_to_metadata or memory"; DAIV_EVAL_REPEATS=1 for a fast local pass (not a gate).
 
 make eval-prompts SUITES="skills todos" OUT=eval-runs/before.jsonl   # prompt evals on EVAL_MODEL (GLM-5.2): DAIV_EVAL_REPEATS passes (default 3), one JSONL row per case per pass; markers: ask_user skills todos web_search subagents code_review
-uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / inconclusive / improved / neutral
+uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body table and verdict: regressed / unconfirmed / inconclusive / improved / neutral
+# "unconfirmed" = a flip over 3 votes; it prints a `make eval-prompts CASES=...` re-run for each side, whose two files go back in with --confirm BEFORE_CONFIRM AFTER_CONFIRM
 
 # Translations
 make makemessages && make compilemessages
@@ -56,6 +57,7 @@ make makemessages && make compilemessages
 
 - **Test imports** — `pythonpath = ["daiv", "."]`; in tests import `from automation.agent.graph import ...` (no `daiv.` prefix).
 - **App layering** — `.importlinter` (run by `make lint`) forbids upward imports along `core` < `codebase`/`sandbox_envs` < `automation` < `sessions` < trigger apps (`chat`, `jobs`, `mcp_api`, `webhooks`), and forbids the trigger apps from importing each other, directly or through a lower layer. A broken contract means moving the code, not adding an `ignore_imports` line; a new line is a design decision for review. Deleting an import that an exception covers fails the run until its line goes too.
+- **`InlineToolDefinitionsMiddleware` stays the last DAIV middleware** (main and subagent stacks) — a middleware that appends messages to the model request must sit before it, or an Anthropic request gets a system turn followed by a user turn and langchain raises; see `automation/agent/deferred/inline.py`.
 - **Tools can't mutate `runtime.state`** — return a `Command(update={...}, messages=[ToolMessage(...)])`; in tests unpack `isinstance(result, Command)`.
 - **Auth** — email signup disabled (`AccountAdapter.is_open_for_signup` → `False`); `AdminRequiredMixin` needs `user.is_admin`; `APIKey.objects.create_key(...)` is **async**.
 - **Run terms** — **Session** = one conversation (agent thread); its PK `thread_id` is also the LangGraph checkpoint key. **Run** = one agent execution inside a Session. **Origin** (`SessionOrigin`, `Session.origin`) = what started the Session; each Run records its own trigger in `Run.trigger_type`, so a webhook-origin Session can hold chat Runs.

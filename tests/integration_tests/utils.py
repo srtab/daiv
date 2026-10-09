@@ -12,6 +12,7 @@ from langchain.messages import AIMessage
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.base import _BARE_NAME_HEURISTICS
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from core.constants import ModelName
 from core.site_settings import site_settings
@@ -51,25 +52,22 @@ INTERRUPT_ALL_TOOLS_CONFIG = {
 }
 
 CODING_MODEL_NAMES = [
-    ModelName.CLAUDE_SONNET_4_5,
-    ModelName.CLAUDE_SONNET_4_6,
-    ModelName.CLAUDE_OPUS_4_5,
-    ModelName.CLAUDE_OPUS_4_6,
-    ModelName.GPT_5_3_CODEX,
-    ModelName.GPT_5_4,
-    ModelName.Z_AI_GLM_5_1,
+    ModelName.CLAUDE_SONNET_5_5,
+    ModelName.CLAUDE_OPUS_5_5,
+    ModelName.GPT_6_1_SOL,
+    ModelName.Z_AI_GLM_5_2,
+    ModelName.Z_AI_GLM_5_3,
     ModelName.MINIMAX_M3,
-    ModelName.MOONSHOTAI_KIMI_K2_6,
+    ModelName.MOONSHOTAI_KIMI_K3,
 ]
 
 # What production runs for this task (`diff_to_metadata_model_name` and its fallback). The suite
 # defaults to these two: at 12 cases each, the full candidate list is 84 paid runs and ~20 minutes.
-_PRODUCTION_MODELS = [ModelName.GEMINI_3_7_FLASH, ModelName.DEEPSEEK_V4_FLASH_0731]
+_PRODUCTION_MODELS = [ModelName.GEMINI_3_8_FLASH, ModelName.DEEPSEEK_V4_1_FLASH]
 
 _CANDIDATE_MODELS = [
-    ModelName.GPT_5_4_MINI,
-    ModelName.CLAUDE_HAIKU_4_5,
-    ModelName.GPT_5_6_LUNA,
+    ModelName.GPT_6_LUNA,
+    ModelName.CLAUDE_HAIKU_5_5,
     ModelName.Z_AI_GLM_5_3_FLASH,
     ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
 ]
@@ -87,6 +85,9 @@ _PROVIDER_ENV_VAR = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
+# The [tool.pytest_env] defaults in pyproject.toml: set whenever no real key is exported.
+_PLACEHOLDER_API_KEYS = frozenset({"anthropic-api-key", "openai-api-key"})
+
 
 def _resolve_provider_slug(model_spec: str) -> str:
     if ":" in model_spec:
@@ -98,7 +99,7 @@ def _resolve_provider_slug(model_spec: str) -> str:
 
 
 def require_provider_for_model(model_spec: str) -> None:
-    """Skip the current test if the provider for ``model_spec`` has no API key.
+    """Skip the current test if the provider for ``model_spec`` has no real API key.
 
     Built-in providers map to the canonical env vars (OPENROUTER_API_KEY, etc.).
     Custom providers use the DAIV_TEST_PROVIDER_<SLUG>_API_KEY convention from
@@ -108,8 +109,8 @@ def require_provider_for_model(model_spec: str) -> None:
     env_var = _PROVIDER_ENV_VAR.get(slug)
     if env_var is None:
         env_var = f"DAIV_TEST_PROVIDER_{slug.upper()}_API_KEY"
-    if not os.environ.get(env_var):
-        pytest.skip(f"{env_var} not set; cannot run against {model_spec!r}.")
+    if os.environ.get(env_var, "") in {"", *_PLACEHOLDER_API_KEYS}:
+        pytest.skip(f"{env_var} has no real key; cannot run against {model_spec!r}.")
 
 
 def agent_settings_on(model_name: str, ctx: RuntimeCtx) -> AgentSettings:
@@ -134,16 +135,16 @@ def _models_from_env(env_var: str, default: Sequence[str]) -> list[str]:
 
 
 MEMORY_EXTRACTION_MODELS = _models_from_env(
-    "DAIV_EVAL_MEMORY_EXTRACTION_MODELS", [ModelName.GPT_5_4_MINI, ModelName.CLAUDE_HAIKU_4_5]
+    "DAIV_EVAL_MEMORY_EXTRACTION_MODELS", [ModelName.GPT_6_LUNA, ModelName.CLAUDE_HAIKU_5_5]
 )
 MEMORY_CONSOLIDATION_MODELS = _models_from_env(
-    "DAIV_EVAL_MEMORY_CONSOLIDATION_MODELS", [ModelName.CLAUDE_SONNET_4_6, ModelName.GPT_5_3_CODEX]
+    "DAIV_EVAL_MEMORY_CONSOLIDATION_MODELS", [ModelName.CLAUDE_SONNET_5_5, ModelName.GPT_6_1_SOL]
 )
 
-# In neither matrix above: GPT_5_3_CODEX is a graded consolidation cell and would grade its own
+# In neither matrix above: GPT_6_1_SOL is a graded consolidation cell and would grade its own
 # output. Same vendor as two graded cells, which is acceptable only because the primary gate —
 # the decision check — is deterministic and never calls the judge.
-MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_4_6
+MEMORY_JUDGE_MODEL = ModelName.CLAUDE_OPUS_5_5
 
 # Keep in step with EVAL_MODEL in the Makefile.
 EVAL_MODEL = "openrouter:z-ai/glm-5.2"
@@ -154,6 +155,56 @@ TODOS_MODELS = _models_from_env("DAIV_EVAL_TODOS_MODELS", [EVAL_MODEL])
 WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL])
 SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
+
+
+def _is_frozen_tools_model(model_spec: str) -> bool:
+    """Whether ``model_spec`` already matches ``DEFERRED_TOOLS_FROZEN_TOOLS_MODELS``, which is matched against the
+    model name without its provider slug."""
+    return model_spec.split(":", 1)[-1].startswith(tuple(deferred_settings.FROZEN_TOOLS_MODELS))
+
+
+DEFERRED_FROZEN_ALLOWLISTED = [
+    ModelName.CLAUDE_OPUS_4_8,
+    ModelName.CLAUDE_OPUS_5,
+    ModelName.CLAUDE_OPUS_5_5,
+    ModelName.CLAUDE_SONNET_5,
+    ModelName.CLAUDE_SONNET_5_5,
+    ModelName.CLAUDE_HAIKU_5_5,
+    ModelName.CLAUDE_FABLE_5_1,
+    "openrouter:qwen/qwen3.8-max",
+    ModelName.MINIMAX_M3,
+    "openrouter:google/gemini-3.7-flash",
+]
+DEFERRED_FROZEN_REJECTED = [
+    ModelName.Z_AI_GLM_5_3_FLASH,
+    ModelName.GPT_6_ASTRA,
+    ModelName.GPT_6_LUNA,
+    ModelName.GPT_6_SOL,
+    ModelName.GPT_6_1_SOL,
+    ModelName.MOONSHOTAI_KIMI_K2_7_CODE,
+]
+DEFERRED_FROZEN_CANDIDATES = _models_from_env(
+    "DAIV_EVAL_DEFERRED_FROZEN_CANDIDATES",
+    [name for name in ModelName if not _is_frozen_tools_model(name) and name not in DEFERRED_FROZEN_REJECTED],
+)
+DEFERRED_CACHE_INLINE_MODELS = _models_from_env(
+    "DAIV_EVAL_DEFERRED_CACHE_INLINE_MODELS",
+    [
+        "anthropic:claude-sonnet-5-5",
+        "anthropic:claude-opus-5-5",
+        "anthropic:claude-fable-5-1",
+        "anthropic:claude-opus-5",
+        "anthropic:claude-opus-4-8",
+        "anthropic:claude-sonnet-5",
+        "anthropic:claude-haiku-5-5",
+        "openai:gpt-5.6-luna",
+        "openai:gpt-6.1-sol",
+        "openai:gpt-6-sol",
+        "openai:gpt-6-luna",
+        "openai:gpt-6-astra",
+    ],
+)
+DEFERRED_CACHE_FROZEN_MODELS = _models_from_env("DAIV_EVAL_DEFERRED_CACHE_FROZEN_MODELS", [ModelName.CLAUDE_SONNET_5_5])
 
 # A case's result is the majority of its repetitions. 1 is for local iteration and is not a gate.
 EVAL_REPEATS = int(os.environ.get("DAIV_EVAL_REPEATS", "3"))

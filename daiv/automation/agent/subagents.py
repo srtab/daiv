@@ -16,7 +16,11 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 
 from automation.agent import BaseAgent
 from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH
-from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
+from automation.agent.middlewares.deferred_tools import (
+    deferred_tools_middleware,
+    direct_mcp_tools,
+    inline_tool_definitions_middleware,
+)
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     READ_ONLY_FS_TOOLS,
@@ -90,19 +94,19 @@ SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
 })
 
 
-def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) -> list[AgentMiddleware[Any, Any, Any]]:
-    """The summarization + observability tail common to every subagent stack.
+def _shared_subagent_middleware(
+    model: BaseChatModel, backend: BackendProtocol, fallback_models: list[BaseChatModel] | None = None
+) -> list[AgentMiddleware[Any, Any, Any]]:
+    """The middleware every subagent stack shares.
 
-    Shared by the general-purpose, explore, and code-review detector builders: context
-    summarization, loop-break detection, prompt caching, tool-call logging, and tool-call
-    patching, in that order. Callers prepend their own head (todos / filesystem permissions /
-    git-platform) and append the conditional web tools + sandbox + fallback middleware (plus,
-    for the general-purpose and custom builders, a deferred-tools middleware exposing the
-    parent's MCP toolset).
+    Context summarization, loop-break detection, model fallback (when ``fallback_models`` is
+    given), prompt caching, tool-call logging, and tool-call patching, in that order. Fallback
+    wraps caching so caching re-runs for each attempt's model.
     """
     return [
         build_summarization_middleware(model, backend),
         LoopBreakerMiddleware(terminal="error"),
+        *([ModelFallbackMiddleware(*fallback_models)] if fallback_models else []),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
@@ -123,7 +127,7 @@ def _build_general_purpose_middleware(
     """
     Build the middleware stack for a general-purpose subagent.
 
-    The subagent's ``SandboxMiddleware`` shares the parent's workspace, whose session the parent already acquired.
+    The subagent's ``SandboxMiddleware`` shares the parent's workspace, whose session the run executor acquired.
 
     ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
     subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
@@ -144,7 +148,7 @@ def _build_general_purpose_middleware(
         GitPlatformMiddleware(
             git_platform=runtime.git_platform, backend=workspace.backend, cross_project_enabled=cross_project_enabled
         ),
-        *_shared_subagent_middleware(model, workspace.backend),
+        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
     ]
 
     if web_search_enabled:
@@ -156,10 +160,8 @@ def _build_general_purpose_middleware(
     if bash_tool_enabled:
         middleware.append(SandboxMiddleware(agent_root=REPO_PATH, workspace=workspace))
 
-    if fallback_models:
-        middleware.append(ModelFallbackMiddleware(*fallback_models))
-
-    middleware.extend(deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools))
+    deferred_tools = deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools)
+    middleware.extend([*deferred_tools, *inline_tool_definitions_middleware(deferred_tools)])
 
     return middleware
 
@@ -179,20 +181,15 @@ def _build_detector_middleware(
     or overridden by injected repository content. Each detector returns its markdown report as its
     final message directly to the review orchestrator.
     """
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+    return [
         DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             tools=READ_ONLY_FS_TOOLS,
             _permissions=READ_ONLY_PERMISSIONS,
         ),
-        *_shared_subagent_middleware(model, backend),
+        *_shared_subagent_middleware(model, backend, fallback_models),
     ]
-
-    if fallback_models:
-        middleware.append(ModelFallbackMiddleware(*fallback_models))
-
-    return middleware
 
 
 def load_builtin_code_review_detectors(
@@ -338,15 +335,7 @@ You are a file search specialist for DAIV. You excel at thoroughly navigating an
 
 Your working directory is {root}.
 
-=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
-This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
-- Creating new files (no write_file, touch, or file creation of any kind)
-- Modifying existing files (no edit_file operations)
-- Deleting files (no rm or deletion)
-- Moving or copying files (no mv or cp)
-- Creating temporary files anywhere, including /tmp
-
-Your role is EXCLUSIVELY to search and analyze existing code. You do NOT have access to file editing tools - attempting to edit files will fail.
+You can only read and search. You have no tools that create, edit, move or delete files or run commands.
 
 Your strengths:
 - Rapidly finding files using glob patterns
@@ -386,17 +375,6 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
     model_name, *fallback_model_names = models.names
     model = BaseAgent.get_model(model=model_name, thinking_level=models.thinking_level)
 
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
-        DAIVFilesystemMiddleware(
-            backend=workspace.backend,
-            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
-            tools=READ_ONLY_FS_TOOLS,
-            _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
-        ),
-        *_shared_subagent_middleware(model, workspace.backend),
-    ]
-
     fallback_models = []
     for fallback_model_name in fallback_model_names:
         try:
@@ -407,8 +385,17 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
             logger.exception(
                 "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
             )
-    if fallback_models:
-        middleware.append(ModelFallbackMiddleware(*fallback_models))
+
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
+        DAIVFilesystemMiddleware(
+            backend=workspace.backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            tools=READ_ONLY_FS_TOOLS,
+            _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
+        ),
+        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
+    ]
 
     runnable = create_agent(
         model=model,
@@ -590,9 +577,12 @@ async def load_custom_subagents(
         cross_project_enabled: The run's cross-project switch, the parent's own, so they agree for the whole run.
 
     Returns:
-        List of CompiledSubAgent dicts for the loaded custom subagents.
+        List of CompiledSubAgent dicts for the loaded custom subagents; none from a workspace that is not ready (a turn
+        that skips the sandbox).
     """
     subagents: list[CompiledSubAgent] = []
+    if not workspace.is_ready:
+        return subagents
 
     for source_path in sources:
         try:

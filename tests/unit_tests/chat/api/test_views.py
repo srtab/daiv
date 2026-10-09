@@ -49,7 +49,7 @@ def _mock_stream(*_args, **_kwargs):
     open_checkpointer() and set_runtime_ctx() during tests so we exercise the ownership
     path without hitting Redis or cloning a repo.
     """
-    inner = MagicMock()
+    inner = MagicMock(sandbox=None, sandbox_client=None)
     inner.repo.clone_seconds = 0.0
     # Mirror the requested ref so the executor's fallback-ref guard (sessions.executor.run._agent_run) doesn't fire.
     if "ref" in _kwargs:

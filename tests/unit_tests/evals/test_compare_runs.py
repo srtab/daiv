@@ -49,56 +49,143 @@ class TestVerdict:
 
         assert compare(data, data).verdict == "neutral"
 
-    def test_a_pass_to_fail_majority_flip_is_a_regression(self):
-        assert compare(rows("t::a", [True] * 3), rows("t::a", [True, False, False])).verdict == "regressed"
-
-    def test_an_unstable_pass_to_fail_flip_still_counts_as_a_regression(self):
-        assert compare(rows("t::a", [True, True, False]), rows("t::a", [True, False, False])).verdict == "regressed"
-
     def test_two_of_three_to_three_of_three_is_not_a_gain(self):
         assert compare(rows("t::a", [True, True, False]), rows("t::a", [True] * 3)).verdict == "neutral"
 
-    def test_an_unstable_fail_to_pass_flip_is_not_a_gain(self):
+    def test_an_unstable_fail_to_pass_flip_is_not_a_gain_and_needs_no_confirmation(self):
         comparison = compare(rows("t::a", [False, False, True]), rows("t::a", [True, True, False]))
 
         assert comparison.verdict == "neutral"
         assert comparison.deltas[0].flip == "FAIL→PASS (unstable, not a gain)"
 
-    def test_a_unanimous_fail_to_pass_flip_is_an_improvement(self):
-        assert compare(rows("t::a", [False] * 3), rows("t::a", [True] * 3)).verdict == "improved"
+    def test_fewer_input_tokens_alone_is_not_an_improvement(self):
+        before = rows("t::a", [True] * 3, input_tokens=1000)
+        after = rows("t::a", [True] * 3, input_tokens=500)
 
-    def test_a_regression_outweighs_a_gain_elsewhere(self):
+        assert compare(before, after).verdict == "neutral"
+
+
+class TestConfirmation:
+    def test_a_pass_to_fail_flip_waits_for_confirmation(self):
+        comparison = compare(rows("t::a", [True] * 3), rows("t::a", [True, False, False]))
+
+        assert comparison.verdict == "unconfirmed"
+        assert comparison.deltas[0].flip == "PASS→FAIL, needs confirmation"
+
+    def test_a_unanimous_fail_to_pass_flip_waits_for_confirmation(self):
+        comparison = compare(rows("t::a", [False] * 3), rows("t::a", [True] * 3))
+
+        assert comparison.verdict == "unconfirmed"
+        assert comparison.deltas[0].flip == "FAIL→PASS, needs confirmation"
+
+    def test_a_pass_to_fail_flip_that_holds_over_nine_votes_is_a_regression(self):
+        comparison = compare(
+            rows("t::a", [True] * 3),
+            rows("t::a", [True, False, False]),
+            confirm_before=rows("t::a", [True] * 5 + [False]),
+            confirm_after=rows("t::a", [True, True] + [False] * 4),
+        )
+
+        assert comparison.verdict == "regressed"
+        assert comparison.deltas[0].flip == "PASS→FAIL"
+
+    def test_an_unstable_pass_to_fail_flip_that_holds_is_a_regression(self):
+        comparison = compare(
+            rows("t::a", [True, True, False]),
+            rows("t::a", [True, False, False]),
+            confirm_before=rows("t::a", [True] * 6),
+            confirm_after=rows("t::a", [False] * 6),
+        )
+
+        assert comparison.verdict == "regressed"
+
+    def test_a_pass_to_fail_flip_that_does_not_hold_is_not_a_regression(self):
+        comparison = compare(
+            rows("t::a", [True] * 3),
+            rows("t::a", [True, False, False]),
+            confirm_before=rows("t::a", [True] * 4 + [False] * 2),
+            confirm_after=rows("t::a", [True] * 5 + [False]),
+        )
+
+        assert comparison.verdict == "neutral"
+        assert comparison.deltas[0].flip == "PASS→FAIL did not hold"
+
+    def test_a_unanimous_fail_to_pass_flip_that_holds_is_an_improvement(self):
+        comparison = compare(
+            rows("t::a", [False] * 3),
+            rows("t::a", [True] * 3),
+            confirm_before=rows("t::a", [True] + [False] * 5),
+            confirm_after=rows("t::a", [True] * 6),
+        )
+
+        assert comparison.verdict == "improved"
+        assert comparison.deltas[0].flip == "FAIL→PASS"
+
+    def test_confirmation_needs_nine_votes_on_each_side(self):
+        comparison = compare(
+            rows("t::a", [True] * 3),
+            rows("t::a", [False] * 3),
+            confirm_before=rows("t::a", [True] * 6),
+            confirm_after=rows("t::a", [False] * 5),
+        )
+
+        assert comparison.verdict == "unconfirmed"
+
+    def test_a_confirmed_regression_outweighs_a_flip_still_waiting(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+        after = rows("t::a", [False] * 3) + rows("t::b", [False] * 3)
+
+        comparison = compare(
+            before, after, confirm_before=rows("t::a", [True] * 6), confirm_after=rows("t::a", [False] * 6)
+        )
+
+        assert comparison.verdict == "regressed"
+
+    def test_a_confirmed_regression_outweighs_a_confirmed_gain(self):
         before = rows("t::a", [False] * 3) + rows("t::b", [True] * 3)
         after = rows("t::a", [True] * 3) + rows("t::b", [False] * 3)
 
-        assert compare(before, after).verdict == "regressed"
+        comparison = compare(
+            before,
+            after,
+            confirm_before=rows("t::a", [False] * 6) + rows("t::b", [True] * 6),
+            confirm_after=rows("t::a", [True] * 6) + rows("t::b", [False] * 6),
+        )
+
+        assert comparison.verdict == "regressed"
+
+    def test_a_flip_waiting_for_confirmation_outweighs_an_incomplete_case(self):
+        before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
+        after = rows("t::a", [False] * 3) + rows("t::b", [None] * 3)
+
+        assert compare(before, after).verdict == "unconfirmed"
+
+    def test_a_confirmation_run_on_another_commit_is_flagged(self):
+        confirm_after = rows("t::a", [False] * 6)
+        for row in confirm_after:
+            row["git_sha"] = "def456"
+
+        warnings = compare(
+            rows("t::a", [True] * 3),
+            rows("t::a", [False] * 3),
+            confirm_before=rows("t::a", [True] * 6),
+            confirm_after=confirm_after,
+        ).warnings
+
+        assert "AFTER confirmation ran on def456, not on AFTER's abc123." in warnings
+
+    def test_confirmation_votes_leave_the_token_medians_alone(self):
+        comparison = compare(
+            rows("t::a", [True] * 3),
+            rows("t::a", [False] * 3),
+            confirm_before=rows("t::a", [True] * 6, input_tokens=90_000),
+            confirm_after=rows("t::a", [False] * 6, input_tokens=90_000),
+        )
+
+        assert comparison.before_medians[SUITE]["input_tokens"] == 1000
 
 
-class TestTokenRule:
-    def test_five_percent_fewer_input_tokens_is_an_improvement(self):
-        before = rows("t::a", [True] * 3, input_tokens=1000)
-        after = rows("t::a", [True] * 3, input_tokens=950)
-
-        assert compare(before, after).verdict == "improved"
-
-    def test_four_percent_fewer_is_neutral(self):
-        before = rows("t::a", [True] * 3, input_tokens=1000)
-        after = rows("t::a", [True] * 3, input_tokens=960)
-
-        assert compare(before, after).verdict == "neutral"
-
-    def test_a_saving_in_one_suite_does_not_count_when_another_grows(self):
-        before = rows("t::a", [True] * 3, input_tokens=1000) + rows("r::b", [True] * 3, suite="R", input_tokens=1000)
-        after = rows("t::a", [True] * 3, input_tokens=900) + rows("r::b", [True] * 3, suite="R", input_tokens=1060)
-
-        assert compare(before, after).verdict == "neutral"
-
-    def test_an_after_side_reporting_no_tokens_is_not_a_gain(self):
-        before = rows("t::a", [True] * 3, input_tokens=1000)
-        after = rows("t::a", [True] * 3, input_tokens=0)
-
-        assert compare(before, after).verdict == "neutral"
-
+class TestTokenMedians:
     def test_rows_without_measurements_are_left_out_of_the_median(self):
         data = rows("t::a", [True], input_tokens=1000) + rows("t::b", [True], input_tokens=None)
 
@@ -120,7 +207,6 @@ class TestLargestCaseIncrease:
 
         comparison = compare(before, after)
 
-        assert comparison.verdict == "improved"
         assert comparison.largest_case_increase == {SUITE: ("c", 3000, 30000)}
         assert "`c` 3,000 → 30,000 (+900.0%)" in render_markdown(comparison)
 
@@ -177,15 +263,6 @@ class TestOneSidedRows:
 
         assert any("BEFORE ran" in warning for warning in compare(rows("t::a", [True] * 3), after).warnings)
 
-    def test_an_expensive_case_missing_on_after_does_not_create_a_token_gain(self):
-        before = rows("t::a", [True] * 3, input_tokens=1000) + rows("t::b", [True] * 3, input_tokens=5000)
-        after = rows("t::a", [True] * 3, input_tokens=1000)
-
-        comparison = compare(before, after)
-
-        assert comparison.missing == ["t::b"]
-        assert comparison.verdict == "neutral"
-
     def test_repeated_runs_on_one_side_are_flagged(self):
         before = rows("t::a", [True] * 3)
         before[0]["run"] = 1
@@ -234,11 +311,15 @@ class TestIncompleteCases:
 
         assert compare(before, after).verdict == "inconclusive"
 
-    def test_a_regression_outweighs_an_incomplete_case(self):
+    def test_a_confirmed_regression_outweighs_an_incomplete_case(self):
         before = rows("t::a", [True] * 3) + rows("t::b", [True] * 3)
         after = rows("t::a", [False] * 3) + rows("t::b", [None] * 3)
 
-        assert compare(before, after).verdict == "regressed"
+        comparison = compare(
+            before, after, confirm_before=rows("t::a", [True] * 6), confirm_after=rows("t::a", [False] * 6)
+        )
+
+        assert comparison.verdict == "regressed"
 
     def test_rows_without_a_vote_stay_out_of_the_token_medians(self):
         after = rows("t::a", [True, None])
@@ -322,13 +403,46 @@ class TestRecallSummary:
     def test_suites_without_kind_have_no_recall_summary(self):
         assert recall_summary(rows("t::a", [True])) is None
 
+    def test_hits_count_confirmation_votes_while_noise_stays_per_initial_run(self):
+        before = rows("cr::bug1", [True] * 3, kind="bug", noise=1)
+        after = rows("cr::bug1", [False, False, True], kind="bug", noise=1)
+
+        comparison = compare(
+            before,
+            after,
+            confirm_before=rows("cr::bug1", [True] * 6, kind="bug", noise=5),
+            confirm_after=rows("cr::bug1", [True] * 6, kind="bug", noise=5),
+        )
+
+        assert comparison.after_recall is not None
+        assert comparison.after_recall["hits"] == 1
+        assert comparison.after_recall["noise_per_run"] == 1.0
+
 
 def test_markdown_carries_the_verdict_the_flip_and_the_token_table():
-    markdown = render_markdown(compare(rows("t::a", [False] * 3), rows("t::a", [True] * 3, input_tokens=900)))
+    comparison = compare(
+        rows("t::a", [False] * 3),
+        rows("t::a", [True] * 3, input_tokens=900),
+        confirm_before=rows("t::a", [True] + [False] * 5),
+        confirm_after=rows("t::a", [True] * 6),
+    )
+
+    markdown = render_markdown(comparison)
 
     assert "**Verdict: improved**" in markdown
-    assert "| `a` | DAIV: Skills | FAIL 0/3 | PASS 3/3 | FAIL→PASS |" in markdown
+    row = "| `a` | DAIV: Skills | FAIL 0/3 (FAIL 1/9 with re-runs) | PASS 3/3 (PASS 9/9 with re-runs) | FAIL→PASS |"
+    assert row in markdown
     assert "1,000 → 900 (-10.0%)" in markdown
+
+
+def test_markdown_names_the_re_runs_a_flip_needs():
+    before = rows("t::a", [True] * 3) + rows("t::b", [False] * 3)
+    after = rows("t::a", [False] * 3) + rows("t::b", [True] * 3)
+
+    markdown = render_markdown(compare(before, after))
+
+    assert "**Verdict: unconfirmed**" in markdown
+    assert 'DAIV_EVAL_REPEATS=6 make eval-prompts CASES="t::a t::b" OUT=<fresh file>' in markdown
 
 
 def test_median_turns_keep_their_decimal():
@@ -379,6 +493,37 @@ def test_main_exits_nonzero_on_an_inconclusive_comparison(tmp_path, capsys):
 
     assert main([str(before), str(after)]) == 1
     assert "**Verdict: inconclusive**" in capsys.readouterr().out
+
+
+def test_main_exits_nonzero_on_a_flip_waiting_for_confirmation(tmp_path, capsys):
+    before, after = tmp_path / "before.jsonl", tmp_path / "after.jsonl"
+    before.write_text("".join(json.dumps(row) + "\n" for row in rows("t::a", [True] * 3)))
+    after.write_text("".join(json.dumps(row) + "\n" for row in rows("t::a", [False] * 3)))
+
+    assert main([str(before), str(after)]) == 1
+    assert "**Verdict: unconfirmed**" in capsys.readouterr().out
+
+
+def test_main_reads_the_confirmation_files(tmp_path, capsys):
+    files = {
+        "before": rows("t::a", [True] * 3),
+        "after": rows("t::a", [False] * 3),
+        "confirm_before": rows("t::a", [True] * 6),
+        "confirm_after": rows("t::a", [False] * 6),
+    }
+    for name, data in files.items():
+        (tmp_path / f"{name}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in data))
+
+    exit_code = main([
+        str(tmp_path / "before.jsonl"),
+        str(tmp_path / "after.jsonl"),
+        "--confirm",
+        str(tmp_path / "confirm_before.jsonl"),
+        str(tmp_path / "confirm_after.jsonl"),
+    ])
+
+    assert exit_code == 0
+    assert "**Verdict: regressed**" in capsys.readouterr().out
 
 
 def test_main_exits_nonzero_but_still_prints_when_no_case_ran_on_both_sides(tmp_path, capsys):

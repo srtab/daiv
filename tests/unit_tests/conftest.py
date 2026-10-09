@@ -83,10 +83,11 @@ def acquired_session(
     egress: EgressConfigRequest | None = None,
     credential_source=None,
 ) -> SandboxSession:
-    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress``, for tests of
-    what runs on an already-acquired session."""
+    """A ``SandboxSession`` holding ``session_id`` as ``acquire`` leaves it, started with ``egress`` and recorded in the
+    checkpoint, for tests of what runs on an already-acquired session."""
     session = SandboxSession(client, spec or sandbox_spec(), credential_source=credential_source)
     session._session_id, session._egress = session_id, egress
+    session.mark_checkpointed()
     return session
 
 
@@ -119,11 +120,12 @@ class FakeSandboxClient:
     ``close_session`` is idempotent, and ``update_egress`` 409s on a session started without egress.
 
     ``responses`` maps a command substring to ``(exit_code, output)``; the first match wins and
-    unmatched commands succeed with empty output.
+    unmatched commands succeed with empty output, except git's ``MERGE_HEAD`` check, which finds no merge.
     """
 
     def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
-        self.responses = responses or {}
+        self.responses = dict(responses or {})
+        self.responses.setdefault("rev-parse -q --verify MERGE_HEAD", (1, ""))
         self.sessions: dict[str, FakeSandboxSession] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.commands: list[str] = []
@@ -593,3 +595,37 @@ def ask_user_question_messages(payload: dict | None = None) -> list:
         ToolMessage(content=QUESTION_DELIVERED, tool_call_id="ask-1", name=ASK_USER_QUESTION_TOOL_NAME),
         AIMessage(content=render_questions(payload)),
     ]
+
+
+OPENROUTER_CACHE_SETTINGS = {"extra_body": {"cache_control": {"type": "ephemeral", "ttl": "5m"}}}
+
+
+async def model_attempts_with_failing_primary(middleware: list, primary) -> list[tuple[Any, dict]]:
+    """Each attempt's ``(model, model_settings)`` when ``primary`` fails under ``middleware``'s fallback and caching.
+
+    Only those two hooks run, nested as ``create_agent`` nests them (first listed outermost).
+    """
+    from functools import partial
+
+    from langchain.agents.middleware import ModelFallbackMiddleware, ModelRequest, ModelResponse
+    from langchain_core.messages import HumanMessage
+
+    from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
+
+    attempts: list[tuple[Any, dict]] = []
+
+    async def call_model(request: ModelRequest) -> ModelResponse:
+        attempts.append((request.model, request.model_settings))
+        if request.model is primary:
+            raise RuntimeError("primary model unavailable")
+        return ModelResponse(result=[AIMessage(content="ok")])
+
+    handler = call_model
+    for hook in reversed([
+        m for m in middleware if isinstance(m, ModelFallbackMiddleware | AnthropicPromptCachingMiddleware)
+    ]):
+        handler = partial(hook.awrap_model_call, handler=handler)
+    await handler(
+        ModelRequest(model=primary, messages=[HumanMessage(content="hi")], state={"messages": []}, runtime=Mock())
+    )
+    return attempts

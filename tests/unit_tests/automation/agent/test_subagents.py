@@ -18,6 +18,7 @@ from deepagents.middleware.filesystem import FilesystemMiddleware, _check_fs_per
 from langchain.agents.middleware import ModelFallbackMiddleware
 
 from automation.agent.agent_settings import ModelChain
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.file_system import (
     READ_ONLY_PERMISSIONS,
@@ -38,10 +39,19 @@ from automation.agent.subagents import (
     create_general_purpose_subagent,
     load_custom_subagents,
 )
-from tests.unit_tests.conftest import FakeWorkspace, agent_settings
+from tests.unit_tests.conftest import (
+    OPENROUTER_CACHE_SETTINGS,
+    FakeWorkspace,
+    agent_settings,
+    model_attempts_with_failing_primary,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _openrouter(model: str) -> ChatOpenRouter:
+    return ChatOpenRouter(model=model, api_key="x")
 
 
 def _workspace(backend, *, sandbox: bool) -> FakeWorkspace:
@@ -307,6 +317,23 @@ class TestGeneralPurposeSubagent:
 
         assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
+    async def test_fallback_attempt_carries_no_openrouter_cache_control(self, mock_backend, mock_runtime_ctx):
+        primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
+
+        with patch("automation.agent.subagents.create_agent") as create_agent:
+            create_general_purpose_subagent(
+                primary,
+                _workspace(mock_backend, sandbox=True),
+                mock_runtime_ctx,
+                "/workspace/repo/",
+                fallback_models=[fallback],
+            )
+
+        assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
+            (primary, OPENROUTER_CACHE_SETTINGS),
+            (fallback, {}),
+        ]
+
     def test_prompt_names_the_working_directory(self):
         """The whole point of threading working_directory: the subagent prompt must embed it (and
         drop the stale /repo/ example), so the model addresses files under the right root. A revert
@@ -378,7 +405,7 @@ class TestSubagentMcpTools:
         # Even with no MCP tools, a subagent still gets DeferredToolsMiddleware when deferral is on:
         # it defers the subagent's own web search/fetch + git-platform tools (not in
         # SUBAGENT_ALWAYS_LOADED_TOOLS), mirroring the main agent.
-        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
 
         with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
             ds.ENABLED = True
@@ -395,6 +422,8 @@ class TestSubagentMcpTools:
 
         dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
         assert dtm._extra_tools == []
+        assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
+        assert middleware[-1]._get_index == dtm._get_index
 
     def test_builder_omits_deferred_middleware_when_deferral_disabled(
         self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
@@ -555,7 +584,7 @@ class TestExploreSubagent:
         from core.models import Provider
 
         # ``BaseAgent.get_model`` resolves model_name → Provider row → live client; enable
-        # the seed row backing ``ModelName.CLAUDE_HAIKU_4_5`` (openrouter:anthropic/...)
+        # the seed row backing ``ModelName.CLAUDE_HAIKU_5_5`` (openrouter:anthropic/...)
         # so the call doesn't error during init_chat_model.
         p = Provider.objects.get(slug="openrouter")
         p.api_key = "sk-test"
@@ -579,6 +608,17 @@ class TestExploreSubagent:
         prompt = _explore_system_prompt("/myrepo/")
         assert "/myrepo/" in prompt
         assert "/repo/src/app/utils.py" not in prompt
+
+    def test_prompt_states_the_read_only_capability_plainly(self):
+        from automation.agent.subagents import _explore_system_prompt
+
+        prompt = _explore_system_prompt("/myrepo/")
+        assert (
+            "You can only read and search. You have no tools that create, edit, move or delete files or run commands."
+            in prompt
+        )
+        assert "STRICTLY PROHIBITED" not in prompt
+        assert "CRITICAL: READ-ONLY" not in prompt
 
 
 def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):
@@ -671,6 +711,29 @@ class TestCustomSubagents:
 
         assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
+    async def test_fallback_attempt_carries_no_openrouter_cache_control(self, tmp_path: Path, mock_runtime_ctx):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+        primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
+
+        with patch("automation.agent.subagents.create_agent") as create_agent:
+            await load_custom_subagents(
+                model=primary,
+                workspace=_workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True),
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                fallback_models=[fallback],
+            )
+
+        assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
+            (primary, OPENROUTER_CACHE_SETTINGS),
+            (fallback, {}),
+        ]
+
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
@@ -690,6 +753,21 @@ class TestCustomSubagents:
 
         names = {s["name"] for s in result}
         assert names == {"agent-a", "agent-b"}
+
+    async def test_loads_none_through_a_workspace_that_is_not_ready(self, mock_model, mock_runtime_ctx):
+        backend = Mock(spec=BackendProtocol)
+        workspace = FakeWorkspace(backend=backend, bash=Mock(), session=Mock(), is_ready=False)
+
+        result = await load_custom_subagents(
+            model=mock_model,
+            workspace=workspace,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
+        )
+
+        assert result == []
+        backend.als.assert_not_called()
 
     async def test_skips_non_md_files(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
@@ -920,6 +998,28 @@ def test_explore_skips_a_fallback_that_fails_to_build(caplog):
     assert fallback.models == [built["working-fallback"]]
     assert "Could not initialize explore fallback model 'broken-fallback'" in caplog.text
     assert "no API key configured" in caplog.text
+
+
+async def test_explore_fallback_attempt_carries_no_openrouter_cache_control():
+    primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
+    built = {"explore": primary, "explore-fallback": fallback}
+
+    with (
+        patch(
+            "automation.agent.subagents.BaseAgent.get_model", side_effect=lambda *, model, thinking_level: built[model]
+        ),
+        patch("automation.agent.subagents.create_agent") as create_agent,
+    ):
+        create_explore_subagent(
+            _workspace(Mock(spec=BackendProtocol), sandbox=True),
+            "/workspace/repo/",
+            models=ModelChain(("explore", "explore-fallback")),
+        )
+
+    assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
+        (primary, OPENROUTER_CACHE_SETTINGS),
+        (fallback, {}),
+    ]
 
 
 def test_explore_in_a_sandbox_is_only_read_only():
@@ -1167,6 +1267,40 @@ class TestBuiltinCodeReviewDetectors:
         names = {s["name"] for s in result}
         assert names == {"cr-correctness", "cr-security"}
         assert all("runnable" in s for s in result)
+
+    @pytest.mark.parametrize(
+        ("primary_name", "fallback_name", "primary_settings", "fallback_settings"),
+        [
+            pytest.param("anthropic/claude-haiku-4.5", "openai/gpt-5.4", OPENROUTER_CACHE_SETTINGS, {}, id="to-other"),
+            pytest.param("openai/gpt-5.4", "anthropic/claude-haiku-4.5", {}, OPENROUTER_CACHE_SETTINGS, id="to-claude"),
+        ],
+    )
+    async def test_fallback_attempt_is_cached_for_its_own_model(
+        self, tmp_path, mock_backend, primary_name, fallback_name, primary_settings, fallback_settings
+    ):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector")
+        )
+        primary, fallback = _openrouter(primary_name), _openrouter(fallback_name)
+
+        with patch("automation.agent.subagents.create_agent") as create_agent:
+            load_builtin_code_review_detectors(
+                primary,
+                mock_backend,
+                "/workspace/repo/",
+                [fallback],
+                agents_dir=agents_dir,
+                expected_names=("cr-correctness",),
+            )
+
+        assert await model_attempts_with_failing_primary(create_agent.call_args.kwargs["middleware"], primary) == [
+            (primary, primary_settings),
+            (fallback, fallback_settings),
+        ]
 
     def test_returns_empty_when_dir_missing(self, tmp_path, mock_model, mock_backend):
         from automation.agent.subagents import load_builtin_code_review_detectors

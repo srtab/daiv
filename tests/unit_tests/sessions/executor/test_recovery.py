@@ -170,9 +170,9 @@ class TestSandboxMode:
         agent.aupdate_state.assert_not_awaited()
         assert "draft recovery failed after an agent error for thread_id=t-1" in caplog.text
 
-    async def test_an_agent_that_raised_before_acquiring_its_session_recovers_nothing(self):
-        """The agent failed before ``SandboxMiddleware`` acquired its session, so the sandbox holds none of its work:
-        recovery reads nothing, publishes nothing and never calls the sandbox."""
+    async def test_a_run_that_acquired_no_session_recovers_nothing(self):
+        """A turn that skipped the sandbox, or failed to acquire it, left no work in one: recovery reads nothing,
+        publishes nothing and never calls the sandbox."""
         client = FakeSandboxClient.opened()
         agent = _agent({"merge_request": None})
 

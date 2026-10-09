@@ -2,10 +2,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from langchain.agents.middleware import ModelRequest, ModelResponse
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from langchain_openai import ChatOpenAI
 from pydantic.errors import PydanticInvalidForJsonSchema
 
-from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+from automation.agent.chat_models import ChatOpenRouter
+from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, inline_tool_definitions_middleware
 
 
 def _make_tool(name: str, description: str) -> StructuredTool:
@@ -679,3 +685,69 @@ class TestDeferredToolsMiddlewareArgCoercion:
         assert args == {"monitorId": "7"}
         errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
         assert any("uptimerobot_list-incidents" in message for message in errors)
+
+
+class TestInlineToolDefinitions:
+    @staticmethod
+    def _history() -> list:
+        return [
+            HumanMessage("open an issue"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "tool_search", "id": "ts", "args": {"select": ["gh_issue"]}, "type": "tool_call"}],
+            ),
+            ToolMessage("Loaded 1 tool(s).", tool_call_id="ts", artifact={LOADED_TOOLS_ARTIFACT_KEY: ["gh_issue"]}),
+        ]
+
+    async def _send(self, model, *, loaded: set[str] | None = None) -> ModelRequest:
+        deferred = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[_make_tool("gh_issue", "Open an issue")])
+        [inline] = inline_tool_definitions_middleware([deferred])
+        request = ModelRequest(
+            model=model,
+            messages=self._history(),
+            system_prompt="You are DAIV.",
+            tools=[],
+            state={"loaded_tool_names": loaded} if loaded else {},
+        )
+        captured: dict = {}
+
+        async def model_call(request):
+            captured["request"] = request
+            return ModelResponse(result=[AIMessage("ok")])
+
+        async def inner(request):
+            return await inline.awrap_model_call(request, model_call)
+
+        await deferred.awrap_model_call(request, inner)
+        return captured["request"]
+
+    async def test_inline_model_gets_a_frozen_array_and_an_in_place_declaration(self):
+        sent = await self._send(ChatAnthropic(model="claude-opus-5-5", api_key="sk-ant-x"), loaded={"gh_issue"})
+
+        assert [t.name for t in sent.tools] == ["tool_search"]
+        assert sent.messages[:3] == self._history()
+        [declared] = sent.messages[3].content
+        assert declared["type"] == "tool_addition"
+        assert declared["tool"]["definition"]["name"] == "gh_issue"
+
+    async def test_inline_model_off_the_frozen_list_still_keeps_the_array_frozen(self, monkeypatch):
+        import automation.agent.middlewares.deferred_tools as mw_module
+
+        monkeypatch.setattr(mw_module.deferred_settings, "FROZEN_TOOLS_MODELS", ["claude-"])
+        model = ChatOpenAI(model="gpt-6-sol", api_key="sk-x", use_responses_api=True)
+
+        sent = await self._send(model, loaded={"gh_issue"})
+
+        assert [t.name for t in sent.tools] == ["tool_search"]
+        assert sent.messages[3].content[0]["type"] == "additional_tools"
+
+    async def test_other_models_get_no_declaration(self):
+        sent = await self._send(ChatOpenRouter(model="z-ai/glm-5.1", api_key="sk-x"), loaded={"gh_issue"})
+
+        assert sent.messages == self._history()
+        assert [t.name for t in sent.tools] == ["tool_search", "gh_issue"]
+
+    async def test_nothing_loaded_sends_the_history_untouched(self):
+        sent = await self._send(ChatAnthropic(model="claude-opus-5-5", api_key="sk-ant-x"))
+
+        assert sent.messages == self._history()

@@ -19,6 +19,7 @@ from langsmith import testing as t
 from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.sandbox import acquire_sandbox
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import Scope
@@ -76,6 +77,7 @@ async def patched_checkout(case: dict):
             )
         session = SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
         try:
+            await acquire_sandbox(session, ctx, {})
             yield ctx, session
         finally:
             await session.release(resumable=False)

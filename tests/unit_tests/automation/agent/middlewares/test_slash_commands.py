@@ -1,14 +1,21 @@
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
-from automation.agent.middlewares.slash_commands import SlashCommandMiddleware, _load_global_skill_metadata
+from automation.agent.middlewares.slash_commands import (
+    SlashCommandMiddleware,
+    _load_global_skill_metadata,
+    skips_sandbox,
+)
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from codebase.base import Scope
+from codebase.repo_config import RepositoryConfig
 from slash_commands.parser import SlashCommandCommand
+from tests.unit_tests.conftest import agent_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -202,6 +209,27 @@ def test_extract_slash_command_parses_multimodal_content():
     assert result.command == "help"
     assert result.args == ["arg1"]
     assert result.raw == "@daiv /help arg1"
+
+
+@pytest.mark.parametrize(
+    ("messages", "expected"),
+    [
+        pytest.param([HumanMessage(content="/help")], True, id="builtin"),
+        pytest.param([HumanMessage(content="/agents")], False, id="reads-the-repository"),
+        pytest.param([HumanMessage(content="/no-such-command")], False, id="unknown"),
+        pytest.param([HumanMessage(content="fix the bug")], False, id="no-command"),
+        pytest.param([], False, id="no-messages"),
+    ],
+)
+def test_skips_sandbox_only_for_a_builtin_command_that_does_not_read_the_repository(messages, expected):
+    assert skips_sandbox(messages, _runtime().context, agent_settings()) is expected
+
+
+def test_skips_sandbox_never_when_the_repository_turns_slash_commands_off():
+    """No middleware answers the command then, so the agent loop runs and needs the sandbox."""
+    settings = agent_settings(repo=RepositoryConfig(slash_commands={"enabled": False}))
+
+    assert skips_sandbox([HumanMessage(content="/help")], _runtime().context, settings) is False
 
 
 def test_slash_command_ignores_commands_inside_the_issue_message():

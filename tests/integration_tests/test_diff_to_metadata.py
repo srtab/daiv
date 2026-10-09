@@ -7,6 +7,7 @@ from sandbox_envs.services import build_sandbox_spec
 
 from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_graph
 from automation.agent.diff_to_metadata.prompts import sanitize_agent_report
+from automation.agent.middlewares.file_system import build_disk_workspace_backend
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
@@ -72,7 +73,9 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs, expect):
             (agent_path / ctx.config.context_file_name).write_text(inputs.pop("context_file_content"))
         else:
             (agent_path / ctx.config.context_file_name).unlink()
-        changes_metadata_graph = create_diff_to_metadata_graph(ctx=ctx, model_names=[model_name])
+        changes_metadata_graph = create_diff_to_metadata_graph(
+            ctx=ctx, model_names=[model_name], backend=build_disk_workspace_backend(agent_path)
+        )
         outputs = await changes_metadata_graph.ainvoke(inputs)
         outputs = {
             "pr_metadata": outputs["pr_metadata"].model_dump(mode="json") if "pr_metadata" in outputs else None,

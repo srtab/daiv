@@ -1,9 +1,10 @@
 """A run's hold on its sandbox container, from the start or warm reuse to the stop or removal.
 
-The run executor builds one ``SandboxSession`` per sandbox-enabled run and releases it once the agent is done, however
-it ended. ``SandboxMiddleware.abefore_agent`` acquires it, and everything that reaches the container goes through it:
-the ``/workspace`` file backend, the ``bash`` tool, git, the publisher and draft recovery. Subagents share their
-parent's session.
+The run executor builds one ``SandboxSession`` per sandbox-enabled run, acquires it before it builds the agent (unless
+the turn skips the sandbox, see ``skips_sandbox``), and releases it once the agent is done, however it ended.
+``SandboxMiddleware.abefore_agent`` records it in the thread's checkpoint, and everything that reaches the container
+goes through it: the ``/workspace`` file backend, the ``bash`` tool, git, the publisher and draft recovery. Subagents
+share their parent's session.
 """
 
 from __future__ import annotations
@@ -66,7 +67,8 @@ class SandboxSession:
     checkpoint with no recorded fingerprint counts as the same), and otherwise starts and seeds a fresh one. Either way
     the container runs with the egress this run provisions, when it provisions any: the environment's policy plus the
     git-platform rule and a freshly minted token. ``refresh_credential`` re-mints that token before a publish.
-    ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run.
+    ``release`` stops the container so the thread's next turn can reuse it, or removes it for a one-shot run and for a
+    container no checkpoint names, which no later turn could find.
 
     Args:
         client: The run's sandbox transport, opened by ``set_runtime_ctx``; the session never opens or closes it.
@@ -89,6 +91,7 @@ class SandboxSession:
         self._session_id: str | None = None
         self._egress: EgressConfigRequest | None = None
         self._acquisition = SandboxAcquisition.NOT_ACQUIRED
+        self._checkpointed = False
         self._cleanups: set[asyncio.Task[None]] = set()
 
     @property
@@ -109,14 +112,23 @@ class SandboxSession:
         """How ``acquire`` got the container: ``NOT_ACQUIRED`` until an ``acquire`` succeeds, kept after ``release``."""
         return self._acquisition
 
+    @property
+    def fingerprint(self) -> str:
+        """The run's spec fingerprint, recorded beside the container's id so a later turn can tell a changed spec."""
+        return self._spec.fingerprint
+
+    def mark_checkpointed(self) -> None:
+        """Note that the thread's checkpoint now names the held container, so ``release`` may keep it for reuse."""
+        self._checkpointed = True
+
     async def acquire(
         self,
         *,
         prior_id: str | None,
         prior_fingerprint: str | None,
         seed: Callable[[], Awaitable[tuple[bytes, bytes | None]]],
-    ) -> tuple[str, str]:
-        """Hold a container for this run; return its id and this run's spec fingerprint, for the checkpoint.
+    ) -> None:
+        """Hold a container for this run.
 
         ``prior_id`` and ``prior_fingerprint`` are what the thread's checkpoint recorded. ``seed`` builds the repository
         and global-skills archives, and runs only for a freshly started container. Raises
@@ -127,7 +139,7 @@ class SandboxSession:
         """
         if self._session_id is not None:
             raise RuntimeError(f"Sandbox session {self._session_id} is already acquired")
-        fingerprint = self._spec.fingerprint
+        self._checkpointed = False
         egress = await self._provision_egress()
         acquisition = SandboxAcquisition.NEW
         if prior_id is not None:
@@ -139,11 +151,11 @@ class SandboxSession:
                 raise
             if acquisition is SandboxAcquisition.WARM:
                 self._session_id, self._egress, self._acquisition = prior_id, egress, acquisition
-                return prior_id, fingerprint
+                self._checkpointed = True
+                return
         session_id = await self._start(egress)
         await self._seed(session_id, seed)
         self._session_id, self._egress, self._acquisition = session_id, egress, acquisition
-        return session_id, fingerprint
 
     async def refresh_credential(self) -> bool:
         """Re-mint the git-platform token and push it onto the held container; return whether a new one was pushed.
@@ -183,14 +195,16 @@ class SandboxSession:
         return True
 
     async def release(self, *, resumable: bool) -> None:
-        """Stop the container, keeping it for the thread's next turn (``resumable``), or remove it.
+        """Stop the container, keeping it for the thread's next turn (``resumable``), or remove it. A container the
+        checkpoint does not name yet (the run failed before ``SandboxMiddleware`` recorded it) is removed either way.
 
         Idempotent, and a failed close is logged, not raised. It also finishes any cleanup ``acquire`` started that a
         repeated chat Stop abandoned. A repeated Stop does not cut either short: the cancellation is re-raised after.
         """
         session_id, self._session_id, self._egress = self._session_id, None, None
         if session_id is not None:
-            self._track(self._close(session_id, force=not resumable, after="the run"))
+            keep = resumable and self._checkpointed
+            self._track(self._close(session_id, force=not keep, after="the run"))
         await _wait_out(self._cleanups)
 
     def _track(self, cleanup: Awaitable[None]) -> asyncio.Task[None]:

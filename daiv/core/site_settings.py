@@ -65,31 +65,30 @@ def _build_field_defaults() -> dict[str, Any]:
 
     return {
         # Agent
-        "agent_model_name": ModelName.CLAUDE_SONNET_4_6,
-        "agent_fallback_model_name": ModelName.GPT_5_3_CODEX,
+        "agent_model_name": ModelName.CLAUDE_SONNET_5_5,
+        "agent_fallback_model_name": ModelName.GPT_6_1_SOL,
         "agent_thinking_level": ThinkingLevelChoices.MEDIUM,
         # Independent from agent_thinking_level — same default by coincidence, not coupling.
         "agent_fallback_thinking_level": ThinkingLevelChoices.MEDIUM,
-        "agent_max_model_name": ModelName.CLAUDE_OPUS_4_6,
+        "agent_max_model_name": ModelName.CLAUDE_OPUS_5_5,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
-        "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
-        "agent_explore_fallback_model_name": ModelName.GPT_5_4_MINI,
+        "agent_explore_model_name": ModelName.CLAUDE_HAIKU_5_5,
+        "agent_explore_fallback_model_name": ModelName.GPT_6_LUNA,
         "agent_recursion_limit": 500,
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
-        # Diff to Metadata — chosen on the diff_to_metadata suite, 12 cases x 3 runs per model:
-        # gemini-3.7-flash 97%, deepseek-v4-flash 94%, gpt-5.4-mini 67%, claude-haiku-4.5 83%.
-        # The two replaced models each failed a handful of cases on *every* run, not intermittently.
-        "diff_to_metadata_model_name": ModelName.GEMINI_3_7_FLASH,
-        "diff_to_metadata_fallback_model_name": ModelName.DEEPSEEK_V4_FLASH_0731,
+        # Diff to Metadata — successors of gemini-3.7-flash and deepseek-v4-flash, which scored best on the
+        # diff_to_metadata suite; re-score with DAIV_EVAL_ALL_MODELS=1 before changing them.
+        "diff_to_metadata_model_name": ModelName.GEMINI_3_8_FLASH,
+        "diff_to_metadata_fallback_model_name": ModelName.DEEPSEEK_V4_1_FLASH,
         # Titling
-        "titling_model_name": ModelName.GPT_5_4_MINI,
-        "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "titling_model_name": ModelName.GPT_6_LUNA,
+        "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_5_5,
         # Memory — the min_pending / max_lines / max_bytes literals here are mirrored by the
         # module constants in memory.constants (parity-tested in tests/unit_tests/memory/test_constants.py).
         "memory_enabled": True,
-        "memory_extraction_model_name": ModelName.GPT_5_4_MINI,
-        "memory_extraction_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "memory_extraction_model_name": ModelName.GPT_6_LUNA,
+        "memory_extraction_fallback_model_name": ModelName.CLAUDE_HAIKU_5_5,
         "memory_consolidation_model_name": None,
         "memory_consolidation_min_pending": 10,
         "memory_consolidation_max_pending_age_days": 7,
@@ -97,15 +96,15 @@ def _build_field_defaults() -> dict[str, Any]:
         "memory_max_lines": 200,
         "memory_max_bytes": 10_240,
         # Run classifier
-        "run_classifier_model_name": ModelName.GPT_5_4_MINI,
-        "run_classifier_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "run_classifier_model_name": ModelName.GPT_6_LUNA,
+        "run_classifier_fallback_model_name": ModelName.CLAUDE_HAIKU_5_5,
         # Web Search
         "web_search_enabled": True,
         "web_search_max_results": 5,
         "web_search_engine": WebSearchEngineChoices.DUCKDUCKGO,
         # Web Fetch
         "web_fetch_enabled": True,
-        "web_fetch_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        "web_fetch_model_name": ModelName.CLAUDE_HAIKU_5_5,
         "web_fetch_cache_ttl_seconds": 900,
         "web_fetch_timeout_seconds": 15,
         "web_fetch_max_content_chars": 50_000,

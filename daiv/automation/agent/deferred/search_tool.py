@@ -10,6 +10,7 @@ from langgraph.types import Command
 from pydantic import BeforeValidator
 
 from automation.agent.deferred.conf import settings as deferred_settings
+from automation.agent.deferred.inline import LOADED_TOOLS_ARTIFACT_KEY
 from automation.agent.deferred.state import DeferredToolsState  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -133,11 +134,11 @@ def make_tool_search(get_index: Callable[[], DeferredToolsIndex], *, top_k_defau
         content = _render_loaded(entries)
         if missing:
             content += f"\n\nIgnored unknown names: {', '.join(missing)}"
-        return Command(
-            update={
-                "loaded_tool_names": new_loaded,
-                "messages": [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)],
-            }
+        result = ToolMessage(
+            content=content,
+            tool_call_id=runtime.tool_call_id,
+            artifact={LOADED_TOOLS_ARTIFACT_KEY: [entry.name for entry in entries]},
         )
+        return Command(update={"loaded_tool_names": new_loaded, "messages": [result]})
 
     return tool(TOOL_SEARCH_NAME, description=TOOL_SEARCH_DESCRIPTION)(tool_search)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import tarfile
 import uuid
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from types import SimpleNamespace
@@ -28,6 +30,11 @@ def resolved_to(*model_names: str, thinking_level: str | None = None) -> AgentSe
     return agent_settings(run=RunOverrides(model_names=model_names, agent_thinking_level=thinking_level))
 
 
+def disk_ctx(**attrs) -> MagicMock:
+    """A ``RuntimeCtx`` stub with no sandbox, so the executor builds a disk workspace for it."""
+    return MagicMock(sandbox=None, sandbox_client=None, **attrs)
+
+
 def make_spec(**overrides) -> RunSpec:
     fields = {
         "thread_id": str(uuid.uuid4()),
@@ -41,27 +48,41 @@ def make_spec(**overrides) -> RunSpec:
     return RunSpec(**(fields | overrides))
 
 
+def empty_archive() -> bytes:
+    buffer = io.BytesIO()
+    tarfile.open(fileobj=buffer, mode="w:gz").close()
+    return buffer.getvalue()
+
+
 @contextmanager
 def agent_stack(
-    agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, session_guard: bool = False
+    agent,
+    *,
+    ctx=None,
+    context=None,
+    resolve=None,
+    site: SiteSnapshot | None = None,
+    session_guard: bool = False,
+    checkpointed: dict | None = None,
 ):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
     ``ctx`` is the ``RuntimeCtx`` the stubbed clone yields (its ``repo.ref`` defaults to ``"main"``), ``context``
     replaces ``set_runtime_ctx`` itself, ``resolve`` replaces ``resolve_agent_settings`` (by default it resolves the
     agent to ``claude-4-7-opus`` at ``medium``), and ``site`` is the snapshot the run takes (the field defaults).
-    ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed to the clone.
+    ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
+    is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
+    to the clone.
     ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     """
+    last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
         events=[],
         context_kwargs={},
         ctx=ctx
         if ctx is not None
-        else MagicMock(
-            repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), sandbox=None, sandbox_client=None
-        ),
-        checkpointer=object(),
+        else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
+        checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
         armed=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
@@ -109,6 +130,7 @@ def agent_stack(
         nullcontext()
         if session_guard
         else patch("sessions.executor.run._refuse_cross_project_session", new=AsyncMock()) as guard,
+        patch("automation.agent.middlewares.sandbox._seed_archives", AsyncMock(return_value=(empty_archive(), None))),
     ):
         stack.build_spec = build_spec
         stack.snapshot = snapshot

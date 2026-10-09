@@ -25,16 +25,18 @@ async def recover_draft(
 
     Runs inside the run's context, so the clone (and, on a sandbox run, its session) is still open. It publishes through
     ``workspace``, the one the agent worked in, with the run's own ``settings``, and recovers nothing when that
-    workspace never became ready: the agent raised before acquiring its sandbox session. Never raises: this is the last
-    attempt to save the run's work, and a failure only means no draft.
+    workspace never became ready: the run acquired no sandbox session. Never raises: this is the last attempt to save
+    the run's work, and a failure only means no draft. A merge left with conflict markers is not a draft to save.
     """
-    from automation.agent.publishers import GitChangePublisher, checkpointed_merge_request, effective_merge_request
+    from automation.agent.publishers import (
+        GitChangePublisher,
+        UnresolvedMergeConflictsError,
+        checkpointed_merge_request,
+        effective_merge_request,
+    )
 
     if not workspace.is_ready:
-        logger.info(
-            "executor: no draft to recover for thread_id=%s: the agent raised before its sandbox session was acquired",
-            thread_id,
-        )
+        logger.info("executor: no draft to recover for thread_id=%s: the run acquired no sandbox session", thread_id)
         return False
     try:
         snapshot = await agent.aget_state(config=config)
@@ -55,6 +57,8 @@ async def recover_draft(
                 update_values["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
             await agent.aupdate_state(config=config, values=update_values)
             return True
+    except UnresolvedMergeConflictsError as exc:
+        logger.info("executor: no draft recovered for thread_id=%s: %s", thread_id, exc)
     except Exception:
         logger.exception("executor: draft recovery failed after an agent error for thread_id=%s", thread_id)
 

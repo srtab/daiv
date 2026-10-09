@@ -4,8 +4,9 @@ OpenRouter speaks the OpenAI Chat Completions API, so DAIV reaches it through a
 :class:`~langchain_openai.ChatOpenAI` *subclass* rather than a dedicated
 third-party package. Staying a ``ChatOpenAI`` subclass is load-bearing:
 :class:`~automation.agent.middlewares.prompt_cache.AnthropicPromptCachingMiddleware`
-detects OpenRouter-Anthropic models with ``isinstance(model, ChatOpenAI)`` and
-injects top-level ``extra_body`` ``cache_control`` — the first-party
+detects OpenRouter-Anthropic models as ``ChatOpenRouter`` instances whose
+:attr:`~ChatOpenRouter.is_anthropic` is true, and injects top-level ``cache_control``
+through ``ChatOpenAI``'s ``extra_body`` — the first-party
 ``langchain-openrouter`` (a ``BaseChatModel`` whose automatic Anthropic caching
 is still an open upstream issue) would silently disable that.
 
