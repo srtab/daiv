@@ -377,7 +377,7 @@ class TestSubagentMcpTools:
         # Even with no MCP tools, a subagent still gets DeferredToolsMiddleware when deferral is on:
         # it defers the subagent's own web search/fetch + git-platform tools (not in
         # SUBAGENT_ALWAYS_LOADED_TOOLS), mirroring the main agent.
-        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware, InlineToolDefinitionsMiddleware
 
         with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
             ds.ENABLED = True
@@ -394,6 +394,8 @@ class TestSubagentMcpTools:
 
         dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
         assert dtm._extra_tools == []
+        assert isinstance(middleware[-1], InlineToolDefinitionsMiddleware)
+        assert middleware[-1]._get_index == dtm._get_index
 
     def test_builder_omits_deferred_middleware_when_deferral_disabled(
         self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
