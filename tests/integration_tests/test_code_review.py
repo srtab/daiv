@@ -154,6 +154,7 @@ async def test_code_review_recall(model_name, case, eval_request):
     if case["kind"] == "clean":
         violation = clean_case_violation(report, findings)
         metrics.extra["noise"] = len(blocking(findings))
+        metrics.extra["clean_violation"] = violation
         assert violation is None, violation
         return
 

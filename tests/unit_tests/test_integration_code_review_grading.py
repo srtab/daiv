@@ -341,6 +341,50 @@ class TestCleanCase:
     def test_a_complete_review_is_not_degraded(self):
         assert not is_degraded(REPORT)
 
+    @pytest.mark.parametrize("empty", ["None.", "**None**", "_None._"])
+    def test_explicitly_empty_blocking_sections_do_not_count_as_unread_findings(self, empty):
+        report = (
+            f"## Code Review\n\n### Critical Issues\n{empty}\n\n### Important Issues\n{empty}\n\n"
+            "### Suggestions\n**1. Rename** — `a.py:1`\n"
+        )
+
+        assert clean_case_violation(report, parse_report(report)) is None
+
+    def test_none_followed_by_unread_blocking_content_still_fails(self):
+        report = (
+            "## Code Review\n\n### Important Issues\nNone.\n- **Leak** — `a.py:1`\n\n### Suggestions\nNo findings.\n"
+        )
+
+        assert "could not read" in clean_case_violation(report, parse_report(report))
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "_Review unavailable for: none._",
+            "_Review unavailable for: none — correctness, security, and custom-rules reviewers returned no findings; "
+            "performance and structure reviewers reported._",
+        ],
+    )
+    def test_an_explicit_none_unavailable_marker_is_not_a_detector_failure(self, line):
+        report = f"## Code Review\n\n{line}\n\nNo findings.\n"
+
+        assert not is_degraded(report)
+        assert clean_case_violation(report, parse_report(report)) is None
+
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            "Review unavailable for: none, security.",
+            "Review unavailable for: none.\nReview unavailable for: security.",
+            "Review unavailable for: unknown.",
+        ],
+    )
+    def test_only_an_explicit_none_marker_can_bypass_the_degraded_rule(self, lines):
+        report = f"## Code Review\n\n{lines}\n\nNo findings.\n"
+
+        assert is_degraded(report)
+        assert "degraded" in clean_case_violation(report, parse_report(report))
+
 
 class TestGradeBugCase:
     @pytest.fixture
