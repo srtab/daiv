@@ -376,6 +376,7 @@ class TestCleanCase:
         [
             "Review unavailable for: none, security.",
             "Review unavailable for: none.\nReview unavailable for: security.",
+            "Review unavailable for: security. Review unavailable for: none.",
             "Review unavailable for: unknown.",
         ],
     )

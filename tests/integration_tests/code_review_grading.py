@@ -201,14 +201,12 @@ def is_review_report(report: str) -> bool:
 
 
 def _degraded_line(report: str) -> str | None:
-    return next(
-        (
-            match.group(0).strip()
-            for match in _DEGRADED.finditer(report)
-            if not _NONE_UNAVAILABLE.search(match.group(0))
-        ),
-        None,
-    )
+    for match in _DEGRADED.finditer(report):
+        line = match.group(0)
+        # Multiple markers on a line are ambiguous; a trailing "none" cannot clear a named failure.
+        if line.count("Review unavailable for") != 1 or not _NONE_UNAVAILABLE.search(line):
+            return line.strip()
+    return None
 
 
 def is_degraded(report: str) -> bool:
