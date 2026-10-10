@@ -64,6 +64,27 @@ async def test_invalid_arguments_return_an_error_and_the_loop_continues():
     assert pending_question(messages) == SAMPLE_QUESTION_PAYLOAD
 
 
+async def test_a_non_question_mark_terminated_question_is_a_recoverable_error_not_a_crash():
+    # DAIV-2K: a model emits an otherwise-valid question ending in '.' instead of '?'. The pydantic
+    # validator must surface as a tool-error message the agent loops back on, not an unhandled
+    # ValidationError that aborts the turn.
+    bad = {"questions": [{**SAMPLE_QUESTION_PAYLOAD["questions"][0], "question": "Which database should we move to."}]}
+    messages, _probe = await _run(
+        AIMessage(content="", tool_calls=[_ask("ask-1", bad)]), AIMessage(content="", tool_calls=[_ask("ask-2")])
+    )
+
+    errors = [m for m in messages if isinstance(m, ToolMessage) and m.status == "error"]
+    assert [m.tool_call_id for m in errors] == ["ask-1"]
+    # Routed through the tool's handle_validation_error (actionable retry feedback), not the ToolNode's
+    # generic "Error invoking tool ..." wrapper that still fires on_tool_error as an unhandled signal.
+    assert errors[0].content.startswith("Invalid ask_user_question arguments:")
+    assert "question must end with '?'" in errors[0].content
+    assert "Fix the arguments and call the tool again" in errors[0].content
+    # The loop continued past the bad call and delivered the retried, conforming question.
+    assert messages[-2].content == QUESTION_DELIVERED
+    assert pending_question(messages) == SAMPLE_QUESTION_PAYLOAD
+
+
 async def test_a_call_with_siblings_is_refused_and_nothing_is_asked():
     messages, _probe = await _run(
         AIMessage(content="", tool_calls=[_ask("ask-1"), _ask("ask-2")]), AIMessage(content="I will decide myself.")
