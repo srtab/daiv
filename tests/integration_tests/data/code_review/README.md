@@ -32,6 +32,8 @@ contract corrections applied to both sides where relevant:
 `tests/unit_tests/test_integration_code_review.py` applies the shipped patches and executes their
 real functions against Django's ORM. It verifies the new defects and the corrected clean contracts
 without provider calls or a sandbox. Git history containing both bases is required; CI fetches it.
+For live runs, the driver fetches a missing frozen base from the public fixture repository if the
+local GitLab mirror is stale. An already available base needs no fetch.
 
 ```bash
 uv run pytest tests/unit_tests/test_integration_code_review.py \

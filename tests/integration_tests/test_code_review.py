@@ -4,6 +4,7 @@ Each run clones srtab/daiv, points the clone's ``main`` at the case's ``base_sha
 (``set_runtime_ctx`` clones with ``git clone --branch``, which takes no commit sha, and the agent is told it is on
 ``main``), applies the case's patch to the working tree, and asks for an interactive working-tree review in a fresh
 sandbox seeded from that clone. A case that cannot be set up stops the whole run: it is a broken case, not a vote.
+If the local GitLab mirror lacks a frozen base, fetch that commit from the public fixture repository first.
 """
 
 import asyncio
@@ -45,6 +46,7 @@ TEST_SUITE = "DAIV: Code review recall"
 REVIEW_REQUEST = "/code-review"
 # The seeded GLOBAL default, python:3.12-alpine, has no git, so the review would never see the patch.
 SANDBOX_IMAGE = "ghcr.io/astral-sh/uv:python3.14-bookworm"
+RECALL_REPO_URL = "https://github.com/srtab/daiv.git"
 
 
 def load_cases() -> list:
@@ -57,11 +59,20 @@ def load_cases() -> list:
 CASES = load_cases()
 
 
+def ensure_case_base(gitrepo, base_sha: str):
+    """Recover a missing public fixture commit without changing the clone's origin or current branch."""
+    try:
+        gitrepo.git.cat_file("-e", f"{base_sha}^{{commit}}")
+    except GitCommandError:
+        gitrepo.git.fetch(RECALL_REPO_URL, base_sha)
+
+
 @asynccontextmanager
 async def patched_checkout(case: dict):
     spec = replace(await build_sandbox_spec(None), base_image=SANDBOX_IMAGE)
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=spec) as ctx:
         try:
+            ensure_case_base(ctx.gitrepo, case["base_sha"])
             ctx.gitrepo.git.checkout("-B", "main", case["base_sha"])
             ctx.gitrepo.git.branch("--unset-upstream", "main")
         except GitCommandError as err:

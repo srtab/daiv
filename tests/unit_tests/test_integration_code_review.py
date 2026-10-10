@@ -18,9 +18,11 @@ from types import SimpleNamespace
 from django.db.models import Prefetch
 
 import pytest
+from git import Actor, GitCommandError, Repo
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from schedules.models import ScheduledJob
+from tests.integration_tests import test_code_review as recall_suite
 
 DATA_DIR = Path(__file__).parents[1] / "integration_tests" / "data" / "code_review"
 REPO_ROOT = Path(__file__).parents[2]
@@ -81,6 +83,39 @@ def _function(tree, path, name, *, class_name=None, **namespace):
 @pytest.mark.parametrize("case_id", CASES)
 def test_frozen_patch_applies_to_its_declared_base(patched_tree, case_id):
     patched_tree(case_id)
+
+
+def _commit(repo, content):
+    path = Path(repo.working_tree_dir) / "source.py"
+    path.write_text(content)
+    repo.index.add(["source.py"])
+    actor = Actor("Fixture", "fixture@example.com")
+    return repo.index.commit("fixture", author=actor, committer=actor)
+
+
+def test_missing_frozen_base_is_fetched_without_changing_the_clone_head(tmp_path, monkeypatch):
+    source = Repo.init(tmp_path / "source", initial_branch="main")
+    base = _commit(source, "base\n")
+    latest = _commit(source, "latest\n")
+    repo = Repo.clone_from(Path(source.working_tree_dir).as_uri(), tmp_path / "clone", depth=1)
+    with pytest.raises(GitCommandError):
+        repo.git.cat_file("-e", f"{base.hexsha}^{{commit}}")
+    monkeypatch.setattr(recall_suite, "RECALL_REPO_URL", Path(source.working_tree_dir).as_uri())
+
+    recall_suite.ensure_case_base(repo, base.hexsha)
+
+    assert (repo.commit(base.hexsha).tree / "source.py").data_stream.read() == b"base\n"
+    assert repo.head.commit == latest
+
+
+def test_existing_frozen_base_needs_no_remote_fetch(tmp_path, monkeypatch):
+    repo = Repo.init(tmp_path / "repo", initial_branch="main")
+    base = _commit(repo, "base\n")
+    monkeypatch.setattr(recall_suite, "RECALL_REPO_URL", (tmp_path / "nonexistent").as_uri())
+
+    recall_suite.ensure_case_base(repo, base.hexsha)
+
+    assert repo.head.commit == base
 
 
 @pytest.mark.parametrize(
