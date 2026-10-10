@@ -80,3 +80,7 @@ class TestGitHubIssueIsDaiv:
             labels=[Label(id=1, name="bug"), Label(id=2, name="feature")],
         )
         assert issue.is_daiv() is False
+
+
+def test_issue_body_is_optional():
+    assert Issue(id=1, number=2, title="t", state="open").body is None

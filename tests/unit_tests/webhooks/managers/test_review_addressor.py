@@ -6,10 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.executor.lock import SessionLockTimeoutError
+from sessions.executor.lock import NoLock, SessionLockTimeoutError
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.locks import SessionLock
 from sessions.models import Run, Session, SessionOrigin
 from sessions.services import acreate_run
+from webhooks.managers.base import BaseManager
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
 from automation.agent.agent_settings import resolve_agent_settings
@@ -17,6 +19,7 @@ from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import active_holder
@@ -69,6 +72,19 @@ async def _address(**kwargs):
     return await CommentsAddressorManager.address_comments(
         **({"repo_id": "owner/repo", "merge_request": _merge_request(), "mention_comment_id": "c-1"} | kwargs)
     )
+
+
+async def test_the_run_spec_carries_the_triggering_platform_uid(mention):
+    with (
+        patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
+        patch(
+            "webhooks.managers.review_addressor.execute_run", AsyncMock(return_value=SimpleNamespace(agent_result={}))
+        ) as execute_run,
+    ):
+        await _address(acting_platform_uid="4242")
+
+    spec = execute_run.await_args.args[0]
+    assert (spec.acting_platform_uid, spec.acting_user_id, spec.acting_user_authenticated) == ("4242", None, False)
 
 
 class TestReviewAfterRunMatrix:
@@ -253,6 +269,25 @@ class TestReviewAfterRunMatrix:
             await _address()
 
         mention.create_merge_request_comment.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_session_holding_another_persons_cross_project_results_is_refused_on_the_merge_request(
+        self, mention
+    ):
+        thread_id = str(uuid.uuid4())
+        await _review_session(thread_id, cross_project_user_ids=[7])
+
+        with (
+            addressor_run(addressor_agent(), ctx=_ctx(), real_lock=True, session_guard=True) as run,
+            pytest.raises(CrossProjectSessionRefusedError),
+        ):
+            await _address(thread_id=thread_id, acting_platform_uid="42")
+
+        run.create_agent.assert_not_awaited()
+        [note] = mention.create_merge_request_comment.call_args_list
+        assert note.args[2] == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert note.kwargs["reply_to_id"] == "c-1"
+        assert await active_holder(thread_id) is None
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_session_slot_that_never_frees_says_so_on_the_merge_request(self, mention):

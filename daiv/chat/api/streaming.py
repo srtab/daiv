@@ -21,7 +21,7 @@ from ag_ui.core.events import (
 from copilotkit import LangGraphAGUIAgent
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import Held, SessionLockLostError
-from sessions.executor.run import RunStoppedError, stream_run
+from sessions.executor.run import CrossProjectSessionRefusedError, RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.locks import SessionLock
 from sessions.models import Run, RunStatus, SessionOrigin, agent_result_field_updates, usage_field_updates
@@ -30,7 +30,12 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_mes
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
 from core import ui_events
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_USER_MESSAGE,
+    CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 
 from . import relay
 from .event_filter import SubagentEventFilter
@@ -333,6 +338,11 @@ class ChatRunStreamer:
         except RunStoppedError:
             turn.error = CANCELLED_BY_USER_MESSAGE
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled")
+        except CrossProjectSessionRefusedError:
+            turn.error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+            yield RunErrorEvent(
+                type=EventType.RUN_ERROR, message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE, code="cross_project_session"
+            )
         except asyncio.CancelledError, GeneratorExit:
             # A local Stop, a shutdown, or a reader that goes away: only a user Stop sets the cancel
             # flag, so it decides the recorded reason.
@@ -364,6 +374,7 @@ class ChatRunStreamer:
             agent_thinking_level=self.agent_thinking_level,
             sandbox_env_id=self.sandbox_environment_id,
             acting_user_id=self.user_id,
+            acting_user_authenticated=True,
             mcp_overrides=self.mcp_overrides,
             references=self.external_refs,
             persist_ref=True,

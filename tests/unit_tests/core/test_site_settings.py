@@ -246,6 +246,12 @@ class TestMemoryDefaults:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_max_lines=50)):
             assert ss.memory_max_lines == 50
 
+    def test_cross_project_toggles_default_off(self, ss):
+        row = MagicMock(cross_project_access_enabled=None, cross_project_webhook_runs_enabled=None)
+        with patch.object(SiteConfiguration, "get_cached", return_value=row):
+            assert ss.cross_project_access_enabled is False
+            assert ss.cross_project_webhook_runs_enabled is False
+
 
 def _value_from(source: str, name: str, default):
     """A value unlike ``name``'s default, as the database stores it or the environment spells it."""

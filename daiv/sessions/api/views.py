@@ -33,10 +33,14 @@ async def _get_visible_session(user, thread_id: str) -> Session:
 async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript for live background runs (the detail page polls this
     while a non-chat run holds the session slot)."""
-    session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    session = await _get_visible_session(user, thread_id)
     hydrated = await ahydrate_thread(thread_id)
     runs = [r async for r in session.runs.order_by("created_at")]
     turns = [] if hydrated.expired else annotate_transcript(build_turns(hydrated.messages), runs)
     if not hydrated.messages:
         turns += await sync_to_async(artifact_turns)(runs)
+    # Authorised before the reads above; a fetch that restricted the session since must not be returned.
+    if not await Session.objects.cross_project_visible_to(user).filter(pk=thread_id).aexists():
+        raise HttpError(404, "Session not found")
     return {"turns": turns, "active": bool(session.active_run_id), "expired": hydrated.expired}

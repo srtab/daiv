@@ -68,6 +68,7 @@ class FixRunDispatcher:
                 sandbox_environment_id=sandbox_environment_id,
                 run_id=str(run.pk),
                 user_id=session.user_id,
+                acting_user_authenticated=session.origin in SessionOrigin.daiv_authenticated(),
                 ask_user_enabled=False,
             )
         except Exception as err:  # noqa: BLE001

@@ -21,6 +21,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 11. Slash commands: repo only.
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
+13. Cross-project access: site AND run; a one-shot run, which has no session to restrict, never gets it.
 
 A site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as an error;
 ``.daiv.yml`` levels are validated when the file loads.
@@ -53,6 +54,7 @@ class RunOverrides:
     model_names: tuple[str, ...] = ()
     web_search_enabled: bool | None = None
     web_fetch_enabled: bool | None = None
+    cross_project_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ class AgentSettings:
     web_search_enabled: bool
     web_fetch_enabled: bool
     features: Features
+    cross_project_enabled: bool
 
 
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:
@@ -100,6 +103,7 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
         web_search_enabled=_run_or_site(run.web_search_enabled, site.web_search_enabled),
         web_fetch_enabled=_run_or_site(run.web_fetch_enabled, site.web_fetch_enabled),
         features=resolve_features(site=site, repo=repo),
+        cross_project_enabled=run.cross_project_allowed and bool(site.cross_project_access_enabled),
     )
 
 

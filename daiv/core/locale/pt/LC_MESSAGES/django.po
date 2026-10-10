@@ -244,6 +244,30 @@ msgstr ""
 "Tamanho máximo do conteúdo da página (em caracteres) a analisar numa só "
 "passagem."
 
+msgid "cross-project access enabled"
+msgstr "acesso entre projetos ativado"
+
+msgid ""
+"Let the git platform tools reach other projects as the person the run acts "
+"for. The GitLab application must grant the api (or read_api) scope before "
+"this is turned on."
+msgstr ""
+"Permitir que as ferramentas da plataforma Git acedam a outros projetos como "
+"a pessoa em nome de quem a execução atua. A aplicação GitLab tem de conceder "
+"o âmbito api (ou read_api) antes de ativar esta opção."
+
+msgid "allow for webhook-triggered runs"
+msgstr "permitir em execuções iniciadas por webhook"
+
+msgid ""
+"Also allow it for runs started by an issue label or a mention. Issue text "
+"can be written by anyone who can open an issue, and it can steer what the "
+"agent reads and posts."
+msgstr ""
+"Permitir também em execuções iniciadas por uma etiqueta de issue ou por uma "
+"menção. O texto de uma issue pode ser escrito por qualquer pessoa que possa "
+"abrir uma issue e pode influenciar o que o agente lê e publica."
+
 msgid "sandbox timeout"
 msgstr "tempo limite da sandbox"
 
@@ -350,6 +374,9 @@ msgstr "Pesquisa Web"
 
 msgid "Web Fetch"
 msgstr "Obtenção Web"
+
+msgid "Cross-project access"
+msgstr "Acesso entre projetos"
 
 msgid "Sandbox"
 msgstr "Sandbox"

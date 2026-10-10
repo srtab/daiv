@@ -16,7 +16,7 @@ from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import compute_thread_id, note_mentions_daiv
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 from webhooks.callbacks import BaseCallback
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
@@ -61,6 +61,7 @@ class IssueCallback(BaseCallback):
             and self.object_attributes.type == "Issue"
             and self.object_attributes.state == "opened"
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.object_attributes.description or "")
         ):
             return False
 
@@ -128,6 +129,7 @@ class IssueCallback(BaseCallback):
             issue_iid=self.object_attributes.iid,
             thread_id=thread_id,
             sandbox_environment_id=sandbox_environment_id,
+            acting_platform_uid=str(self.user.id),
             use_max=use_max,
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
@@ -174,6 +176,7 @@ class NoteCallback(BaseCallback):
             self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
             or self.object_attributes.system
             or self.user.id == self._client.current_user.id
+            or CROSS_PROJECT_CONTENT_MARKER in self.object_attributes.note
         ):
             return False
 
@@ -215,6 +218,7 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.user.id),
                 use_max=use_max,
             )
             try:
@@ -254,6 +258,7 @@ class NoteCallback(BaseCallback):
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                acting_platform_uid=str(self.user.id),
             )
             try:
                 await acreate_run(

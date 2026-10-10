@@ -27,10 +27,11 @@ def stub_client() -> MagicMock:
 
 
 def _stub_init(client: MagicMock):
-    def _init(self, *, repo_id, thread_id, mention_comment_id=None):
+    def _init(self, *, repo_id, thread_id, mention_comment_id=None, acting_platform_uid=None):
         self.repo_id = repo_id
         self.thread_id = thread_id
         self.mention_comment_id = mention_comment_id
+        self.acting_platform_uid = acting_platform_uid
         self.client = client
 
     return _init
@@ -74,6 +75,7 @@ def addressor_run(
     kwargs_error: Exception | None = None,
     stub_recovery: bool = True,
     real_lock: bool = False,
+    session_guard: bool = False,
     ctx=None,
     context=None,
     resolve=None,
@@ -83,7 +85,8 @@ def addressor_run(
     """Stub the executor around ``agent`` for one manager run; yield the ``agent_stack`` namespace plus ``recover``.
 
     ``stub_recovery=False`` keeps the real draft recovery (``recover`` is then ``None``). ``real_lock`` keeps the
-    real session-row check and lock; otherwise the run is unlocked and needs no database.
+    real session-row check and lock; otherwise the run is unlocked and needs no database. ``session_guard`` keeps the
+    real cross-project session check.
     """
     resolve = resolve or MagicMock(return_value=resolved_to("m", thinking_level="medium"), side_effect=kwargs_error)
     recovery = (
@@ -92,7 +95,15 @@ def addressor_run(
         else nullcontext()
     )
     with (
-        agent_stack(agent, ctx=ctx, context=context, resolve=resolve, site=site, checkpointed=checkpointed) as stack,
+        agent_stack(
+            agent,
+            ctx=ctx,
+            context=context,
+            resolve=resolve,
+            site=site,
+            session_guard=session_guard,
+            checkpointed=checkpointed,
+        ) as stack,
         nullcontext() if real_lock else patch.object(BaseManager, "_lock_policy", AsyncMock(return_value=NoLock())),
         recovery as recover,
     ):

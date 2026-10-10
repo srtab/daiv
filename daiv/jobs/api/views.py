@@ -16,6 +16,7 @@ from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
 
@@ -120,11 +121,14 @@ async def get_job_status(request: HttpRequest, job_id: str):
         return 404, {"detail": "Job not found"}
 
     try:
-        run = await Run.objects.aget(id=run_uuid, user=request.auth)
+        run = await Run.objects.aget(Run.objects.results_visible_q(request.auth), id=run_uuid, user=request.auth)
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
-    error = "Job execution failed" if run.status == RunStatus.FAILED else None
+    error = None
+    if run.status == RunStatus.FAILED:
+        refused = run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE if refused else "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

@@ -199,6 +199,21 @@ def test_a_web_toggle_follows_the_run_then_the_site(toggle, run_value, site_valu
 
 
 @pytest.mark.parametrize(
+    ("allowed", "site_value", "expected"), [(True, True, True), (True, False, False), (False, True, False)]
+)
+def test_cross_project_access_needs_both_the_site_and_the_run(allowed, site_value, expected):
+    settings = agent_settings(
+        site=site_snapshot(cross_project_access_enabled=site_value), run=RunOverrides(cross_project_allowed=allowed)
+    )
+
+    assert settings.cross_project_enabled is expected
+
+
+def test_a_run_that_asks_nothing_gets_no_cross_project_access():
+    assert agent_settings(site=site_snapshot(cross_project_access_enabled=True)).cross_project_enabled is False
+
+
+@pytest.mark.parametrize(
     ("site_model", "repo_agent", "expected"),
     [
         ("consolidator", {"model": "repo-model", "fallback_model": "repo-fallback"}, ("consolidator", "repo-fallback")),

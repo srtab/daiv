@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from webhooks.gitlab.models import (
@@ -20,6 +23,7 @@ from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+from core.constants import CROSS_PROJECT_CONTENT_MARKER
 
 
 class StubClient:
@@ -65,12 +69,12 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config)
 
 
-def create_note_callback(note_body: str, username: str = "reviewer") -> NoteCallback:
+def create_note_callback(note_body: str, username: str = "reviewer", user_id: int = 2) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-        user=User(id=2, username=username, name="Reviewer", email=f"{username}@example.com"),
+        user=User(id=user_id, username=username, name="Reviewer", email=f"{username}@example.com"),
         merge_request=MergeRequest(
             id=10,
             iid=1,
@@ -239,17 +243,19 @@ def create_issue_callback(
     issue_state: str = "opened",
     changes: IssueChanges | None = None,
     username: str = "testuser",
+    user_id: int = 10,
+    description: str | None = "Test description",
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
         object_kind="issue",
         project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
-        user=User(id=10, username=username, name="Test User", email=f"{username}@example.com"),
+        user=User(id=user_id, username=username, name="Test User", email=f"{username}@example.com"),
         object_attributes=Issue(
             id=100,
             iid=42,
             title="Test Issue",
-            description="Test description",
+            description=description,
             state=issue_state,
             assignee_id=None,
             action=action,
@@ -718,6 +724,119 @@ class TestProcessCallbackSandboxEnvironment:
 
         assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+
+
+def create_issue_note_callback(*, user_id: int, issue_iid: int = 7, note: str = "@daiv please look") -> NoteCallback:
+    """A NoteCallback for a comment on an issue that mentions DAIV."""
+    return NoteCallback(
+        object_kind="note",
+        project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+        user=User(id=user_id, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+        issue=Issue(
+            id=100,
+            iid=issue_iid,
+            title="Bug",
+            description="x",
+            state="opened",
+            assignee_id=None,
+            action=IssueAction.OPEN,
+            labels=[],
+            type="Issue",
+        ),
+        object_attributes=Note(
+            id=200,
+            action=NoteAction.CREATE,
+            noteable_type=NoteableType.ISSUE,
+            noteable_id=issue_iid,
+            discussion_id="discussion_2",
+            note=note,
+            system=False,
+        ),
+    )
+
+
+class TestProcessCallbackActingPlatformUid:
+    """The task carries the platform user id of the event that triggered it, never one remembered by the session."""
+
+    @staticmethod
+    async def _enqueue_kwargs(callback, task: str) -> dict:
+        with (
+            patch(f"webhooks.gitlab.callbacks.{task}") as mock_task,
+            patch("webhooks.gitlab.callbacks.acreate_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.gitlab.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.gitlab.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=SimpleNamespace(id="task-1"))
+            await callback.process_callback()
+        return mock_task.aenqueue.await_args.kwargs
+
+    async def test_label_run_carries_the_labellers_platform_uid(self, monkeypatch_dependencies):
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], user_id=1001)
+
+        kwargs = await self._enqueue_kwargs(callback, "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "1001"
+
+    async def test_issue_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies):
+        kwargs = await self._enqueue_kwargs(create_issue_note_callback(user_id=2002), "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
+
+    async def test_merge_request_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies):
+        callback = create_note_callback("@daiv please review", user_id=2002)
+
+        kwargs = await self._enqueue_kwargs(callback, "address_mr_comments_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
+
+    async def test_mention_run_carries_the_commenters_uid(self, monkeypatch_dependencies):
+        """B mentions DAIV on an issue whose session A started with the label: B's run acts as B."""
+        label = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], user_id=1001)
+        mention = create_issue_note_callback(user_id=2002, issue_iid=label.object_attributes.iid)
+
+        label_kwargs = await self._enqueue_kwargs(label, "address_issue_task")
+        mention_kwargs = await self._enqueue_kwargs(mention, "address_issue_task")
+
+        assert label_kwargs["thread_id"] == mention_kwargs["thread_id"]
+        assert label_kwargs["acting_platform_uid"] == "1001"
+        assert mention_kwargs["acting_platform_uid"] == "2002"
+
+
+class TestCrossProjectMarker:
+    """Content DAIV published in another project, as a person, must not start a run here."""
+
+    MARKED = f"body\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+
+    @pytest.mark.parametrize("action", [IssueAction.OPEN, IssueAction.UPDATE])
+    def test_an_issue_carrying_the_marker_is_ignored(self, monkeypatch_dependencies, action):
+        changes = IssueChanges(labels=LabelChange(previous=[], current=[Label(title="daiv")]))
+        callback = create_issue_callback(
+            action=action, issue_labels=[Label(title="daiv")], changes=changes, description=self.MARKED
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("description", ["body", None])
+    def test_an_issue_without_the_marker_is_accepted(self, monkeypatch_dependencies, description):
+        callback = create_issue_callback(
+            action=IssueAction.OPEN, issue_labels=[Label(title="daiv")], description=description
+        )
+
+        assert callback.accept_callback() is True
+
+    def test_a_merge_request_note_carrying_the_marker_is_ignored(self, monkeypatch_dependencies):
+        callback = create_note_callback(f"@daiv please look\n\n{CROSS_PROJECT_CONTENT_MARKER}")
+
+        assert callback.accept_callback() is False
+
+    def test_an_issue_note_carrying_the_marker_is_ignored(self, monkeypatch_dependencies):
+        callback = create_issue_note_callback(user_id=2, note=f"@daiv please look\n\n{CROSS_PROJECT_CONTENT_MARKER}")
+
+        assert callback.accept_callback() is False
+
+    def test_a_note_without_the_marker_is_accepted(self, monkeypatch_dependencies):
+        assert create_note_callback("@daiv please look").accept_callback() is True
+        assert create_issue_note_callback(user_id=2).accept_callback() is True
 
 
 @pytest.mark.parametrize(("label", "use_max"), [("daiv-max", True), ("daiv", False)])

@@ -2,6 +2,8 @@
 # django-allauth
 # ---------------------------------------------------------------------------
 
+from decouple import Csv, config
+
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
@@ -27,6 +29,8 @@ SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 LOGIN_REDIRECT_URL = "/dashboard/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
 LOGIN_URL = "/accounts/login/"
+
+GITLAB_CROSS_PROJECT_OAUTH_SCOPE = config("DAIV_GITLAB_OAUTH_SCOPE", default="read_user api", cast=Csv(delimiter=" "))
 
 # Passkeys only: this feature is passwordless login, not general 2FA.
 MFA_SUPPORTED_TYPES = ["webauthn"]

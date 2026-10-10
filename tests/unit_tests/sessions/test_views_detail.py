@@ -861,3 +861,68 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
     assert resp.context["expired"] is False
     assert len(resp.context["turns"]) == 1
     assert "Agent is working" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_404s_for_a_participant_when_the_session_holds_another_persons_cross_project_results(
+    member_client, member_user
+):
+    session = _create_session(
+        user=None,
+        external_username=member_user.username,
+        origin=SessionOrigin.ISSUE_WEBHOOK,
+        cross_project_user_ids=[member_user.pk + 1],
+    )
+    hydrate = _null_hydration()
+
+    with patch("sessions.views.ahydrate_thread", hydrate):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 404
+    hydrate.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_detail_shows_the_session_to_the_person_who_fetched_its_cross_project_results(member_client, member_user):
+    session = _create_session(user=member_user, cross_project_user_ids=[member_user.pk])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("fetched_by_viewer", "status"), [(False, 404), (True, 200)])
+def test_detail_rechecks_a_cross_project_restriction_that_lands_while_the_transcript_is_read(
+    member_client, member_user, fetched_by_viewer, status
+):
+    from langchain_core.messages import AIMessage
+
+    session = _create_session(user=member_user)
+    fetcher_id = member_user.pk if fetched_by_viewer else member_user.pk + 1
+
+    async def hydrate_as_a_fetch_lands(thread_id):
+        await Session.objects.filter(pk=thread_id).aupdate(cross_project_user_ids=[fetcher_id])
+        return HydratedThread([AIMessage(content="their secrets", id="m-1")], False, None, None, None)
+
+    with (
+        patch("sessions.views.ahydrate_thread", hydrate_as_a_fetch_lands),
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == status
+    assert ("their secrets" in resp.content.decode()) is fetched_by_viewer
+
+
+@pytest.mark.django_db
+def test_markdown_download_404s_for_a_run_of_a_session_holding_another_persons_cross_project_results(
+    member_client, member_user
+):
+    session = _create_session(user=member_user, cross_project_user_ids=[member_user.pk + 1])
+    run = _create_run(session, user=member_user, result_summary="their project's secrets")
+
+    resp = member_client.get(reverse("session_run_download_md", kwargs={"thread_id": session.thread_id, "pk": run.pk}))
+
+    assert resp.status_code == 404

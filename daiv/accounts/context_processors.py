@@ -48,6 +48,9 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "api_keys",
         "api_key_create",
         "api_key_revoke",
+        "platform_credential",
+        "platform_credential_revoke",
+        "platform_credential_reconnect",
         "mfa_index",
         "mfa_list_webauthn",
         "mfa_add_webauthn",
@@ -57,6 +60,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
+    "cross_project_access": {"codebase:cross-project-access"},
     "skills": {"skills:list", "skills:upload", "skills:detail", "skills:delete", "skills:download"},
     "sandbox_envs": {
         "sandbox_envs:list",
@@ -166,3 +170,15 @@ def nav(request) -> dict[str, Any]:
         "nav_active_section": _resolve_active_section(request),
         "git_platform": codebase_settings.CLIENT.value,
     }
+
+
+def social_consent(request) -> dict[str, Any]:
+    """Name the platform whose wider grant the sign-in page discloses while cross-project access is on."""
+    from codebase.base import GitPlatform
+    from codebase.conf import settings as codebase_settings
+    from core.site_settings import site_settings
+
+    platform = codebase_settings.CLIENT
+    if platform not in (GitPlatform.GITLAB, GitPlatform.GITHUB) or not site_settings.cross_project_access_enabled:
+        return {}
+    return {"socialaccount_platform": platform.value.capitalize()}

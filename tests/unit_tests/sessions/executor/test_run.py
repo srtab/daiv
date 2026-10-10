@@ -12,7 +12,7 @@ from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, execute_run, stream_run
+from sessions.executor.run import CrossProjectSessionRefusedError, RunStoppedError, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
@@ -26,6 +26,7 @@ from codebase.base import Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.references import ExternalRef
 from codebase.repo_config import RepositoryConfig
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
     FakeSandboxClient,
@@ -56,6 +57,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         agent_thinking_level="low",
         sandbox_env_id="env-1",
         acting_user_id=7,
+        acting_platform_uid="4242",
+        acting_user_authenticated=True,
         mcp_overrides={"sentry": "off"},
         references=refs,
         extra_metadata={"ref": "feat/x"},
@@ -73,6 +76,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "fallback_ref_on_missing": False,
         "sandbox_spec": stack.build_spec.return_value,
         "acting_user_id": 7,
+        "acting_platform_uid": "4242",
+        "acting_user_authenticated": True,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
@@ -81,7 +86,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     stack.resolve.assert_called_once_with(
         site=stack.site,
         repo=stack.ctx.config,
-        run=RunOverrides(agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low"),
+        run=RunOverrides(agent_model="openrouter:z-ai/glm-5.2", agent_thinking_level="low", cross_project_allowed=True),
     )
     stack.create_agent.assert_awaited_once_with(
         settings=stack.resolve.return_value,
@@ -139,6 +144,13 @@ async def test_each_one_shot_run_checkpoints_in_memory_under_its_own_thread():
     assert all(isinstance(saver, InMemorySaver) for saver in savers)
     assert savers[0] is not savers[1]
     assert len({uuid.UUID(thread) for thread in threads}) == 2
+
+
+async def test_a_one_shot_run_has_no_session_to_restrict_so_it_gets_no_cross_project_access():
+    with agent_stack(_agent()) as stack:
+        await execute_run(make_spec(thread_id=None))
+
+    assert stack.resolve.call_args.kwargs["run"].cross_project_allowed is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -523,7 +535,7 @@ async def test_use_max_reaches_model_resolution_only_when_set(use_max, extra):
     assert stack.resolve.call_args.kwargs == {
         "site": stack.site,
         "repo": stack.ctx.config,
-        "run": RunOverrides(**extra),
+        "run": RunOverrides(**extra, cross_project_allowed=True),
     }
 
 
@@ -1415,3 +1427,86 @@ class TestStreamRun:
             await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _stream("a", "b"))
 
         assert client.calls_to("close_session") == closes
+
+
+@pytest.mark.django_db(transaction=True)
+class TestASessionHoldingCrossProjectResults:
+    """Only the DAIV sign-in whose grant fetched another project's results may continue the session."""
+
+    @staticmethod
+    async def _restricted(*user_ids) -> tuple[str, Run]:
+        thread_id = await amake_job_session(cross_project_user_ids=list(user_ids))
+        run = await Run.objects.acreate(
+            session_id=thread_id, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
+        )
+        return thread_id, run
+
+    @staticmethod
+    def _spec(thread_id: str, **overrides):
+        return make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1), **overrides)
+
+    @pytest.mark.parametrize(
+        "acting",
+        [
+            {"acting_user_id": 8, "acting_user_authenticated": True},
+            {"acting_user_id": 7, "acting_user_authenticated": False},
+            {"acting_user_id": None, "acting_platform_uid": "42", "acting_user_authenticated": False},
+            {"acting_user_id": None, "acting_user_authenticated": True},
+        ],
+        ids=["another-sign-in", "unauthenticated-match", "webhook-platform-uid", "authenticated-without-user"],
+    )
+    async def test_anyone_else_is_refused_before_anything_is_built(self, acting):
+        thread_id, run = await self._restricted(7)
+        on_failure = AsyncMock()
+
+        with (
+            agent_stack(_agent(), session_guard=True) as stack,
+            pytest.raises(CrossProjectSessionRefusedError) as raised,
+        ):
+            await execute_run(self._spec(thread_id, run_id=str(run.pk), **acting), RunHooks(on_failure=on_failure))
+
+        assert str(raised.value) == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert stack.events == []
+        stack.build_spec.assert_not_called()
+        stack.create_agent.assert_not_awaited()
+        on_failure.assert_awaited_once_with(raised.value, draft_published=False, snapshot=None)
+        await run.arefresh_from_db()
+        assert run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert await active_holder(thread_id) is None
+
+    async def test_an_unattributed_fetch_refuses_every_run(self):
+        thread_id, _run = await self._restricted(None)
+
+        with agent_stack(_agent(), session_guard=True), pytest.raises(CrossProjectSessionRefusedError):
+            await execute_run(self._spec(thread_id, acting_user_id=None, acting_user_authenticated=True))
+
+    async def test_the_person_who_fetched_them_continues(self):
+        thread_id, _run = await self._restricted(7)
+
+        with agent_stack(_agent(), session_guard=True) as stack:
+            await execute_run(self._spec(thread_id, acting_user_id=7, acting_user_authenticated=True))
+
+        stack.create_agent.assert_awaited_once()
+
+    async def test_a_session_without_them_runs_for_anyone(self):
+        thread_id = await amake_job_session()
+
+        with agent_stack(_agent(), session_guard=True) as stack:
+            await execute_run(self._spec(thread_id, acting_platform_uid="42"))
+
+        stack.create_agent.assert_awaited_once()
+
+    async def test_a_stream_is_refused_before_its_first_event(self):
+        thread_id, _run = await self._restricted(7)
+        on_failure = AsyncMock()
+        stream = _stream("never")
+
+        with agent_stack(_agent(), session_guard=True) as stack, pytest.raises(CrossProjectSessionRefusedError):
+            await _drain(
+                make_spec(thread_id=thread_id, lock=Held(holder_id="chat-1"), acting_user_id=8),
+                stream,
+                RunHooks(on_failure=on_failure),
+            )
+
+        stack.create_agent.assert_not_awaited()
+        on_failure.assert_awaited_once()

@@ -5,10 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.executor.tasks import run_job_task
 from sessions.locks import SessionLock
-from sessions.models import Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, watch_recorder
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
@@ -410,6 +412,18 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_the_authenticated_flag():
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42, acting_user_authenticated=True)
+    assert captured.get("acting_user_authenticated") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_is_unauthenticated_by_default():
+    captured = await _runtime_ctx_kwargs(str(uuid.uuid4()), user_id=42)
+    assert captured.get("acting_user_authenticated") is False
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_forwards_session_references():
     """run_job_task must pass Session.external_refs to set_runtime_ctx as ExternalRef objects."""
     from codebase.references import ExternalRef
@@ -599,6 +613,32 @@ class TestRunJobTaskAfterRunMatrix:
 
         [record] = [r for r in caplog.records if r.getMessage().startswith("Job failed")]
         assert record.exc_info[1] is agent.ainvoke.side_effect
+
+    async def test_a_refused_shared_session_is_a_warning_written_on_the_run(self, caplog):
+        thread_id = await amake_job_session(cross_project_user_ids=[7])
+        run = await Run.objects.acreate(
+            session_id=thread_id, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
+        )
+
+        with (
+            _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
+            caplog.at_level("WARNING", logger="daiv.sessions"),
+            pytest.raises(CrossProjectSessionRefusedError),
+        ):
+            await run_job_task.func(
+                repo_id="owner/repo",
+                prompt="hi",
+                thread_id=thread_id,
+                run_id=str(run.pk),
+                user_id=8,
+                acting_user_authenticated=True,
+            )
+
+        set_ctx.assert_not_called()
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+        await run.arefresh_from_db()
+        assert run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert await active_holder(thread_id) is None
 
     async def test_it_survives_a_failed_watch_arm(self, caplog):
         arms: list[dict] = []

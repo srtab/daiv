@@ -80,6 +80,34 @@ async def test_the_fix_run_row_exists_before_its_task_and_carries_the_run_id(stu
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_fix_run_on_webhook_session_is_not_authenticated(stub_enqueue, create_db_task_result):
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    session = await _make_watched_session()
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    assert calls[0]["acting_user_authenticated"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_fix_run_on_chat_session_is_authenticated(stub_enqueue, create_db_task_result):
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    session = await amake_watched_session(
+        thread_id=MR_THREAD, merge_request_iid=MR_IID, watch_state=WatchState.FIXING, origin=SessionOrigin.CHAT
+    )
+
+    await FixRunDispatcher().adispatch(
+        session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
+    )
+
+    assert calls[0]["acting_user_authenticated"] is True
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_the_attempt_counter_survives_the_wire_from_dispatch_to_re_arm(
     stub_enqueue, stub_evaluate, create_db_task_result
 ):

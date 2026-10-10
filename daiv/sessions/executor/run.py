@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
@@ -41,6 +42,13 @@ STREAM_HEARTBEAT_INTERVAL_S = 5.0
 
 class RunStoppedError(Exception):
     """``stream_run``'s ``should_stop`` asked the run to stop."""
+
+
+class CrossProjectSessionRefusedError(Exception):
+    """The session holds another project's results that someone else's grant fetched, so this run may not continue it.
+
+    Its message is ``CROSS_PROJECT_SESSION_REFUSED_MESSAGE``, safe to show the person verbatim.
+    """
 
 
 @dataclass(frozen=True)
@@ -225,6 +233,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     from core.checkpointer import open_checkpointer
     from core.site_settings import site_settings
 
+    await _refuse_cross_project_session(spec)
     sandbox_spec = await build_sandbox_spec(spec.sandbox_env_id)
     logger.info(
         "executor: sandbox env=%s enabled=%s for thread_id=%s",
@@ -246,6 +255,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
+            acting_platform_uid=spec.acting_platform_uid,
+            acting_user_authenticated=spec.acting_user_authenticated,
             mcp_overrides=spec.mcp_overrides,
             references=spec.references,
             **spec.context_options,
@@ -308,6 +319,27 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
                 await _record_measurements(run_id, ctx, workspace)
+
+
+async def _refuse_cross_project_session(spec: RunSpec) -> None:
+    """Refuse the run before anything is built when its session holds another project's results that only a DAIV
+    sign-in on ``Session.cross_project_user_ids`` may continue, and write the refusal on its ``Run``."""
+    if spec.thread_id is None:
+        return
+    user_ids = await Session.objects.filter(pk=spec.thread_id).values_list("cross_project_user_ids", flat=True).afirst()
+    if not user_ids or (
+        spec.acting_user_authenticated and spec.acting_user_id is not None and spec.acting_user_id in user_ids
+    ):
+        return
+    logger.warning(
+        "executor: refused a run in thread_id=%s, which holds another person's cross-project results", spec.thread_id
+    )
+    if spec.run_id:
+        try:
+            await Run.objects.filter(pk=spec.run_id).aupdate(error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+        except Exception:
+            logger.exception("executor: failed to record the refusal on run_id=%s", spec.run_id)
+    raise CrossProjectSessionRefusedError(CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
 
 
 def _build_workspace(ctx: RuntimeCtx) -> Workspace:

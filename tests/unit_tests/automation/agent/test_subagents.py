@@ -95,6 +95,21 @@ class TestGeneralPurposeMiddleware:
         sandbox_middlewares = [m for m in middleware if isinstance(m, SandboxMiddleware)]
         assert len(sandbox_middlewares) == 1
 
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_the_platform_tools_follow_the_runs_cross_project_switch(
+        self, mock_model, mock_backend, mock_runtime_ctx, enabled
+    ):
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            _workspace(mock_backend, sandbox=True),
+            mock_runtime_ctx,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+            cross_project_enabled=enabled,
+        )
+        [git_platform] = [m for m in middleware if isinstance(m, GitPlatformMiddleware)]
+        assert git_platform._cross_project_enabled is enabled
+
     def test_threads_the_workspace_into_sandbox_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
         """The parent's workspace must reach the subagent's SandboxMiddleware: the subagent's bash tool runs through its
         shell, in the parent's session."""
@@ -288,6 +303,19 @@ class TestGeneralPurposeSubagent:
         assert result["name"] == "general-purpose"
         assert result["description"]
         assert "runnable" in result
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_forwards_the_runs_cross_project_switch(self, mock_model, mock_backend, mock_runtime_ctx, enabled):
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            create_general_purpose_subagent(
+                mock_model,
+                _workspace(mock_backend, sandbox=True),
+                mock_runtime_ctx,
+                "/workspace/repo/",
+                cross_project_enabled=enabled,
+            )
+
+        assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
     async def test_fallback_attempt_carries_no_openrouter_cache_control(self, mock_backend, mock_runtime_ctx):
         primary, fallback = _openrouter("anthropic/claude-haiku-4.5"), _openrouter("openai/gpt-5.4")
@@ -661,6 +689,27 @@ class TestCustomSubagents:
         assert len(result) == 1
         build_mw.assert_called_once()
         assert build_mw.call_args.args[1] is workspace
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    async def test_forwards_the_runs_cross_project_switch(self, tmp_path: Path, mock_model, mock_runtime_ctx, enabled):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        workspace = _workspace(DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), sandbox=True)
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            await load_custom_subagents(
+                model=mock_model,
+                workspace=workspace,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                cross_project_enabled=enabled,
+            )
+
+        assert build_mw.call_args.kwargs["cross_project_enabled"] is enabled
 
     async def test_fallback_attempt_carries_no_openrouter_cache_control(self, tmp_path: Path, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend

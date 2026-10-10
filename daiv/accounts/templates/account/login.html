@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load icon_tags socialaccount static %}
+{% load i18n icon_tags socialaccount static %}
 
 {% block title %}Sign in — DAIV{% endblock %}
 
@@ -89,6 +89,14 @@
             </a>
             {% endif %}
             {% endfor %}
+            {% if socialaccount_platform %}
+            <p class="mt-3 text-center text-[12px] font-light leading-relaxed tracking-wide text-gray-400">
+                {% blocktranslate trimmed with platform=socialaccount_platform %}
+                Signing in also authorises DAIV to act as you on {{ platform }} beyond the project a run works on — it never
+                sees more than you can, and you can review or withdraw this in your account settings.
+                {% endblocktranslate %}
+            </p>
+            {% endif %}
         </div>
         {% if PASSKEY_LOGIN_ENABLED %}
         <p class="animate-fade-up mt-3 text-center text-[12px] font-light tracking-wide text-gray-400" style="animation-delay: 200ms">

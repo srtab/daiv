@@ -10,6 +10,8 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import run_finished
 
 from accounts.models import User
+from codebase.models import CrossProjectAccessRecord
+from core.constants import CrossProjectOutcome
 from tests.unit_tests.sessions.conftest import commit_revision, make_artifact
 
 
@@ -338,6 +340,19 @@ class TestDispatchNextInSession:
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
 
+    @pytest.mark.parametrize(
+        ("trigger_type", "expected"), [(SessionOrigin.UI_JOB, True), (SessionOrigin.ISSUE_WEBHOOK, False)]
+    )
+    def test_enqueue_marks_only_daiv_triggers_authenticated(self, create_db_task_result, trigger_type, expected):
+        from sessions.signals import _enqueue_queued_run
+
+        run = _create_run(session=_make_session(), trigger_type=trigger_type)
+        with patch("sessions.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=create_db_task_result().id))
+            assert _enqueue_queued_run(run) is True
+
+        assert mock_task.aenqueue.await_args.kwargs["acting_user_authenticated"] is expected
+
     def test_enqueue_failure_reemit_uses_skip_dispatch(self):
         """The dispatch-failure path must re-emit ``run_finished`` with
         ``skip_dispatch=True`` so the dispatcher does not recurse — notifications still fire."""
@@ -606,3 +621,75 @@ def test_artifact_file_delete_failure_is_logged(django_capture_on_commit_callbac
 
     assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
     assert "Failed to delete artifact file" in caplog.text
+
+
+@pytest.mark.django_db
+class TestRestrictSessionToCrossProjectFetchers:
+    @staticmethod
+    def _record(*, thread_id: str, outcome=CrossProjectOutcome.ALLOWED, acting_user=None) -> CrossProjectAccessRecord:
+        return CrossProjectAccessRecord.objects.create(
+            thread_id=thread_id,
+            acting_user=acting_user,
+            provider="gitlab",
+            target_repo_id="other/repo",
+            outcome=outcome,
+        )
+
+    def test_an_allowed_fetch_adds_the_person_once(self, member_user):
+        session = _make_session()
+
+        self._record(thread_id=session.pk, acting_user=member_user)
+        self._record(thread_id=session.pk, acting_user=member_user)
+
+        session.refresh_from_db()
+        assert session.cross_project_user_ids == [member_user.pk]
+
+    def test_a_second_person_is_appended(self, member_user, other_user):
+        session = _make_session()
+
+        self._record(thread_id=session.pk, acting_user=member_user)
+        self._record(thread_id=session.pk, acting_user=other_user)
+
+        session.refresh_from_db()
+        assert session.cross_project_user_ids == [member_user.pk, other_user.pk]
+
+    @pytest.mark.parametrize(
+        "outcome", [outcome for outcome in CrossProjectOutcome if outcome != CrossProjectOutcome.ALLOWED]
+    )
+    def test_a_refused_attempt_restricts_nothing(self, member_user, outcome):
+        session = _make_session()
+
+        self._record(thread_id=session.pk, acting_user=member_user, outcome=outcome)
+
+        session.refresh_from_db()
+        assert session.cross_project_user_ids == []
+
+    def test_an_unattributed_fetch_restricts_the_session_to_admins_and_logs_an_error(self, caplog):
+        session = _make_session()
+
+        self._record(thread_id=session.pk)
+
+        session.refresh_from_db()
+        assert session.cross_project_user_ids == [None]
+        assert any(record.levelname == "ERROR" for record in caplog.records)
+
+    def test_a_fetch_in_a_thread_without_a_session_row_raises_and_logs_an_error(self, member_user, caplog):
+        thread_id = str(uuid.uuid4())
+
+        with pytest.raises(Session.DoesNotExist):
+            self._record(thread_id=thread_id, acting_user=member_user)
+
+        errors = [record for record in caplog.records if record.levelname == "ERROR"]
+        assert [record.args for record in errors] == [(thread_id,)]
+        assert not Session.objects.exclude(cross_project_user_ids=[]).exists()
+
+    def test_an_updated_record_is_not_counted_again(self, member_user, other_user):
+        session = _make_session()
+        record = self._record(thread_id=session.pk, acting_user=member_user)
+        Session.objects.filter(pk=session.pk).update(cross_project_user_ids=[])
+
+        record.acting_user = other_user
+        record.save()
+
+        session.refresh_from_db()
+        assert session.cross_project_user_ids == []

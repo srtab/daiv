@@ -16,7 +16,12 @@ from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript, artifact_turns
 from sessions.turns import build_turns
 
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_USER_MESSAGE,
+    CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 from tests.unit_tests.sessions.conftest import make_artifact
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
@@ -159,6 +164,20 @@ def test_chat_failed_run_with_empty_error_message_falls_back_to_generic():
     assert marker["role"] == "run_status"
     assert marker["status"] == "failed"
     assert marker["message"] == RUN_FAILED_MESSAGE
+
+
+def test_a_background_run_refused_for_a_shared_session_shows_why():
+    runs = [
+        _run(
+            "r1",
+            message_id="missing-id",
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            status=RunStatus.FAILED,
+            error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+        )
+    ]
+    [marker] = annotate_transcript([], runs)
+    assert (marker["status"], marker["message"]) == ("failed", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
 
 
 def test_synthetic_turns_marker_only_when_no_prompt():

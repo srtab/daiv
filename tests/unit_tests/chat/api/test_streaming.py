@@ -24,6 +24,7 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.models import Run, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
@@ -1011,9 +1012,11 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
             pass
 
     _executor_stack.build_spec.assert_awaited_once_with("env-1")
-    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "mcp_overrides", "references")} == {
+    keys = ("sandbox_spec", "acting_user_id", "acting_user_authenticated", "mcp_overrides", "references")
+    assert {key: captured[key] for key in keys} == {
         "sandbox_spec": _executor_stack.build_spec.return_value,
         "acting_user_id": 7,
+        "acting_user_authenticated": True,
         "mcp_overrides": {"sentry": "off"},
         "references": refs,
     }
@@ -1191,6 +1194,19 @@ class TestChatAfterRunMatrix:
             events = [event async for event in _streamer().events()]
 
         assert [(event.type, event.code) for event in events] == [(EventType.RUN_ERROR, "run_failed")]
+        assert calls == [_RELEASE]
+
+    async def test_a_refused_shared_session_tells_the_person_and_only_releases_the_slot(self, _executor_stack):
+        from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+
+        _executor_stack.guard.side_effect = CrossProjectSessionRefusedError(CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+
+        with _recorded_turn(_mock_agent([])) as calls:
+            events = [event async for event in _streamer().events()]
+
+        assert [(event.type, event.code, event.message) for event in events] == [
+            (EventType.RUN_ERROR, "cross_project_session", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+        ]
         assert calls == [_RELEASE]
 
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):

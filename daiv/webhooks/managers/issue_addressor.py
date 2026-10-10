@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
@@ -92,12 +92,19 @@ class IssueAddressorManager(BaseManager):
     """
 
     def __init__(
-        self, *, repo_id: str, issue: Issue, mention_comment_id: str | None = None, thread_id: str | None = None
+        self,
+        *,
+        repo_id: str,
+        issue: Issue,
+        mention_comment_id: str | None = None,
+        thread_id: str | None = None,
+        acting_platform_uid: str | None = None,
     ):
         super().__init__(
             repo_id=repo_id,
             thread_id=resolve_thread_id(thread_id, repo_slug=repo_id, scope=Scope.ISSUE, entity_iid=issue.iid),
             mention_comment_id=mention_comment_id,
+            acting_platform_uid=acting_platform_uid,
         )
         self.issue = issue
 
@@ -111,6 +118,7 @@ class IssueAddressorManager(BaseManager):
         ref: str | None = None,
         thread_id: str | None = None,
         sandbox_env_id: str | None = None,
+        acting_platform_uid: str | None = None,
         run_id: str | None = None,
         use_max: bool | None = None,
     ) -> AgentResult | None:
@@ -124,13 +132,20 @@ class IssueAddressorManager(BaseManager):
             ref: The branch to clone; ``None`` for the repository default.
             thread_id: The session's thread id; ``None`` computes the deterministic one.
             sandbox_env_id: The sandbox environment the callback selected.
+            acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             use_max: The max mode the callback decided; ``None`` reads the ``daiv-max`` label off ``issue``.
 
         Returns:
             An :class:`AgentResult`, or ``None`` when no model is configured (after saying so on the issue).
         """
-        manager = cls(repo_id=repo_id, issue=issue, mention_comment_id=mention_comment_id, thread_id=thread_id)
+        manager = cls(
+            repo_id=repo_id,
+            issue=issue,
+            mention_comment_id=mention_comment_id,
+            thread_id=thread_id,
+            acting_platform_uid=acting_platform_uid,
+        )
 
         try:
             return await manager._address_issue(ref=ref, sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
@@ -158,6 +173,7 @@ class IssueAddressorManager(BaseManager):
                 fallback_ref_on_missing=True,
                 use_max=self.issue.has_max_label() if use_max is None else use_max,
                 sandbox_env_id=sandbox_env_id,
+                acting_platform_uid=self.acting_platform_uid,
                 run_id=run_id,
                 persist_ref=True,
                 arm_watch=True,
@@ -202,6 +218,10 @@ class IssueAddressorManager(BaseManager):
             self._add_unable_to_address_issue_note()
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            if self._claim_unable_note():
+                self._leave_comment(str(exc), reply_to_id=self.reply_to_id)
+            return
         if isinstance(exc, AgentConfigurationError):
             logger.warning("issue_addressor: %s", exc)
             if self._claim_unable_note():

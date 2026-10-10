@@ -143,6 +143,18 @@ async def test_submit_batch_creates_session_and_ready_run():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("trigger_type", "expected"), [(SessionOrigin.API_JOB, True), (SessionOrigin.ISSUE_WEBHOOK, False)]
+)
+async def test_submit_batch_marks_only_daiv_triggers_authenticated(trigger_type, expected):
+    fake = await _atask_result_row(uuid.uuid4())
+    with patch("sessions.services.run_job_task") as mock_task:
+        mock_task.aenqueue = AsyncMock(return_value=fake)
+        await asubmit_batch_runs(user=None, prompt="p", repos=[RepoTarget(repo_id="g/r")], trigger_type=trigger_type)
+    assert mock_task.aenqueue.await_args.kwargs["acting_user_authenticated"] is expected
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_continuation_queues_when_thread_busy():
     tid = str(uuid.uuid4())
     task_id = uuid.uuid4()

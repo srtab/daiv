@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
+from sessions.executor.run import CrossProjectSessionRefusedError, execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
@@ -205,7 +205,13 @@ class CommentsAddressorManager(BaseManager):
     """
 
     def __init__(
-        self, *, repo_id: str, merge_request: MergeRequest, mention_comment_id: str, thread_id: str | None = None
+        self,
+        *,
+        repo_id: str,
+        merge_request: MergeRequest,
+        mention_comment_id: str,
+        thread_id: str | None = None,
+        acting_platform_uid: str | None = None,
     ):
         super().__init__(
             repo_id=repo_id,
@@ -213,6 +219,7 @@ class CommentsAddressorManager(BaseManager):
                 thread_id, repo_slug=repo_id, scope=Scope.MERGE_REQUEST, entity_iid=merge_request.merge_request_id
             ),
             mention_comment_id=mention_comment_id,
+            acting_platform_uid=acting_platform_uid,
         )
         self.merge_request = merge_request
 
@@ -225,6 +232,7 @@ class CommentsAddressorManager(BaseManager):
         mention_comment_id: str,
         thread_id: str | None = None,
         sandbox_env_id: str | None = None,
+        acting_platform_uid: str | None = None,
         run_id: str | None = None,
     ) -> AgentResult:
         """
@@ -236,6 +244,7 @@ class CommentsAddressorManager(BaseManager):
             mention_comment_id: The mention comment id.
             thread_id: The session's thread id; ``None`` computes the deterministic one.
             sandbox_env_id: The sandbox environment the callback selected.
+            acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
 
         Returns:
@@ -243,7 +252,11 @@ class CommentsAddressorManager(BaseManager):
             raises ``CloneRefNotFoundError`` for the task to answer.
         """
         manager = cls(
-            repo_id=repo_id, merge_request=merge_request, mention_comment_id=mention_comment_id, thread_id=thread_id
+            repo_id=repo_id,
+            merge_request=merge_request,
+            mention_comment_id=mention_comment_id,
+            thread_id=thread_id,
+            acting_platform_uid=acting_platform_uid,
         )
 
         try:
@@ -269,6 +282,7 @@ class CommentsAddressorManager(BaseManager):
                 ref=self.merge_request.source_branch,
                 merge_request=self.merge_request,
                 sandbox_env_id=sandbox_env_id,
+                acting_platform_uid=self.acting_platform_uid,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={
@@ -294,6 +308,10 @@ class CommentsAddressorManager(BaseManager):
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
+            return
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            if self._claim_unable_note():
+                self._leave_comment(str(exc), reply_to_id=self.reply_to_id)
             return
         if isinstance(exc, AgentConfigurationError):
             logger.warning("review_addressor: %s", exc)
