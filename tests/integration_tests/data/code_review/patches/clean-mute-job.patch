@@ -1,11 +1,12 @@
 diff --git a/daiv/mcp_api/server.py b/daiv/mcp_api/server.py
-index 7cb21d0..e2ac35b 100644
 --- a/daiv/mcp_api/server.py
 +++ b/daiv/mcp_api/server.py
-@@ -493,6 +493,39 @@ async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
+@@ -491,6 +491,37 @@
+     if mcp_user is None:
+         return None, {"error": "Authentication failed: unable to resolve the current user."}
      return mcp_user, None
- 
- 
++
++
 +@mcp.tool()
 +async def mute_job(
 +    job_id: Annotated[str, Field(description="The job ID returned by submit_job.")],
@@ -13,7 +14,8 @@ index 7cb21d0..e2ac35b 100644
 +) -> dict:
 +    """Mute or unmute the notifications of one of the caller's jobs.
 +
-+    Only notifications not yet sent are affected: a job that already finished has notified.
++    Set the stored notification override, including while a finished run awaits delivery.
++    Notifications already delivered are not retracted.
 +    Returns ``{"job_id": str, "muted": bool}``.
 +    """
 +    mcp_user, auth_error = await _resolve_mcp_user()
@@ -30,15 +32,10 @@ index 7cb21d0..e2ac35b 100644
 +    except Run.DoesNotExist:
 +        return {"error": "Job not found."}
 +
-+    if run.status in TERMINAL_STATUSES:
-+        return {"error": "Job already finished; its notifications were sent."}
-+
 +    run.muted = muted
 +    await run.asave(update_fields=["muted"])
 +    logger.info("Job %s muted=%s", run.id, muted)
 +    return {"job_id": str(run.id), "muted": run.muted}
-+
-+
- # ---------------------------------------------------------------------------
- # Pagination — shared limit bounds and opaque keyset cursors
+ 
+ 
  # ---------------------------------------------------------------------------

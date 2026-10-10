@@ -47,6 +47,8 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
+          # Offline recall-fixture tests apply patches to their frozen historical commits.
+          fetch-depth: 0
           # test_docs_links resolves `latest` doc URLs against the tag that alias serves.
           fetch-tags: true
 
