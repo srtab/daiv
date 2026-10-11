@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelRequest
 from langchain.agents.middleware.types import ModelResponse
@@ -7,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
+from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware, repeated_tool_streak
 from automation.agent.synthetic import is_synthetic, synthetic_message
 
@@ -236,6 +240,168 @@ async def test_saved_reminders_keep_every_request_a_prefix_of_the_next():
     assert len(reminders) == 3
     assert all(isinstance(messages[i + 1], AIMessage) for i in reminders)
     assert messages[-1].content.startswith("ERROR:")
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_args", "next_header"),
+    [
+        (
+            {"file_path": "/source.py"},
+            {"file_path": "/source.py", "offset": 100},
+            "@@ lines 101-200 of 250 | next offset 200 @@",
+        ),
+        (
+            {"file_path": "/source.py", "offset": 100, "limit": 25},
+            {"file_path": "/source.py", "offset": 125, "limit": 25},
+            "@@ lines 126-150 of 250 | next offset 150 @@",
+        ),
+        (
+            {"file_path": '/quoted "source.py', "offset": 0, "limit": 50},
+            {"file_path": '/quoted "source.py', "offset": 50, "limit": 50},
+            "@@ lines 51-100 of 250 | next offset 100 @@",
+        ),
+    ],
+)
+async def test_read_reminder_supplies_executable_next_page_arguments(tmp_path, args, expected_args, next_header):
+    """A consumer can execute the suggested call against the real paged filesystem tool."""
+    (tmp_path / args["file_path"].lstrip("/")).write_text("".join(f"line {i}\n" for i in range(1, 251)))
+    probe = _RequestProbe()
+
+    def responses():
+        for i in range(3):
+            yield _ai("read_file", args, f"c{i}")
+        reminder = probe.requests[-1][-1]
+        json_start = reminder.content.find("{")
+        assert json_start >= 0, "Read-loop reminder must supply concrete next-page arguments"
+        next_args, _ = json.JSONDecoder().raw_decode(reminder.content[json_start:])
+        assert next_args == expected_args
+        yield _ai("read_file", next_args, "next")
+        yield AIMessage(content="finished")
+
+    agent = create_agent(
+        model=_ToolModel(messages=responses()),
+        middleware=[
+            FilesystemMiddleware(
+                backend=DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), tools=["read_file"]
+            ),
+            LoopBreakerMiddleware(terminal="error"),
+            probe,
+        ],
+    )
+    result = await agent.ainvoke({"messages": [HumanMessage(content="read the next page")]})
+
+    reads = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert len(reads) == 4
+    assert reads[-1].content.splitlines()[0] == next_header
+    assert result["messages"][-1].content == "finished"
+    assert sum(is_synthetic(m) for m in result["messages"]) == 1
+    for earlier, later in zip(probe.requests, probe.requests[1:], strict=False):
+        assert _shape(later)[: len(earlier)] == _shape(earlier)
+
+
+def _read_loop(content, *, args=None, status="success"):
+    messages = [HumanMessage(content="read")]
+    for i in range(3):
+        messages.append(_ai("read_file", args or {"file_path": "/source.py"}, f"c{i}"))
+        messages.append(ToolMessage(content=content, tool_call_id=f"c{i}", name="read_file", status=status))
+    return messages
+
+
+async def test_read_reminder_uses_latest_matching_result_not_foreign_header():
+    messages = _read_loop("@@ lines 1-100 of 250 | next offset 100 @@\nsource")
+    messages.append(ToolMessage(content="@@ lines 201-225 of 250 | next offset 225 @@\nother", tool_call_id="foreign"))
+    seen = []
+    await LoopBreakerMiddleware().awrap_model_call(_request(messages), await _record_handler(seen))
+    reminder = seen[0].messages[-1]
+    assert "{" in reminder.content, "Expected a continuation for the matching read result"
+    args, _ = json.JSONDecoder().raw_decode(reminder.content[reminder.content.index("{") :])
+    assert args == {"file_path": "/source.py", "offset": 100}
+
+
+@pytest.mark.parametrize(
+    ("content", "args", "status"),
+    [
+        ("@@ lines 1-100 of 100 @@\ncomplete", None, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@\nerror", None, "error"),
+        ("Error: missing file", None, "success"),
+        ([{"type": "image", "base64": "eA==", "mime_type": "image/png"}], None, "success"),
+        ("source\n@@ lines 1-100 of 250 | next offset 100 @@", None, "success"),
+        ("[truncated read]\n@@ lines 1-100 of 250 | next offset 100 @@", None, "success"),
+        ("@@ lines 1-100 of 100 @@\n@@ lines 1-100 of 250 | next offset 100 @@", None, "success"),
+        ("@@ lines 1-100 of 250 | next offset 0 @@", None, "success"),
+        ("@@ lines 1-100 of 250 | next offset 99 @@", None, "success"),
+        ("@@ lines 1-100 of 100 | next offset 100 @@", None, "success"),
+        ("@@ lines 1-100 of 90 | next offset 100 @@", None, "success"),
+        ("@@ lines 0-100 of 250 | next offset 100 @@", None, "success"),
+        ("@@ lines 101-100 of 250 | next offset 100 @@", None, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@", {"file_path": "/source.py", "offset": 100}, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@", {"file_path": "/source.py", "offset": -1}, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@", {"file_path": "/source.py", "offset": "bad"}, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@", {"file_path": "/source.py", "limit": 0}, "success"),
+        ("@@ lines 1-100 of 250 | next offset 100 @@", {"file_path": "/source.py", "limit": 50}, "success"),
+    ],
+)
+async def test_read_reminder_does_not_guess_continuation_from_unusable_metadata(content, args, status):
+    seen = []
+    await LoopBreakerMiddleware().awrap_model_call(
+        _request(_read_loop(content, args=args, status=status)), await _record_handler(seen)
+    )
+    assert "{" not in seen[0].messages[-1].content
+
+
+async def test_read_reminder_does_not_reuse_a_stale_read_result():
+    messages = _read_loop("@@ lines 1-100 of 250 | next offset 100 @@")
+    messages[-1] = ToolMessage(content="@@ lines 1-100 of 250 | next offset 100 @@", tool_call_id="c1")
+    seen = []
+    await LoopBreakerMiddleware().awrap_model_call(_request(messages), await _record_handler(seen))
+    assert "{" not in seen[0].messages[-1].content
+
+
+async def test_read_reminder_accepts_a_window_with_unknown_total():
+    seen = []
+    await LoopBreakerMiddleware().awrap_model_call(
+        _request(_read_loop("@@ lines 1-100 | next offset 100 @@\nsource")), await _record_handler(seen)
+    )
+    reminder = seen[0].messages[-1]
+    assert "{" in reminder.content, "Expected a continuation when the backend supplies the next offset"
+    args, _ = json.JSONDecoder().raw_decode(reminder.content[reminder.content.index("{") :])
+    assert args == {"file_path": "/source.py", "offset": 100}
+
+
+async def test_read_reminder_keeps_generic_advice_for_a_repeated_batch():
+    messages = [HumanMessage(content="read and search")]
+    for i in range(3):
+        messages.append(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "read_file", "args": {"file_path": "/source.py"}, "id": f"read{i}"},
+                    {"name": "grep", "args": {"pattern": "p"}, "id": f"grep{i}"},
+                ],
+            )
+        )
+        messages.append(ToolMessage(content="@@ lines 1-100 | next offset 100 @@", tool_call_id=f"read{i}"))
+        messages.append(ToolMessage(content="result", tool_call_id=f"grep{i}"))
+    seen = []
+    await LoopBreakerMiddleware().awrap_model_call(_request(messages), await _record_handler(seen))
+    assert "{" not in seen[0].messages[-1].content
+
+
+async def test_ignoring_read_continuation_still_terminates_after_six_identical_calls(tmp_path):
+    (tmp_path / "source.py").write_text("".join(f"line {i}\n" for i in range(1, 251)))
+    agent = create_agent(
+        model=_ToolModel(messages=iter([_ai("read_file", {"file_path": "/source.py"}, f"c{i}") for i in range(6)])),
+        middleware=[
+            FilesystemMiddleware(
+                backend=DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True), tools=["read_file"]
+            ),
+            LoopBreakerMiddleware(terminal="error"),
+        ],
+    )
+    result = await agent.ainvoke({"messages": [HumanMessage(content="read")]})
+    assert sum(isinstance(m, ToolMessage) for m in result["messages"]) == 6
+    assert sum(is_synthetic(m) for m in result["messages"]) == 3
+    assert result["messages"][-1].content.startswith("ERROR:")
 
 
 def test_invalid_terminal_rejected():
