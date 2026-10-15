@@ -253,6 +253,8 @@ python manage.py export_session_archives ./session-exports --since 2026-10-01 --
 
 Each session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` starts a new one) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the conversation the agent saw, not each model request: system prompts, tool schemas and subagent internals stay in LangSmith.
 
+Exports contain full conversations and run prompts, so treat the output directory as sensitive.
+
 ---
 
 ## Bash command policy logs
