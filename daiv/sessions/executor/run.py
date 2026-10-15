@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from sessions.archive import aarchive_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
@@ -297,11 +298,16 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                 )
+                lost_slot = False
                 try:
                     yield run
                 except SessionLockLostError:
+                    lost_slot = True
                     handed_over = await _handed_over(run)
                     raise
+                finally:
+                    if spec.thread_id is not None and not lost_slot:
+                        await aarchive_thread(checkpointer, thread_id)
         finally:
             try:
                 if workspace.session is not None and not handed_over:

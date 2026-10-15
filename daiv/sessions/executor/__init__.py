@@ -37,7 +37,9 @@ step sits where it does:
    against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
    ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch
    arm is logged; none of them fails a run the agent already finished.
-6. The sandbox session, if the run has one, is released — stopped for a session run, whose next turn can reuse it,
+6. A session run's thread is archived (``sessions.archive.aarchive_thread``) however the run ended, unless it lost its
+   slot: the holder that took over archives its own end. The sandbox session, if the run has one, is then released —
+   stopped for a session run, whose next turn can reuse it,
    and removed for a one-shot run or a new container the checkpoint never came to name — even when the agent or its
    stream raised, was stopped or lost its reader. A stream that lost its slot leaves the container running while the
    checkpoint still names it, since the holder that took over reuses it.

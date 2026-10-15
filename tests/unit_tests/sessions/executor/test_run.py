@@ -1415,3 +1415,55 @@ class TestStreamRun:
             await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _stream("a", "b"))
 
         assert client.calls_to("close_session") == closes
+
+
+class TestSessionArchive:
+    async def test_a_session_run_archives_its_thread_when_it_ends(self, session_archive):
+        spec = make_spec()
+
+        with agent_stack(_agent()) as stack:
+            await execute_run(spec)
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+
+    async def test_a_failed_run_still_archives_its_thread(self, session_archive):
+        agent = _agent()
+        agent.ainvoke.side_effect = RuntimeError("agent blew up")
+        spec = make_spec()
+
+        with agent_stack(agent) as stack, pytest.raises(RuntimeError, match="agent blew up"):
+            await execute_run(spec)
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+
+    async def test_a_stream_its_reader_left_still_archives_its_thread(self, session_archive):
+        spec = make_spec()
+
+        with agent_stack(_agent()) as stack:
+            events = stream_run(spec, _stream("a", "b"), should_stop=AsyncMock())
+            assert await anext(events) == "a"
+            await events.aclose()
+
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+
+    async def test_a_one_shot_run_archives_nothing(self, session_archive):
+        with agent_stack(_agent()):
+            await execute_run(make_spec(thread_id=None))
+
+        session_archive.archive.assert_not_awaited()
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_run_that_lost_its_slot_leaves_archiving_to_the_new_holder(self, session_archive):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+
+        with (
+            agent_stack(_agent()),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
+            pytest.raises(SessionLockLostError),
+        ):
+            spec = make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run"))
+            async for _event in stream_run(spec, _stream("a", "b"), should_stop=AsyncMock(return_value=True)):
+                pass
+
+        session_archive.archive.assert_not_awaited()
