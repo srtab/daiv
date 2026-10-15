@@ -671,3 +671,29 @@ class RunArtifact(models.Model):
     @property
     def kind(self) -> ArtifactKind:
         return artifact_kind(self.content_type)
+
+
+class SessionArchive(models.Model):
+    """One context of a session's agent state, as it stood when its latest run ended.
+
+    The Redis checkpoint is the working copy and expires; this row is the durable one, written by
+    :func:`sessions.archive.aarchive_thread`. A context reset (``/clear``) opens the next ``epoch``.
+    """
+
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="archives", verbose_name=_("session"))
+    epoch = models.PositiveIntegerField(_("epoch"), default=0)
+    state = models.BinaryField(_("state"))
+    state_type = models.CharField(_("state type"), max_length=16)
+    first_message_id = models.CharField(_("first message ID"), max_length=255, blank=True, default="")
+    message_count = models.PositiveIntegerField(_("message count"), default=0)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Session Archive")
+        verbose_name_plural = _("Session Archives")
+        ordering = ["session", "epoch"]
+        constraints = [models.UniqueConstraint(fields=["session", "epoch"], name="session_archive_epoch_unique")]
+
+    def __str__(self) -> str:
+        return f"Context {self.epoch} of session {self.session_id}"
