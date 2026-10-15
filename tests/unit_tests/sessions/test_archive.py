@@ -1,22 +1,32 @@
 from types import SimpleNamespace
+from typing import Annotated, NotRequired
 from unittest.mock import AsyncMock
 
 import pytest
+from deepagents import create_deep_agent
+from langchain.agents.middleware import AgentMiddleware, AgentState
+from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from sessions.archive import (
     ARCHIVED_CHANNELS,
+    SEED_AS_NODE,
     aarchive_thread,
     aarchived_contexts,
     aload_archived_values,
     archivable_values,
+    arestore_thread,
     continues_context,
     decode_values,
     encode_values,
 )
+from sessions.models import SessionArchive
 
 from codebase.base import MergeRequest, User
-from tests.unit_tests.sessions.conftest import amake_job_session
+from tests.unit_tests.sessions.conftest import amake_job_session, archive_fields
 
 
 def _merge_request() -> MergeRequest:
@@ -164,3 +174,124 @@ class TestArchiveThread:
             assert await aarchive_thread(_checkpointer(error=RedisError("down")), thread_id) is False
 
         assert f"Failed to archive thread {thread_id}" in caplog.text
+
+
+class _ToolModel(GenericFakeChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
+class _PrivateState(AgentState):
+    loaded_tool_names: NotRequired[Annotated[set[str], PrivateStateAttr]]
+
+
+class _Probe(AgentMiddleware):
+    """Records what each model call saw. Its ``after_model`` hook leaves a step pending after a seeded model write."""
+
+    state_schema = _PrivateState
+
+    def __init__(self):
+        super().__init__()
+        self.seen: list[tuple[list[str], set[str] | None]] = []
+
+    async def abefore_model(self, state, runtime):
+        self.seen.append(([m.id for m in state["messages"]], state.get("loaded_tool_names")))
+
+    async def aafter_model(self, state, runtime):
+        return None
+
+
+def _deep_agent(probe: _Probe, checkpointer: InMemorySaver, *, tools: tuple = ()):
+    model = _ToolModel(messages=iter([AIMessage(content="second answer", id="a2")]))
+    return create_deep_agent(model=model, tools=list(tools), middleware=[probe], checkpointer=checkpointer)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRestoreThread:
+    async def test_an_expired_thread_is_seeded_from_its_latest_context(self):
+        thread_id = await amake_job_session()
+        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, _turns("h1", "a1")))
+        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(1, [AIMessage("cleared", id="r1")]))
+        agent = SimpleNamespace(aupdate_state=AsyncMock())
+        config = {"configurable": {"thread_id": thread_id}}
+
+        assert await arestore_thread(agent, _checkpointer(None), config) is True
+
+        args, kwargs = agent.aupdate_state.await_args
+        assert args[0] is config
+        assert [m.id for m in args[1]["messages"]] == ["r1"]
+        assert kwargs == {"as_node": SEED_AS_NODE}
+
+    async def test_a_live_checkpoint_is_left_alone(self):
+        thread_id = await amake_job_session()
+        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, _turns("h1")))
+        agent = SimpleNamespace(aupdate_state=AsyncMock())
+
+        restored = await arestore_thread(
+            agent, _checkpointer({"messages": []}), {"configurable": {"thread_id": thread_id}}
+        )
+
+        assert restored is False
+        agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_thread_without_an_archive_starts_empty(self):
+        thread_id = await amake_job_session()
+        agent = SimpleNamespace(aupdate_state=AsyncMock())
+
+        assert await arestore_thread(agent, _checkpointer(None), {"configurable": {"thread_id": thread_id}}) is False
+        agent.aupdate_state.assert_not_awaited()
+
+    async def test_a_merge_request_that_no_longer_revives_is_dropped(self):
+        thread_id = await amake_job_session()
+        fields = archive_fields(0, _turns("h1"), merge_request={"repo_id": "group/repo"})
+        await SessionArchive.objects.acreate(session_id=thread_id, **fields)
+        agent = SimpleNamespace(aupdate_state=AsyncMock())
+
+        await arestore_thread(agent, _checkpointer(None), {"configurable": {"thread_id": thread_id}})
+
+        assert "merge_request" not in agent.aupdate_state.await_args.args[1]
+
+    async def test_a_failed_restore_is_logged_and_the_run_starts_empty(self, caplog):
+        thread_id = await amake_job_session()
+        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, _turns("h1")))
+        agent = SimpleNamespace(aupdate_state=AsyncMock(side_effect=ValueError("bad update")))
+
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            restored = await arestore_thread(agent, _checkpointer(None), {"configurable": {"thread_id": thread_id}})
+
+        assert restored is False
+        assert f"Failed to restore thread {thread_id}" in caplog.text
+
+    async def test_a_restored_thread_resumes_with_its_history_and_private_state(self):
+        thread_id = await amake_job_session()
+        fields = archive_fields(0, _turns("h1", "a1"), loaded_tool_names={"web_fetch"})
+        await SessionArchive.objects.acreate(session_id=thread_id, **fields)
+        probe, saver = _Probe(), InMemorySaver()
+        agent = _deep_agent(probe, saver)
+        config = {"configurable": {"thread_id": thread_id}}
+
+        assert await arestore_thread(agent, saver, config) is True
+        await agent.ainvoke({"messages": [HumanMessage(content="follow-up", id="h2")]}, config)
+
+        assert probe.seen == [(["h1", "a1", "h2"], {"web_fetch"})]
+
+    async def test_a_dangling_tool_call_in_the_archive_is_not_replayed(self):
+        calls: list[str] = []
+
+        @tool
+        def ping() -> str:
+            """Ping."""
+            calls.append("ping")
+            return "pong"
+
+        thread_id = await amake_job_session()
+        dangling = AIMessage(content="", id="a1", tool_calls=[{"id": "c1", "name": "ping", "args": {}}])
+        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, [_turns("h1")[0], dangling]))
+        saver = InMemorySaver()
+        agent = _deep_agent(_Probe(), saver, tools=(ping,))
+        config = {"configurable": {"thread_id": thread_id}}
+
+        await arestore_thread(agent, saver, config)
+        await agent.ainvoke({"messages": [HumanMessage(content="follow-up", id="h2")]}, config)
+
+        assert calls == []

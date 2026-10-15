@@ -20,13 +20,19 @@ from sessions.models import Session, SessionArchive
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.pregel import Pregel
 
 logger = logging.getLogger("daiv.sessions")
 
 # Not session_id (its container is reaped), memory_contents or skills_metadata (they would stop AGENTS.md and the
 # skills reloading), nor the per-run flags.
 ARCHIVED_CHANNELS = ("messages", "merge_request", "diff_stats", "todos", "loaded_tool_names", "_summarization_event")
+
+# The model node writes every channel, private ones included; the default input node would silently drop
+# loaded_tool_names and _summarization_event.
+SEED_AS_NODE = "model"
 
 
 def archivable_values(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -128,3 +134,30 @@ async def _aepoch_for(thread_id: str, messages: Sequence[Any]) -> int | None:
         logger.warning("Thread %s now starts inside its archived context; keeping the archive", thread_id)
         return None
     return latest.epoch + 1
+
+
+async def arestore_thread(agent: Pregel, checkpointer: BaseCheckpointSaver, config: RunnableConfig) -> bool:
+    """Seed the thread's empty checkpoint from its latest archived context; ``True`` when it did.
+
+    Best-effort: a failure is logged and the run starts with an empty context, as it would without an archive.
+    """
+    from automation.agent.publishers import checkpointed_merge_request
+
+    thread_id = config["configurable"]["thread_id"]
+    try:
+        if await checkpointer.aget_tuple(config) is not None:
+            return False
+        contexts = await aarchived_contexts(thread_id)
+        if not contexts:
+            return False
+        values = await aload_archived_values(contexts[-1].pk)
+        if checkpointed_merge_request(values, strict=False) is None:
+            values.pop("merge_request", None)
+        await agent.aupdate_state(config, values, as_node=SEED_AS_NODE)
+    except Exception:
+        logger.exception(
+            "Failed to restore thread %s from its archive; the run starts with an empty context", thread_id
+        )
+        return False
+    logger.info("Restored thread %s from archived context %d", thread_id, contexts[-1].epoch)
+    return True
