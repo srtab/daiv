@@ -460,10 +460,14 @@ def mock_generate_title_task():
 
 @pytest.fixture(autouse=True)
 def session_archive():
-    """Stub the executor's archive step so the suite's runs write no ``SessionArchive`` rows. Request it by name to
-    assert on the step; ``tests/unit_tests/sessions/test_archive.py`` tests ``sessions.archive`` itself."""
-    with patch("sessions.executor.run.aarchive_thread", new=AsyncMock(return_value=False)) as archive:
-        yield SimpleNamespace(archive=archive)
+    """Stub the executor's archive and restore steps so the suite's runs neither write nor read ``SessionArchive``
+    rows. Request it by name to assert on them; ``tests/unit_tests/sessions/test_archive.py`` tests
+    ``sessions.archive`` itself."""
+    with (
+        patch("sessions.executor.run.aarchive_thread", new=AsyncMock(return_value=False)) as archive,
+        patch("sessions.executor.run.arestore_thread", new=AsyncMock(return_value=False)) as restore,
+    ):
+        yield SimpleNamespace(archive=archive, restore=restore)
 
 
 @pytest.fixture(autouse=True)

@@ -163,8 +163,8 @@ When the agent commits changes, DAIV creates or updates a merge/pull request on 
 
 The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
 
-!!! warning "Expired state"
-    Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
+!!! note "Expired state"
+    The agent's working state lives in the checkpointer and expires (`DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`), but DAIV archives each session when a run ends. An expired session keeps its transcript, and your next message picks up where it left off: DAIV restores the conversation from the archive first. Only a session that expired before the archive existed shows an "expired" notice; start a fresh session to continue.
 
 ### Answering a question
 

@@ -1467,3 +1467,22 @@ class TestSessionArchive:
                 pass
 
         session_archive.archive.assert_not_awaited()
+
+    async def test_a_session_run_restores_its_archive_before_the_agent_runs(self, session_archive):
+        order: list[str] = []
+        agent = _agent()
+        reply = {"messages": [MagicMock(content="done")]}
+        agent.ainvoke.side_effect = lambda *args, **kwargs: order.append("invoke") or reply
+        session_archive.restore.side_effect = lambda *args: order.append("restore") or True
+
+        with agent_stack(agent) as stack:
+            await execute_run(make_spec())
+
+        session_archive.restore.assert_awaited_once_with(agent, stack.checkpointer, stack.langsmith.return_value)
+        assert order == ["restore", "invoke"]
+
+    async def test_a_one_shot_run_restores_nothing(self, session_archive):
+        with agent_stack(_agent()):
+            await execute_run(make_spec(thread_id=None))
+
+        session_archive.restore.assert_not_awaited()

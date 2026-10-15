@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
-from sessions.archive import aarchive_thread
+from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
@@ -288,6 +288,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},
             )
+            if spec.thread_id is not None:
+                await arestore_thread(agent, checkpointer, config)
             with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
                     ctx=ctx,

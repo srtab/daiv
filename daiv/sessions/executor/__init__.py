@@ -25,7 +25,8 @@ step sits where it does:
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
    (``automation.agent.middlewares.slash_commands.skips_sandbox``). The agent is then built over the run's workspace
    (that sandbox session, or else the worker's clone) with a ``sessions.artifacts.RunArtifactStore``, so
-   ``publish_artifact`` files land on the bound run, and invoked, or handed to ``stream_run``'s stream
+   ``publish_artifact`` files land on the bound run. A session thread whose checkpoint expired is first seeded from its
+   archive (``sessions.archive.arestore_thread``); the agent is then invoked, or handed to ``stream_run``'s stream
    factory, whose events are yielded as they come. Between its events, at most every
    ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale takeover
    reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one closes the
