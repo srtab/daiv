@@ -104,9 +104,11 @@ def _turns(*ids: str) -> list:
     ]
 
 
-def test_a_context_continues_while_its_first_message_is_there():
+def test_a_context_continues_while_its_first_message_leads():
     assert continues_context("h1", _turns("h1", "a1")) is True
     assert continues_context("h1", _turns("r1")) is False
+    assert continues_context("h1", _turns("h2", "a2", "h1")) is False
+    assert continues_context("h1", []) is False
     assert continues_context("", _turns("r1")) is True
 
 
@@ -146,13 +148,27 @@ class TestArchiveThread:
         thread_id = await amake_job_session()
         await aarchive_thread(_checkpointer({"messages": _turns("h1", "a1", "h2", "a2")}), thread_id)
 
-        with caplog.at_level("WARNING", logger="daiv.sessions"):
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
             assert await aarchive_thread(_checkpointer({"messages": _turns("h1", "a1")}), thread_id) is False
+            assert "fewer than its archived 4; keeping the archive" in caplog.text
+            caplog.clear()
             assert await aarchive_thread(_checkpointer({"messages": _turns("h2", "a2")}), thread_id) is False
+            assert "now starts inside its archived context; keeping the archive" in caplog.text
 
         [context] = await aarchived_contexts(thread_id)
         assert context.message_count == 4
-        assert "keeping the archive" in caplog.text
+
+    async def test_a_first_message_sent_again_at_the_end_does_not_continue_its_context(self):
+        thread_id = await amake_job_session()
+        await aarchive_thread(_checkpointer({"messages": _turns("h1", "a1", "h2", "a2")}), thread_id)
+        replayed = _turns("h2", "a2", "h1")
+
+        assert await aarchive_thread(_checkpointer({"messages": replayed}), thread_id) is False
+        assert await aarchive_thread(_checkpointer({"messages": [*replayed, *_turns("h3", "a3")]}), thread_id) is False
+
+        [context] = await aarchived_contexts(thread_id)
+        assert (context.first_message_id, context.message_count) == ("h1", 4)
+        assert [m.id for m in (await aload_archived_values(context.pk))["messages"]] == ["h1", "a1", "h2", "a2"]
 
     async def test_nothing_is_archived_without_messages(self):
         thread_id = await amake_job_session()

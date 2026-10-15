@@ -5,8 +5,8 @@ The Redis checkpoint is the working copy and expires after ``DJANGO_REDIS_CHECKP
 one per context. ``sessions.hydration`` reads the archive once the checkpoint is gone, and ``arestore_thread`` seeds an
 empty checkpoint from the latest context before a run, so an expired session stays readable and resumes.
 
-A run whose messages no longer hold the latest context's first message reset it (``/clear``): its state opens the next
-epoch and the earlier context is kept. A run never overwrites a context with fewer of its messages.
+A run whose messages no longer start with the latest context's first message reset it (``/clear``): its state opens the
+next epoch and the earlier context is kept. A run never overwrites a context with fewer of its messages.
 """
 
 from __future__ import annotations
@@ -74,8 +74,11 @@ async def aload_archived_values(pk: int) -> dict[str, Any]:
 
 
 def continues_context(first_message_id: str, messages: Sequence[Any]) -> bool:
-    """Whether ``messages`` still hold the context opened by ``first_message_id``; an unknown id is assumed to."""
-    return not first_message_id or any(message.id == first_message_id for message in messages)
+    """Whether ``messages`` still start with the message that opened the context; an unknown id is assumed to.
+
+    A thread that lost its oldest writes appends a resent first message at the end, which does not continue it.
+    """
+    return not first_message_id or (bool(messages) and messages[0].id == first_message_id)
 
 
 async def aarchive_thread(checkpointer: BaseCheckpointSaver, thread_id: str) -> bool:
@@ -121,7 +124,7 @@ async def _aepoch_for(thread_id: str, messages: Sequence[Any]) -> int | None:
     latest = contexts[-1]
     if continues_context(latest.first_message_id, messages):
         if len(messages) < latest.message_count:
-            logger.warning(
+            logger.error(
                 "Thread %s holds %d messages, fewer than its archived %d; keeping the archive",
                 thread_id,
                 len(messages),
@@ -131,7 +134,7 @@ async def _aepoch_for(thread_id: str, messages: Sequence[Any]) -> int | None:
         return latest.epoch
     archived_ids = {message.id for message in (await aload_archived_values(latest.pk)).get("messages") or []}
     if messages[0].id in archived_ids:
-        logger.warning("Thread %s now starts inside its archived context; keeping the archive", thread_id)
+        logger.error("Thread %s now starts inside its archived context; keeping the archive", thread_id)
         return None
     return latest.epoch + 1
 
