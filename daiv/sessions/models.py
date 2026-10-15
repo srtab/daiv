@@ -692,7 +692,7 @@ class SessionArchive(models.Model):
     class Meta:
         verbose_name = _("Session Archive")
         verbose_name_plural = _("Session Archives")
-        ordering = ["session", "epoch"]
+        ordering = ["session_id", "epoch"]
         constraints = [models.UniqueConstraint(fields=["session", "epoch"], name="session_archive_epoch_unique")]
 
     def __str__(self) -> str:
