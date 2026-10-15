@@ -138,6 +138,16 @@ class TestArchivedHydration:
 
         assert [m.id for m in hydrated.messages] == ["h1", "a1", "r1"]
 
+    async def test_a_live_thread_that_lost_its_oldest_messages_is_not_duplicated(self):
+        thread_id = await amake_job_session()
+        await SessionArchive.objects.acreate(
+            session_id=thread_id, **archive_fields(0, [_human("h1"), _reply("a1"), _human("h2")])
+        )
+
+        hydrated = await _hydrate(thread_id, {"messages": [_human("h2"), _reply("a2")]})
+
+        assert [m.id for m in hydrated.messages] == ["h1", "a1", "h2", "a2"]
+
     async def test_the_meter_reads_the_current_context_only(self):
         thread_id = await amake_job_session()
         earlier = [_human("h1"), _ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")]

@@ -73,8 +73,10 @@ async def ahydrate_thread(thread_id: str) -> HydratedThread:
         # meter its seed, never the page render or the transcript poller.
         logger.exception("Context-usage seed derivation failed for thread %s", thread_id)
         context_usage = None
+    seen = {message.id for message in earlier}
+    transcript = earlier + [message for message in messages if message.id is None or message.id not in seen]
     return HydratedThread(
-        earlier + messages,
+        transcript,
         False,
         mr_to_payload(current.get("merge_request")),
         diff_stats if isinstance(diff_stats, dict) else None,
