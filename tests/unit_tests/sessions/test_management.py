@@ -1,6 +1,8 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
@@ -8,7 +10,10 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from langchain_core.messages import HumanMessage
+from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
+
+from tests.unit_tests.sessions.conftest import archive_fields
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -213,3 +218,30 @@ class TestReleaseOrphanQueuedSessionsCommand:
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
         assert "Released: 0" in out.getvalue()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestArchiveSessionsCommand:
+    def test_it_archives_live_threads_and_skips_sessions_already_archived(self):
+        live, expired, archived = (_make_session() for _ in range(3))
+        SessionArchive.objects.create(session=archived, **archive_fields(0, [HumanMessage(content="old", id="o1")]))
+        checkpoints = {
+            live.thread_id: SimpleNamespace(checkpoint={"channel_values": {"messages": [HumanMessage("hi", id="h1")]}})
+        }
+        checkpointer = SimpleNamespace(
+            aget_tuple=AsyncMock(side_effect=lambda config: checkpoints.get(config["configurable"]["thread_id"]))
+        )
+
+        @asynccontextmanager
+        async def _open_checkpointer():
+            yield checkpointer
+
+        out = StringIO()
+        with patch("core.checkpointer.open_checkpointer", _open_checkpointer):
+            call_command("archive_sessions", stdout=out)
+
+        assert "Archived 1 of 2 session(s) without an archive" in out.getvalue()
+        assert list(SessionArchive.objects.filter(session=live).values_list("first_message_id", flat=True)) == ["h1"]
+        assert not SessionArchive.objects.filter(session=expired).exists()
+        read = [call.args[0]["configurable"]["thread_id"] for call in checkpointer.aget_tuple.await_args_list]
+        assert archived.thread_id not in read
