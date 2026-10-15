@@ -9,6 +9,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from sessions.archive import (
@@ -217,9 +218,19 @@ class _Probe(AgentMiddleware):
         return None
 
 
-def _deep_agent(probe: _Probe, checkpointer: InMemorySaver, *, tools: tuple = ()):
-    model = _ToolModel(messages=iter([AIMessage(content="second answer", id="a2")]))
+def _deep_agent(probe: _Probe, checkpointer: InMemorySaver, *, tools: tuple = (), reply_id: str = "a2"):
+    model = _ToolModel(messages=iter([AIMessage(content=f"answer {reply_id}", id=reply_id)]))
     return create_deep_agent(model=model, tools=list(tools), middleware=[probe], checkpointer=checkpointer)
+
+
+class _ParentChainSaver(InMemorySaver):
+    """Replays delta channels through the base class's parent-chain walk, as ``AsyncRedisSaver`` does."""
+
+    def get_delta_channel_history(self, *, config, channels):
+        return BaseCheckpointSaver.get_delta_channel_history(self, config=config, channels=channels)
+
+    async def aget_delta_channel_history(self, *, config, channels):
+        return await BaseCheckpointSaver.aget_delta_channel_history(self, config=config, channels=channels)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -307,7 +318,27 @@ class TestRestoreThread:
         agent = _deep_agent(_Probe(), saver, tools=(ping,))
         config = {"configurable": {"thread_id": thread_id}}
 
-        await arestore_thread(agent, saver, config)
+        assert await arestore_thread(agent, saver, config) is True
         await agent.ainvoke({"messages": [HumanMessage(content="follow-up", id="h2")]}, config)
 
         assert calls == []
+
+    async def test_a_thread_read_through_the_parent_chain_walk_archives_and_resumes(self):
+        thread_id = await amake_job_session()
+        config = {"configurable": {"thread_id": thread_id}}
+        first = _ParentChainSaver()
+        await _deep_agent(_Probe(), first, reply_id="a1").ainvoke(
+            {"messages": [HumanMessage(content="first", id="h1")]}, config
+        )
+
+        assert "messages" not in (await first.aget_tuple(config)).checkpoint["channel_values"]
+        assert await aarchive_thread(first, thread_id) is True
+        [context] = await aarchived_contexts(thread_id)
+        assert [m.id for m in (await aload_archived_values(context.pk))["messages"]] == ["h1", "a1"]
+
+        probe, fresh = _Probe(), _ParentChainSaver()
+        agent = _deep_agent(probe, fresh)
+        assert await arestore_thread(agent, fresh, config) is True
+        await agent.ainvoke({"messages": [HumanMessage(content="follow-up", id="h2")]}, config)
+
+        assert [ids for ids, _ in probe.seen] == [["h1", "a1", "h2"]]
