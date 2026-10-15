@@ -209,3 +209,17 @@ def site_setting():
 
     with patch.object(site_settings, "snapshot", side_effect=lambda: site_snapshot(**overrides)):
         yield _set
+
+
+def archive_fields(epoch: int, messages: list, **values) -> dict:
+    """Keyword arguments for a ``SessionArchive`` row holding ``messages`` and ``values``."""
+    from sessions.archive import encode_values
+
+    state_type, state = encode_values({"messages": messages, **values})
+    return {
+        "epoch": epoch,
+        "state": state,
+        "state_type": state_type,
+        "first_message_id": messages[0].id,
+        "message_count": len(messages),
+    }
