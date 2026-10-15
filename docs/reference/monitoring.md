@@ -243,6 +243,18 @@ LangSmith remains the recommended tool for detailed **trace-level** observabilit
 
 ---
 
+## Session archive
+
+DAIV keeps a copy of every session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
+
+```bash
+python manage.py export_session_archives ./session-exports --since 2026-10-01 --repo group/project
+```
+
+Each session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` starts a new one) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the conversation the agent saw, not each model request: system prompts, tool schemas and subagent internals stay in LangSmith.
+
+---
+
 ## Bash command policy logs
 
 DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the `daiv.tools` logger.

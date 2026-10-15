@@ -1,3 +1,4 @@
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -10,7 +11,7 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
 
 from tests.unit_tests.sessions.conftest import archive_fields
@@ -245,3 +246,34 @@ class TestArchiveSessionsCommand:
         assert not SessionArchive.objects.filter(session=expired).exists()
         read = [call.args[0]["configurable"]["thread_id"] for call in checkpointer.aget_tuple.await_args_list]
         assert archived.thread_id not in read
+
+
+@pytest.mark.django_db
+class TestExportSessionArchivesCommand:
+    def test_it_writes_each_archived_session_with_its_contexts_and_runs(self, tmp_path):
+        session = _make_session()
+        SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("fix the bug", id="h1")]))
+        SessionArchive.objects.create(session=session, **archive_fields(1, [AIMessage("cleared", id="r1")]))
+        Run.objects.create(
+            session=session, trigger_type=SessionOrigin.API_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
+        )
+        _make_session()
+
+        call_command("export_session_archives", str(tmp_path), stdout=StringIO())
+
+        [exported] = tmp_path.iterdir()
+        payload = json.loads(exported.read_text())
+        assert exported.name == f"{session.thread_id}.json"
+        assert [context["epoch"] for context in payload["contexts"]] == [0, 1]
+        assert payload["contexts"][0]["messages"][0]["data"]["content"] == "fix the bug"
+        assert [run["status"] for run in payload["runs"]] == [RunStatus.SUCCESSFUL]
+
+    def test_it_exports_only_the_requested_repository(self, tmp_path):
+        kept = _make_session()
+        other = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="other/repo")
+        for session in (kept, other):
+            SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+
+        call_command("export_session_archives", str(tmp_path), "--repo", "group/project", stdout=StringIO())
+
+        assert [path.name for path in tmp_path.iterdir()] == [f"{kept.thread_id}.json"]
