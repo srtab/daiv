@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import pytest
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback
 from webhooks.gitlab.models import (
@@ -20,6 +22,9 @@ from codebase.base import Discussion
 from codebase.base import Note as BaseNote
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class StubClient:
@@ -65,7 +70,7 @@ def monkeypatch_dependencies(monkeypatch, stub_client, repo_config):
     monkeypatch.setattr("webhooks.gitlab.callbacks.RepositoryConfig.get_config", lambda *args, **kwargs: repo_config)
 
 
-def create_note_callback(note_body: str, username: str = "reviewer", labels: list[str] = ()) -> NoteCallback:
+def create_note_callback(note_body: str, username: str = "reviewer", labels: Sequence[str] = ()) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
         object_kind="note",
