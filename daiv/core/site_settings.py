@@ -281,7 +281,7 @@ class SiteSettings:
         if env_value is not None:
             if name in SiteConfiguration.ENCRYPTED_FIELDS:
                 return SecretStr(env_value)
-            if name in SiteConfiguration.THINKING_OFF_FIELDS and env_value == THINKING_OFF:
+            if name in SiteConfiguration.THINKING_OFF_FIELDS and env_value.strip().lower() == THINKING_OFF:
                 return ""
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)

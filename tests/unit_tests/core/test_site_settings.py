@@ -97,7 +97,7 @@ class TestThinkingLevelOff:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: None})):
             assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
 
-    @pytest.mark.parametrize("env_value", ["", "off"])
+    @pytest.mark.parametrize("env_value", ["", "off", "OFF", " off "])
     def test_an_empty_or_off_value_in_the_environment_disables_thinking(self, ss, field, env_value, monkeypatch):
         monkeypatch.setenv(ss.get_env_var_name(field), env_value)
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
