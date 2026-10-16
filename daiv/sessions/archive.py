@@ -13,6 +13,7 @@ a closed context is never written to or restored again. Any other run merges its
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import zlib
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -34,10 +35,6 @@ logger = logging.getLogger("daiv.sessions")
 # Never session_id (its container is reaped) or memory_contents/skills_metadata (AGENTS.md and the skills would stop
 # reloading); a channel left out resets on restore.
 ARCHIVED_CHANNELS = ("messages", "merge_request", "diff_stats", "todos", "loaded_tool_names", "_summarization_event")
-
-# The model node writes every channel, private ones included; the default input node would silently drop
-# loaded_tool_names and _summarization_event.
-SEED_AS_NODE = "model"
 
 
 class ArchiveRestoreError(Exception):
@@ -93,16 +90,12 @@ async def aarchived_contexts(thread_id: str) -> list[ArchivedContext]:
 
 async def aload_archived_values(pk: int) -> dict[str, Any]:
     state_type, state = await SessionArchive.objects.filter(pk=pk).values_list("state_type", "state").aget()
-    return decode_values(state_type, state)
+    return await asyncio.to_thread(decode_values, state_type, state)
 
 
 def continues_context(first_message_id: str, messages: Sequence[Any]) -> bool:
     """Whether ``messages`` still start with the message that opened the context."""
     return bool(messages) and messages[0].id == first_message_id
-
-
-def _ids(messages: Sequence[Any]) -> set[str | None]:
-    return {message.id for message in messages}
 
 
 def merge_messages(archived: Sequence[Any], live: Sequence[Any]) -> list[Any]:
@@ -118,6 +111,14 @@ def merge_messages(archived: Sequence[Any], live: Sequence[Any]) -> list[Any]:
     return [*archived[:start], *(message for message in live if message.id not in head_ids)]
 
 
+async def amerge_into_context(context: ArchivedContext, messages: list[Any]) -> list[Any]:
+    """``messages`` merged into ``context`` (:func:`merge_messages`) unless they still start it."""
+    if continues_context(context.first_message_id, messages):
+        return messages
+    archived = (await aload_archived_values(context.pk)).get("messages") or []
+    return merge_messages(archived, messages)
+
+
 async def aarchive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, reset: bool = False) -> bool:
     """Copy the thread's latest state into its session's archive; ``True`` when a row was written.
 
@@ -130,7 +131,7 @@ async def aarchive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, 
     messages = values.get("messages") or []
     contexts = await aarchived_contexts(thread_id)
     latest = contexts[-1] if contexts else None
-    if reset and latest is not None and not latest.closed and latest.first_message_id not in _ids(messages):
+    if reset and latest is not None and not latest.closed and all(m.id != latest.first_message_id for m in messages):
         latest = await _aclose(latest)
     if not messages:
         return False
@@ -143,9 +144,7 @@ async def aarchive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, 
         epoch = latest.epoch + 1
     else:
         epoch = latest.epoch
-        if not continues_context(latest.first_message_id, messages):
-            archived = (await aload_archived_values(latest.pk)).get("messages") or []
-            messages = values["messages"] = merge_messages(archived, messages)
+        messages = values["messages"] = await amerge_into_context(latest, messages)
         if len(messages) < latest.message_count:
             logger.error(
                 "Thread %s holds %d messages, fewer than its archived %d; keeping the archive",
@@ -154,7 +153,8 @@ async def aarchive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, 
                 latest.message_count,
             )
             return False
-    await SessionArchive.objects.aupdate_or_create(session_id=thread_id, epoch=epoch, defaults=archive_row(values))
+    row = await asyncio.to_thread(archive_row, values)
+    await SessionArchive.objects.defer("state").aupdate_or_create(session_id=thread_id, epoch=epoch, defaults=row)
     return True
 
 
@@ -183,7 +183,9 @@ async def arestore_thread(agent: Pregel, checkpointer: BaseCheckpointSaver, conf
         values = await aload_archived_values(latest.pk)
         if checkpointed_merge_request(values, strict=False) is None:
             values.pop("merge_request", None)
-        await agent.aupdate_state(config, values, as_node=SEED_AS_NODE)
+        # The model node writes every channel, private ones included; the input node would silently drop
+        # loaded_tool_names and _summarization_event.
+        await agent.aupdate_state(config, values, as_node="model")
     except Exception as exc:
         raise ArchiveRestoreError(
             f"Could not restore this session's conversation from its archive (context {latest.epoch})"

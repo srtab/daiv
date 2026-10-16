@@ -14,7 +14,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
 
-from tests.unit_tests.sessions.conftest import archive_fields
+from tests.unit_tests.sessions.conftest import create_archive
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -225,7 +225,7 @@ class TestReleaseOrphanQueuedSessionsCommand:
 class TestArchiveSessionsCommand:
     def test_it_archives_live_threads_and_skips_sessions_already_archived(self):
         live, expired, archived = (_make_session() for _ in range(3))
-        SessionArchive.objects.create(session=archived, **archive_fields(0, [HumanMessage(content="old", id="o1")]))
+        create_archive(archived.thread_id, 0, [HumanMessage(content="old", id="o1")])
         checkpoints = {
             live.thread_id: SimpleNamespace(checkpoint={"channel_values": {"messages": [HumanMessage("hi", id="h1")]}})
         }
@@ -275,10 +275,8 @@ class TestArchiveSessionsCommand:
 class TestExportSessionArchivesCommand:
     def test_it_writes_each_archived_session_with_its_contexts_and_runs(self, tmp_path):
         session = _make_session()
-        SessionArchive.objects.create(
-            session=session, **archive_fields(0, [HumanMessage("fix the bug", id="h1")], closed=True)
-        )
-        SessionArchive.objects.create(session=session, **archive_fields(1, [AIMessage("cleared", id="r1")]))
+        create_archive(session.thread_id, 0, [HumanMessage("fix the bug", id="h1")], closed=True)
+        create_archive(session.thread_id, 1, [AIMessage("cleared", id="r1")])
         Run.objects.create(
             session=session, trigger_type=SessionOrigin.API_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
         )
@@ -299,7 +297,7 @@ class TestExportSessionArchivesCommand:
         Session.objects.filter(pk=stale.pk).update(last_active_at=datetime(2026, 9, 20, 12, tzinfo=UTC))
         Session.objects.filter(pk=recent.pk).update(last_active_at=datetime(2026, 10, 1, 12, tzinfo=UTC))
         for session in (recent, stale):
-            SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+            create_archive(session.thread_id, 0, [HumanMessage("hi", id="h1")])
 
         call_command("export_session_archives", str(tmp_path), "--since", "2026-10-01", stdout=StringIO())
 
@@ -307,10 +305,8 @@ class TestExportSessionArchivesCommand:
 
     def test_a_session_that_fails_to_export_is_named_and_the_rest_written(self, tmp_path):
         broken, kept = _make_session(), _make_session()
-        SessionArchive.objects.create(
-            session=broken, **{**archive_fields(0, [HumanMessage("hi", id="h1")]), "state": b"not zlib"}
-        )
-        SessionArchive.objects.create(session=kept, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+        create_archive(broken.thread_id, 0, [HumanMessage("hi", id="h1")], unreadable=True)
+        create_archive(kept.thread_id, 0, [HumanMessage("hi", id="h1")])
 
         with pytest.raises(CommandError, match=f"Failed to export 1 session.*{broken.thread_id}"):
             call_command("export_session_archives", str(tmp_path), stdout=StringIO())
@@ -321,7 +317,7 @@ class TestExportSessionArchivesCommand:
         kept = _make_session()
         other = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="other/repo")
         for session in (kept, other):
-            SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+            create_archive(session.thread_id, 0, [HumanMessage("hi", id="h1")])
 
         call_command("export_session_archives", str(tmp_path), "--repo", "group/project", stdout=StringIO())
 

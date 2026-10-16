@@ -1447,10 +1447,11 @@ class TestSessionArchive:
 
         session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
 
-    async def test_a_one_shot_run_archives_nothing(self, session_archive):
+    async def test_a_one_shot_run_neither_restores_nor_archives(self, session_archive):
         with agent_stack(_agent()):
             await execute_run(make_spec(thread_id=None))
 
+        session_archive.restore.assert_not_awaited()
         session_archive.archive.assert_not_awaited()
 
     @pytest.mark.django_db(transaction=True)
@@ -1482,18 +1483,8 @@ class TestSessionArchive:
         session_archive.restore.assert_awaited_once_with(agent, stack.checkpointer, stack.langsmith.return_value)
         assert order == ["restore", "invoke"]
 
-    async def test_a_one_shot_run_restores_nothing(self, session_archive):
-        with agent_stack(_agent()):
-            await execute_run(make_spec(thread_id=None))
-
-        session_archive.restore.assert_not_awaited()
-
     async def test_a_clear_archives_as_a_reset_and_restores_nothing(self, session_archive):
-        ctx = disk_ctx(
-            repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5),
-            scope=Scope.ISSUE,
-            bot_username="daiv",
-        )
+        ctx = disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5), scope=Scope.ISSUE)
         spec = make_spec(scope=Scope.ISSUE, input_messages=(HumanMessage(content="@daiv /clear"),))
 
         with agent_stack(_agent(), ctx=ctx) as stack:

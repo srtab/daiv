@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from automation.agent.events import context_usage_payload
 from automation.agent.usage_tracking import message_model_name, resolve_window_by_name
 from core.checkpointer import aread_thread_values, open_checkpointer
-from sessions.archive import aarchived_contexts, aload_archived_values, continues_context, merge_messages
+from sessions.archive import aarchived_contexts, aload_archived_values, amerge_into_context
 from sessions.repo_state import mr_to_payload
 from sessions.turns import is_assistant_message
 
@@ -20,9 +20,8 @@ class HydratedThread(NamedTuple):
     """Result of :func:`ahydrate_thread`.
 
     ``messages`` can span several contexts; the payloads and ``context_usage`` come from the current one alone.
-    ``expired`` is True when neither a checkpoint nor an archived context was
-    found; in that case ``messages`` is ``[]`` and the other payloads are ``None``.
-    Callers branch on ``expired`` to render the "expired" notice.
+    ``expired`` is True when neither a checkpoint nor an archived context was found; in that case ``messages`` is
+    ``[]`` and the other payloads are ``None``. Callers branch on ``expired`` to render the "expired" notice.
     """
 
     messages: list[Any]
@@ -64,11 +63,10 @@ async def ahydrate_thread(thread_id: str) -> HydratedThread:
     contexts = await aarchived_contexts(thread_id)
     if current is not None and contexts and not contexts[-1].closed:
         latest = contexts.pop()
-        live = current.get("messages") or []
-        if not continues_context(latest.first_message_id, live):
-            archived = await _aload_context(thread_id, latest)
-            if archived is not None:
-                current["messages"] = merge_messages(archived.get("messages") or [], live)
+        try:
+            current["messages"] = await amerge_into_context(latest, current.get("messages") or [])
+        except Exception:
+            logger.exception("Failed to load archived context %d of thread %s; leaving it out", latest.epoch, thread_id)
     earlier = [values for context in contexts if (values := await _aload_context(thread_id, context)) is not None]
     if current is None:
         if not earlier:

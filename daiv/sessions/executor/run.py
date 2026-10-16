@@ -289,8 +289,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},
             )
-            reset = spec.thread_id is not None and resets_thread(spec.input_messages, ctx, settings)
-            if spec.thread_id is not None and not reset:
+            archiving = spec.thread_id is not None
+            reset = resets_thread(spec.input_messages, ctx, settings)
+            if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
             with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
@@ -302,15 +303,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                 )
-                lost_slot = False
                 try:
                     yield run
                 except SessionLockLostError:
-                    lost_slot = True
+                    archiving = False
                     handed_over = await _handed_over(run)
                     raise
                 finally:
-                    if spec.thread_id is not None and not lost_slot:
+                    if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:

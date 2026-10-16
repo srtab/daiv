@@ -7,11 +7,9 @@ from unittest import mock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.hydration import ahydrate_thread, derive_context_usage
-from sessions.models import SessionArchive
 
 from automation.agent.events import context_usage_payload
-from codebase.base import MergeRequest, User
-from tests.unit_tests.sessions.conftest import amake_job_session, archive_fields
+from tests.unit_tests.sessions.conftest import acreate_archive, amake_job_session, fake_checkpointer, make_merge_request
 
 USAGE = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110, "input_token_details": {"cache_read": 60}}
 
@@ -92,8 +90,7 @@ async def test_a_seed_failure_costs_the_meter_not_the_thread():
 
 @asynccontextmanager
 async def _live(values: dict | None):
-    checkpoint = None if values is None else SimpleNamespace(checkpoint={"channel_values": values})
-    yield SimpleNamespace(aget_tuple=mock.AsyncMock(return_value=checkpoint))
+    yield fake_checkpointer(values)
 
 
 async def _hydrate(thread_id: str, live: dict | None):
@@ -109,110 +106,84 @@ def _reply(id_: str) -> AIMessage:
     return AIMessage(content=f"reply {id_}", id=id_)
 
 
-def _mr() -> MergeRequest:
-    return MergeRequest(
-        repo_id="group/repo",
-        merge_request_id=7,
-        source_branch="daiv/fix",
-        target_branch="main",
-        title="Fix",
-        description="",
-        labels=[],
-        web_url="https://gitlab.example/group/repo/-/merge_requests/7",
-        sha="b4c9f488efdc044b39083ff605b3920c4d842e41",
-        author=User(id=2, name="DAIV", username="daiv"),
-        draft=False,
-    )
-
-
-def _unreadable(epoch: int, *, closed: bool = False) -> dict:
-    """A ``SessionArchive`` row whose state no longer decompresses."""
-    return {**archive_fields(epoch, [_human(f"u{epoch}")], closed=closed), "state": b"not zlib"}
+def _ids(messages: list) -> list[str]:
+    return [m.id for m in messages]
 
 
 @pytest.mark.django_db(transaction=True)
 class TestArchivedHydration:
     async def test_an_expired_thread_is_read_from_its_archive(self):
         thread_id = await amake_job_session()
-        fields = archive_fields(0, [_human("h1"), _reply("a1")], diff_stats={"added": 2})
-        await SessionArchive.objects.acreate(session_id=thread_id, **fields)
+        await acreate_archive(thread_id, 0, [_human("h1"), _reply("a1")], diff_stats={"added": 2})
 
         hydrated = await _hydrate(thread_id, None)
 
         assert hydrated.expired is False
-        assert [m.id for m in hydrated.messages] == ["h1", "a1"]
+        assert _ids(hydrated.messages) == ["h1", "a1"]
         assert hydrated.diff_stats == {"added": 2}
 
     async def test_an_expired_thread_shows_every_context_with_the_payloads_of_the_latest(self):
         thread_id = await amake_job_session()
-        first = archive_fields(0, [_human("h1"), _reply("a1")], closed=True, diff_stats={"added": 1})
-        latest = archive_fields(1, [_human("h2"), _reply("a2")], diff_stats={"added": 2}, merge_request=_mr())
-        for fields in (first, latest):
-            await SessionArchive.objects.acreate(session_id=thread_id, **fields)
+        await acreate_archive(thread_id, 0, [_human("h1"), _reply("a1")], closed=True, diff_stats={"added": 1})
+        await acreate_archive(
+            thread_id, 1, [_human("h2"), _reply("a2")], diff_stats={"added": 2}, merge_request=make_merge_request()
+        )
 
         hydrated = await _hydrate(thread_id, None)
 
-        assert [m.id for m in hydrated.messages] == ["h1", "a1", "h2", "a2"]
+        assert _ids(hydrated.messages) == ["h1", "a1", "h2", "a2"]
         assert hydrated.diff_stats == {"added": 2}
         assert hydrated.merge_request_payload["id"] == 7
 
-    async def test_contexts_before_a_clear_precede_the_live_one(self):
+    @pytest.mark.parametrize(
+        ("contexts", "live", "expected"),
+        [
+            pytest.param(
+                [([_human("h1"), _reply("a1")], True), ([_reply("r1")], False)],
+                [_reply("r1"), _human("h2"), _reply("a2")],
+                ["h1", "a1", "r1", "h2", "a2"],
+                id="contexts-before-a-clear-precede-the-live-one",
+            ),
+            pytest.param(
+                [([_human("h1"), _reply("a1")], True)],
+                [_reply("r1")],
+                ["h1", "a1", "r1"],
+                id="a-live-context-not-archived-yet-follows-every-archived-one",
+            ),
+            pytest.param(
+                [([_human("x"), _reply("a1")], True)],
+                [_human("x"), _reply("a2")],
+                ["x", "a1", "x", "a2"],
+                id="a-cleared-context-is-kept-when-the-next-one-starts-with-its-first-message",
+            ),
+            pytest.param(
+                [([_human("h1"), _reply("a1"), _human("h2")], False)],
+                [_human("h2"), _reply("a2")],
+                ["h1", "a1", "h2", "a2"],
+                id="a-live-thread-that-lost-its-oldest-messages-is-not-duplicated",
+            ),
+            pytest.param(
+                [([_human("p"), _reply("a1")], True), ([_reply("r1")], False)],
+                [_reply("r1"), _human("p"), _reply("a2")],
+                ["p", "a1", "r1", "p", "a2"],
+                id="a-turn-after-a-clear-keeps-an-id-an-earlier-context-used",
+            ),
+        ],
+    )
+    async def test_the_live_thread_follows_the_archived_contexts(self, contexts, live, expected):
         thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(
-            session_id=thread_id, **archive_fields(0, [_human("h1"), _reply("a1")], closed=True)
-        )
-        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(1, [_reply("r1")]))
+        for epoch, (messages, closed) in enumerate(contexts):
+            await acreate_archive(thread_id, epoch, messages, closed=closed)
 
-        hydrated = await _hydrate(thread_id, {"messages": [_reply("r1"), _human("h2"), _reply("a2")]})
+        hydrated = await _hydrate(thread_id, {"messages": live})
 
-        assert [m.id for m in hydrated.messages] == ["h1", "a1", "r1", "h2", "a2"]
-
-    async def test_a_live_context_not_archived_yet_follows_every_archived_one(self):
-        thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(
-            session_id=thread_id, **archive_fields(0, [_human("h1"), _reply("a1")], closed=True)
-        )
-
-        hydrated = await _hydrate(thread_id, {"messages": [_reply("r1")]})
-
-        assert [m.id for m in hydrated.messages] == ["h1", "a1", "r1"]
-
-    async def test_a_cleared_context_is_kept_when_the_next_one_starts_with_its_first_message(self):
-        """An issue thread resends its issue message, under the same id, as the first message of every run."""
-        thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(
-            session_id=thread_id, **archive_fields(0, [_human("x"), _reply("a1")], closed=True)
-        )
-
-        hydrated = await _hydrate(thread_id, {"messages": [_human("x"), _reply("a2")]})
-
-        assert [m.id for m in hydrated.messages] == ["x", "a1", "x", "a2"]
-
-    async def test_a_live_thread_that_lost_its_oldest_messages_is_not_duplicated(self):
-        thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(
-            session_id=thread_id, **archive_fields(0, [_human("h1"), _reply("a1"), _human("h2")])
-        )
-
-        hydrated = await _hydrate(thread_id, {"messages": [_human("h2"), _reply("a2")]})
-
-        assert [m.id for m in hydrated.messages] == ["h1", "a1", "h2", "a2"]
-
-    async def test_a_turn_after_a_clear_keeps_an_id_an_earlier_context_used(self):
-        thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(
-            session_id=thread_id, **archive_fields(0, [_human("p"), _reply("a1")], closed=True)
-        )
-        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(1, [_reply("r1")]))
-
-        hydrated = await _hydrate(thread_id, {"messages": [_reply("r1"), _human("p"), _reply("a2")]})
-
-        assert [m.id for m in hydrated.messages] == ["p", "a1", "r1", "p", "a2"]
+        assert _ids(hydrated.messages) == expected
 
     async def test_the_meter_reads_the_current_context_only(self):
         thread_id = await amake_job_session()
-        earlier = [_human("h1"), _ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")]
-        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, earlier, closed=True))
+        await acreate_archive(
+            thread_id, 0, [_human("h1"), _ai(usage=USAGE, model="anthropic/claude-sonnet-4.6")], closed=True
+        )
 
         hydrated = await _hydrate(thread_id, {"messages": [_reply("r1")]})
 
@@ -220,37 +191,38 @@ class TestArchivedHydration:
 
     async def test_an_earlier_context_that_fails_to_load_is_left_out(self, caplog):
         thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(session_id=thread_id, **_unreadable(0, closed=True))
-        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(1, [_human("h2")]))
+        await acreate_archive(thread_id, 0, [_human("u0")], closed=True, unreadable=True)
+        await acreate_archive(thread_id, 1, [_human("h2")])
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
             hydrated = await _hydrate(thread_id, None)
 
-        assert [m.id for m in hydrated.messages] == ["h2"]
+        assert _ids(hydrated.messages) == ["h2"]
         assert f"Failed to load archived context 0 of thread {thread_id}" in caplog.text
 
     async def test_a_latest_context_that_fails_to_load_gives_way_to_the_one_before(self):
         thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(session_id=thread_id, **archive_fields(0, [_human("h1")], closed=True))
-        await SessionArchive.objects.acreate(session_id=thread_id, **_unreadable(1))
+        await acreate_archive(thread_id, 0, [_human("h1")], closed=True)
+        await acreate_archive(thread_id, 1, [_human("u1")], unreadable=True)
 
         hydrated = await _hydrate(thread_id, None)
 
-        assert (hydrated.expired, [m.id for m in hydrated.messages]) == (False, ["h1"])
+        assert (hydrated.expired, _ids(hydrated.messages)) == (False, ["h1"])
 
-    async def test_a_live_thread_is_shown_alone_when_its_open_context_fails_to_load(self):
+    async def test_a_live_thread_is_shown_alone_when_its_open_context_fails_to_load(self, caplog):
         thread_id = await amake_job_session()
-        await SessionArchive.objects.acreate(session_id=thread_id, **_unreadable(0))
+        await acreate_archive(thread_id, 0, [_human("u0")], unreadable=True)
 
-        hydrated = await _hydrate(thread_id, {"messages": [_human("h2"), _reply("a2")]})
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            hydrated = await _hydrate(thread_id, {"messages": [_human("h2"), _reply("a2")]})
 
-        assert [m.id for m in hydrated.messages] == ["h2", "a2"]
+        assert _ids(hydrated.messages) == ["h2", "a2"]
+        assert f"Failed to load archived context 0 of thread {thread_id}" in caplog.text
 
     async def test_a_merge_request_that_no_longer_revives_shows_none(self):
         """The view then falls back to looking the merge request up on the platform."""
         thread_id = await amake_job_session()
-        fields = archive_fields(0, [_human("h1")], merge_request={"repo_id": "group/repo"})
-        await SessionArchive.objects.acreate(session_id=thread_id, **fields)
+        await acreate_archive(thread_id, 0, [_human("h1")], merge_request={"repo_id": "group/repo"})
 
         hydrated = await _hydrate(thread_id, None)
 

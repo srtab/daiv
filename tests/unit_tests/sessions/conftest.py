@@ -1,7 +1,8 @@
 import inspect
 import uuid
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -9,10 +10,20 @@ from django.utils import timezone
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
 from sessions.artifacts import guess_content_type
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, WatchState, artifact_upload_to
+from sessions.models import (
+    Run,
+    RunArtifact,
+    RunStatus,
+    Session,
+    SessionArchive,
+    SessionOrigin,
+    WatchState,
+    artifact_upload_to,
+)
 
 from accounts.models import User
-from codebase.base import Job, Pipeline
+from codebase.base import Job, MergeRequest, Pipeline
+from codebase.base import User as PlatformUser
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import site_snapshot
 
@@ -211,13 +222,45 @@ def site_setting():
         yield _set
 
 
-def archive_fields(epoch: int, messages: list, *, closed: bool = False, **values) -> dict:
-    """Keyword arguments for a ``SessionArchive`` row holding ``messages`` and ``values``, closed as ``/clear`` leaves
-    it when ``closed``."""
+def _archive_fields(epoch: int, messages: list, *, closed: bool = False, unreadable: bool = False, **values) -> dict:
     from sessions.archive import archive_row
 
-    return {
+    fields = {
         "epoch": epoch,
         "closed_at": timezone.now() if closed else None,
         **archive_row({"messages": messages, **values}),
     }
+    return {**fields, "state": b"not zlib"} if unreadable else fields
+
+
+def create_archive(session_id: str, epoch: int, messages: list, **options) -> SessionArchive:
+    """A ``SessionArchive`` row holding ``messages`` and ``values``: closed as ``/clear`` leaves it when ``closed``, its
+    state no longer decompressing when ``unreadable``."""
+    return SessionArchive.objects.create(session_id=session_id, **_archive_fields(epoch, messages, **options))
+
+
+async def acreate_archive(session_id: str, epoch: int, messages: list, **options) -> SessionArchive:
+    """Async :func:`create_archive`."""
+    return await SessionArchive.objects.acreate(session_id=session_id, **_archive_fields(epoch, messages, **options))
+
+
+def fake_checkpointer(values: dict | None = None, *, error: Exception | None = None) -> SimpleNamespace:
+    """A checkpointer whose thread holds ``values``, or no checkpoint for ``None``; ``error`` makes its read raise."""
+    checkpoint = None if values is None else SimpleNamespace(checkpoint={"channel_values": values})
+    return SimpleNamespace(aget_tuple=AsyncMock(return_value=checkpoint, side_effect=error))
+
+
+def make_merge_request() -> MergeRequest:
+    return MergeRequest(
+        repo_id="group/repo",
+        merge_request_id=7,
+        source_branch="daiv/fix",
+        target_branch="main",
+        title="Fix",
+        description="",
+        labels=["daiv"],
+        web_url="https://gitlab.example/group/repo/-/merge_requests/7",
+        sha="b4c9f488efdc044b39083ff605b3920c4d842e41",
+        author=PlatformUser(id=2, name="DAIV", username="daiv"),
+        draft=False,
+    )

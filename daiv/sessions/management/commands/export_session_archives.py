@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date
-from operator import attrgetter
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Prefetch
 
 from langchain_core.messages import messages_to_dict
 
 from sessions.archive import decode_values
-from sessions.models import Session
+from sessions.models import Run, Session
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -28,7 +28,8 @@ class Command(BaseCommand):
         parser.add_argument("--repo", help="Only sessions on this repository, e.g. group/project.")
 
     def handle(self, *args, output: Path, since: date | None, repo: str | None, **options):
-        sessions = Session.objects.filter(archives__isnull=False).distinct().prefetch_related("archives", "runs")
+        runs = Prefetch("runs", queryset=Run.objects.order_by("created_at"))
+        sessions = Session.objects.filter(archives__isnull=False).distinct().prefetch_related(runs)
         if since is not None:
             sessions = sessions.filter(last_active_at__date__gte=since)
         if repo:
@@ -63,7 +64,7 @@ def _export(session: Session) -> dict[str, Any]:
                 "closed_at": archive.closed_at,
                 "messages": messages_to_dict(decode_values(archive.state_type, archive.state).get("messages") or []),
             }
-            for archive in sorted(session.archives.all(), key=attrgetter("epoch"))  # ty: ignore[unresolved-attribute]
+            for archive in session.archives.all()  # ty: ignore[unresolved-attribute]
         ],
         "runs": [
             {
@@ -78,6 +79,6 @@ def _export(session: Session) -> dict[str, Any]:
                 "created_at": run.created_at,
                 "finished_at": run.finished_at,
             }
-            for run in sorted(session.runs.all(), key=attrgetter("created_at"))  # ty: ignore[unresolved-attribute]
+            for run in session.runs.all()  # ty: ignore[unresolved-attribute]
         ],
     }

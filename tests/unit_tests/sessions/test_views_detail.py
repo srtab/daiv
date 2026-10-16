@@ -10,9 +10,9 @@ from django.utils import timezone
 import pytest
 from sessions.hydration import HydratedThread
 from sessions.locks import STALE_RUN_MINUTES
-from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin, WatchState
+from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
 
-from tests.unit_tests.sessions.conftest import archive_fields, make_artifact
+from tests.unit_tests.sessions.conftest import create_archive, make_artifact
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -246,7 +246,7 @@ def test_detail_with_an_expired_checkpoint_renders_the_archived_transcript(membe
 
     session = _create_session(user=member_user)
     messages = [HumanMessage(content="count todos", id="h1"), AIMessage(content="there are 18", id="a1")]
-    SessionArchive.objects.create(session=session, **archive_fields(0, messages))
+    create_archive(session.thread_id, 0, messages)
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
