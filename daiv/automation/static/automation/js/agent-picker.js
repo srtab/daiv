@@ -293,24 +293,18 @@ document.addEventListener("alpine:init", () => {
         },
 
         get pillLabel() {
-            // Unselected fallback. The label and dot meter both depend on
-            // whether a configured default exists:
-            //   - explicit ``placeholderLabel`` (settings pass "Default (env-value)")
-            //   - else "Default (short-name)" derived from ``defaultAgentModel``
-            //   - else the run-time "Pick a model" prompt
-            // In the "Default (…)" cases we still light the dots for the default
-            // effort so the empty-state pill shows what would be sent.
+            // No model picked: the default model runs at the picked effort (Off lights none), else the default effort.
             if (!this.selectedProvider || !this.modelName) {
                 if (this.placeholderLabel) {
                     return {
                         name: this.placeholderLabel,
-                        effortDots: this.thinkingLevel === "off" ? 0 : this.dotsFor(this.defaultThinkingLevel),
+                        effortDots: this.dotsFor(this.thinkingLevel || this.defaultThinkingLevel),
                     };
                 }
                 if (this.defaultAgentModel) {
                     return {
                         name: `Default (${shortenModel(this.defaultAgentModel)})`,
-                        effortDots: this.thinkingLevel === "off" ? 0 : this.dotsFor(this.defaultThinkingLevel),
+                        effortDots: this.dotsFor(this.thinkingLevel || this.defaultThinkingLevel),
                     };
                 }
                 return {name: "Pick a model", effortDots: 0};

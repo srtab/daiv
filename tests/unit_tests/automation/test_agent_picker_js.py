@@ -1,7 +1,7 @@
 """Behavioral tests for the ``agentPicker`` component in ``automation/js/agent-picker.js``.
 
-Driven under node (stubbing only Alpine, ``surfaceGroup`` and the window event API) because
-the effort state lives in the component: what the hidden input submits and what the pill shows.
+Driven under node because the effort state lives in the component: what the hidden input submits and what the pill
+shows.
 """
 
 from __future__ import annotations
@@ -58,6 +58,7 @@ SETTINGS_ARGS = {
     "required": False,
 }
 MEDIUM_DOTS = 3
+XHIGH_DOTS = 5
 
 
 def drive(actions: list[list[str]] | None = None, **overrides) -> dict:
@@ -77,6 +78,13 @@ def test_an_unselected_pill_shows_no_effort_for_off(placeholder_label):
     state = drive([["selectEffort", "off"]], placeholderLabel=placeholder_label)
     assert state["agentModelValue"] == ""
     assert state["effortDots"] == 0
+
+
+@pytest.mark.parametrize("placeholder_label", ["Default (claude-sonnet-4-6)", ""])
+def test_an_unselected_pill_shows_the_picked_effort(placeholder_label):
+    state = drive([["selectEffort", "xhigh"]], placeholderLabel=placeholder_label)
+    assert state["agentModelValue"] == ""
+    assert state["effortDots"] == XHIGH_DOTS
 
 
 @pytest.mark.parametrize("placeholder_label", ["Default (claude-sonnet-4-6)", ""])
