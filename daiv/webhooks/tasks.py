@@ -120,7 +120,7 @@ async def address_mr_comments_task(
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
             run_id=await aget_task_run_id(context.task_result.id),
-            use_max=merge_request.has_max_label() if use_max is None else use_max,
+            use_max=use_max,
         )
     except CloneRefNotFoundError:
         response = (
