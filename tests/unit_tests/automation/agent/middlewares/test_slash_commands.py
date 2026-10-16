@@ -9,6 +9,7 @@ from automation.agent.events import ASSISTANT_MESSAGE_EVENT
 from automation.agent.middlewares.slash_commands import (
     SlashCommandMiddleware,
     _load_global_skill_metadata,
+    resets_thread,
     skips_sandbox,
 )
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
@@ -230,6 +231,26 @@ def test_skips_sandbox_never_when_the_repository_turns_slash_commands_off():
     settings = agent_settings(repo=RepositoryConfig(slash_commands={"enabled": False}))
 
     assert skips_sandbox([HumanMessage(content="/help")], _runtime().context, settings) is False
+
+
+@pytest.mark.parametrize(
+    ("text", "scope", "expected"),
+    [
+        pytest.param("@daiv /clear", Scope.ISSUE, True, id="clear"),
+        pytest.param("/clear", Scope.MERGE_REQUEST, True, id="bare-clear"),
+        pytest.param("@daiv /help", Scope.ISSUE, False, id="keeps-the-thread"),
+        pytest.param("/clear", Scope.GLOBAL, False, id="not-in-scope"),
+        pytest.param("clear the cache", Scope.ISSUE, False, id="no-command"),
+    ],
+)
+def test_resets_thread_only_for_a_builtin_command_that_resets_it(text, scope, expected):
+    assert resets_thread([HumanMessage(content=text)], _runtime(scope=scope).context, agent_settings()) is expected
+
+
+def test_resets_thread_never_when_the_repository_turns_slash_commands_off():
+    settings = agent_settings(repo=RepositoryConfig(slash_commands={"enabled": False}))
+
+    assert resets_thread([HumanMessage(content="/clear")], _runtime(scope=Scope.ISSUE).context, settings) is False
 
 
 def test_slash_command_ignores_commands_inside_the_issue_message():

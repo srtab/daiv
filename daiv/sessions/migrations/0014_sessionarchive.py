@@ -16,11 +16,9 @@ class Migration(migrations.Migration):
                 ("epoch", models.PositiveIntegerField(default=0, verbose_name="epoch")),
                 ("state", models.BinaryField(verbose_name="state")),
                 ("state_type", models.CharField(max_length=16, verbose_name="state type")),
-                (
-                    "first_message_id",
-                    models.CharField(blank=True, default="", max_length=255, verbose_name="first message ID"),
-                ),
-                ("message_count", models.PositiveIntegerField(default=0, verbose_name="message count")),
+                ("first_message_id", models.CharField(max_length=255, verbose_name="first message ID")),
+                ("message_count", models.PositiveIntegerField(verbose_name="message count")),
+                ("closed_at", models.DateTimeField(blank=True, null=True, verbose_name="closed at")),
                 (
                     "created_at",
                     models.DateTimeField(default=django.utils.timezone.now, editable=False, verbose_name="created at"),
@@ -29,6 +27,7 @@ class Migration(migrations.Migration):
                 (
                     "session",
                     models.ForeignKey(
+                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="archives",
                         to="agent_sessions.session",
@@ -41,7 +40,10 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "Session Archives",
                 "ordering": ["session_id", "epoch"],
                 "constraints": [
-                    models.UniqueConstraint(fields=("session", "epoch"), name="session_archive_epoch_unique")
+                    models.UniqueConstraint(fields=("session", "epoch"), name="session_archive_epoch_unique"),
+                    models.CheckConstraint(
+                        condition=models.Q(("message_count__gte", 1)), name="session_archive_has_messages"
+                    ),
                 ],
             },
         )

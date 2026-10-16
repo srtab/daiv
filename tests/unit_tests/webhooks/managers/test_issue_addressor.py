@@ -47,6 +47,8 @@ def _ctx() -> SimpleNamespace:
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
+        bot_username="daiv",
+        scope=Scope.ISSUE,
     )
 
 

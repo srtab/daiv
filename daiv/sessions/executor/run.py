@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
+ARCHIVE_TIMEOUT_S = 30.0
 
 
 class RunStoppedError(Exception):
@@ -219,7 +220,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
     from automation.agent.agent_settings import resolve_agent_settings
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.sandbox import acquire_sandbox
-    from automation.agent.middlewares.slash_commands import skips_sandbox
+    from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
     from automation.agent.utils import build_langsmith_config
     from codebase.context import set_runtime_ctx
@@ -288,7 +289,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 extra_metadata=spec.extra_metadata,
                 configurable={"thread_id": thread_id},
             )
-            if spec.thread_id is not None:
+            reset = spec.thread_id is not None and resets_thread(spec.input_messages, ctx, settings)
+            if spec.thread_id is not None and not reset:
                 await arestore_thread(agent, checkpointer, config)
             with track_usage_metadata() as usage, bind_active_run(run_id):
                 run = AgentRun(
@@ -309,7 +311,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     raise
                 finally:
                     if spec.thread_id is not None and not lost_slot:
-                        await aarchive_thread(checkpointer, thread_id)
+                        await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:
                 if workspace.session is not None and not handed_over:
@@ -364,6 +366,16 @@ async def _handed_over(run: AgentRun) -> bool:
         session_id,
     )
     return True
+
+
+async def _archive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, reset: bool) -> None:
+    """A failure, or a write slower than ``ARCHIVE_TIMEOUT_S``, is logged: archiving never fails a run that already
+    ended, nor holds back its release."""
+    try:
+        async with asyncio.timeout(ARCHIVE_TIMEOUT_S):
+            await aarchive_thread(checkpointer, thread_id, reset=reset)
+    except Exception:
+        logger.exception("executor: failed to archive thread_id=%s", thread_id)
 
 
 async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_id: str) -> None:

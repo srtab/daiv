@@ -211,15 +211,13 @@ def site_setting():
         yield _set
 
 
-def archive_fields(epoch: int, messages: list, **values) -> dict:
-    """Keyword arguments for a ``SessionArchive`` row holding ``messages`` and ``values``."""
-    from sessions.archive import encode_values
+def archive_fields(epoch: int, messages: list, *, closed: bool = False, **values) -> dict:
+    """Keyword arguments for a ``SessionArchive`` row holding ``messages`` and ``values``, closed as ``/clear`` leaves
+    it when ``closed``."""
+    from sessions.archive import archive_row
 
-    state_type, state = encode_values({"messages": messages, **values})
     return {
         "epoch": epoch,
-        "state": state,
-        "state_type": state_type,
-        "first_message_id": messages[0].id,
-        "message_count": len(messages),
+        "closed_at": timezone.now() if closed else None,
+        **archive_row({"messages": messages, **values}),
     }

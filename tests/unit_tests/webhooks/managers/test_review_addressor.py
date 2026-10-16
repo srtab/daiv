@@ -15,7 +15,7 @@ from webhooks.managers.review_addressor import CommentsAddressorManager
 from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import GitPlatform, MergeRequest, User
+from codebase.base import GitPlatform, MergeRequest, Scope, User
 from codebase.exceptions import CloneRefNotFoundError
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
@@ -47,6 +47,8 @@ def _ctx() -> SimpleNamespace:
         gitrepo=SimpleNamespace(working_dir="/clone"),
         sandbox=None,
         sandbox_client=None,
+        bot_username="daiv",
+        scope=Scope.MERGE_REQUEST,
     )
 
 

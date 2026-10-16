@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
+from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
 from sessions.executor.run import RunStoppedError, execute_run, stream_run
@@ -1424,7 +1425,7 @@ class TestSessionArchive:
         with agent_stack(_agent()) as stack:
             await execute_run(spec)
 
-        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
 
     async def test_a_failed_run_still_archives_its_thread(self, session_archive):
         agent = _agent()
@@ -1434,7 +1435,7 @@ class TestSessionArchive:
         with agent_stack(agent) as stack, pytest.raises(RuntimeError, match="agent blew up"):
             await execute_run(spec)
 
-        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
 
     async def test_a_stream_its_reader_left_still_archives_its_thread(self, session_archive):
         spec = make_spec()
@@ -1444,7 +1445,7 @@ class TestSessionArchive:
             assert await anext(events) == "a"
             await events.aclose()
 
-        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id)
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=False)
 
     async def test_a_one_shot_run_archives_nothing(self, session_archive):
         with agent_stack(_agent()):
@@ -1486,3 +1487,53 @@ class TestSessionArchive:
             await execute_run(make_spec(thread_id=None))
 
         session_archive.restore.assert_not_awaited()
+
+    async def test_a_clear_archives_as_a_reset_and_restores_nothing(self, session_archive):
+        ctx = disk_ctx(
+            repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5),
+            scope=Scope.ISSUE,
+            bot_username="daiv",
+        )
+        spec = make_spec(scope=Scope.ISSUE, input_messages=(HumanMessage(content="@daiv /clear"),))
+
+        with agent_stack(_agent(), ctx=ctx) as stack:
+            await execute_run(spec)
+
+        session_archive.restore.assert_not_awaited()
+        session_archive.archive.assert_awaited_once_with(stack.checkpointer, spec.thread_id, reset=True)
+
+    async def test_a_restore_that_fails_fails_the_run_before_the_agent_runs(self, session_archive):
+        agent = _agent()
+        session_archive.restore.side_effect = ArchiveRestoreError("unreadable")
+        on_failure = AsyncMock()
+
+        with agent_stack(agent), pytest.raises(ArchiveRestoreError):
+            await execute_run(make_spec(), RunHooks(on_failure=on_failure))
+
+        agent.ainvoke.assert_not_awaited()
+        assert isinstance(on_failure.await_args.args[0], ArchiveRestoreError)
+
+    async def test_a_failed_archive_is_logged_and_the_run_still_succeeds(self, session_archive, caplog):
+        session_archive.archive.side_effect = RedisError("down")
+        spec = make_spec()
+
+        with agent_stack(_agent()), caplog.at_level("ERROR", logger="daiv.sessions"):
+            outcome = await execute_run(spec)
+
+        assert outcome is not None
+        assert f"executor: failed to archive thread_id={spec.thread_id}" in caplog.text
+
+    async def test_an_archive_slower_than_its_timeout_is_abandoned(self, session_archive, caplog):
+        async def _slow(*args, **kwargs):
+            await asyncio.sleep(5)
+
+        session_archive.archive.side_effect = _slow
+
+        with (
+            agent_stack(_agent()),
+            patch("sessions.executor.run.ARCHIVE_TIMEOUT_S", 0.01),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            await execute_run(make_spec())
+
+        assert "executor: failed to archive" in caplog.text
