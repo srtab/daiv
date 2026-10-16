@@ -406,7 +406,8 @@ class ChatRunStreamer:
             name="DAIV",
             description="DAIV agent",
             graph=run.agent,
-            config={"recursion_limit": 500, **run.config},
+            # ag-ui's ensure_config stamps LangGraph's default (25) over the graph's bound limit.
+            config={"recursion_limit": run.settings.recursion_limit, **run.config},
             runtime_context=run.ctx,
         )
         async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(self.input_data))) as events:

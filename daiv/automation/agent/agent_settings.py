@@ -12,7 +12,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
  3. Fallback-model thinking: site ``agent_fallback_thinking_level``, every branch.
  4. Explore subagent chain: site only.
  5. Diff-to-metadata chain: ``[repo model, repo fallback]`` from ``models.diff_to_metadata``.
- 6. Recursion limit: site ``agent_recursion_limit``; chat passes 500 at call time, which beats it.
+ 6. Recursion limit: site ``agent_recursion_limit``.
  7. Web search, web fetch: the run's option, then site.
  8. Memory: site AND repo.
  9. Consolidation chain: ``[site memory_consolidation_model_name or repo model, repo fallback]``. Outside
