@@ -198,6 +198,14 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
         thinking=None,
     ),
     _case(
+        "max-gets-no-thinking-when-the-site-max-level-is-off",
+        site={"agent_max_thinking_level": ""},
+        repo=REPO,
+        run={"use_max": True},
+        chain=("site-max-model", "repo-model", "repo-fallback"),
+        thinking=None,
+    ),
+    _case(
         "max-needs-no-site-default",
         site={"agent_model_name": ""},
         repo=REPO,
@@ -222,6 +230,14 @@ AGENT_SETTINGS_CASES: tuple[AgentSettingsCase, ...] = (
     ),
     # Default
     _case("default-uses-the-site", repo={}, run={}, chain=("site-model", "site-fallback"), thinking="medium"),
+    _case(
+        "default-gets-no-thinking-when-the-site-level-is-off",
+        site={"agent_thinking_level": ""},
+        repo={},
+        run={},
+        chain=("site-model", "site-fallback"),
+        thinking=None,
+    ),
     _case(
         "default-uses-the-repo-chain-and-thinking",
         repo=REPO,
