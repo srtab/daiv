@@ -373,7 +373,6 @@ class TestScheduleCreateViewSubscribers:
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
-            "use_max": "false",
             "intent": "watch-find",
             "subscribers": [str(alice.pk)],
         }
@@ -393,7 +392,6 @@ class TestScheduleCreateViewSubscribers:
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
-            "use_max": "false",
             "intent": "watch-find",
             "subscribers": [str(member_user.pk)],
         }
@@ -450,7 +448,6 @@ class TestScheduleUpdateViewSubscribers:
             "frequency": schedule.frequency,
             "cron_expression": "",
             "time": "09:00",
-            "use_max": "false",
             "intent": "watch-find",
             "is_enabled": "true",
             "subscribers": [str(alice.pk)],
@@ -617,7 +614,6 @@ class TestScheduleCreateViewSourceTemplate:
             "frequency": "daily",
             "cron_expression": "",
             "time": "09:00",
-            "use_max": "false",
             "intent": "watch-find",
         }
         base.update(overrides)
@@ -725,7 +721,6 @@ class TestScheduleDuplicateFlow:
             repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.ONCE,
             run_at=future,
-            use_max=True,
         )
         response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
         assert response.status_code == 200
@@ -871,7 +866,6 @@ class TestScheduleDuplicateFlow:
                 "cron_expression": "",
                 "time": "",
                 "run_at": past.strftime("%Y-%m-%dT%H:%M"),
-                "use_max": False,
                 "intent": Intent.WATCH_FIND,
             },
         )
