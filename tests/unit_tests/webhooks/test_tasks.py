@@ -19,7 +19,7 @@ def run_lookup():
         yield lookup
 
 
-def _mr(*, merged: bool) -> MergeRequest:
+def _mr(*, merged: bool, labels: list[str] | None = None) -> MergeRequest:
     return MergeRequest(
         repo_id="group/repo",
         merge_request_id=7,
@@ -30,6 +30,7 @@ def _mr(*, merged: bool) -> MergeRequest:
         web_url="https://git/group/repo/-/merge_requests/7",
         author=User(id=1, username="u", name="U"),
         merged=merged,
+        labels=labels or [],
     )
 
 
@@ -194,10 +195,18 @@ class TestIssueMaxModelIsDecidedByTheCallback:
         assert spec.use_max is use_max
 
 
-@pytest.mark.parametrize("task_kwargs", [{"use_max": True}, {"use_max": False}, {}])
-async def test_address_mr_comments_hands_the_addressor_the_callbacks_max_mode(run_lookup, task_kwargs):
+@pytest.mark.parametrize(
+    ("task_kwargs", "labels", "use_max"),
+    [
+        ({"use_max": True}, ["daiv"], True),
+        ({"use_max": False}, ["daiv-max"], False),
+        ({}, ["DAIV-MAX"], True),
+        ({}, ["daiv"], False),
+    ],
+)
+async def test_address_mr_comments_hands_the_addressor_the_callbacks_max_mode(run_lookup, task_kwargs, labels, use_max):
     client = MagicMock()
-    client.get_merge_request.return_value = _mr(merged=False)
+    client.get_merge_request.return_value = _mr(merged=False, labels=labels)
 
     with (
         patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
@@ -209,4 +218,4 @@ async def test_address_mr_comments_hands_the_addressor_the_callbacks_max_mode(ru
             _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", **task_kwargs
         )
 
-    assert address.await_args.kwargs["use_max"] is task_kwargs.get("use_max", False)
+    assert address.await_args.kwargs["use_max"] is use_max
