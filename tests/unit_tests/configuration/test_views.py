@@ -1234,6 +1234,20 @@ class TestAgentPickerWidget:
         assert widget.get_context("agent_model_name", None, {})["widget"]["picker"]["allow_off"] is True
         assert form.fields["agent_fallback_model_name"].widget.allow_off is False
 
+    @pytest.mark.parametrize(
+        ("model_field", "has_off"),
+        [("agent_model_name", True), ("agent_max_model_name", True), ("agent_fallback_model_name", False)],
+    )
+    def test_the_agent_page_renders_off_only_for_the_site_thinking_levels(
+        self, client, admin_user, group_url, model_field, has_off
+    ):
+        client.force_login(admin_user)
+        response = client.get(group_url("agent"))
+        assert response.status_code == 200
+
+        html = str(response.context["form"][model_field])
+        assert ("agent-popover__effort-off" in html) is has_off
+
 
 @pytest.mark.django_db
 def test_providers_view_creates_custom_provider(client, admin_user):
