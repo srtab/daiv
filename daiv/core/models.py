@@ -251,7 +251,11 @@ class SiteConfiguration(models.Model):
         help_text=_("Fallback model when the explore model fails."),
     )
     agent_recursion_limit = models.PositiveIntegerField(
-        _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
+        _("recursion limit"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Maximum recursion depth for agent loops."),
     )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
