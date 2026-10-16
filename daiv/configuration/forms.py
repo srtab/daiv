@@ -110,10 +110,9 @@ class _AgentPickerWidget(forms.Widget):
 
     template_name = "configuration/fields/agent_picker_widget.html"
 
-    def __init__(self, *, paired_thinking_field: str | None = None, allow_off: bool = False, attrs: dict | None = None):
+    def __init__(self, *, paired_thinking_field: str | None = None, attrs: dict | None = None):
         super().__init__(attrs)
         self.paired_thinking_field = paired_thinking_field
-        self.allow_off = allow_off
         # Set by ``SiteConfigurationForm._apply_defaults`` so the placeholder
         # pill can render "Default (env-value)". Empty when no default is
         # configured for this field.
@@ -165,7 +164,7 @@ class _AgentPickerWidget(forms.Widget):
             "default_thinking": self.default_thinking,
             "placeholder_label": placeholder,
             "with_effort": with_effort,
-            "allow_off": self.allow_off,
+            "allow_off": self.paired_thinking_field in SiteConfiguration.THINKING_OFF_FIELDS,
             "disabled": is_disabled,
             # ``_apply_env_locks`` is the only path that sets ``title`` in the
             # settings flow, so we surface its value as the locked-pill tooltip
@@ -284,6 +283,7 @@ class SiteConfigurationForm(forms.ModelForm):
         # Order matters: _apply_env_locks sets checkbox initial values for
         # env-locked fields; _apply_defaults must run after and skip them.
         self._apply_env_locks()
+        self._show_stored_thinking_off()
         self._apply_defaults(field_defaults or {})
         self._seed_paired_thinking_initials()
         self._mark_paired_thinking_fields()
@@ -329,12 +329,14 @@ class SiteConfigurationForm(forms.ModelForm):
                 self.fields[name] = new_field
                 continue
 
+            if name in SiteConfiguration.THINKING_OFF_FIELDS:
+                field_obj.choices = [("", ""), (THINKING_OFF, _("Off")), *ThinkingLevelChoices.choices]  # type: ignore[attr-defined]
+                field_obj.coerce = lambda value: "" if value == THINKING_OFF else value  # type: ignore[attr-defined]
+
             widget = field_obj.widget
             if isinstance(widget, (forms.TextInput, forms.NumberInput)) and name in SiteConfiguration.MODEL_NAME_FIELDS:
                 paired = _PAIRED_THINKING_FIELDS.get(name)
-                field_obj.widget = _AgentPickerWidget(
-                    paired_thinking_field=paired, allow_off=paired in SiteConfiguration.THINKING_OFF_FIELDS
-                )
+                field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
             elif isinstance(widget, forms.NumberInput):
                 widget.attrs.setdefault("min", "0")
 
@@ -342,18 +344,6 @@ class SiteConfigurationForm(forms.ModelForm):
             field_obj.template_name = "configuration/fields/default.html"  # type: ignore[attr-defined]
             field_obj.is_env_locked = False  # type: ignore[attr-defined]
             field_obj.secret_hint = None  # type: ignore[attr-defined]
-
-        for name in SiteConfiguration.THINKING_OFF_FIELDS & set(self.fields):
-            old = self.fields[name]
-            self.fields[name] = forms.ChoiceField(
-                label=old.label,
-                help_text=old.help_text,
-                required=False,
-                choices=[("", ""), (THINKING_OFF, _("Off")), *ThinkingLevelChoices.choices],
-            )
-            self.fields[name].template_name = old.template_name  # type: ignore[attr-defined]
-            self.fields[name].is_env_locked = False  # type: ignore[attr-defined]
-            self.fields[name].secret_hint = None  # type: ignore[attr-defined]
 
     def _apply_env_locks(self) -> None:
         """Disable fields locked by environment variables and set effective initial values."""
@@ -372,8 +362,6 @@ class SiteConfigurationForm(forms.ModelForm):
             effective = getattr(site_settings, name, None)
             if isinstance(field_obj.widget, forms.CheckboxInput):
                 self.initial[name] = bool(effective)
-            elif effective == "" and name in SiteConfiguration.THINKING_OFF_FIELDS:
-                self.initial[name] = THINKING_OFF
             elif effective is not None:
                 self.initial[name] = effective
             # Env-locked secrets have NULL in the DB, so get_secret_hint returns
@@ -381,6 +369,12 @@ class SiteConfigurationForm(forms.ModelForm):
             if name in self.SECRET_FIELDS and effective is not None and not getattr(field_obj, "secret_hint", None):
                 raw = effective.get_secret_value() if hasattr(effective, "get_secret_value") else str(effective)
                 field_obj.secret_hint = mask_secret(raw)  # type: ignore[attr-defined]
+
+    def _show_stored_thinking_off(self) -> None:
+        """Show a stored or env-locked ``""`` thinking level as Off; ``None`` stays the unset default."""
+        for name in SiteConfiguration.THINKING_OFF_FIELDS:
+            if self.initial.get(name) == "":
+                self.initial[name] = THINKING_OFF
 
     def _apply_defaults(self, field_defaults: dict[str, str]) -> None:
         """Set effective defaults as placeholders, empty-choice labels, or checkbox initial values."""
@@ -429,10 +423,7 @@ class SiteConfigurationForm(forms.ModelForm):
                 continue
             widget = self.fields[model_field].widget
             if isinstance(widget, _AgentPickerWidget):
-                value = source.get(thinking_field)
-                if not self.is_bound and value == "" and thinking_field in SiteConfiguration.THINKING_OFF_FIELDS:
-                    value = THINKING_OFF
-                widget.initial_thinking = str(value or "")
+                widget.initial_thinking = str(source.get(thinking_field, "") or "")
 
     def _mark_paired_thinking_fields(self) -> None:
         """Flag paired thinking-level fields so the render loop skips them.
@@ -488,18 +479,6 @@ class SiteConfigurationForm(forms.ModelForm):
         self._validate_auth_credentials(cleaned_data)
         self._validate_telegram_token(cleaned_data)
         return cleaned_data
-
-    def _clean_thinking_off(self, name: str) -> str | None:
-        value = self.cleaned_data.get(name) or ""
-        if value == THINKING_OFF:
-            return ""
-        return value or None
-
-    def clean_agent_thinking_level(self) -> str | None:
-        return self._clean_thinking_off("agent_thinking_level")
-
-    def clean_agent_max_thinking_level(self) -> str | None:
-        return self._clean_thinking_off("agent_max_thinking_level")
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that each chosen model resolves to an enabled, keyed Provider row."""

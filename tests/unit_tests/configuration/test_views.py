@@ -1242,8 +1242,6 @@ class TestAgentPickerWidget:
         form = SiteConfigurationForm(instance=config)
         widget = form.fields["agent_model_name"].widget
         assert widget.initial_thinking == "off"
-        assert widget.get_context("agent_model_name", None, {})["widget"]["picker"]["allow_off"] is True
-        assert form.fields["agent_fallback_model_name"].widget.allow_off is False
 
     @pytest.mark.parametrize(
         ("model_field", "has_off"),

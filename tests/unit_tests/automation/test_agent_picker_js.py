@@ -57,6 +57,7 @@ SETTINGS_ARGS = {
     "seedDefault": False,
     "required": False,
 }
+UNSELECTED_PILL_LABELS = pytest.mark.parametrize("placeholder_label", [SETTINGS_ARGS["placeholderLabel"], ""])
 MEDIUM_DOTS = 3
 XHIGH_DOTS = 5
 
@@ -72,22 +73,22 @@ def test_choosing_off_submits_off():
     assert state["thinkingLevel"] == "off"
 
 
-@pytest.mark.parametrize("placeholder_label", ["Default (claude-sonnet-4-6)", ""])
+@UNSELECTED_PILL_LABELS
 def test_an_unselected_pill_shows_no_effort_for_off(placeholder_label):
-    """Both unselected branches: the settings placeholder label and the derived "Default (…)" label."""
+    """Both unselected names: the settings placeholder label and the derived "Default (…)" label."""
     state = drive([["selectEffort", "off"]], placeholderLabel=placeholder_label)
     assert state["agentModelValue"] == ""
     assert state["effortDots"] == 0
 
 
-@pytest.mark.parametrize("placeholder_label", ["Default (claude-sonnet-4-6)", ""])
+@UNSELECTED_PILL_LABELS
 def test_an_unselected_pill_shows_the_picked_effort(placeholder_label):
     state = drive([["selectEffort", "xhigh"]], placeholderLabel=placeholder_label)
     assert state["agentModelValue"] == ""
     assert state["effortDots"] == XHIGH_DOTS
 
 
-@pytest.mark.parametrize("placeholder_label", ["Default (claude-sonnet-4-6)", ""])
+@UNSELECTED_PILL_LABELS
 def test_an_unselected_pill_with_no_level_shows_the_default_effort(placeholder_label):
     state = drive(placeholderLabel=placeholder_label)
     assert state["thinkingLevel"] == ""

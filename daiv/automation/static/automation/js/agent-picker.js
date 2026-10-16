@@ -295,19 +295,12 @@ document.addEventListener("alpine:init", () => {
         get pillLabel() {
             // No model picked: the default model runs at the picked effort (Off lights none), else the default effort.
             if (!this.selectedProvider || !this.modelName) {
-                if (this.placeholderLabel) {
-                    return {
-                        name: this.placeholderLabel,
-                        effortDots: this.dotsFor(this.thinkingLevel || this.defaultThinkingLevel),
-                    };
+                const name = this.placeholderLabel
+                    || (this.defaultAgentModel && `Default (${shortenModel(this.defaultAgentModel)})`);
+                if (!name) {
+                    return {name: "Pick a model", effortDots: 0};
                 }
-                if (this.defaultAgentModel) {
-                    return {
-                        name: `Default (${shortenModel(this.defaultAgentModel)})`,
-                        effortDots: this.dotsFor(this.thinkingLevel || this.defaultThinkingLevel),
-                    };
-                }
-                return {name: "Pick a model", effortDots: 0};
+                return {name, effortDots: this.dotsFor(this.thinkingLevel || this.defaultThinkingLevel)};
             }
             // Strip any ``org/`` path segment from the model name (e.g.
             // ``anthropic/claude-haiku-4.5`` → ``claude-haiku-4.5``) so the pill
