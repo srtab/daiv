@@ -216,7 +216,7 @@ class SiteSettings:
 
     Priority chain (highest to lowest):
         1. Docker secret or environment variable (hard override — UI shows field as locked)
-        2. Database value (non-null — set via the configuration UI)
+        2. Database value (non-null and non-empty, except that ``""`` is Off for a thinking level)
         3. Field defaults (hardcoded fallback)
     """
 
@@ -281,8 +281,9 @@ class SiteSettings:
         if env_value is not None:
             if name in SiteConfiguration.ENCRYPTED_FIELDS:
                 return SecretStr(env_value)
-            if name in SiteConfiguration.THINKING_OFF_FIELDS and env_value.strip().lower() == THINKING_OFF:
-                return ""
+            if name in SiteConfiguration.THINKING_LEVEL_FIELDS:
+                level = env_value.strip().lower()
+                return "" if level == THINKING_OFF else level
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 

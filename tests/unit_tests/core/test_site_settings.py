@@ -97,11 +97,15 @@ class TestThinkingLevelOff:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: None})):
             assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
 
-    @pytest.mark.parametrize("env_value", ["", "off", "OFF", " off "])
-    def test_an_empty_or_off_value_in_the_environment_disables_thinking(self, ss, field, env_value, monkeypatch):
-        monkeypatch.setenv(ss.get_env_var_name(field), env_value)
-        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
-            assert getattr(ss, field) == ""
+
+@pytest.mark.parametrize("field", ["agent_thinking_level", "agent_fallback_thinking_level", "agent_max_thinking_level"])
+@pytest.mark.parametrize(
+    ("env_value", "level"), [("", ""), ("off", ""), ("OFF", ""), (" off ", ""), ("High", "high"), (" xhigh ", "xhigh")]
+)
+def test_an_environment_thinking_level_ignores_case_and_off_disables_thinking(ss, field, env_value, level, monkeypatch):
+    monkeypatch.setenv(ss.get_env_var_name(field), env_value)
+    with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "low"})):
+        assert getattr(ss, field) == level
 
 
 def test_an_empty_fallback_thinking_level_still_uses_the_default(ss):

@@ -1219,7 +1219,18 @@ class TestAgentPickerWidget:
         client.force_login(admin_user)
         response = client.post(group_url("agent"), {"agent_fallback_thinking_level": "off"})
         assert response.status_code == 200
-        assert SiteConfiguration.objects.get_instance().agent_fallback_thinking_level is None
+        assert "agent_fallback_thinking_level" in response.context["form"].errors
+
+    def test_an_env_locked_off_seeds_the_picker_and_saves_as_off(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_THINKING_LEVEL", "OFF")
+        client.force_login(admin_user)
+
+        page = client.get(group_url("agent"))
+        assert page.context["form"].fields["agent_model_name"].widget.initial_thinking == "off"
+
+        response = client.post(group_url("agent"), {})
+        assert response.status_code == 302
+        assert SiteConfiguration.objects.get_instance().agent_thinking_level == ""
 
     def test_a_stored_off_seeds_the_picker_with_off(self, db):
         from configuration.forms import SiteConfigurationForm

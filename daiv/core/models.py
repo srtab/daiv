@@ -574,6 +574,7 @@ class SiteConfiguration(models.Model):
     )
 
     THINKING_OFF_FIELDS: ClassVar[frozenset[str]] = frozenset({"agent_thinking_level", "agent_max_thinking_level"})
+    THINKING_LEVEL_FIELDS: ClassVar[frozenset[str]] = THINKING_OFF_FIELDS | {"agent_fallback_thinking_level"}
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
         FieldGroup(

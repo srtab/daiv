@@ -372,6 +372,8 @@ class SiteConfigurationForm(forms.ModelForm):
             effective = getattr(site_settings, name, None)
             if isinstance(field_obj.widget, forms.CheckboxInput):
                 self.initial[name] = bool(effective)
+            elif effective == "" and name in SiteConfiguration.THINKING_OFF_FIELDS:
+                self.initial[name] = THINKING_OFF
             elif effective is not None:
                 self.initial[name] = effective
             # Env-locked secrets have NULL in the DB, so get_secret_hint returns
