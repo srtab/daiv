@@ -25,6 +25,9 @@ msgstr "Predefinição (%(name)s)"
 msgid "Pick a model"
 msgstr "Selecionar um modelo"
 
+msgid "Off"
+msgstr "Desligado"
+
 msgid "Locked by environment variable"
 msgstr "Bloqueado por variável de ambiente"
 

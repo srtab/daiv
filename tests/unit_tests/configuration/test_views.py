@@ -1205,6 +1205,35 @@ class TestAgentPickerWidget:
         widget = form.fields["agent_model_name"].widget
         assert widget.initial_thinking == "high"
 
+    @pytest.mark.parametrize("field", ["agent_thinking_level", "agent_max_thinking_level"])
+    @pytest.mark.parametrize(("submitted", "stored"), [("off", ""), ("", None), ("high", "high")])
+    def test_a_thinking_level_saves_off_as_empty_and_unset_as_null(
+        self, client, admin_user, group_url, field, submitted, stored
+    ):
+        client.force_login(admin_user)
+        response = client.post(group_url("agent"), {field: submitted})
+        assert response.status_code == 302
+        assert getattr(SiteConfiguration.objects.get_instance(), field) == stored
+
+    def test_the_fallback_thinking_level_rejects_off(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.post(group_url("agent"), {"agent_fallback_thinking_level": "off"})
+        assert response.status_code == 200
+        assert SiteConfiguration.objects.get_instance().agent_fallback_thinking_level is None
+
+    def test_a_stored_off_seeds_the_picker_with_off(self, db):
+        from configuration.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_thinking_level = ""
+        config.save()
+
+        form = SiteConfigurationForm(instance=config)
+        widget = form.fields["agent_model_name"].widget
+        assert widget.initial_thinking == "off"
+        assert widget.get_context("agent_model_name", None, {})["widget"]["picker"]["allow_off"] is True
+        assert form.fields["agent_fallback_model_name"].widget.allow_off is False
+
 
 @pytest.mark.django_db
 def test_providers_view_creates_custom_provider(client, admin_user):

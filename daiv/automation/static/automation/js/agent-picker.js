@@ -304,13 +304,13 @@ document.addEventListener("alpine:init", () => {
                 if (this.placeholderLabel) {
                     return {
                         name: this.placeholderLabel,
-                        effortDots: this.dotsFor(this.defaultThinkingLevel),
+                        effortDots: this.thinkingLevel === "off" ? 0 : this.dotsFor(this.defaultThinkingLevel),
                     };
                 }
                 if (this.defaultAgentModel) {
                     return {
                         name: `Default (${shortenModel(this.defaultAgentModel)})`,
-                        effortDots: this.dotsFor(this.defaultThinkingLevel),
+                        effortDots: this.thinkingLevel === "off" ? 0 : this.dotsFor(this.defaultThinkingLevel),
                     };
                 }
                 return {name: "Pick a model", effortDots: 0};
