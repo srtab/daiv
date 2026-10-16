@@ -148,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, instead of queuing runs that fail at start.
 - Chat runs now honour the site's agent recursion limit instead of a fixed 500.
 - A merge or pull request comment on an MR/PR labelled `daiv-max` now runs on the max model; it ran on the default model while showing the max one.
+- CI fix runs now use the model and thinking level of the session they fix; a model that is no longer available falls back to the default.
 
 ### Removed
 
