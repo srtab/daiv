@@ -12,7 +12,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
  3. Fallback-model thinking: site ``agent_fallback_thinking_level``, every branch.
  4. Explore subagent chain: site only.
  5. Diff-to-metadata chain: ``[repo model, repo fallback]`` from ``models.diff_to_metadata``.
- 6. Recursion limit: site ``agent_recursion_limit``; chat passes 500 at call time, which beats it.
+ 6. Recursion limit: site ``agent_recursion_limit``.
  7. Web search, web fetch: the run's option, then site.
  8. Memory: site AND repo.
  9. Consolidation chain: ``[site memory_consolidation_model_name or repo model, repo fallback]``. Outside
@@ -23,8 +23,8 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
     resolves them when the watch arms, so a run never reads them.
 13. Cross-project access: site AND run; a one-shot run, which has no session to restrict, never gets it.
 
-A site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as an error;
-``.daiv.yml`` levels are validated when the file loads.
+A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
+an error; ``.daiv.yml`` levels are validated when the file loads.
 """
 
 from __future__ import annotations

@@ -9,6 +9,7 @@ these tests pin that it is gone and that a real agent still builds.
 
 from deepagents import create_deep_agent
 from deepagents._excluded_middleware import _apply_excluded_middleware
+from deepagents.middleware.subagents import TASK_TOOL_DESCRIPTION
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware as UpstreamAnthropicPromptCaching
@@ -60,3 +61,14 @@ def test_real_create_deep_agent_builds_under_the_daiv_profile():
     agent = create_deep_agent(model=model, middleware=[TodoListMiddleware(system_prompt="todo guidance")])
 
     assert agent is not None
+
+
+def test_task_description_override_keeps_placeholder_and_ends_with_single_writer_note():
+    override = DAIV_HARNESS_PROFILE.tool_description_overrides["task"]
+
+    assert "{available_agents}" in override
+    assert override.startswith(TASK_TOOL_DESCRIPTION)
+    assert override.endswith(
+        "- Run at most one agent that can edit files at a time: they share your workspace. "
+        "Read-only agents, such as explore, can run in parallel."
+    )

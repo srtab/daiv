@@ -1,0 +1,50 @@
+diff --git a/daiv/sessions/views.py b/daiv/sessions/views.py
+--- a/daiv/sessions/views.py
++++ b/daiv/sessions/views.py
+@@ -142,34 +142,24 @@
+         return ["sessions/session_list.html"]
+ 
+     def get_queryset(self) -> QuerySet[Session]:
+-        # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
+-        # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
+-        # gives the SSE dot the real ``Run.id`` to key live updates on.
++        runs = Run.objects.only(
++            "id",
++            "session_id",
++            "status",
++            "started_at",
++            "finished_at",
++            "merge_request_iid",
++            "merge_request_web_url",
++            "cost_usd",
++            "created_at",
++        ).order_by("-created_at", "-id")
+         return (
+             Session.objects
+             .visible_to(self.request.user)
+             .without_watch_placeholders()
+             .with_latest_status()
+             .select_related("user", "scheduled_job")
+-            # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
+-            # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
+-            # the row template starts reading it, or it becomes a deferred-field N+1.
+-            .prefetch_related(
+-                Prefetch(
+-                    "runs",
+-                    queryset=Run.objects.only(
+-                        "id",
+-                        "session_id",
+-                        "status",
+-                        "started_at",
+-                        "finished_at",
+-                        "merge_request_iid",
+-                        "merge_request_web_url",
+-                        "cost_usd",
+-                        "created_at",
+-                    ).order_by("-created_at", "-id"),
+-                )
+-            )
++            .prefetch_related(Prefetch("runs", queryset=runs))
+         )
+ 
+     def get_context_data(self, **kwargs):

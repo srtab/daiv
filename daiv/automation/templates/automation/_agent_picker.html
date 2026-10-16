@@ -20,7 +20,7 @@ Parameters:
                                        when ``with_effort=True``; passing ``False``
                                        suppresses the input entirely.
 - initial_agent_model (default "")   — pre-selected spec, e.g. ``openrouter:anthropic/claude-haiku-4.5``
-- initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high``
+- initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high|xhigh``, or ``off`` with ``allow_off``
 - initial_model_display (default "")  — display-only form of ``initial_agent_model`` used in
                                        the locked pill (provider prefix and ``org/`` stripped).
 - default_model (default "")          — full ``provider:model`` spec the picker pre-selects
@@ -39,6 +39,8 @@ Parameters:
                                        hint when an env / Pydantic default exists.
 - with_effort (default True)         — render the thinking-effort row inside the popover.
                                        Standalone model_name fields in settings pass False.
+- allow_off (default False)          — settings only: an "Off" choice in the effort row,
+                                       submitted as "off".
 - required (default True)            — when True, the sr-only model input is ``required``
                                        while empty, so HTML5 validation refuses submission
                                        with no model. Settings pass False because an empty
@@ -248,6 +250,13 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
                             class="agent-pill__effort-dot h-2.5 w-2.5"
                             :class="{ 'agent-pill__effort-dot--on': LEVELS.indexOf(thinkingLevel) >= idx }"></button>
                 </template>
+                {% if allow_off %}
+                <button type="button" @click="selectEffort('off')"
+                        class="agent-popover__effort-off"
+                        :class="{ 'agent-popover__effort-off--on': thinkingLevel === 'off' }">
+                    {% translate "Off" %}
+                </button>
+                {% endif %}
             </div>
         </div>
         {% endif %}

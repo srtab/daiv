@@ -1,0 +1,15 @@
+diff --git a/daiv/sessions/models.py b/daiv/sessions/models.py
+--- a/daiv/sessions/models.py
++++ b/daiv/sessions/models.py
+@@ -415,8 +415,9 @@
+ 
+     @property
+     def effective_muted(self) -> bool:
+-        if self.muted is not None:
+-            return self.muted
++        muted = self.muted
++        if muted is not None:
++            return muted
+         schedule = self.session.scheduled_job if self.session_id else None
+         if schedule is not None:
+             return schedule.muted

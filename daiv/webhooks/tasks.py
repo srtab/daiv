@@ -85,6 +85,7 @@ async def address_mr_comments_task(
     thread_id: str | None = None,
     sandbox_environment_id: str | None = None,
     acting_platform_uid: str | None = None,
+    use_max: bool | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -98,6 +99,8 @@ async def address_mr_comments_task(
             the manager computes the deterministic id from the repository and the merge request iid.
         sandbox_environment_id (str | None): The env the callback selected; ``None``: the GLOBAL default.
         acting_platform_uid (str | None): The platform user id that triggered the event.
+        use_max (bool | None): The max mode the callback decided; ``None`` reads the ``daiv-max`` label off the merge
+            request.
     """
     from webhooks.managers.review_addressor import CommentsAddressorManager
 
@@ -123,6 +126,7 @@ async def address_mr_comments_task(
             sandbox_env_id=sandbox_environment_id,
             acting_platform_uid=acting_platform_uid,
             run_id=await aget_task_run_id(context.task_result.id),
+            use_max=use_max,
         )
     except CloneRefNotFoundError:
         response = (

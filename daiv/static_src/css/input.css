@@ -3116,6 +3116,12 @@ html {
   .agent-popover__effort-label {
     @apply inline-flex items-center gap-1.5;
   }
+  .agent-popover__effort-off {
+    @apply ml-2 text-xs text-gray-400 hover:text-gray-200;
+  }
+  .agent-popover__effort-off--on {
+    @apply text-gray-100 underline;
+  }
 
   .repo-id-chip {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;

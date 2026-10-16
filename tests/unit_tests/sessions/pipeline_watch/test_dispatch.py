@@ -212,26 +212,51 @@ async def test_a_session_without_an_environment_runs_its_fix_on_the_global_defau
     assert run.sandbox_environment_id is None
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_the_fix_run_carries_neither_the_sessions_model_nor_its_thinking_level(
-    stub_enqueue, create_db_task_result
-):
-    """Pins current behaviour, not a requirement: a fix run resolves its model afresh."""
-    calls, holder = stub_enqueue
-    holder["result"] = await sync_to_async(create_db_task_result)()
+async def _dispatch_with_session_model(model: str, level: str) -> Run:
     session = await _make_watched_session()
-    session.agent_model = "openrouter:anthropic/claude-opus-4.6"
-    session.agent_thinking_level = "high"
+    session.agent_model, session.agent_thinking_level = model, level
     await session.asave(update_fields=["agent_model", "agent_thinking_level"])
-
     await FixRunDispatcher().adispatch(
         session=session, report=PipelineReport(make_pipeline()), repo_id="group/repo", merge_request_iid=MR_IID
     )
+    return await Run.objects.aget(session_id=session.thread_id)
 
-    run = await Run.objects.aget(session_id=session.thread_id)
-    assert not calls[0].get("agent_model")
-    assert not calls[0].get("agent_thinking_level")
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_fix_run_carries_the_sessions_model_and_thinking_level(
+    stub_enqueue, create_db_task_result, monkeypatch
+):
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    monkeypatch.setattr("automation.agent.validators.validate_agent_override", lambda model, level: (model, level))
+
+    run = await _dispatch_with_session_model("openrouter:anthropic/claude-opus-4.6", "high")
+
+    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == (
+        "openrouter:anthropic/claude-opus-4.6",
+        "high",
+    )
+    assert (run.agent_model, run.agent_thinking_level) == ("openrouter:anthropic/claude-opus-4.6", "high")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_fix_run_falls_back_to_the_default_when_the_sessions_model_is_unavailable(
+    stub_enqueue, create_db_task_result, monkeypatch, caplog
+):
+    from automation.agent.validators import AgentOverrideError
+
+    def refuse(model, level):
+        raise AgentOverrideError("Provider 'gone' is disabled.")
+
+    calls, holder = stub_enqueue
+    holder["result"] = await sync_to_async(create_db_task_result)()
+    monkeypatch.setattr("automation.agent.validators.validate_agent_override", refuse)
+
+    run = await _dispatch_with_session_model("gone:model", "high")
+
+    assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("", "")
+    assert "'gone:model', which cannot be used (Provider 'gone' is disabled.)" in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)

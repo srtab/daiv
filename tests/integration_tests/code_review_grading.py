@@ -33,7 +33,9 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 _HEADING = re.compile(r"^(#{1,4})\s+(.+?)\s*$")
 _REVIEW_HEADING = re.compile(r"^#{1,3}\s*Code Review\b", re.MULTILINE)
 _NO_FINDINGS = re.compile(r"^[\W_]*No findings\b", re.MULTILINE)
+_EMPTY_SECTION = re.compile(r"^[\W_]*None[\W_]*$", re.IGNORECASE)
 _DEGRADED = re.compile(r"^.*Review unavailable for.*$", re.MULTILINE)
+_NONE_UNAVAILABLE = re.compile(r"Review unavailable for:\s*[*_]*none\b(?:[\W_]*$|[.\s*_]*[—–])", re.IGNORECASE)
 _SEVERITY_WORD = re.compile(rf"\b({'|'.join(SEVERITIES)})s?\b", re.IGNORECASE)
 _ENTRY = re.compile(r"^\s*(?:\*\*)?\s*\d+[.)]\s*(.+?)\s*$")
 _TITLE_SPLIT = re.compile(r"\*\*\s*(?:—|–|-|:)?\s*")
@@ -183,13 +185,13 @@ def parse_report(report: str) -> list[Finding]:
 
 
 def _has_unread_blocking_section(report: str) -> bool:
-    """Whether a Critical or Important section holds anything but a ``No findings`` line; an h4 is part of it."""
+    """Whether a blocking section holds content beyond an explicit empty marker; an h4 is part of it."""
     section: str | None = None
     for line in report.splitlines():
         heading = _HEADING.match(line)
         if heading and (len(heading.group(1)) < 4 or _severity(heading.group(2))):
             section = _severity(heading.group(2))
-        elif section in BLOCKING and line.strip() and not _NO_FINDINGS.match(line):
+        elif section in BLOCKING and line.strip() and not (_NO_FINDINGS.match(line) or _EMPTY_SECTION.match(line)):
             return True
     return False
 
@@ -198,9 +200,18 @@ def is_review_report(report: str) -> bool:
     return bool(_REVIEW_HEADING.search(report)) or bool(_NO_FINDINGS.search(report))
 
 
+def _degraded_line(report: str) -> str | None:
+    for match in _DEGRADED.finditer(report):
+        line = match.group(0)
+        # Multiple markers on a line are ambiguous; a trailing "none" cannot clear a named failure.
+        if line.count("Review unavailable for") != 1 or not _NONE_UNAVAILABLE.search(line):
+            return line.strip()
+    return None
+
+
 def is_degraded(report: str) -> bool:
-    """Whether some detectors did not report: the review names them on a ``Review unavailable for`` line."""
-    return bool(_DEGRADED.search(report))
+    """Whether the report names unavailable detectors, excluding an explicit ``none`` marker."""
+    return _degraded_line(report) is not None
 
 
 def severity_counts(findings: Sequence[Finding]) -> dict[str, int]:
@@ -222,8 +233,8 @@ def clean_case_violation(report: str, findings: Sequence[Finding]) -> str | None
         return f"the run did not end on a code-review report: {report[-400:]!r}"
     if not findings and not _NO_FINDINGS.search(report):
         return f"the report has no parsed finding and no 'No findings' line: {report[-400:]!r}"
-    if degraded := _DEGRADED.search(report):
-        return f"the review is degraded: {degraded.group(0).strip()!r}"
+    if degraded := _degraded_line(report):
+        return f"the review is degraded: {degraded!r}"
     if found := blocking(findings):
         return f"the clean change got {len(found)} Critical/Important finding(s): {[f.title for f in found]}"
     if _has_unread_blocking_section(report):

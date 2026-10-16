@@ -1,5 +1,4 @@
 diff --git a/daiv/schedules/templates/schedules/_schedule_row.html b/daiv/schedules/templates/schedules/_schedule_row.html
-index 1fe5e10..2729aa7 100644
 --- a/daiv/schedules/templates/schedules/_schedule_row.html
 +++ b/daiv/schedules/templates/schedules/_schedule_row.html
 @@ -52,6 +52,9 @@
@@ -13,10 +12,9 @@ index 1fe5e10..2729aa7 100644
      <div class="mt-2 flex flex-wrap items-center gap-1.5">
          {% if schedule.is_fired_one_off %}
 diff --git a/daiv/schedules/views.py b/daiv/schedules/views.py
-index 501d72f..f796b64 100644
 --- a/daiv/schedules/views.py
 +++ b/daiv/schedules/views.py
-@@ -18,7 +18,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+@@ -18,7 +18,7 @@
  from mcp_connectors.selection import mcp_picker_context
  from sandbox_envs.selection import resolve_repo_envs
  from sandbox_envs.services import env_picker_context
@@ -25,7 +23,7 @@ index 501d72f..f796b64 100644
  from sessions.services import RepoTarget, submit_batch_runs
  
  from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
-@@ -71,6 +71,19 @@ def _template_picker_payload() -> list[dict]:
+@@ -71,6 +71,19 @@
      return [t.to_picker_dict() for t in qs]
  
  
@@ -38,14 +36,14 @@ index 501d72f..f796b64 100644
 +        if schedule.last_run_batch_id is None:
 +            schedule.last_run_status = None
 +            continue
-+        latest = Run.objects.by_batch(schedule.last_run_batch_id).order_by("-created_at").only("status").first()
++        latest = Run.objects.by_batch(schedule.last_run_batch_id).order_by("-created_at", "-id").only("status").first()
 +        schedule.last_run_status = latest.status if latest else None
 +
 +
  class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
      model = ScheduledJob
      template_name = "schedules/schedule_list.html"
-@@ -83,6 +96,7 @@ class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
+@@ -83,6 +96,7 @@
      def get_context_data(self, **kwargs):
          context = super().get_context_data(**kwargs)
          context["schedule_templates"] = _template_picker_payload()
@@ -53,7 +51,7 @@ index 501d72f..f796b64 100644
          return context
  
  
-@@ -187,6 +201,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+@@ -187,6 +201,7 @@
      def _render_error_response(self, request, schedule) -> HttpResponse:
          """Render the current schedule row and signal HTMX to roll back the toggle attempt."""
          schedule.refresh_from_db()
@@ -61,7 +59,7 @@ index 501d72f..f796b64 100644
          html = render_to_string(
              "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
          )
-@@ -219,6 +234,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+@@ -219,6 +234,7 @@
              else:
                  schedule.next_run_at = None
              schedule.save(update_fields=["is_enabled", "next_run_at", "modified"])

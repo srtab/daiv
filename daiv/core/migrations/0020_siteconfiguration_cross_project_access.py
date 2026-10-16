@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0017_siteconfiguration_telegram")]
+    dependencies = [("core", "0019_agent_recursion_limit_min")]
 
     operations = [
         migrations.AddField(

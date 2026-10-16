@@ -1,0 +1,15 @@
+diff --git a/daiv/sessions/managers.py b/daiv/sessions/managers.py
+--- a/daiv/sessions/managers.py
++++ b/daiv/sessions/managers.py
+@@ -20,9 +20,8 @@
+         """
+         from sessions.models import Run
+ 
+-        run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
+-            models.Q(user=user) | models.Q(external_username=user.username)
+-        )
++        actor_match = models.Q(user=user) | models.Q(external_username=user.username)
++        run_match = Run.objects.filter(repo_id=models.OuterRef("repo_id")).filter(actor_match)
+         return (
+             models.Q(user=user)
+             | models.Q(external_username=user.username)

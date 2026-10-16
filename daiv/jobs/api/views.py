@@ -13,7 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from accounts.api.security import AuthBearer
-from automation.agent.validators import AgentOverrideError, validate_agent_override
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
@@ -60,6 +60,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
 
     try:
         agent_model, agent_thinking_level = validate_agent_override(payload.agent_model, payload.agent_thinking_level)
+        ensure_agent_model_available(agent_model)
     except AgentOverrideError as err:
         return 400, {"detail": str(err)}
 

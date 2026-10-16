@@ -1,8 +1,7 @@
 diff --git a/daiv/daiv/api.py b/daiv/daiv/api.py
-index 3da4507..2e15bd4 100644
 --- a/daiv/daiv/api.py
 +++ b/daiv/daiv/api.py
-@@ -8,6 +8,7 @@ from accounts.api.views import nav_router
+@@ -8,6 +8,7 @@
  from automation.api.views import router as automation_router
  from chat.api.views import chat_router
  from codebase.api.router import router as codebase_router
@@ -10,7 +9,7 @@ index 3da4507..2e15bd4 100644
  
  from . import __version__
  
-@@ -19,4 +20,5 @@ api.add_router("/jobs", jobs_router)
+@@ -19,4 +20,5 @@
  api.add_router("/nav", nav_router)
  api.add_router("/notifications", notifications_router)
  api.add_router("/oauth", oauth_router)
@@ -21,10 +20,9 @@ new file mode 100644
 index 0000000..e69de29
 diff --git a/daiv/schedules/api/views.py b/daiv/schedules/api/views.py
 new file mode 100644
-index 0000000..3ad0041
 --- /dev/null
 +++ b/daiv/schedules/api/views.py
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,27 @@
 +from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 +
 +from ninja import Router
@@ -44,19 +42,11 @@ index 0000000..3ad0041
 +    except ScheduledJob.DoesNotExist:
 +        return 404, {"detail": "Schedule not found"}
 +
-+    return 200, {
-+        "name": schedule.name,
-+        "prompt": schedule.prompt,
-+        "repos": schedule.repos,
-+        "frequency": schedule.frequency,
-+        "cron_expression": schedule.cron_expression,
-+        "time": schedule.time.isoformat() if schedule.time else None,
-+        "run_at": schedule.run_at.isoformat() if schedule.run_at else None,
-+        "agent_model": schedule.agent_model,
-+        "agent_thinking_level": schedule.agent_thinking_level,
-+        "muted": schedule.muted,
-+        "intent": schedule.intent,
-+        "mcp_overrides": schedule.mcp_overrides,
-+        "sandbox_environment": schedule.sandbox_environment.name if schedule.sandbox_environment else None,
-+        "subscribers": [user.email async for user in schedule.subscribers.all()],
-+    }
++    payload = schedule.to_schedule_kwargs()
++    for field in ("time", "run_at"):
++        value = payload[field]
++        payload[field] = value.isoformat() if value is not None else None
++    payload["sandbox_environment"] = schedule.sandbox_environment.name if schedule.sandbox_environment else None
++    payload["mcp_overrides"] = schedule.mcp_overrides
++    payload["subscribers"] = [user.email async for user in schedule.subscribers.all()]
++    return 200, payload
