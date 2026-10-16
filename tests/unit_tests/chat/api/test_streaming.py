@@ -289,9 +289,7 @@ async def test_events_streams_the_agent_with_the_chat_run_bound_for_artifacts():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_turn_hands_the_graph_only_its_new_message(_executor_stack):
-    """The client echoes every user turn it shows, including those from before a ``/clear``; ag-ui would append each
-    one the checkpoint lacks to the graph input."""
+async def test_a_turn_hands_the_graph_only_its_new_message_whatever_the_client_echoes(_executor_stack):
     seen = []
 
     class Probe(AgentMiddleware):
@@ -305,12 +303,14 @@ async def test_a_turn_hands_the_graph_only_its_new_message(_executor_stack):
         checkpointer=InMemorySaver(),
     )
     config = {"configurable": {"thread_id": "t-stream"}}
-    await agent.aupdate_state(config, {"messages": [AIMessage(content="cleared", id="r1")]})
+    earlier = [HumanMessage(content="first turn", id="h1"), AIMessage(content="first reply", id="a1")]
+    await agent.aupdate_state(config, {"messages": earlier})
     _executor_stack.create_agent.return_value = agent
     _executor_stack.langsmith.return_value = config
     input_data = _run_input(
-        {"id": "p0", "role": "user", "content": "before the clear"},
-        {"id": "h2", "role": "user", "content": "after the clear"},
+        {"id": "p0", "role": "user", "content": "before a clear"},
+        {"id": "h1", "role": "user", "content": "first turn"},
+        {"id": "h2", "role": "user", "content": "second turn"},
     )
 
     with (
@@ -320,7 +320,7 @@ async def test_a_turn_hands_the_graph_only_its_new_message(_executor_stack):
         async for _ in _streamer(input_data).events():
             pass
 
-    assert seen == [["r1", "h2"]]
+    assert seen == [["h1", "a1", "h2"]]
 
 
 @pytest.mark.django_db(transaction=True)
