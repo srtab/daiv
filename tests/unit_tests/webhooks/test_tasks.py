@@ -99,6 +99,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",
+        "use_max": False,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 
@@ -191,3 +192,21 @@ class TestIssueMaxModelIsDecidedByTheCallback:
         spec = await self._spec_for(labels, use_max=use_max)
 
         assert spec.use_max is use_max
+
+
+@pytest.mark.parametrize("task_kwargs", [{"use_max": True}, {"use_max": False}, {}])
+async def test_address_mr_comments_hands_the_addressor_the_callbacks_max_mode(run_lookup, task_kwargs):
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=False)
+
+    with (
+        patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
+        patch(
+            "webhooks.managers.review_addressor.CommentsAddressorManager.address_comments", new=AsyncMock()
+        ) as address,
+    ):
+        await address_mr_comments_task.func(
+            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", **task_kwargs
+        )
+
+    assert address.await_args.kwargs["use_max"] is task_kwargs.get("use_max", False)

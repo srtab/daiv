@@ -147,6 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts: replies on issues and merge requests, notes, discussions and release notes posted through the GitLab and GitHub tools, and merge-request titles and descriptions now show repo-relative paths. A URL whose path contains `/workspace/repo/` is left intact.
 - The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, instead of queuing runs that fail at start.
 - Chat runs now honour the site's agent recursion limit instead of a fixed 500.
+- A merge or pull request comment on an MR/PR labelled `daiv-max` now runs on the max model; it ran on the default model while showing the max one.
 
 ### Removed
 

@@ -226,6 +226,7 @@ class CommentsAddressorManager(BaseManager):
         thread_id: str | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
+        use_max: bool = False,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -237,6 +238,7 @@ class CommentsAddressorManager(BaseManager):
             thread_id: The session's thread id; ``None`` computes the deterministic one.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
+            use_max: The max mode the callback decided.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
@@ -247,14 +249,14 @@ class CommentsAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_comments(sandbox_env_id=sandbox_env_id, run_id=run_id)
+            return await manager._address_comments(sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
         except CloneRefNotFoundError:
             raise
         except Exception:
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None) -> AgentResult:
+    async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool) -> AgentResult:
         note = self.client.get_merge_request_comment(
             self.repo_id, self.merge_request.merge_request_id, self.mention_comment_id
         ).notes[0]
@@ -268,6 +270,7 @@ class CommentsAddressorManager(BaseManager):
                 lock=await self._lock_policy(),
                 ref=self.merge_request.source_branch,
                 merge_request=self.merge_request,
+                use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
                 run_id=run_id,
                 recover_draft=True,
