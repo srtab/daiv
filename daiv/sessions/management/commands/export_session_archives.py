@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date
 from operator import attrgetter
 from pathlib import Path
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from langchain_core.messages import messages_to_dict
 
 from sessions.archive import decode_values
 from sessions.models import Session
+
+logger = logging.getLogger("daiv.sessions")
 
 
 class Command(BaseCommand):
@@ -31,11 +34,19 @@ class Command(BaseCommand):
         if repo:
             sessions = sessions.filter(repo_id=repo)
         output.mkdir(parents=True, exist_ok=True)
-        exported = 0
+        exported, failed = 0, []
         for session in sessions.iterator(chunk_size=50):
-            (output / f"{session.thread_id}.json").write_text(json.dumps(_export(session), indent=2, default=str))
+            try:
+                payload = json.dumps(_export(session), indent=2, default=str)
+            except Exception:
+                logger.exception("Failed to export session %s", session.thread_id)
+                failed.append(session.thread_id)
+                continue
+            (output / f"{session.thread_id}.json").write_text(payload)
             exported += 1
         self.stdout.write(f"Exported {exported} session(s) to {output}.")
+        if failed:
+            raise CommandError(f"Failed to export {len(failed)} session(s), see the log: " + ", ".join(failed))
 
 
 def _export(session: Session) -> dict[str, Any]:
@@ -49,6 +60,7 @@ def _export(session: Session) -> dict[str, Any]:
             {
                 "epoch": archive.epoch,
                 "updated_at": archive.updated_at,
+                "closed_at": archive.closed_at,
                 "messages": messages_to_dict(decode_values(archive.state_type, archive.state).get("messages") or []),
             }
             for archive in sorted(session.archives.all(), key=attrgetter("epoch"))  # ty: ignore[unresolved-attribute]

@@ -241,18 +241,43 @@ class TestArchiveSessionsCommand:
         with patch("core.checkpointer.open_checkpointer", _open_checkpointer):
             call_command("archive_sessions", stdout=out)
 
-        assert "Archived 1 of 2 session(s) without an archive" in out.getvalue()
+        assert "Archived 1 session(s); 1 had nothing left to archive." in out.getvalue()
         assert list(SessionArchive.objects.filter(session=live).values_list("first_message_id", flat=True)) == ["h1"]
         assert not SessionArchive.objects.filter(session=expired).exists()
         read = [call.args[0]["configurable"]["thread_id"] for call in checkpointer.aget_tuple.await_args_list]
         assert archived.thread_id not in read
+
+    def test_it_fails_naming_the_sessions_it_could_not_archive(self):
+        failing, live = _make_session(), _make_session()
+        checkpoint = SimpleNamespace(checkpoint={"channel_values": {"messages": [HumanMessage("hi", id="h1")]}})
+
+        def _read(config):
+            if config["configurable"]["thread_id"] == failing.thread_id:
+                raise ConnectionError("redis down")
+            return checkpoint
+
+        @asynccontextmanager
+        async def _open_checkpointer():
+            yield SimpleNamespace(aget_tuple=AsyncMock(side_effect=_read))
+
+        out = StringIO()
+        with (
+            patch("core.checkpointer.open_checkpointer", _open_checkpointer),
+            pytest.raises(CommandError, match=f"Failed to archive 1 session.*{failing.thread_id}"),
+        ):
+            call_command("archive_sessions", stdout=out)
+
+        assert "Archived 1 session(s)" in out.getvalue()
+        assert SessionArchive.objects.filter(session=live).exists()
 
 
 @pytest.mark.django_db
 class TestExportSessionArchivesCommand:
     def test_it_writes_each_archived_session_with_its_contexts_and_runs(self, tmp_path):
         session = _make_session()
-        SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("fix the bug", id="h1")]))
+        SessionArchive.objects.create(
+            session=session, **archive_fields(0, [HumanMessage("fix the bug", id="h1")], closed=True)
+        )
         SessionArchive.objects.create(session=session, **archive_fields(1, [AIMessage("cleared", id="r1")]))
         Run.objects.create(
             session=session, trigger_type=SessionOrigin.API_JOB, repo_id=session.repo_id, status=RunStatus.SUCCESSFUL
@@ -265,8 +290,32 @@ class TestExportSessionArchivesCommand:
         payload = json.loads(exported.read_text())
         assert exported.name == f"{session.thread_id}.json"
         assert [context["epoch"] for context in payload["contexts"]] == [0, 1]
+        assert [context["closed_at"] is not None for context in payload["contexts"]] == [True, False]
         assert payload["contexts"][0]["messages"][0]["data"]["content"] == "fix the bug"
         assert [run["status"] for run in payload["runs"]] == [RunStatus.SUCCESSFUL]
+
+    def test_it_exports_only_sessions_active_since_the_given_day(self, tmp_path):
+        recent, stale = _make_session(), _make_session()
+        Session.objects.filter(pk=stale.pk).update(last_active_at=datetime(2026, 9, 20, 12, tzinfo=UTC))
+        Session.objects.filter(pk=recent.pk).update(last_active_at=datetime(2026, 10, 1, 12, tzinfo=UTC))
+        for session in (recent, stale):
+            SessionArchive.objects.create(session=session, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+
+        call_command("export_session_archives", str(tmp_path), "--since", "2026-10-01", stdout=StringIO())
+
+        assert [path.name for path in tmp_path.iterdir()] == [f"{recent.thread_id}.json"]
+
+    def test_a_session_that_fails_to_export_is_named_and_the_rest_written(self, tmp_path):
+        broken, kept = _make_session(), _make_session()
+        SessionArchive.objects.create(
+            session=broken, **{**archive_fields(0, [HumanMessage("hi", id="h1")]), "state": b"not zlib"}
+        )
+        SessionArchive.objects.create(session=kept, **archive_fields(0, [HumanMessage("hi", id="h1")]))
+
+        with pytest.raises(CommandError, match=f"Failed to export 1 session.*{broken.thread_id}"):
+            call_command("export_session_archives", str(tmp_path), stdout=StringIO())
+
+        assert [path.name for path in tmp_path.iterdir()] == [f"{kept.thread_id}.json"]
 
     def test_it_exports_only_the_requested_repository(self, tmp_path):
         kept = _make_session()
