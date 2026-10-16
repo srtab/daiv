@@ -1026,7 +1026,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_chat_fixes_the_recursion_limit_at_500_whatever_the_site_says(_executor_stack):
+async def test_chat_runs_on_the_resolved_recursion_limit(_executor_stack):
     _executor_stack.resolve.side_effect = resolve_agent_settings
     with (
         patch.object(site_settings, "snapshot", return_value=site_snapshot(agent_recursion_limit=123)),
@@ -1039,7 +1039,7 @@ async def test_chat_fixes_the_recursion_limit_at_500_whatever_the_site_says(_exe
             pass
 
     assert _executor_stack.create_agent.await_args.kwargs["settings"].recursion_limit == 123
-    assert agui.call_args.kwargs["config"]["recursion_limit"] == 500
+    assert agui.call_args.kwargs["config"]["recursion_limit"] == 123
 
 
 class TestResolvedModelRecord:

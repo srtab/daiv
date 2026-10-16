@@ -216,7 +216,7 @@ class SiteSettings:
 
     Priority chain (highest to lowest):
         1. Docker secret or environment variable (hard override — UI shows field as locked)
-        2. Database value (non-null — set via the configuration UI)
+        2. Database value (non-null and non-empty, except that ``""`` is Off for a thinking level)
         3. Field defaults (hardcoded fallback)
     """
 
@@ -274,21 +274,24 @@ class SiteSettings:
 
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
-        from core.models import SiteConfiguration
+        from core.models import THINKING_OFF, SiteConfiguration
 
         # 1. Docker secret / environment variable wins
         env_value = _get_docker_secret_cached(self.get_env_var_name(name))
         if env_value is not None:
             if name in SiteConfiguration.ENCRYPTED_FIELDS:
                 return SecretStr(env_value)
+            if name in SiteConfiguration.THINKING_LEVEL_FIELDS:
+                level = env_value.strip().lower()
+                return "" if level == THINKING_OFF else level
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 
-        # 2. Database value (non-null and non-empty-string)
+        # 2. Database value (non-null; non-empty unless "" means Off)
         config = get_config()
         if config is not None:
             db_value = getattr(config, name, None)
-            if db_value is not None and db_value != "":
+            if db_value is not None and (db_value != "" or name in SiteConfiguration.THINKING_OFF_FIELDS):
                 if name in SiteConfiguration.ENCRYPTED_FIELDS:
                     return SecretStr(db_value)
                 return db_value

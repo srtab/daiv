@@ -248,12 +248,14 @@ class NoteCallback(BaseCallback):
             )
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+            use_max = self.merge_request.has_max_label()
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
                 sandbox_environment_id=sandbox_environment_id,
+                use_max=use_max,
             )
             try:
                 await acreate_run(
@@ -263,7 +265,7 @@ class NoteCallback(BaseCallback):
                     ref=self.merge_request.source_branch,
                     merge_request_iid=self.merge_request.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
-                    use_max=self.merge_request.has_max_label(),
+                    use_max=use_max,
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.merge_request.title,

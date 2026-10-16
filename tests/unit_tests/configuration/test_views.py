@@ -1205,6 +1205,58 @@ class TestAgentPickerWidget:
         widget = form.fields["agent_model_name"].widget
         assert widget.initial_thinking == "high"
 
+    @pytest.mark.parametrize("field", ["agent_thinking_level", "agent_max_thinking_level"])
+    @pytest.mark.parametrize(("submitted", "stored"), [("off", ""), ("", None), ("high", "high")])
+    def test_a_thinking_level_saves_off_as_empty_and_unset_as_null(
+        self, client, admin_user, group_url, field, submitted, stored
+    ):
+        client.force_login(admin_user)
+        response = client.post(group_url("agent"), {field: submitted})
+        assert response.status_code == 302
+        assert getattr(SiteConfiguration.objects.get_instance(), field) == stored
+
+    def test_the_fallback_thinking_level_rejects_off(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.post(group_url("agent"), {"agent_fallback_thinking_level": "off"})
+        assert response.status_code == 200
+        assert "agent_fallback_thinking_level" in response.context["form"].errors
+
+    def test_an_env_locked_off_seeds_the_picker_and_saves_as_off(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_THINKING_LEVEL", "OFF")
+        client.force_login(admin_user)
+
+        page = client.get(group_url("agent"))
+        assert page.context["form"].fields["agent_model_name"].widget.initial_thinking == "off"
+
+        response = client.post(group_url("agent"), {})
+        assert response.status_code == 302
+        assert SiteConfiguration.objects.get_instance().agent_thinking_level == ""
+
+    def test_a_stored_off_seeds_the_picker_with_off(self, db):
+        from configuration.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_thinking_level = ""
+        config.save()
+
+        form = SiteConfigurationForm(instance=config)
+        widget = form.fields["agent_model_name"].widget
+        assert widget.initial_thinking == "off"
+
+    @pytest.mark.parametrize(
+        ("model_field", "has_off"),
+        [("agent_model_name", True), ("agent_max_model_name", True), ("agent_fallback_model_name", False)],
+    )
+    def test_the_agent_page_renders_off_only_for_the_site_thinking_levels(
+        self, client, admin_user, group_url, model_field, has_off
+    ):
+        client.force_login(admin_user)
+        response = client.get(group_url("agent"))
+        assert response.status_code == 200
+
+        html = str(response.context["form"][model_field])
+        assert ("agent-popover__effort-off" in html) is has_off
+
 
 @pytest.mark.django_db
 def test_providers_view_creates_custom_provider(client, admin_user):

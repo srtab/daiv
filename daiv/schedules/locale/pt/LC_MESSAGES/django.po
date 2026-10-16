@@ -105,12 +105,6 @@ msgstr "executar em"
 msgid "Specific date and time for one-off schedules."
 msgstr "Data e hora específicas para agendamentos únicos."
 
-msgid "max mode"
-msgstr "modo máximo"
-
-msgid "Use the more capable model with thinking set to high."
-msgstr "Usar o modelo mais capaz com o raciocínio definido como elevado."
-
 msgid "agent model"
 msgstr "modelo do agente"
 

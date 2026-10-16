@@ -88,18 +88,29 @@ class TestEnvOverride:
 
 
 @pytest.mark.parametrize("field", ["agent_thinking_level", "agent_max_thinking_level"])
-class TestEmptyThinkingLevel:
-    """The help text on these fields says an empty value disables thinking."""
-
-    def test_an_empty_value_in_the_database_falls_back_to_the_default(self, ss, field):
-        """Pins current behaviour, not a requirement: it contradicts the help text."""
+class TestThinkingLevelOff:
+    def test_an_empty_value_in_the_database_disables_thinking(self, ss, field):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: ""})):
+            assert getattr(ss, field) == ""
+
+    def test_a_null_value_in_the_database_uses_the_default(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: None})):
             assert getattr(ss, field) == ss.FIELD_DEFAULTS[field]
 
-    def test_an_empty_value_in_the_environment_disables_thinking(self, ss, field, monkeypatch):
-        monkeypatch.setenv(ss.get_env_var_name(field), "")
-        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "high"})):
-            assert getattr(ss, field) == ""
+
+@pytest.mark.parametrize("field", ["agent_thinking_level", "agent_fallback_thinking_level", "agent_max_thinking_level"])
+@pytest.mark.parametrize(
+    ("env_value", "level"), [("", ""), ("off", ""), ("OFF", ""), (" off ", ""), ("High", "high"), (" xhigh ", "xhigh")]
+)
+def test_an_environment_thinking_level_ignores_case_and_off_disables_thinking(ss, field, env_value, level, monkeypatch):
+    monkeypatch.setenv(ss.get_env_var_name(field), env_value)
+    with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(**{field: "low"})):
+        assert getattr(ss, field) == level
+
+
+def test_an_empty_fallback_thinking_level_still_uses_the_default(ss):
+    with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(agent_fallback_thinking_level="")):
+        assert ss.agent_fallback_thinking_level == ss.FIELD_DEFAULTS["agent_fallback_thinking_level"]
 
 
 class TestEnvLocked:

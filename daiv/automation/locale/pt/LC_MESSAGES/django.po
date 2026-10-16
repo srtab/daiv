@@ -62,5 +62,8 @@ msgstr "Usar o nome exato:"
 msgid "Effort"
 msgstr "Esforço"
 
+msgid "Off"
+msgstr "Desligado"
+
 msgid "Use default"
 msgstr "Usar predefinição"

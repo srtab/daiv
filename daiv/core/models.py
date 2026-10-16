@@ -65,6 +65,9 @@ class ThinkingLevelChoices(models.TextChoices):
             return 0
 
 
+THINKING_OFF = "off"
+
+
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
@@ -216,7 +219,9 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=ThinkingLevelChoices.choices,
-        help_text=_("Extended thinking depth for agent tasks. Leave empty to disable thinking."),
+        help_text=_(
+            "Extended thinking depth for agent tasks. Choose Off to disable thinking; leave unset to use the default."
+        ),
     )
     agent_max_model_name = models.CharField(
         _("max model"),
@@ -231,7 +236,9 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=ThinkingLevelChoices.choices,
-        help_text=_("Thinking depth for daiv-max tasks. Leave empty to disable thinking."),
+        help_text=_(
+            "Thinking depth for daiv-max tasks. Choose Off to disable thinking; leave unset to use the default."
+        ),
     )
     agent_explore_model_name = models.CharField(
         _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
@@ -244,7 +251,11 @@ class SiteConfiguration(models.Model):
         help_text=_("Fallback model when the explore model fails."),
     )
     agent_recursion_limit = models.PositiveIntegerField(
-        _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
+        _("recursion limit"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Maximum recursion depth for agent loops."),
     )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
@@ -565,6 +576,9 @@ class SiteConfiguration(models.Model):
         "telegram_bot_token",
         "telegram_webhook_secret",
     )
+
+    THINKING_OFF_FIELDS: ClassVar[frozenset[str]] = frozenset({"agent_thinking_level", "agent_max_thinking_level"})
+    THINKING_LEVEL_FIELDS: ClassVar[frozenset[str]] = THINKING_OFF_FIELDS | {"agent_fallback_thinking_level"}
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
         FieldGroup(

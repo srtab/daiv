@@ -287,8 +287,7 @@ async def test_a_webhook_run_records_the_model_it_ran_on_its_run_row(mention):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_max_stamp(mention):
-    """Pins current behaviour, not a requirement: the review addressor does not run max mode."""
+async def test_a_daiv_max_comment_runs_on_the_max_model_it_stamped(mention):
     site = {
         "agent_model_name": "site-default",
         "agent_thinking_level": "low",
@@ -310,9 +309,9 @@ async def test_a_daiv_max_comment_runs_on_the_default_model_and_overwrites_the_m
         )
         stamped = (run.agent_model, run.agent_thinking_level)
         with addressor_run(agent, ctx=_ctx(), resolve=resolve_agent_settings, site=site_snapshot(**site)) as stack:
-            await _address(thread_id=thread_id, run_id=str(run.pk))
+            await _address(thread_id=thread_id, run_id=str(run.pk), use_max=True)
 
     await run.arefresh_from_db()
     assert stamped == ("site-max", "high")
-    assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-default"
-    assert (run.agent_model, run.agent_thinking_level) == ("site-default", "low")
+    assert stack.create_agent.await_args.kwargs["settings"].agent.names[0] == "site-max"
+    assert (run.agent_model, run.agent_thinking_level) == ("site-max", "high")

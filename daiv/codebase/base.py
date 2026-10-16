@@ -125,6 +125,10 @@ class MergeRequest(BaseModel):
     merged-MR skip guard reads. Other construction sites keep the ``False`` default, so do not
     treat it as a source of truth off those paths."""
 
+    def has_max_label(self) -> bool:
+        """Whether the merge request carries the daiv-max label (case-insensitive)."""
+        return any(label.lower() == BOT_MAX_LABEL.lower() for label in self.labels)
+
 
 class MergeRequestDiff(BaseModel):
     repo_id: str

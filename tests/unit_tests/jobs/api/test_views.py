@@ -291,17 +291,29 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_queues_a_run_without_a_model_when_the_site_has_none(authenticated_client: TestAsyncClient):
-    """Pins current behaviour, not a requirement: the run fails at start unless the repository sets a model."""
+async def test_submit_job_refuses_with_400_when_no_model_can_be_resolved(authenticated_client: TestAsyncClient):
+    with patch.multiple(site_settings, agent_model_name=""), patch("jobs.api.views.asubmit_batch_runs") as submit:
+        response = await authenticated_client.post("/jobs", json=_single_repo_body())
+
+    assert response.status_code == 400
+    assert "no system default is configured" in response.json()["detail"]
+    submit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authenticated_client: TestAsyncClient):
     captured: dict = {}
     with (
         patch.multiple(site_settings, agent_model_name=""),
+        patch("jobs.api.views.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
         patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
     ):
-        response = await authenticated_client.post("/jobs", json=_single_repo_body())
+        response = await authenticated_client.post(
+            "/jobs", json=_single_repo_body(agent_model="openrouter:z-ai/glm-5.2")
+        )
 
     assert response.status_code == 202
-    assert not captured["agent_model"]
+    assert captured["agent_model"] == "openrouter:z-ai/glm-5.2"
 
 
 @pytest.mark.django_db(transaction=True)
