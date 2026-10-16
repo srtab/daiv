@@ -228,7 +228,7 @@ async def test_a_fix_run_falls_back_to_the_default_when_the_sessions_model_is_un
 
     assert (calls[0]["agent_model"], calls[0]["agent_thinking_level"]) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("", "")
-    assert "no longer available" in caplog.text
+    assert "'gone:model', which cannot be used (Provider 'gone' is disabled.)" in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)

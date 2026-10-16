@@ -24,15 +24,16 @@ FIX_RUN_PROMPT = (
 
 
 def _session_agent(session: Session) -> tuple[str, str]:
-    """The thread's pinned model and thinking level; empty when it pins none or its model is no longer available."""
+    """The thread's pinned model and thinking level; empty when it pins none or its model cannot be used."""
     from automation.agent import validators
 
     try:
         return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
     except validators.AgentOverrideError as err:
         logger.warning(
-            "pipeline_watch: thread_id=%s pins a model that is no longer available (%s); the fix run uses the default",
+            "pipeline_watch: thread_id=%s pins model %r, which cannot be used (%s); the fix run uses the default",
             session.thread_id,
+            session.agent_model,
             err,
         )
         return "", ""

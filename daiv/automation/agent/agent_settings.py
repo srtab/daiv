@@ -22,8 +22,8 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 12. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
 
-A site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as an error;
-``.daiv.yml`` levels are validated when the file loads.
+A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
+an error; ``.daiv.yml`` levels are validated when the file loads.
 """
 
 from __future__ import annotations

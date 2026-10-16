@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-run agent settings are now resolved once, when a run starts. Memory injection, which re-checked the site switch on every model call, and the merge request session link, the context-file (`AGENTS.md`) suggestion and the commit and PR writer model, which were read when the run published its changes, are now fixed for the run, so a site-settings change to them applies from the next run: turning memory off mid-run no longer stops its injection in that run.
 - Issue runs now start with the issue's title, labels and description already in the conversation, marked as untrusted data, so the agent no longer spends its first turns fetching the issue. A description over 20,000 characters is cut, with a pointer to read the full issue. The issue is added again after `/clear` and whenever its title, labels or description change. The `daiv-auto` prompt now also tells the agent to say so, instead of guessing, when a code change cannot resolve the issue or the issue is unclear.
 - The agent can now load a skill in the same turn as other tool calls: the `skill` tool returns the skill's instructions as its result, so the rule that it must be called alone is gone. A file write called in the same turn as a read-only skill such as `plan` is refused.
+- The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, as MCP already did. This includes a repository whose `.daiv.yml` sets a model.
 
 ### Added
 
@@ -145,11 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
 - Fixed the agent's step-budget, repeated-tool-call and empty-reply reminders vanishing from the conversation after the call that carried them, which restarted the prompt cache and could invalidate thinking blocks on Claude models. Reminders now stay in the conversation but are hidden from the session transcript, and the step-budget reminder is sent once per band (warning, then finalize) instead of on every call.
 - Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts: replies on issues and merge requests, notes, discussions and release notes posted through the GitLab and GitHub tools, and merge-request titles and descriptions now show repo-relative paths. A URL whose path contains `/workspace/repo/` is left intact.
-- The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, instead of queuing runs that fail at start.
 - Chat runs now honour the site's agent recursion limit instead of a fixed 500.
-- A comment on a merge or pull request labelled `daiv-max` now runs on the max model; it ran on the default model while showing the max one.
-- CI fix runs now use the model and thinking level of the session they fix; a model that is no longer available falls back to the default.
-- The site thinking levels (agent and daiv-max) can now be set to Off in the settings UI; an empty value used to fall back to the default although the help text said it disabled thinking. Values saved before this release keep their behaviour.
+- A DAIV mention on a merge or pull request labelled `daiv-max` now runs on the max model instead of the default one.
+- CI fix runs now use the model and thinking level of the session they fix, falling back to the default when that model can no longer be used. A `daiv-max` session whose max thinking level is Off still gets the agent thinking level on these runs.
+- The site thinking levels (agent and daiv-max) can now be set to Off in the settings UI; an empty value used to fall back to the default although the help text said it disabled thinking. Values saved before this release keep their behaviour. The thinking-level environment variables now accept `off` and ignore case; `High` used to disable thinking.
 
 ### Removed
 

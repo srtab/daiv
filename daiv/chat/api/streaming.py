@@ -406,7 +406,7 @@ class ChatRunStreamer:
             name="DAIV",
             description="DAIV agent",
             graph=run.agent,
-            # ag-ui's ensure_config stamps LangGraph's default (25) over the graph's bound limit.
+            # ag-ui's run config otherwise carries langchain-core's default (25) over the limit graph.py binds.
             config={"recursion_limit": run.settings.recursion_limit, **run.config},
             runtime_context=run.ctx,
         )
