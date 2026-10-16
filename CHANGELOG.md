@@ -145,6 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
 - Fixed the agent's step-budget, repeated-tool-call and empty-reply reminders vanishing from the conversation after the call that carried them, which restarted the prompt cache and could invalidate thinking blocks on Claude models. Reminders now stay in the conversation but are hidden from the session transcript, and the step-budget reminder is sent once per band (warning, then finalize) instead of on every call.
 - Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts: replies on issues and merge requests, notes, discussions and release notes posted through the GitLab and GitHub tools, and merge-request titles and descriptions now show repo-relative paths. A URL whose path contains `/workspace/repo/` is left intact.
+- The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, instead of queuing runs that fail at start.
 
 ### Removed
 
