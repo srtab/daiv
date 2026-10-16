@@ -350,6 +350,22 @@ def _clear_docker_secret_cache():
     _docker_secret_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _clear_site_settings_overrides():
+    # ``site_settings`` resolves every field through ``__getattr__`` and holds no
+    # instance state, so ``site_settings.__dict__`` should be empty. But
+    # ``monkeypatch.setattr(site_settings, <field>, ...)`` reads the *computed*
+    # value as the "old" one and restores it as a real instance attribute on
+    # undo — which then shadows ``__getattr__`` for every later test (e.g. an
+    # env-locked thinking level silently resolves to the stale override).
+    # Drop any such leaked attributes so each test starts from a clean singleton.
+    from core.site_settings import site_settings
+
+    site_settings.__dict__.clear()
+    yield
+    site_settings.__dict__.clear()
+
+
 @pytest.fixture
 def make_auth_header() -> Callable[[str, str, str], WebFetchAuthHeader]:
     """Factory for creating ``WebFetchAuthHeader`` rows in tests.
