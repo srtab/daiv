@@ -13,7 +13,8 @@ logger = logging.getLogger("daiv.slash_commands")
 @slash_command(command="clear", scopes=[Scope.ISSUE, Scope.MERGE_REQUEST])
 class ClearSlashCommand(SlashCommand):
     """
-    Command to clear the conversation context by deleting the thread.
+    Command to clear the conversation context by deleting the thread's checkpoint; the session archive keeps the
+    earlier context in the session's history.
     """
 
     description: str = "Clear the conversation context and start fresh."
@@ -25,7 +26,7 @@ class ClearSlashCommand(SlashCommand):
         """
         Execute clear command for agent middleware.
 
-        Deletes the thread associated with the current issue or merge request.
+        Deletes the checkpoint of the thread associated with the current issue or merge request.
 
         Args:
             args: Additional parameters from the command (unused).
