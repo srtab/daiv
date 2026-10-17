@@ -43,7 +43,7 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 @daiv /clear
 ```
 
-Clears the conversation history for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting.
+Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
 
 ### /clone-to-topics
 

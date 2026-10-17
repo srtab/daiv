@@ -54,12 +54,12 @@ The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowe
 
 ### Redis
 
-| Variable                              | Description                                           | Default                     | Example                |
-| ------------------------------------- | ----------------------------------------------------- | --------------------------- | ---------------------- |
-| `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                 | *(none)*                    | `redis://redis:6379/0` |
-| `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)              | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
-| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
-| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data          | `10080` (7 days)            | `1440`                 |
+| Variable                              | Description                                                                                                                                                                                                                                                                  | Default                     | Example                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------- |
+| `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                                                                                                                                                                                                                                        | *(none)*                    | `redis://redis:6379/0` |
+| `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)                                                                                                                                                                                                                                     | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
+| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2)                                                                                                                                                                                                                        | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
+| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them | `10080` (7 days)            | `1440`                 |
 
 ### Sentry
 

@@ -1572,6 +1572,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#session-archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session archive
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bash-command-policy-logs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1970,6 +1981,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session archive
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2493,14 +2515,59 @@
 <h3 id="relationship-to-langsmith">Relationship to LangSmith</h3>
 <p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Run records and do not require a LangSmith account.</p>
 <hr />
+<h2 id="session-archive">Session archive</h2>
+<p>DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>export_session_archives<span class="w"> </span>./session-exports<span class="w"> </span>--since<span class="w"> </span><span class="m">2026</span>-10-01<span class="w"> </span>--repo<span class="w"> </span>group/project
+</code></pre></div></td></tr></table></div>
+<p>Each archived session becomes <code>&lt;thread_id&gt;.json</code>. It holds the session's repository, origin and title, every context in order (a <code>/clear</code> closes one and starts the next; <code>closed_at</code> says when) with its messages in LangChain's <code>messages_to_dict</code> format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.</p>
+<p>Exports contain full conversations and run prompts, so treat the output directory as sensitive.</p>
+<p>These <code>daiv.sessions</code> log records report archive trouble; the errors reach Sentry:</p>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>Message</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ERROR</td>
+<td><code>executor: failed to archive thread_id=…</code></td>
+<td>A run's end was not archived (the traceback says why, a timeout included); the next run's archive catches up.</td>
+</tr>
+<tr>
+<td>ERROR</td>
+<td><code>Thread … holds N messages, fewer than its archived M; keeping the archive</code></td>
+<td>The live thread lost messages the archive holds; the archive is left as it was.</td>
+</tr>
+<tr>
+<td>ERROR</td>
+<td><code>Failed to load archived context N of thread …; leaving it out</code></td>
+<td>An archive row no longer decodes; the transcript is shown without it.</td>
+</tr>
+<tr>
+<td>WARNING</td>
+<td><code>No session … to archive its thread under</code></td>
+<td>A thread with no <code>Session</code> row; nothing is archived.</td>
+</tr>
+<tr>
+<td>INFO</td>
+<td><code>Restored thread … from archived context N</code></td>
+<td>An expired thread was seeded from its archive before a run.</td>
+</tr>
+</tbody>
+</table>
+<p>A context that exists but fails to restore fails the run with <code>ArchiveRestoreError</code> instead of being logged.</p>
+<hr />
 <h2 id="bash-command-policy-logs">Bash command policy logs</h2>
 <p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
 <h3 id="log-events">Log events</h3>
 <p><strong><code>bash_policy_denied</code></strong> — a command segment matched a disallow rule:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule='git push', segment='git push origin main')
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule='git push', segment='git push origin main')
 </code></pre></div></td></tr></table></div>
 <p><strong><code>bash_policy_parse_failed</code></strong> — the command string could not be parsed (fail-closed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason='Parse error: ...')
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason='Parse error: ...')
 </code></pre></div></td></tr></table></div>
 <h3 id="log-fields">Log fields</h3>
 <table>
@@ -2575,7 +2642,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2026 12:26:34 UTC">September 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 16, 2026 09:15:26 UTC">October 16, 2026</span>
   </span>
 
     

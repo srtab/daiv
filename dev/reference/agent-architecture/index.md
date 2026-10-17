@@ -55,7 +55,7 @@ Two managers orchestrate the agent:
 | `IssueAddressorManager`    | Issue with `daiv` label | Plans and implements issue solutions |
 | `CommentsAddressorManager` | `@daiv` mention on MR   | Responds to code review comments     |
 
-Both create a persistent conversation thread (stored in Redis with a 7-day TTL by default, configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`) so the agent retains context across multiple interactions on the same issue or MR.
+Both create a persistent conversation thread so the agent retains context across multiple interactions on the same issue or MR. The thread's working state lives in Redis with a 7-day TTL by default (configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`); DAIV archives it in the database when each run ends and restores it from there when a later interaction finds it expired.
 
 ## Tools
 

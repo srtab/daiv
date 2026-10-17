@@ -1957,7 +1957,7 @@ A run's final message is a paragraph of text, and the agent's workspace is throw
 
 The agent has a `publish_artifact` tool: it writes the file to its scratchpad (`/workspace/tmp/...`), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and without committing anything to the repository.
 
-Published files appear inline in the transcript, as part of the turn that published them: adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card, one row per file. Each row shows the title (linking to the viewer page, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, opened in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows "Publishing…"; a publish that failed shows its path with a red × and the error message in red — in the same card as any files that did publish. Reloading the page renders the same rows, though publishes from consecutive model steps can land in separate cards. After a session's transcript expires, its artifacts still show on the session page, one card per run, below the expired notice.
+Published files appear inline in the transcript, as part of the turn that published them: adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card, one row per file. Each row shows the title (linking to the viewer page, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, opened in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows "Publishing…"; a publish that failed shows its path with a red × and the error message in red — in the same card as any files that did publish. Reloading the page renders the same rows, though publishes from consecutive model steps can land in separate cards. If a session has no archived transcript (its checkpoint expired before DAIV archived sessions), its artifacts still show on the session page, one card per run, below the expired notice.
 
 What the viewer shows depends on the file type:
 
@@ -1985,7 +1985,7 @@ A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAI
 
 Ask the agent to change a report it already published — "add a section on licenses", "make the table sortable" — and it revises the artifact instead of publishing a new one: it edits the file and publishes it again with the artifact's id, so the file is replaced and **the URL stays the same**. If the file is no longer in its workspace (an earlier run published it), the agent first copies it back with `fetch_artifact`. This works across runs of the same session, but never across sessions: the agent can only read or revise artifacts of the session it runs in. You can paste an artifact's URL into the conversation to point the agent at it.
 
-A revised artifact stays on the run that first published it — in the transcript after it expires and on the dashboard. The Jobs API and MCP job-status responses list it under that run and under every run that revised it. Every transcript row for it shows its current title, type and size, rows are marked **Updated** once it has been revised, and the viewer's header shows when it was last updated. Only the latest version is kept; revisions do not count towards the per-run file limit.
+A revised artifact stays on the run that first published it — on the dashboard, and in the per-run artifact cards of a session with no transcript. The Jobs API and MCP job-status responses list it under that run and under every run that revised it. Every transcript row for it shows its current title, type and size, rows are marked **Updated** once it has been revised, and the viewer's header shows when it was last updated. Only the latest version is kept; revisions do not count towards the per-run file limit.
 
 ______________________________________________________________________
 
@@ -2035,7 +2035,7 @@ The request itself links back to the session that produced it — see [Linking b
 
 Expired state
 
-Session state lives in the agent checkpointer and can expire. Opening an expired session shows an "expired" notice; start a fresh session to continue.
+The agent's working state lives in the checkpointer and expires (`DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`), but DAIV archives each session when a run ends. An expired session keeps its transcript, and your next message picks up where it left off: DAIV restores the conversation from the archive first, and fails the run if it can't. Archived conversations are kept as long as their session exists; nothing prunes them automatically. A session with no archived transcript, such as one whose checkpoint expired before DAIV archived sessions, shows an "expired" notice; start a fresh session to continue.
 
 ### Answering a question
 
@@ -3104,7 +3104,7 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 @daiv /clear
 ```
 
-Clears the conversation history for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting.
+Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
 
 ### /clone-to-topics
 
@@ -4285,12 +4285,12 @@ The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowe
 
 ### Redis
 
-| Variable                              | Description                                           | Default                     | Example                |
-| ------------------------------------- | ----------------------------------------------------- | --------------------------- | ---------------------- |
-| `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                 | *(none)*                    | `redis://redis:6379/0` |
-| `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)              | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
-| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2) | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
-| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data          | `10080` (7 days)            | `1440`                 |
+| Variable                              | Description                                                                                                                                                                                                                                                                  | Default                     | Example                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------- |
+| `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                                                                                                                                                                                                                                        | *(none)*                    | `redis://redis:6379/0` |
+| `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)                                                                                                                                                                                                                                     | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
+| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2)                                                                                                                                                                                                                        | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
+| `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them | `10080` (7 days)            | `1440`                 |
 
 ### Sentry
 
@@ -4820,7 +4820,7 @@ Two managers orchestrate the agent:
 | `IssueAddressorManager`    | Issue with `daiv` label | Plans and implements issue solutions |
 | `CommentsAddressorManager` | `@daiv` mention on MR   | Responds to code review comments     |
 
-Both create a persistent conversation thread (stored in Redis with a 7-day TTL by default, configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`) so the agent retains context across multiple interactions on the same issue or MR.
+Both create a persistent conversation thread so the agent retains context across multiple interactions on the same issue or MR. The thread's working state lives in Redis with a 7-day TTL by default (configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`); DAIV archives it in the database when each run ends and restores it from there when a later interaction finds it expired.
 
 ## Tools
 
@@ -5207,6 +5207,32 @@ Token detail buckets (when available from the provider):
 ### Relationship to LangSmith
 
 LangSmith remains the recommended tool for detailed **trace-level** observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides **run-level** usage summaries that persist on Run records and do not require a LangSmith account.
+
+______________________________________________________________________
+
+## Session archive
+
+DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
+
+```
+python manage.py export_session_archives ./session-exports --since 2026-10-01 --repo group/project
+```
+
+Each archived session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` closes one and starts the next; `closed_at` says when) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.
+
+Exports contain full conversations and run prompts, so treat the output directory as sensitive.
+
+These `daiv.sessions` log records report archive trouble; the errors reach Sentry:
+
+| Level   | Message                                                                     | Meaning                                                                                                       |
+| ------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| ERROR   | `executor: failed to archive thread_id=…`                                   | A run's end was not archived (the traceback says why, a timeout included); the next run's archive catches up. |
+| ERROR   | `Thread … holds N messages, fewer than its archived M; keeping the archive` | The live thread lost messages the archive holds; the archive is left as it was.                               |
+| ERROR   | `Failed to load archived context N of thread …; leaving it out`             | An archive row no longer decodes; the transcript is shown without it.                                         |
+| WARNING | `No session … to archive its thread under`                                  | A thread with no `Session` row; nothing is archived.                                                          |
+| INFO    | `Restored thread … from archived context N`                                 | An expired thread was seeded from its archive before a run.                                                   |
+
+A context that exists but fails to restore fails the run with `ArchiveRestoreError` instead of being logged.
 
 ______________________________________________________________________
 

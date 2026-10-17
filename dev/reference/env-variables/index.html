@@ -2413,7 +2413,7 @@
 </tr>
 <tr>
 <td><code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code></td>
-<td>TTL in minutes for LangGraph checkpoint data</td>
+<td>TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them</td>
 <td style="text-align: center;"><code>10080</code> (7 days)</td>
 <td><code>1440</code></td>
 </tr>
