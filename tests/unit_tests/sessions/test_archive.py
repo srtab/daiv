@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, NotRequired
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from deepagents import create_deep_agent
@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from redis.exceptions import RedisError
 from sessions.archive import (
+    ARCHIVED_CHANNELS,
     ArchiveRestoreError,
     aarchive_thread,
     aarchived_contexts,
@@ -29,6 +30,11 @@ from sessions.archive import (
     merge_messages,
 )
 
+from automation.agent.agent_settings import RunOverrides
+from automation.agent.base import BaseAgent
+from automation.agent.deferred.conf import settings as deferred_settings
+from automation.agent.graph import create_daiv_agent
+from tests.unit_tests.conftest import FakeArtifactStore, FakeWorkspace, agent_settings, site_snapshot
 from tests.unit_tests.sessions.conftest import acreate_archive, amake_job_session, fake_checkpointer, make_merge_request
 
 
@@ -324,6 +330,63 @@ class _ParentChainSaver(InMemorySaver):
         return await BaseCheckpointSaver.aget_delta_channel_history(self, config=config, channels=channels)
 
 
+async def _daiv_agent(checkpointer: BaseCheckpointSaver | None = None):
+    """The DAIV agent with every optional middleware on, so its state holds every channel a run can checkpoint."""
+    settings = agent_settings(
+        site=site_snapshot(web_search_enabled=True, web_fetch_enabled=True),
+        run=RunOverrides(model_names=("primary", "fallback")),
+    )
+    ctx = MagicMock()
+    ctx.config.context_file_name = "AGENTS.md"
+    with (
+        patch.object(BaseAgent, "get_model", side_effect=lambda **kwargs: _ToolModel(messages=iter([]))),
+        patch("automation.agent.graph.MCPToolkit.get_tools", AsyncMock(return_value=[])),
+        patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
+        patch("automation.agent.middlewares.sandbox.site_settings", sandbox_api_key="key"),
+        patch.object(deferred_settings, "ENABLED", True),
+    ):
+        return await create_daiv_agent(
+            settings=settings,
+            ctx=ctx,
+            workspace=FakeWorkspace(bash=MagicMock(), session=MagicMock()),
+            artifact_store=FakeArtifactStore(),
+            checkpointer=checkpointer,
+        )
+
+
+_RESET_CHANNELS = {
+    "_blob_payloads",
+    "_skill_tools_disclosed",
+    "_summarization_session_id",
+    "active_skill_mode",
+    "code_changes",
+    "github_token",
+    "github_token_expires_at",
+    "jump_to",
+    "memory_contents",
+    "model_patch",
+    "pinned_skills",
+    "pre_run_dirty_files",
+    "protected_branch_fallback_source",
+    "published",
+    "sandbox_fingerprint",
+    "session_id",
+    "skills_load_errors",
+    "skills_metadata",
+    "structured_response",
+}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_every_channel_of_the_agents_state_is_archived_or_resets_on_restore():
+    """A channel the agent's state gains must be sorted into ``ARCHIVED_CHANNELS`` or ``_RESET_CHANNELS``."""
+    agent = await _daiv_agent()
+    channels = {name for name in agent.channels if not name.startswith(("__", "branch:"))}
+
+    assert set(ARCHIVED_CHANNELS) <= channels
+    assert channels - set(ARCHIVED_CHANNELS) == _RESET_CHANNELS
+
+
 def _stub_agent(error: Exception | None = None) -> SimpleNamespace:
     return SimpleNamespace(aupdate_state=AsyncMock(side_effect=error))
 
@@ -405,6 +468,16 @@ class TestRestoreThread:
         await _aresume(_deep_agent(probe, saver), saver, _config(thread_id))
 
         assert probe.seen == [(["h1", "a1", "h2"], {"web_fetch"})]
+
+    async def test_the_daiv_agent_restores_every_archived_channel(self):
+        thread_id = await amake_job_session()
+        values = archivable_values(_state())
+        await acreate_archive(thread_id, 0, **values)
+        saver, config = InMemorySaver(), _config(thread_id)
+        agent = await _daiv_agent(saver)
+
+        assert await arestore_thread(agent, saver, config) is True
+        assert archivable_values((await agent.aget_state(config)).values) == values
 
     async def test_a_dangling_tool_call_in_the_archive_is_not_replayed(self):
         calls: list[str] = []
