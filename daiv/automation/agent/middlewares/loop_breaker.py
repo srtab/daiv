@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Literal
 
 from langchain.agents.middleware import AgentMiddleware
@@ -25,6 +26,8 @@ REPEAT_THRESHOLD = 3
 # Escalating reminders before the terminal action. With REPEAT_THRESHOLD=3 the terminal action
 # fires at a streak of 6 (reminders injected at streaks 3, 4, 5).
 MAX_REMINDERS = 3
+
+_READ_WINDOW = re.compile(r"@@ lines ([0-9]+)-([0-9]+)(?: of ([0-9]+))? \| next offset ([0-9]+) @@")
 
 
 def _tool_signature(message: AIMessage) -> tuple[tuple[str, str], ...] | None:
@@ -71,13 +74,73 @@ def _repeated_tool_label(messages: list[AnyMessage]) -> str:
     return "the same"
 
 
+def _read_file_paging_hint(messages: list[AnyMessage]) -> str:
+    """Suggest a continuation only from the latest single read's matching status header.
+
+    File contents can contain header-like text, so only the leading metadata line is eligible.
+    Results with notices before the header, errors, media, or incompatible windows keep the generic
+    reminder. This is advice to the model, never an automatic read or a change to the stop budget.
+    """
+    results: list[ToolMessage] = []
+    for message in reversed(messages):
+        if isinstance(message, ToolMessage):
+            results.append(message)
+            continue
+        if is_synthetic(message):
+            continue
+        if not isinstance(message, AIMessage) or len(message.tool_calls) != 1:
+            return ""
+        call = message.tool_calls[0]
+        if call["name"] != "read_file":
+            return ""
+        result = next((result for result in results if result.tool_call_id == call["id"]), None)
+        if (
+            result is None
+            or result.status != "success"
+            or result.name not in (None, "read_file")
+            or not isinstance(result.content, str)
+        ):
+            return ""
+        window = _READ_WINDOW.fullmatch(result.content.partition("\n")[0])
+        if window is None:
+            return ""
+        args = call["args"]
+        offset = args.get("offset", 0)
+        if not isinstance(args.get("file_path"), str) or not args["file_path"] or type(offset) is not int or offset < 0:
+            return ""
+        limit = args.get("limit")
+        if "limit" in args and (type(limit) is not int or limit < 1):
+            return ""
+        try:
+            start, end, next_offset = int(window[1]), int(window[2]), int(window[4])
+            total = int(window[3]) if window[3] is not None else None
+        except ValueError:
+            return ""  # Oversized numeric fields are unusable metadata too.
+        if (
+            start != offset + 1
+            or end < start
+            or next_offset != end
+            or (total is not None and end >= total)
+            or (limit is not None and end - offset > limit)
+        ):
+            return ""
+        next_args = {**args, "offset": next_offset}
+        return (
+            f"If you need more of this file, read the next page with read_file arguments {json.dumps(next_args)}. "
+            "For a specific symbol elsewhere, use a focused lookup instead. "
+        )
+    return ""
+
+
 class LoopBreakerMiddleware(AgentMiddleware):
     """Detect verbatim tool-call repetition, nudge the model, then stop the run.
 
     Implemented entirely in ``awrap_model_call`` so it adds no graph node (a ``before_model`` hook
     would inflate the per-turn superstep cost). When the trailing run of identical tool calls
     reaches ``repeat_threshold`` it sends a ``<system-reminder>`` asking the model to change approach
-    or finalize, saved into the thread ahead of the reply (see ``reminders``); after ``max_reminders``
+    or finalize, saved into the thread ahead of the reply (see ``reminders``). A repeated paged
+    ``read_file`` also gets concrete next-page arguments when its latest result supplies a usable
+    leading window header. After ``max_reminders``
     ignored reminders it takes a terminal action:
 
     - ``terminal="error"`` (subagents): return a tool-call-free ``AIMessage`` framed as a failure.
@@ -131,16 +194,17 @@ class LoopBreakerMiddleware(AgentMiddleware):
             label,
             remaining,
         )
-        reminder = self._reminder(streak, label, remaining)
+        reminder = self._reminder(streak, label, remaining, paging_hint=_read_file_paging_hint(request.messages))
         return await call_with_reminder(request, handler, reminder, kind="loop_breaker")
 
-    def _reminder(self, streak: int, label: str, remaining: int) -> str:
+    def _reminder(self, streak: int, label: str, remaining: int, *, paging_hint: str = "") -> str:
         return (
             "<system-reminder>"
             f"You have called the '{label}' tool {streak} times in a row with identical arguments. "
             "The result will not change. Do not repeat it. Either take a different action toward your "
             "task (a different tool, different arguments, or a different target) or, if you already have "
             "what you need, produce your final answer now. "
+            f"{paging_hint}"
             f"This run will be stopped automatically if you repeat it {remaining} more time(s)."
             "</system-reminder>"
         )

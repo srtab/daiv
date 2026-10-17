@@ -112,8 +112,9 @@ Aggregate by:
 - dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
 - Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
+- preserving each surviving finding's subagent-provided severity; confidence measures evidence strength, not impact, and must not raise severity;
 - deduplicating findings with the same underlying issue;
-- keeping the higher subagent-provided severity when duplicates disagree;
+- keeping the highest severity actually supplied by a surviving duplicate when duplicates disagree; a lone Suggestion stays a Suggestion, even at high confidence or when another detector is unavailable;
 - keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
 - removing the internal `Confidence` field.
 
