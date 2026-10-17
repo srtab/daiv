@@ -33,6 +33,8 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.langgraph import LanggraphIntegration
     from sentry_sdk.integrations.openai import OpenAIIntegration
 
+    from core.sentry import before_send
+
     sentry_sdk.init(
         ignore_errors=[DisallowedHost, KeyboardInterrupt],
         integrations=[
@@ -48,6 +50,7 @@ if SENTRY_DSN:
         debug=SENTRY_DEBUG,
         enable_logs=SENTRY_ENABLE_LOGS,
         traces_sampler=_traces_sampler,
+        before_send=before_send,
         profiles_sample_rate=SENTRY_PROFILES_SAMPLE_RATE,
         send_default_pii=SENTRY_SEND_DEFAULT_PII,
         server_name=config("NODE_HOSTNAME", default=None),
