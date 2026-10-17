@@ -158,6 +158,9 @@ msgstr "criado em"
 msgid "last active at"
 msgstr "última atividade em"
 
+msgid "cross-project users"
+msgstr "utilizadores com acesso entre projetos"
+
 msgid "Session"
 msgstr "Sessão"
 

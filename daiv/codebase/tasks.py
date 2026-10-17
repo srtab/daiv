@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC
+from datetime import UTC, timedelta
 
 from django.conf import settings
 from django.core.management import call_command
@@ -182,12 +182,37 @@ def sync_repository_access_cron_task():
     # cleared, it no longer has "prior rows" and stops being flagged as degraded.
     RepositoryAccess.objects.filter(provider=provider).stale().delete()
 
+    try:
+        prune_cross_project_access_records()
+    except Exception:
+        failures += 1
+        logger.exception("Repository access sync: failed to prune cross-project access records")
+
     if failures:
         state.status = RepositoryAccessSyncState.Status.FAILED
     else:
         state.status = RepositoryAccessSyncState.Status.OK
         state.last_success_at = timezone.now()
     state.save(update_fields=["status", "last_success_at"])
+
+
+def prune_cross_project_access_records() -> int:
+    """Drop cross-project access records past the retention window and return how many went.
+
+    A retention of ``0`` keeps rows forever.
+    """
+    from django.utils import timezone
+
+    from codebase.models import CrossProjectAccessRecord
+
+    retention_days = codebase_settings.CROSS_PROJECT_RECORD_RETENTION_DAYS
+    if retention_days <= 0:
+        return 0
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    deleted, _ = CrossProjectAccessRecord.objects.filter(occurred_at__lt=cutoff).delete()
+    if deleted:
+        logger.info("Pruned %s cross-project access records older than %s days", deleted, retention_days)
+    return deleted
 
 
 @task(dedup=True)

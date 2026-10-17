@@ -29,12 +29,15 @@ class RunSpec:
     sends it to the agent, while ``stream_run`` leaves sending to its stream factory and reads it only to skip the
     sandbox for a builtin slash command that does not need one.
 
-    ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
+    ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches and no
+    cross-project access, since there is no session to restrict to whoever fetched.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
     ``web_search_enabled`` / ``web_fetch_enabled`` override the site's toggles (``None``: the site's).
     ``context_options`` / ``agent_options`` are extra kwargs for ``set_runtime_ctx`` / ``create_daiv_agent``.
     ``ask_user_enabled`` lets the agent stop to ask the user; a one-shot run never asks.
     ``sandbox_env_id`` is the environment the trigger selected (``None``: the GLOBAL default alone).
+    ``acting_user_authenticated`` marks ``acting_user_id`` as a DAIV sign-in; webhook runs name their person by
+    ``acting_platform_uid``.
     """
 
     thread_id: str | None
@@ -52,6 +55,8 @@ class RunSpec:
     use_max: bool = False
     sandbox_env_id: str | None = None
     acting_user_id: int | None = None
+    acting_platform_uid: str | None = None
+    acting_user_authenticated: bool = False
     mcp_overrides: dict[str, str] = field(default_factory=dict)
     references: tuple[ExternalRef, ...] = ()
     run_id: str | None = None
@@ -92,6 +97,7 @@ class RunSpec:
             model_names=self.model_names,
             web_search_enabled=self.web_search_enabled,
             web_fetch_enabled=self.web_fetch_enabled,
+            cross_project_allowed=self.thread_id is not None,
         )
 
 

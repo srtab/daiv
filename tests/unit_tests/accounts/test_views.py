@@ -11,7 +11,8 @@ import pytest
 from allauth.mfa.models import Authenticator
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from accounts.models import APIKey, Role, User
+from accounts.models import APIKey, CredentialState, PlatformCredential, Role, User
+from codebase.base import GitPlatform
 
 
 @pytest.fixture
@@ -557,3 +558,141 @@ class TestDashboardChatSegment:
         assert seg_by_label.get("Chat", 0) == 2
         # Other gets only the UI_JOB run (1), not the chat runs
         assert seg_by_label.get("Other", 0) == 1
+
+
+@pytest.mark.django_db
+class TestPlatformCredentialViews:
+    @pytest.fixture(autouse=True)
+    def _gitlab_deployment(self):
+        with patch("accounts.views.codebase_settings") as settings_mock:
+            settings_mock.CLIENT = GitPlatform.GITLAB
+            yield settings_mock
+
+    def _credential(self, user, **overrides):
+        fields = {
+            "user": user,
+            "provider": GitPlatform.GITLAB.value,
+            "host": "gitlab.com",
+            "platform_uid": "77",
+            "expires_at": None,
+            "scopes": ["read_user", "api"],
+            "state": CredentialState.CONNECTED,
+        }
+        fields.update(overrides)
+        credential = PlatformCredential(**fields)
+        credential.access_token = "tok-super-secret"  # noqa: S105
+        credential.save()
+        return credential
+
+    def test_status_page_shows_state_and_granted_scopes(self, member_client, member_user):
+        self._credential(member_user)
+
+        response = member_client.get(reverse("platform_credential"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Connected" in content
+        assert "read_user" in content
+        assert "api" in content
+
+    def test_status_page_never_contains_the_token(self, member_client, member_user):
+        self._credential(member_user)
+
+        response = member_client.get(reverse("platform_credential"))
+
+        assert "tok-super-secret" not in response.content.decode()
+
+    def test_status_page_without_a_credential_offers_to_authorise(self, member_client):
+        response = member_client.get(reverse("platform_credential"))
+
+        assert response.status_code == 200
+        assert "Not authorised" in response.content.decode()
+
+    def test_a_revoked_grant_offers_reconnect_not_disconnect(self, member_client, member_user):
+        PlatformCredential.objects.create(
+            user=member_user,
+            provider=GitPlatform.GITLAB.value,
+            host="gitlab.com",
+            platform_uid="77",
+            state=CredentialState.REVOKED,
+        )
+
+        content = member_client.get(reverse("platform_credential")).content.decode()
+
+        assert reverse("platform_credential_reconnect") in content
+        assert reverse("platform_credential_revoke") not in content
+
+    def test_revoke_clears_the_secret_and_marks_it_revoked(self, member_client, member_user):
+        credential = self._credential(member_user)
+
+        response = member_client.post(reverse("platform_credential_revoke"))
+
+        assert response.status_code == 302
+        credential.refresh_from_db()
+        assert credential.state == CredentialState.REVOKED
+        assert credential.access_token is None
+
+    def test_revoke_without_a_credential_is_harmless(self, member_client):
+        response = member_client.post(reverse("platform_credential_revoke"))
+
+        assert response.status_code == 302
+        assert not PlatformCredential.objects.exists()
+
+    def test_a_person_cannot_revoke_someone_elses_authorisation(self, member_client, admin_user, member_user):
+        other = self._credential(admin_user)
+
+        member_client.post(reverse("platform_credential_revoke"))
+
+        other.refresh_from_db()
+        assert other.state == CredentialState.CONNECTED
+
+    def test_anonymous_users_are_redirected_to_login(self, client):
+        assert client.get(reverse("platform_credential")).status_code == 302
+
+    def test_reconnect_clears_a_revoked_grant_then_restarts_oauth(self, member_client, member_user):
+        PlatformCredential.objects.create(
+            user=member_user,
+            provider=GitPlatform.GITLAB.value,
+            host="gitlab.com",
+            platform_uid="77",
+            state=CredentialState.REVOKED,
+        )
+
+        response = member_client.post(reverse("platform_credential_reconnect"))
+
+        assert response.status_code == 302
+        assert response.url == reverse("gitlab_login")
+        assert not PlatformCredential.objects.filter(state=CredentialState.REVOKED).exists()
+
+    def test_a_person_cannot_reconnect_over_someone_elses_revoked_grant(self, member_client, admin_user):
+        other = PlatformCredential.objects.create(
+            user=admin_user,
+            provider=GitPlatform.GITLAB.value,
+            host="gitlab.com",
+            platform_uid="78",
+            state=CredentialState.REVOKED,
+        )
+
+        member_client.post(reverse("platform_credential_reconnect"))
+
+        assert PlatformCredential.objects.filter(pk=other.pk, state=CredentialState.REVOKED).exists()
+
+    def test_status_page_on_a_platform_without_oauth_offers_nothing_to_authorise(
+        self, member_client, _gitlab_deployment
+    ):
+        _gitlab_deployment.CLIENT = GitPlatform.SWE
+
+        response = member_client.get(reverse("platform_credential"))
+
+        assert response.status_code == 200
+        assert reverse("platform_credential_revoke") not in response.content.decode()
+
+    @pytest.mark.parametrize("url_name", ["platform_credential_revoke", "platform_credential_reconnect"])
+    def test_actions_on_a_platform_without_oauth_return_to_the_page(self, member_client, _gitlab_deployment, url_name):
+        _gitlab_deployment.CLIENT = GitPlatform.SWE
+
+        response = member_client.post(reverse(url_name))
+
+        assert response.status_code == 302
+        assert response.url == reverse("platform_credential")
+        assert [m.level_tag for m in get_messages(response.wsgi_request)] == ["error"]

@@ -1,12 +1,16 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 
 import codebase.tasks as codebase_tasks
 from codebase.base import MergeRequestCommit, MergeRequestDiffStats
+from codebase.conf import settings as codebase_settings
+from codebase.models import CrossProjectAccessRecord
 
 
 async def test_setup_webhooks_cron_task_calls_command():
@@ -275,3 +279,33 @@ class TestRecordMergeMetricsTask:
         assert await MergeMetric.objects.acount() == 1
         metric = await MergeMetric.objects.aget(repo_id="owner/repo", merge_request_iid=42)
         assert metric.lines_added == 200
+
+
+@pytest.mark.django_db
+class TestPruneCrossProjectAccessRecords:
+    @staticmethod
+    def _record(repo_id: str, age_days: int) -> CrossProjectAccessRecord:
+        record = CrossProjectAccessRecord.objects.create(provider="gitlab", target_repo_id=repo_id, outcome="allowed")
+        CrossProjectAccessRecord.objects.filter(pk=record.pk).update(
+            occurred_at=timezone.now() - timedelta(days=age_days)
+        )
+        return record
+
+    def test_drops_only_records_past_retention(self):
+        old = self._record("g/a", 91)
+        new = self._record("g/b", 89)
+
+        with patch.object(codebase_settings, "CROSS_PROJECT_RECORD_RETENTION_DAYS", 90):
+            assert codebase_tasks.prune_cross_project_access_records() == 1
+
+        remaining = list(CrossProjectAccessRecord.objects.values_list("pk", flat=True))
+        assert remaining == [new.pk]
+        assert old.pk not in remaining
+
+    def test_zero_retention_keeps_everything(self):
+        self._record("g/a", 3650)
+
+        with patch.object(codebase_settings, "CROSS_PROJECT_RECORD_RETENTION_DAYS", 0):
+            assert codebase_tasks.prune_cross_project_access_records() == 0
+
+        assert CrossProjectAccessRecord.objects.count() == 1

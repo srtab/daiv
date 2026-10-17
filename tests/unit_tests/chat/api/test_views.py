@@ -961,6 +961,27 @@ async def test_stream_rejects_thread_not_owned(client: TestAsyncClient, authed, 
     await other.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_stream_rejects_a_thread_holding_another_persons_cross_project_results(
+    client: TestAsyncClient, authed, fake_redis
+):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-s6",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        cross_project_user_ids=[user.pk + 1],
+    )
+    await _seed_run_events(fake_redis, "t-s6", "r-1", ['{"type":"TOOL_CALL_RESULT","content":"their secrets"}'])
+
+    response = await client.get("/chat/stream?thread_id=t-s6&run_id=r-1", headers=_auth_headers(raw))
+
+    assert response.status_code == 404
+    await user.adelete()
+
+
 class _ScriptedRedis:
     """Minimal stream client that honors Last-Event-ID and reveals appended
     entries across successive ``xread`` calls, so a test can drive the live-tail
@@ -1044,6 +1065,79 @@ async def test_stream_emits_keepalive_and_resumes_tail_across_reads(client: Test
     assert body.count('{"n":1}') == 1  # not re-sent after last_id advanced past it
     assert body.count('{"n":2}') == 1
     assert ": keep-alive" in body
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await user.adelete()
+
+
+class _RestrictingRedis(_ScriptedRedis):
+    """Runs ``restrict`` just before serving read ``at``: the runner commits the restriction before it publishes."""
+
+    def __init__(self, key: str, reveal: dict[int, list[tuple[str, dict]]], *, at: int, restrict):
+        super().__init__(key, reveal)
+        self._at = at
+        self._restrict = restrict
+
+    async def xread(self, streams, count=None, block=None):
+        if self._calls == self._at:
+            await self._restrict()
+        return await super().xread(streams, count=count, block=block)
+
+
+async def _stream_across_a_fetch(client, raw, user, *, thread_id: str, fetched_by: User) -> str:
+    """Tail a run whose second read follows a cross-project fetch by ``fetched_by``; return the SSE body."""
+    from chat.api.relay import RunRelay
+    from codebase.models import CrossProjectAccessRecord
+    from core.constants import CrossProjectOutcome
+
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id=thread_id, user=user, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+
+    async def fetch():
+        await CrossProjectAccessRecord.objects.acreate(
+            thread_id=thread_id,
+            acting_user=fetched_by,
+            provider="gitlab",
+            target_repo_id="other/repo",
+            outcome=CrossProjectOutcome.ALLOWED,
+        )
+
+    scripted = _RestrictingRedis(
+        RunRelay(thread_id, "r-1").events_key,
+        {
+            0: [("1-0", {"data": '{"n":1}'})],
+            1: [("2-0", {"data": '{"type":"TOOL_CALL_RESULT","content":"their secrets"}'}), ("3-0", {"end": "1"})],
+        },
+        at=1,
+        restrict=fetch,
+    )
+    with patch("chat.api.relay.get_redis", return_value=scripted):
+        response = await client.get(f"/chat/stream?thread_id={thread_id}&run_id=r-1", headers=_auth_headers(raw))
+    return response.content.decode()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_ends_when_another_persons_fetch_restricts_the_session_mid_stream(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    fetcher = await User.objects.acreate_user(username="fetcher", email="f@example.com", password="x")  # noqa: S106
+
+    body = await _stream_across_a_fetch(client, raw, user, thread_id="t-restricted", fetched_by=fetcher)
+
+    assert '{"n":1}' in body
+    assert "their secrets" not in body
+    assert body.endswith('event: end\ndata: {"reason": "restricted"}\n\n')
+    await user.adelete()
+    await fetcher.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_keeps_streaming_to_the_person_whose_fetch_restricted_the_session(client: TestAsyncClient, authed):
+    _, raw, user = authed
+
+    body = await _stream_across_a_fetch(client, raw, user, thread_id="t-own-fetch", fetched_by=user)
+
+    assert '{"n":1}' in body
+    assert "their secrets" in body
     assert 'event: end\ndata: {"reason": "finished"}' in body
     await user.adelete()
 

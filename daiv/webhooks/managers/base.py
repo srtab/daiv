@@ -26,10 +26,18 @@ class BaseManager:
     _unable_note_posted: bool = False
     """ Backing flag for :meth:`_claim_unable_note`; see that method for the rationale. """
 
-    def __init__(self, *, repo_id: str, thread_id: str, mention_comment_id: str | None = None):
+    def __init__(
+        self,
+        *,
+        repo_id: str,
+        thread_id: str,
+        mention_comment_id: str | None = None,
+        acting_platform_uid: str | None = None,
+    ):
         self.repo_id = repo_id
         self.thread_id = thread_id
         self.mention_comment_id = mention_comment_id
+        self.acting_platform_uid = acting_platform_uid
         self.client = RepoClient.create_instance()
 
     @property

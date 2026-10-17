@@ -689,3 +689,51 @@ class TestNeedsInputNotification:
             run, envelope = _classified_run(session, status=EnvelopeStatus.NEEDS_INPUT, user=member_user)
             run_classified.send(sender=Run, run=run, envelope=envelope)
         assert Notification.objects.filter(recipient=member_user, event_type="job.finished").count() == 2
+
+
+@pytest.mark.django_db
+class TestCrossProjectResultsReachOnlyTheirFetchers:
+    """A run's summary and findings are its output: a session holding another person's cross-project results is
+    notified only to the people who fetched them, and to admins."""
+
+    def test_a_subscriber_is_left_out_while_the_owner_who_fetched_them_is_told(self, member_user, run_schedule):
+        sub = User.objects.create_user(username="xp_sub", email="xp_sub@test.com", password="x")  # noqa: S106
+        run_schedule.subscribers.add(sub)
+        session = _session(
+            origin=SessionOrigin.SCHEDULE,
+            thread_id=str(uuid.uuid4()),
+            scheduled_job=run_schedule,
+            cross_project_user_ids=[member_user.pk],
+        )
+        run, envelope = _classified_run(
+            session, status=EnvelopeStatus.FOUND_ISSUES, trigger_type=SessionOrigin.SCHEDULE, user=member_user
+        )
+
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+        assert Notification.objects.filter(recipient=sub).count() == 0
+
+    def test_a_run_user_who_did_not_fetch_them_is_left_out(self, member_user, email_binding):
+        session = _session(thread_id=str(uuid.uuid4()), cross_project_user_ids=[member_user.pk + 1])
+        run, envelope = _classified_run(session, status=EnvelopeStatus.FOUND_ISSUES, user=member_user)
+
+        run_classified.send(sender=Run, run=run, envelope=envelope)
+
+        assert not Notification.objects.exists()
+
+    def test_a_batch_rollup_leaves_out_a_subscriber_when_any_sibling_holds_them(self, member_user, run_schedule):
+        sub = User.objects.create_user(username="xp_bsub", email="xp_bsub@test.com", password="x")  # noqa: S106
+        run_schedule.subscribers.add(sub)
+        a, b = _make_run_batch(
+            member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL], scheduled_job=run_schedule
+        )
+        Session.objects.filter(pk=b.session_id).update(cross_project_user_ids=[member_user.pk])
+        b.refresh_from_db()
+        for run in (a, b):
+            run.finished_at = timezone.now()
+            run.save(update_fields=["finished_at"])
+            run_classified.send(sender=Run, run=run, envelope=_classify(run, EnvelopeStatus.FOUND_ISSUES))
+
+        assert Notification.objects.filter(recipient=member_user, event_type="job_batch.finished").count() == 1
+        assert Notification.objects.filter(recipient=sub).count() == 0

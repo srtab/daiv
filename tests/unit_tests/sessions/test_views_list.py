@@ -81,6 +81,16 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
+    def test_leaves_out_a_session_holding_another_persons_cross_project_results(self, logged_in_client, user):
+        mine = _create_session(user=user)
+        shared = _create_session(user=user, cross_project_user_ids=[user.pk + 1])
+
+        response = logged_in_client.get(reverse("session_list"))
+
+        session_pks = {s.pk for s in response.context["sessions"]}
+        assert mine.pk in session_pks
+        assert shared.pk not in session_pks
+
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)

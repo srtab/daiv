@@ -43,6 +43,7 @@ class TestSidebarSmoke:
             ("sandbox_envs:list", lambda u: {}),
             ("user_channels", lambda u: {}),
             ("api_keys", lambda u: {}),
+            ("platform_credential", lambda u: {}),
             ("mfa_list_webauthn", lambda u: {}),
             ("notifications:list", lambda u: {}),
         ],
@@ -87,10 +88,10 @@ def _account_menu(content: str) -> str:
 class TestAccountMenu:
     def test_holds_personal_settings_and_sign_out(self, member):
         menu = _account_menu(_client(member).get(reverse("dashboard")).content.decode())
-        for url_name in ("user_channels", "api_keys", "mfa_list_webauthn", "account_logout"):
+        for url_name in ("user_channels", "api_keys", "platform_credential", "mfa_list_webauthn", "account_logout"):
             assert reverse(url_name) in menu
 
-    @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "mfa_list_webauthn"])
+    @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "platform_credential", "mfa_list_webauthn"])
     def test_chip_is_active_on_the_pages_it_holds(self, member, url_name):
         """Those pages have no nav item of their own, so the chip is the only element that can mark them active."""
         chip = _account_menu(_client(member).get(reverse(url_name)).content.decode()).split("</button>", 1)[0]
@@ -198,6 +199,7 @@ class TestNavActiveState:
             ("sandbox_envs:list", "sandbox_envs"),
             ("user_channels", "account"),
             ("api_keys", "account"),
+            ("platform_credential", "account"),
             ("mfa_list_webauthn", "account"),
             ("artifact_list", "artifacts"),
             ("notifications:list", "notifications"),

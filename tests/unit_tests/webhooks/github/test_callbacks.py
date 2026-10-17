@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from github.GithubException import GithubException
@@ -8,7 +8,7 @@ from webhooks.github.models import Comment, Issue, Label, PullRequest, Ref, Repo
 
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
-from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
+from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL, CROSS_PROJECT_CONTENT_MARKER
 
 
 @pytest.fixture
@@ -42,14 +42,16 @@ def create_issue_callback(
     issue_state: str = "open",
     label: Label | None = None,
     sender_username: str = "testuser",
+    sender_id: int = 10,
+    issue_body: str | None = None,
 ) -> IssueCallback:
     """Helper to create an IssueCallback instance."""
     return IssueCallback(
         action=action,
         repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
-        issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels),
+        issue=Issue(id=100, number=42, title="Test Issue", state=issue_state, labels=issue_labels, body=issue_body),
         label=label,
-        sender=User(**{"id": 10, "login": sender_username}),
+        sender=User(**{"id": sender_id, "login": sender_username}),
     )
 
 
@@ -475,6 +477,58 @@ class TestProcessCallbackSandboxEnvironment:
         assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
 
 
+class TestProcessCallbackActingPlatformUid:
+    """The task carries the platform user id of the event that triggered it, never one remembered by the session."""
+
+    @staticmethod
+    async def _enqueue_kwargs(callback, task: str) -> dict:
+        with (
+            patch(f"webhooks.github.callbacks.{task}") as mock_task,
+            patch("webhooks.github.callbacks.acreate_run", new=AsyncMock(return_value=None)),
+            patch("webhooks.github.callbacks.note_mentions_daiv", return_value=True),
+            patch("webhooks.github.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("webhooks.github.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=Mock(id="task-1"))
+            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
+            await callback.process_callback()
+        return mock_task.aenqueue.await_args.kwargs
+
+    async def test_label_run_carries_the_senders_platform_uid(self, monkeypatch_dependencies):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)], sender_id=1001)
+
+        kwargs = await self._enqueue_kwargs(callback, "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "1001"
+
+    async def test_issue_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies):
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
+            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 2002, "login": "alice"})),
+        )
+
+        kwargs = await self._enqueue_kwargs(callback, "address_issue_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
+
+    async def test_pr_mention_run_carries_the_commenters_platform_uid(self, monkeypatch_dependencies, mock_repo_config):
+        mock_repo_config.pull_request_assistant.enabled = True
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 2002, "login": "alice"})),
+        )
+
+        kwargs = await self._enqueue_kwargs(callback, "address_mr_comments_task")
+
+        assert kwargs["acting_platform_uid"] == "2002"
+
+
 class TestReactionFailureVisibility:
     """The 👀 reaction is best-effort, but its failure must be visible and must not lose the run."""
 
@@ -540,6 +594,56 @@ class TestReactionFailureVisibility:
             await callback.process_callback()
 
         mock_repo_client.create_issue_emoji.assert_called_once_with("owner/repo", 7, Emoji.EYES, 301)
+
+
+class TestCrossProjectMarker:
+    """Content DAIV published in another project, as a person, must not start a run here."""
+
+    MARKED = f"body\n\n{CROSS_PROJECT_CONTENT_MARKER}"
+
+    @staticmethod
+    def _comment_callback(body: str, *, pull_request: dict | None = None) -> IssueCommentCallback:
+        return IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Test Issue", state="open", pull_request=pull_request),
+            comment=Comment(id=200, body=body, user=User(**{"id": 10, "login": "alice"})),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _repo_setup(self, monkeypatch_dependencies, mock_repo_client, mock_repo_config):
+        mock_repo_client.current_user = User(**{"id": 999, "login": "daiv-bot"})
+        mock_repo_config.pull_request_assistant.enabled = True
+
+    @pytest.mark.parametrize(
+        ("action", "label"), [("opened", None), ("labeled", Label(id=1, name=BOT_LABEL))], ids=["opened", "labeled"]
+    )
+    def test_an_issue_carrying_the_marker_is_ignored(self, action, label):
+        callback = create_issue_callback(
+            action=action, issue_labels=[Label(id=1, name=BOT_LABEL)], label=label, issue_body=self.MARKED
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("body", ["body", None])
+    def test_an_issue_without_the_marker_is_accepted(self, body):
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)], issue_body=body)
+
+        assert callback.accept_callback() is True
+
+    @pytest.mark.parametrize("pull_request", [None, {"url": "https://example/pr/42"}], ids=["issue", "pull_request"])
+    def test_a_comment_carrying_the_marker_is_ignored(self, pull_request):
+        callback = self._comment_callback(
+            f"@daiv-bot help\n\n{CROSS_PROJECT_CONTENT_MARKER}", pull_request=pull_request
+        )
+
+        assert callback.accept_callback() is False
+
+    @pytest.mark.parametrize("pull_request", [None, {"url": "https://example/pr/42"}], ids=["issue", "pull_request"])
+    def test_a_comment_without_the_marker_is_accepted(self, pull_request):
+        callback = self._comment_callback("@daiv-bot help", pull_request=pull_request)
+
+        assert callback.accept_callback() is True
 
 
 @pytest.mark.parametrize(("label", "use_max"), [(BOT_MAX_LABEL, True), (BOT_LABEL, False)])

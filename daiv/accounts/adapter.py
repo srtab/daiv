@@ -1,9 +1,13 @@
 import logging
+from typing import Any
+
+from django.conf import settings as django_settings
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialApp
 
+from accounts.socialaccount import TOKEN_RESPONSE_ATTR
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
 from core.site_settings import site_settings
@@ -99,12 +103,14 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if client_id and client_id != client_id_value:
             return []
 
-        app_settings: dict[str, str] = {}
+        app_settings: dict[str, Any] = {}
         if platform == GitPlatform.GITLAB:
             app_settings = {
                 "gitlab_url": site_settings.auth_gitlab_url,
                 "gitlab_server_url": site_settings.auth_gitlab_server_url or "",
             }
+            if site_settings.cross_project_access_enabled:
+                app_settings["scope"] = list(django_settings.GITLAB_CROSS_PROJECT_OAUTH_SCOPE)
 
         return [
             SocialApp(
@@ -141,3 +147,50 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             return True
         logger.info("Social signup denied for unregistered email %s via %s", email, provider)
         return False
+
+    def capture_platform_credential(self, sociallogin) -> None:
+        """Store the person's OAuth grant so the agent can act as them beyond the attached project.
+
+        Called from ``accounts.signals`` on every social login, new or returning. A failure here
+        only leaves cross-project access unauthorised; it never breaks sign-in.
+        """
+        if not site_settings.cross_project_access_enabled:
+            return
+
+        from accounts import credentials
+
+        token = getattr(sociallogin, "token", None)
+        account = getattr(sociallogin, "account", None)
+        user = getattr(sociallogin, "user", None)
+        if token is None or account is None or user is None or not user.pk:
+            return
+
+        try:
+            provider = GitPlatform(account.provider)
+        except ValueError:
+            return
+        if provider not in (GitPlatform.GITLAB, GitPlatform.GITHUB):
+            return
+
+        # An empty scope list means the platform did not report one (the signup detour drops the
+        # raw response); never substitute the requested scopes, which is a different claim.
+        granted = (getattr(token, TOKEN_RESPONSE_ATTR, None) or {}).get("scope")
+        try:
+            credentials.store(
+                user_id=user.pk,
+                provider=provider,
+                host=credentials.platform_host(provider),
+                platform_uid=account.uid,
+                access_token=token.token,
+                refresh_token=token.token_secret or None,
+                expires_at=token.expires_at,
+                scopes=granted.split() if isinstance(granted, str) else [],
+            )
+        except Exception as exc:
+            # No exc_info or message: Sentry would attach this frame's locals, and the text can echo a token.
+            logger.error(
+                "Failed to store the %s platform credential for user pk=%s (%s)",
+                provider.value,
+                user.pk,
+                type(exc).__name__,
+            )

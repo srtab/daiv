@@ -10,6 +10,7 @@ import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 
 
 async def _user(username):
@@ -345,3 +346,60 @@ def test_the_submit_job_description_advertises_every_special_provider():
     for provider in RefProvider:
         if provider is not RefProvider.GENERIC:
             assert provider.value in description, f"{provider.value} is not advertised to the model"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_refused_for_a_shared_session_says_why(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    session = await _session(_default_mcp_user)
+    run = await _run(session, status=RunStatus.FAILED, error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+    await Session.objects.filter(pk=session.pk).aupdate(cross_project_user_ids=[_default_mcp_user.pk + 1])
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert (data["status"], data["error"]) == ("FAILED", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_hides_a_run_whose_session_holds_another_persons_cross_project_results(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    session = await _session(_default_mcp_user)
+    run = await _run(session, status=RunStatus.SUCCESSFUL, result_summary="their project's secrets")
+    await Session.objects.filter(pk=session.pk).aupdate(cross_project_user_ids=[_default_mcp_user.pk + 1])
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data == {"error": "Job not found."}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_leaves_out_runs_of_a_session_holding_another_persons_cross_project_results(_default_mcp_user):
+    from mcp_api.server import list_jobs
+
+    kept = await _run(await _session(_default_mcp_user), status=RunStatus.SUCCESSFUL)
+    restricted = await _session(_default_mcp_user)
+    await _run(restricted, status=RunStatus.SUCCESSFUL)
+    await Session.objects.filter(pk=restricted.pk).aupdate(cross_project_user_ids=[_default_mcp_user.pk + 1])
+
+    data = await list_jobs()
+
+    assert [job["job_id"] for job in data["jobs"]] == [str(kept.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_cannot_continue_a_thread_holding_another_persons_cross_project_results(_default_mcp_user):
+    from mcp_api.server import submit_job
+
+    session = await _session(_default_mcp_user, repo_id="a/b")
+    await _run(session, status=RunStatus.SUCCESSFUL)
+    await Session.objects.filter(pk=session.pk).aupdate(cross_project_user_ids=[_default_mcp_user.pk + 1])
+
+    with patch("mcp_api.server.asubmit_batch_runs") as submit:
+        data = json.loads(
+            await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="go on", thread_id=session.thread_id)
+        )
+
+    assert "error" in data
+    submit.assert_not_called()

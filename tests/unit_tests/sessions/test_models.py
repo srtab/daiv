@@ -30,6 +30,18 @@ def test_run_status_completed_set_leaves_out_waiting_input():
     assert RunStatus.completed() == frozenset({RunStatus.SUCCESSFUL, RunStatus.FAILED})
 
 
+def test_daiv_authenticated_origins_exclude_every_webhook():
+    authenticated = SessionOrigin.daiv_authenticated()
+    assert authenticated == {
+        SessionOrigin.CHAT,
+        SessionOrigin.API_JOB,
+        SessionOrigin.MCP_JOB,
+        SessionOrigin.SCHEDULE,
+        SessionOrigin.UI_JOB,
+    }
+    assert not authenticated & (SessionOrigin.webhooks() | {SessionOrigin.PIPELINE_WEBHOOK})
+
+
 @pytest.mark.django_db
 def test_a_successful_task_result_with_a_question_syncs_to_waiting_input(create_db_task_result):
     question = {"questions": [{"header": "DB", "question": "Which?", "options": [], "multi_select": False}]}

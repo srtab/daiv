@@ -1,0 +1,74 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Cross-project access" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Cross-project access" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Every attempt to reach a project other than the one a run was started on, and whose identity it used." %}
+        </p>
+    </div>
+</div>
+
+<form method="get" class="animate-fade-up mt-8 flex flex-col gap-3 sm:flex-row sm:items-center" style="animation-delay: 50ms">
+    <input type="text" name="target_repo_id" value="{{ search_query }}"
+           placeholder="{% translate 'Filter by target project…' %}" class="flex-1">
+    <input type="text" name="thread_id" value="{{ thread_query }}"
+           placeholder="{% translate 'Thread ID' %}" class="flex-1 sm:max-w-xs">
+    <select name="outcome" class="sm:w-56">
+        <option value="">{% translate "All outcomes" %}</option>
+        {% for value, label in outcome_choices %}
+        <option value="{{ value }}" {% if current_outcome == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="btn-primary shrink-0">{% translate "Filter" %}</button>
+</form>
+
+<div class="animate-fade-up mt-6" style="animation-delay: 100ms">
+    {% if records %}
+    <div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+        {% for record in records %}
+        <div class="audit-row">
+            <div class="min-w-0 flex-1">
+                <span class="audit-repo">{{ record.target_repo_id }}</span>
+                <div class="audit-row__meta">
+                    <span>{{ record.acting_user|default:record.acting_user_label|default:_("unknown user") }}</span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>{{ record.get_provider_display }}</span>
+                    {% if record.thread_id %}
+                    <span aria-hidden="true">&middot;</span>
+                    <span class="font-mono text-[12px]">{{ record.thread_id }}</span>
+                    {% endif %}
+                    <span aria-hidden="true">&middot;</span>
+                    <span title="{{ record.occurred_at|date:'c' }}">{{ record.occurred_at|timesince }} {% translate "ago" %}</span>
+                </div>
+            </div>
+            {% if record.outcome == 'allowed' %}
+            <span class="audit-badge audit-badge--allowed">{{ record.get_outcome_display }}</span>
+            {% elif record.outcome == 'error' %}
+            <span class="audit-badge audit-badge--error">{{ record.get_outcome_display }}</span>
+            {% else %}
+            <span class="audit-badge audit-badge--denied">{{ record.get_outcome_display }}</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% include "accounts/_pagination.html" %}
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+        <p class="text-[15px] text-gray-400">
+            {% if search_query or current_outcome or thread_query %}
+                {% translate "No access records match your filter." %}
+            {% else %}
+                {% translate "No cross-project access has been attempted yet." %}
+            {% endif %}
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% endblock app_content %}

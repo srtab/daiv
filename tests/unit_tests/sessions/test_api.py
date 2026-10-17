@@ -246,3 +246,48 @@ async def test_session_turns_404_for_other_users_session(client, authed):
 
     assert resp.status_code == 404
     hydrate.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_404_for_a_participant_when_the_session_holds_another_persons_cross_project_results(
+    client, authed
+):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        user=user,
+        cross_project_user_ids=[user.pk + 1],
+    )
+
+    hydrate = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    with patch("sessions.api.views.ahydrate_thread", hydrate):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+    hydrate.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("fetched_by_caller", "status"), [(False, 404), (True, 200)])
+async def test_session_turns_rechecks_a_cross_project_restriction_that_lands_while_the_transcript_is_read(
+    client, authed, fetched_by_caller, status
+):
+    from langchain_core.messages import AIMessage
+
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", user=user
+    )
+    fetcher_id = user.pk if fetched_by_caller else user.pk + 1
+
+    async def hydrate_as_a_fetch_lands(thread_id):
+        await Session.objects.filter(pk=thread_id).aupdate(cross_project_user_ids=[fetcher_id])
+        return HydratedThread([AIMessage(content="their secrets", id="m-1")], False, None, None, None)
+
+    with patch("sessions.api.views.ahydrate_thread", hydrate_as_a_fetch_lands):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == status
+    assert ("their secrets" in resp.content.decode()) is fetched_by_caller

@@ -89,6 +89,7 @@ class FixRunDispatcher:
                 agent_thinking_level=agent_thinking_level,
                 run_id=str(run.pk),
                 user_id=session.user_id,
+                acting_user_authenticated=session.origin in SessionOrigin.daiv_authenticated(),
                 ask_user_enabled=False,
             )
         except Exception as err:  # noqa: BLE001

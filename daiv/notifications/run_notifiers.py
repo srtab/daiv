@@ -109,15 +109,38 @@ def _batch_duration(rows: list[BatchRow]) -> float | None:
 
 
 def resolve_recipients(run) -> dict[int, object]:
+    """Who hears about ``run``: its schedule's owner and subscribers, else its user.
+
+    A session holding another project's results is told only to admins and the people whose grant fetched them; a
+    batch rollup carries every sibling's summary, so there every sibling's session counts.
+    """
     if is_schedule_run(run):
         schedule = run.session.scheduled_job
         recipients: dict[int, object] = {schedule.user_id: schedule.user}
         for sub in schedule.subscribers.all():
             recipients.setdefault(sub.pk, sub)
-        return recipients
-    if run.user is not None:
-        return {run.user.pk: run.user}
-    return {}
+    elif run.user is not None:
+        recipients = {run.user.pk: run.user}
+    else:
+        return {}
+    return _who_may_read(recipients, run)
+
+
+def _who_may_read(recipients: dict[int, object], run) -> dict[int, object]:
+    from sessions.models import Run, Session
+
+    sessions = Run.objects.by_batch(run.batch_id).values("session_id") if run.batch_id else [run.session_id]
+    restricted = list(
+        Session.objects
+        .filter(pk__in=sessions)
+        .exclude(cross_project_user_ids=[])
+        .values_list("cross_project_user_ids", flat=True)
+    )
+    return {
+        pk: user
+        for pk, user in recipients.items()
+        if getattr(user, "is_admin", False) or all(pk in user_ids for user_ids in restricted)
+    }
 
 
 def _render_payload(run, envelope) -> tuple[str, str, dict]:

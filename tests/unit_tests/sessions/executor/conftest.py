@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tarfile
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -56,7 +56,14 @@ def empty_archive() -> bytes:
 
 @contextmanager
 def agent_stack(
-    agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
+    agent,
+    *,
+    ctx=None,
+    context=None,
+    resolve=None,
+    site: SiteSnapshot | None = None,
+    session_guard: bool = False,
+    checkpointed: dict | None = None,
 ):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
@@ -66,6 +73,7 @@ def agent_stack(
     ``checkpointed`` is the session thread's last checkpoint values (``None``: no checkpoint yet); a fresh container
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone.
+    ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -119,6 +127,9 @@ def agent_stack(
         patch("sessions.services.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
         patch("sessions.services.areset_session_ref", new=AsyncMock()) as reset,
         patch("sessions.executor.run.PipelineWatch", _Watch),
+        nullcontext()
+        if session_guard
+        else patch("sessions.executor.run._refuse_cross_project_session", new=AsyncMock()) as guard,
         patch("automation.agent.middlewares.sandbox._seed_archives", AsyncMock(return_value=(empty_archive(), None))),
     ):
         stack.build_spec = build_spec
@@ -128,6 +139,7 @@ def agent_stack(
         stack.build_result = build_result
         stack.persist = persist
         stack.reset = reset
+        stack.guard = guard
         yield stack
 
 

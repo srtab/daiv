@@ -72,6 +72,58 @@ msgstr "revogada"
 msgid "API Keys"
 msgstr "Chaves API"
 
+msgid "GitLab"
+msgstr "GitLab"
+
+msgid "GitHub"
+msgstr "GitHub"
+
+msgid "Connected"
+msgstr "Ligada"
+
+msgid "Expired"
+msgstr "Expirada"
+
+msgid "Revoked"
+msgstr "Revogada"
+
+msgid "provider"
+msgstr "fornecedor"
+
+msgid "host"
+msgstr "host"
+
+msgid "platform user ID"
+msgstr "ID do utilizador na plataforma"
+
+msgid "access token"
+msgstr "token de acesso"
+
+msgid "refresh token"
+msgstr "token de renovação"
+
+msgid "granted scopes"
+msgstr "âmbitos concedidos"
+
+msgid "state"
+msgstr "estado"
+
+msgid "Platform Credential"
+msgstr "Credencial de Plataforma"
+
+msgid "Platform Credentials"
+msgstr "Credenciais de Plataforma"
+
+msgid ""
+"An expiring credential must carry a refresh token, or it can never be "
+"renewed."
+msgstr ""
+"Uma credencial com prazo de validade tem de ter um token de renovação, caso "
+"contrário nunca poderá ser renovada."
+
+msgid "A connected credential must carry an access token."
+msgstr "Uma credencial ligada tem de ter um token de acesso."
+
 msgid "Sign-In Code"
 msgstr "Código de Autenticação"
 
@@ -96,6 +148,17 @@ msgstr ""
 
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
+
+#, python-format
+msgid ""
+"Signing in also authorises DAIV to act as you on %(platform)s beyond the "
+"project a run works on — it never sees more than you can, and you can review "
+"or withdraw this in your account settings."
+msgstr ""
+"Ao autenticar-se, autoriza também o DAIV a agir em seu nome no %(platform)s "
+"para além do projeto em que uma execução trabalha — o DAIV nunca vê mais do "
+"que a própria pessoa pode ver, e a autorização pode ser revista ou retirada "
+"nas definições da sua conta."
 
 msgid "Dashboard"
 msgstr "Painel"
@@ -125,11 +188,17 @@ msgstr "Canais de notificação"
 msgid "API keys"
 msgstr "Chaves API"
 
+msgid "Git authorisation"
+msgstr "Autorização Git"
+
 msgid "Users"
 msgstr "Utilizadores"
 
 msgid "Configuration"
 msgstr "Configuração"
+
+msgid "Cross-project access"
+msgstr "Acesso entre projetos"
 
 #| msgid "Schedules"
 msgid "Schedule templates"
@@ -199,6 +268,103 @@ msgstr ""
 "Pode autenticar-se com um código único enviado para o seu email, ou usar a "
 "sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
 
+msgid ""
+"What DAIV is allowed to do on the git platform as you, when a run you "
+"started needs to reach a project other than the one it is working on."
+msgstr ""
+"O que o DAIV pode fazer na plataforma Git em seu nome, quando uma execução "
+"que iniciou precisa de aceder a um projeto diferente daquele em que está a "
+"trabalhar."
+
+msgid ""
+"This deployment is not configured for a git platform that issues personal "
+"authorisations."
+msgstr ""
+"Esta instalação não está configurada para uma plataforma Git que emita "
+"autorizações pessoais."
+
+msgid "Not authorised"
+msgstr "Não autorizada"
+
+#, python-format
+msgid "Renews automatically; current token valid until %(expires)s"
+msgstr "Renova-se automaticamente; o token atual é válido até %(expires)s"
+
+msgid "Does not expire"
+msgstr "Não expira"
+
+msgid "Granted:"
+msgstr "Concedidos:"
+
+msgid ""
+"This authorisation is narrower than DAIV needs to reach other projects. Re-"
+"authorise to widen it — work on the project a run is attached to is "
+"unaffected either way."
+msgstr ""
+"Esta autorização é mais restrita do que o DAIV precisa para aceder a outros "
+"projetos. Autorize novamente para a alargar — o trabalho no projeto a que "
+"uma execução está associada não é afetado em nenhum dos casos."
+
+msgid "Authorise"
+msgstr "Autorizar"
+
+msgid "Re-authorise"
+msgstr "Autorizar novamente"
+
+msgid ""
+"Disconnect this authorisation? DAIV will stop acting as you, and signing in "
+"again will not restore it. The authorisation stays on the git platform until "
+"you remove it there."
+msgstr ""
+"Desligar esta autorização? O DAIV deixará de agir em seu nome, e voltar a "
+"autenticar-se não a restaurará. A autorização permanece na plataforma Git "
+"até a remover aí."
+
+msgid "Disconnect"
+msgstr "Desligar"
+
+msgid "What this allows"
+msgstr "O que isto permite"
+
+msgid ""
+"A run you start can read issues, merge requests and pipelines in other "
+"projects — and comment on them — but only where you can already do so "
+"yourself."
+msgstr ""
+"Uma execução que iniciar pode ler issues, merge requests e pipelines noutros "
+"projetos — e comentá-los — mas apenas onde já o pode fazer pessoalmente."
+
+msgid ""
+"Work on the project a run is attached to always uses DAIV's own identity, "
+"whether or not you authorise this."
+msgstr ""
+"O trabalho no projeto a que uma execução está associada usa sempre a "
+"identidade própria do DAIV, quer autorize isto ou não."
+
+msgid ""
+"DAIV never shows you anything the platform would refuse you. A project you "
+"cannot reach is refused, not silently empty."
+msgstr ""
+"O DAIV nunca lhe mostra nada que a plataforma lhe recusaria. Um projeto a "
+"que não tem acesso é recusado, e não apresentado em silêncio como vazio."
+
+msgid ""
+"Disconnecting takes effect immediately, clears the secrets DAIV stored, and "
+"stays in effect when you sign in again — only the Authorise button here "
+"restores it. It does not withdraw the authorisation on the git platform; "
+"remove DAIV there to do that."
+msgstr ""
+"Desligar tem efeito imediato, apaga os segredos que o DAIV guardou e mantém-"
+"se quando voltar a autenticar-se — só o botão Autorizar aqui o restaura. Não "
+"retira a autorização na plataforma Git; remova o DAIV aí para o fazer."
+
+msgid ""
+"Cross-project access is currently switched off for this deployment, so an "
+"authorisation here has no effect yet."
+msgstr ""
+"O acesso entre projetos está atualmente desativado nesta instalação, pelo "
+"que uma autorização aqui ainda não tem efeito."
+
 msgid "Open navigation"
 msgstr "Abrir navegação"
 
@@ -222,6 +388,22 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+msgid "This deployment has no git platform authorisation to disconnect."
+msgstr ""
+"Esta instalação não tem nenhuma autorização de plataforma Git para desligar."
+
+#, python-format
+msgid "Disconnected your %(provider)s authorisation."
+msgstr "A sua autorização do %(provider)s foi desligada."
+
+#, python-format
+msgid "There was no %(provider)s authorisation to disconnect."
+msgstr "Não existia nenhuma autorização do %(provider)s para desligar."
+
+msgid "This deployment has no git platform authorisation to grant."
+msgstr ""
+"Esta instalação não tem nenhuma autorização de plataforma Git para conceder."
 
 msgid "Artifacts"
 msgstr "Artefactos"

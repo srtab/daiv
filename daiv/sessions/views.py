@@ -387,6 +387,9 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
         )
 
+        # ``get_queryset`` authorised before the reads above; a fetch that restricted the session since must not render.
+        if not Session.objects.cross_project_visible_to(self.request.user).filter(pk=session.pk).exists():
+            raise Http404
         return ctx
 
 

@@ -20,11 +20,12 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
     ``skip_dispatch=True`` marks re-emits from dispatch-failure paths: those
     runs never executed, so there is no new transcript to mine.
     CHAT-triggered runs are skipped — interactive chat turns are not agent
-    sessions worth mining for repository-scoped memory.
+    sessions worth mining for repository-scoped memory. So are runs whose session
+    holds another project's results, which must not reach this repository's memory.
     Exception-safe: memory capture must never affect the run lifecycle (the
     signal is robust-sent, but we don't rely on that).
     """
-    from sessions.models import RunStatus, SessionOrigin
+    from sessions.models import RunStatus, Session, SessionOrigin
 
     try:
         if kwargs.get("skip_dispatch"):
@@ -34,6 +35,8 @@ def capture_run_observations(sender: type, run: Any, **kwargs: Any) -> None:
         if run.status not in RunStatus.terminal():
             return
         if not run.session_id:
+            return
+        if Session.objects.filter(pk=run.session_id).exclude(cross_project_user_ids=[]).exists():
             return
         extract_observations_task.enqueue(str(run.pk))
     except Exception:

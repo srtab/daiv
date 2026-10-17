@@ -27,6 +27,9 @@ class CodebaseSettings(BaseSettings):
         default=24,
         description="Deny non-admin access to a repository when its synced access data is older than this many hours",
     )
+    CROSS_PROJECT_RECORD_RETENTION_DAYS: int = Field(
+        default=90, description="Days a cross-project access record is kept before the access sync prunes it"
+    )
 
     # GitHub
     GITHUB_URL: HttpUrl | None = Field(default=None, description="URL of the GitHub instance")

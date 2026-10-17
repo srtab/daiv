@@ -68,6 +68,14 @@ class TestCaptureRunObservations:
             capture_run_observations(sender=Run, run=run)
         task_mock.enqueue.assert_not_called()
 
+    def test_skips_a_session_holding_cross_project_results(self):
+        """Another project's content must not reach the attached repository's memory."""
+        session = _session(cross_project_user_ids=[7])
+        run = _run(session)
+        with patch("memory.signals.extract_observations_task") as task_mock:
+            capture_run_observations(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
     def test_never_raises_on_enqueue_failure(self):
         session = _session()
         run = _run(session)

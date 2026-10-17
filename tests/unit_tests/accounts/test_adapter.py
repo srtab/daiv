@@ -279,3 +279,110 @@ class TestSocialAccountAdapterListApps:
         result = adapter.list_apps(Mock())
         assert result[0].settings["gitlab_url"] == "https://gitlab.com"
         assert result[0].settings["gitlab_server_url"] == ""
+
+
+def _make_social_login_with_token(user, *, provider="gitlab", uid="77", scope="read_user api", expires_at=None):
+    from accounts.socialaccount import TOKEN_RESPONSE_ATTR
+
+    token = Mock(token="tok-from-platform", token_secret="refresh-from-platform", expires_at=expires_at)  # noqa: S106
+    setattr(token, TOKEN_RESPONSE_ATTR, {"scope": scope} if scope is not None else {})
+    return Mock(user=user, token=token, account=Mock(provider=provider, uid=uid))
+
+
+@pytest.mark.django_db
+class TestCapturePlatformCredential:
+    @pytest.fixture(autouse=True)
+    def _capability_on(self):
+        with patch("accounts.adapter.site_settings") as mock_site:
+            mock_site.cross_project_access_enabled = True
+            yield
+
+    def test_a_social_login_stores_the_grant(self, adapter, user_in_db):
+        from accounts.models import CredentialState, PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+
+        credential = PlatformCredential.objects.get(user=user_in_db)
+        assert credential.state == CredentialState.CONNECTED
+        assert credential.access_token == "tok-from-platform"  # noqa: S105
+        assert credential.platform_uid == "77"
+
+    def test_it_records_the_scopes_the_platform_granted(self, adapter, user_in_db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, scope="read_user"))
+
+        assert PlatformCredential.objects.get(user=user_in_db).scopes == ["read_user"]
+
+    def test_an_unreported_scope_is_recorded_as_unknown_not_as_the_requested_set(self, adapter, user_in_db):
+        """The raw response does not survive allauth's signup session round-trip; recording the
+        *requested* scopes there would be a different, false claim."""
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, scope=None))
+
+        assert PlatformCredential.objects.get(user=user_in_db).scopes == []
+
+    def test_an_unsaved_user_stores_nothing(self, adapter, db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(User(email="ghost@test.com")))
+
+        assert not PlatformCredential.objects.exists()
+
+    def test_an_unknown_provider_stores_nothing(self, adapter, user_in_db):
+        from accounts.models import PlatformCredential
+
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db, provider="bitbucket"))
+
+        assert not PlatformCredential.objects.exists()
+
+    def test_a_storage_failure_never_breaks_sign_in(self, adapter, user_in_db, caplog):
+        with patch("accounts.credentials.store", side_effect=RuntimeError("db down")):
+            adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+
+        assert "Failed to store" in caplog.text
+        assert "RuntimeError" in caplog.text
+
+    def test_a_storage_failure_never_logs_the_tokens_or_a_traceback(self, adapter, user_in_db, caplog):
+        failure = RuntimeError("tok-from-platform refresh-from-platform")
+        with patch("accounts.credentials.store", side_effect=failure):
+            adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+
+        assert "tok-from-platform" not in caplog.text
+        assert "refresh-from-platform" not in caplog.text
+        assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_capture_skips_when_disabled(adapter, user_in_db):
+    with patch("accounts.adapter.site_settings") as mock_site, patch("accounts.credentials.store") as store:
+        mock_site.cross_project_access_enabled = False
+        adapter.capture_platform_credential(_make_social_login_with_token(user_in_db))
+    store.assert_not_called()
+
+
+class TestSocialAccountAdapterCrossProjectScope:
+    @pytest.fixture
+    def gitlab_login(self):
+        with (
+            patch("accounts.adapter.codebase_settings") as mock_codebase,
+            patch("accounts.adapter.site_settings") as mock_site,
+        ):
+            mock_site.auth_login_enabled = True
+            mock_site.auth_client_id = "gl-client-id"
+            mock_site.auth_client_secret = SecretStr("gl-secret")
+            mock_site.auth_gitlab_url = "https://gitlab.example.com"
+            mock_site.auth_gitlab_server_url = ""
+            mock_codebase.CLIENT = GitPlatform.GITLAB
+            yield mock_site
+
+    def test_list_apps_keeps_read_user_scope_when_disabled(self, adapter, gitlab_login):
+        gitlab_login.cross_project_access_enabled = False
+        (app,) = adapter.list_apps(Mock())
+        assert "scope" not in app.settings
+
+    def test_list_apps_widens_scope_when_enabled(self, adapter, gitlab_login, settings):
+        gitlab_login.cross_project_access_enabled = True
+        settings.GITLAB_CROSS_PROJECT_OAUTH_SCOPE = ["read_user", "read_api"]
+        (app,) = adapter.list_apps(Mock())
+        assert app.settings["scope"] == ["read_user", "read_api"]
